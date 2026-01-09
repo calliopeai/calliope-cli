@@ -237,16 +237,27 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
     }
   }, [isProcessing, handleCommand, runAgent, addMessage]);
 
+  // Track terminal width for resize
+  const [width, setWidth] = useState(stdout?.columns || 80);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setWidth(stdout?.columns || 80);
+    };
+    process.stdout.on('resize', handleResize);
+    return () => {
+      process.stdout.off('resize', handleResize);
+    };
+  }, [stdout]);
+
   // Escape to exit
   useInput((_, key) => {
     if (key.escape) exit();
   });
-
-  const width = stdout?.columns || 80;
   const actualModel = model || DEFAULT_MODELS[selectProvider(provider)];
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" width={width}>
       {/* Banner */}
       <Text color="cyan" bold>Calliope</Text>
       <Text dimColor>v{getVersion()} | /help for commands</Text>
@@ -285,11 +296,11 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
 
       {/* Footer */}
       <Sep />
-      <Box justifyContent="space-between">
+      <Box width={width} justifyContent="space-between">
         <Text>
           <Text color="cyan">{selectProvider(provider)}</Text>
           <Text dimColor>:</Text>
-          <Text>{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}</Text>
+          <Text>{actualModel.length > 30 ? actualModel.slice(0, 27) + '...' : actualModel}</Text>
         </Text>
         <Text>
           <Text color="yellow">{formatTokens(stats.inputTokens + stats.outputTokens)}</Text>
