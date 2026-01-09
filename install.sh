@@ -134,10 +134,16 @@ install_calliope() {
     echo -e "${CYAN}Installing @calliopelabs/cli...${NC}"
     echo ""
 
-    # Use sudo for global install on Linux
-    if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
-        npm install -g @calliopelabs/cli
+    # Use sudo for global install (except macOS with Homebrew node)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS: check if npm prefix is user-writable
+        if [ -w "$(npm config get prefix)/lib/node_modules" ] 2>/dev/null; then
+            npm install -g @calliopelabs/cli
+        else
+            sudo npm install -g @calliopelabs/cli
+        fi
     else
+        # Linux: always use sudo for system node
         sudo npm install -g @calliopelabs/cli
     fi
 
