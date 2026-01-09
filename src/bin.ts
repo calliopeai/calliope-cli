@@ -104,10 +104,10 @@ async function main(): Promise<void> {
   await startCLI();
 }
 
-async function startCLI(): Promise<void> {
+async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
   // Dynamically import the CLI to avoid loading everything upfront
   const { startCLI: start } = await import('./cli.js');
-  await start({ skipPermissions });
+  await start(options);
 }
 
 function printHelp(): void {
