@@ -33,6 +33,12 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Clean git state
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git checkout -- .
+          git clean -fd
+
       - name: Bump version (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         run: |
