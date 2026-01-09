@@ -161,6 +161,49 @@ calliope> /loop "Refactor all TypeScript files to use strict mode. Run tsc after
 🎉 Completion promise detected!
 ```
 
+## Security
+
+### API Key Storage
+
+API keys entered during setup are stored in `~/.config/calliope/config.json`. For better security:
+- **Prefer environment variables** over stored keys
+- The config file should have restricted permissions (0600)
+- Never commit your config file to version control
+
+### Tool Execution
+
+Calliope can execute shell commands on your behalf. Safety measures include:
+- **Path traversal protection** - File operations are restricted to the current directory and home folder
+- **God mode warning** - Running with `-g`/`--god-mode` shows a clear warning
+- **Timeout limits** - Shell commands timeout after 60 seconds by default
+
+### Best Practices
+
+1. **Review before running** - In normal mode, review tool calls before execution
+2. **Use god mode carefully** - Only use `--god-mode` for trusted, well-defined tasks
+3. **Limit iterations** - Always set `--max-iterations` on autonomous loops
+4. **Work in project directories** - Run Calliope from your project root, not system directories
+
+## Troubleshooting
+
+### Common Issues
+
+**"No API keys configured"**
+- Run `calliope --setup` to configure your API key
+- Or set environment variable: `export ANTHROPIC_API_KEY=sk-ant-...`
+
+**"API key too short"**
+- API keys have minimum length requirements (usually 40+ characters)
+- Make sure you copied the full key
+
+**"Empty response from API"**
+- Check your API key is valid and has credits
+- Try a different provider with `/provider`
+
+**"Access denied" for file operations**
+- File operations are restricted to cwd and home directory
+- Use absolute paths within allowed directories
+
 ## License
 
 MIT © 2026 Calliope Labs Inc

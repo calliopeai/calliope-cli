@@ -187,6 +187,9 @@ async function chatGoogle(
     parts: [{ text: m.content }],
   }));
 
+  if (messages.length === 0) {
+    throw new Error('No messages provided');
+  }
   const lastMessage = messages[messages.length - 1];
   const systemMessage = messages.find(m => m.role === 'system');
 
@@ -282,16 +285,26 @@ async function chatOpenAI(
     max_tokens: 8192,
   });
 
+  if (!response.choices || response.choices.length === 0) {
+    throw new Error('Empty response from OpenAI API');
+  }
+
   const choice = response.choices[0];
   const message = choice.message;
 
   const toolCalls: ToolCall[] = [];
   if (message.tool_calls) {
     for (const tc of message.tool_calls) {
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = JSON.parse(tc.function.arguments);
+      } catch {
+        throw new Error(`Invalid tool arguments from LLM: ${tc.function.arguments}`);
+      }
       toolCalls.push({
         id: tc.id,
         name: tc.function.name,
-        arguments: JSON.parse(tc.function.arguments),
+        arguments: parsedArgs,
       });
     }
   }
@@ -377,16 +390,26 @@ async function chatOpenAICompatible(
     max_tokens: 8192,
   });
 
+  if (!response.choices || response.choices.length === 0) {
+    throw new Error(`Empty response from ${provider} API`);
+  }
+
   const choice = response.choices[0];
   const message = choice.message;
 
   const toolCalls: ToolCall[] = [];
   if (message.tool_calls) {
     for (const tc of message.tool_calls) {
+      let parsedArgs: Record<string, unknown> = {};
+      try {
+        parsedArgs = JSON.parse(tc.function.arguments);
+      } catch {
+        throw new Error(`Invalid tool arguments from LLM: ${tc.function.arguments}`);
+      }
       toolCalls.push({
         id: tc.id,
         name: tc.function.name,
-        arguments: JSON.parse(tc.function.arguments),
+        arguments: parsedArgs,
       });
     }
   }

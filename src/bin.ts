@@ -8,6 +8,15 @@
 
 import { runSetup } from './setup.js';
 import * as config from './config.js';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+// Get version from package.json
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
+const VERSION = packageJson.version;
 
 // Handle CLI flags
 const args = process.argv.slice(2);
@@ -28,14 +37,14 @@ async function main(): Promise<void> {
 
   // Handle --version
   if (args.includes('--version') || args.includes('-v')) {
-    console.log('calliope v0.1.0');
+    console.log(`calliope v${VERSION}`);
     process.exit(0);
   }
 
   // Handle --setup (force reconfigure)
   if (args.includes('--setup') || args.includes('--configure')) {
     await runSetup(true);
-    return startCLI();
+    return startCLI({ skipPermissions });
   }
 
   // Handle --reset (clear config)
@@ -68,7 +77,10 @@ async function main(): Promise<void> {
     const hasEnvKeys = process.env.ANTHROPIC_API_KEY ||
                        process.env.GOOGLE_API_KEY ||
                        process.env.OPENAI_API_KEY ||
-                       process.env.OPENROUTER_API_KEY;
+                       process.env.OPENROUTER_API_KEY ||
+                       process.env.TOGETHER_API_KEY ||
+                       process.env.GROQ_API_KEY ||
+                       process.env.FIREWORKS_API_KEY;
 
     if (hasEnvKeys && (args.includes('--skip-setup') || skipPermissions)) {
       // Skip setup if env keys present and flag set

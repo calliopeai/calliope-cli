@@ -183,8 +183,15 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
     case '/provider':
     case '/p':
       if (parts[1]) {
-        state.provider = parts[1] as LLMProvider;
-        console.log(color(`Provider set to: ${parts[1]}`, 'green'));
+        const validProviders: LLMProvider[] = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'auto'];
+        const requested = parts[1].toLowerCase() as LLMProvider;
+        if (validProviders.includes(requested)) {
+          state.provider = requested;
+          console.log(color(`Provider set to: ${requested}`, 'green'));
+        } else {
+          console.log(color(`Invalid provider: ${parts[1]}`, 'red'));
+          console.log(`Available: ${validProviders.join(', ')}`);
+        }
       } else {
         const available = getAvailableProviders();
         console.log(`Current: ${color(selectProvider(state.provider), 'green')}`);

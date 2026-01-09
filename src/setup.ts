@@ -106,12 +106,27 @@ export async function runSetup(force = false): Promise<boolean> {
     }
     console.log();
 
+    // Provider-specific key patterns
+    const keyPatterns: Record<string, { prefix?: string; minLen: number }> = {
+      anthropic: { prefix: 'sk-ant-', minLen: 40 },
+      openai: { prefix: 'sk-', minLen: 40 },
+      google: { minLen: 30 },
+      openrouter: { prefix: 'sk-or-', minLen: 40 },
+      together: { minLen: 40 },
+      groq: { prefix: 'gsk_', minLen: 40 },
+    };
+
+    const pattern = keyPatterns[providerChoice] || { minLen: 20 };
+
     const apiKey = await password({
       message: `Enter your ${providerChoice} API key:`,
       mask: '*',
       validate: (value) => {
-        if (!value || value.length < 10) {
-          return 'Please enter a valid API key';
+        if (!value || value.length < pattern.minLen) {
+          return `API key too short (expected ${pattern.minLen}+ characters)`;
+        }
+        if (pattern.prefix && !value.startsWith(pattern.prefix)) {
+          return `${providerChoice} keys usually start with "${pattern.prefix}"`;
         }
         return true;
       },

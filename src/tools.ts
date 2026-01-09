@@ -93,6 +93,25 @@ export const TOOLS: Tool[] = [
 ];
 
 /**
+ * Validate path is within allowed directory (prevent path traversal)
+ */
+function validatePath(filePath: string, cwd: string): string {
+  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const normalizedPath = path.resolve(absPath);
+  const normalizedCwd = path.resolve(cwd);
+
+  // Allow access to cwd and subdirectories, or absolute paths within home
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
+  const normalizedHome = path.resolve(homeDir);
+
+  if (!normalizedPath.startsWith(normalizedCwd) && !normalizedPath.startsWith(normalizedHome)) {
+    throw new Error(`Access denied: ${filePath} is outside allowed directories`);
+  }
+
+  return normalizedPath;
+}
+
+/**
  * Execute a tool call
  */
 export async function executeTool(
@@ -187,7 +206,7 @@ async function executeShell(command: string, cwd: string, timeout: number): Prom
  * Read a file
  */
 async function readFile(filePath: string, cwd: string): Promise<string> {
-  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const absPath = validatePath(filePath, cwd);
 
   if (!fs.existsSync(absPath)) {
     throw new Error(`File not found: ${absPath}`);
@@ -210,7 +229,7 @@ async function readFile(filePath: string, cwd: string): Promise<string> {
  * Write a file
  */
 async function writeFile(filePath: string, content: string, cwd: string): Promise<string> {
-  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
+  const absPath = validatePath(filePath, cwd);
 
   // Create directory if needed
   const dir = path.dirname(absPath);
@@ -226,9 +245,7 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
  * List files in a directory
  */
 async function listFiles(dirPath: string | undefined, recursive: boolean | undefined, cwd: string): Promise<string> {
-  const absPath = dirPath
-    ? (path.isAbsolute(dirPath) ? dirPath : path.join(cwd, dirPath))
-    : cwd;
+  const absPath = dirPath ? validatePath(dirPath, cwd) : cwd;
 
   if (!fs.existsSync(absPath)) {
     throw new Error(`Directory not found: ${absPath}`);
