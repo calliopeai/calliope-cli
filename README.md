@@ -11,6 +11,8 @@ Multi-model AI agent CLI with Ralph Wiggum autonomous loops. Use Claude, Gemini,
 ██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝
 ╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗
  ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝
+
+        The Muse of Digital Eloquence
 ```
 
 ## Installation
