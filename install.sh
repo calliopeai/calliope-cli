@@ -134,7 +134,12 @@ install_calliope() {
     echo -e "${CYAN}Installing @calliopelabs/cli...${NC}"
     echo ""
 
-    npm install -g @calliopelabs/cli
+    # Use sudo for global install on Linux
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v brew &> /dev/null; then
+        npm install -g @calliopelabs/cli
+    else
+        sudo npm install -g @calliopelabs/cli
+    fi
 
     if [ $? -eq 0 ]; then
         echo ""
