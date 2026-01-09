@@ -173,93 +173,100 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
 }
 
 /**
- * Get Anthropic models
+ * Get Anthropic models dynamically from API
  */
 async function getAnthropicModels(): Promise<ModelInfo[]> {
-  // Anthropic doesn't have a public models API, so we'll provide known models
-  return [
-    {
-      id: 'claude-opus-4-5-20251101',
-      name: 'Claude Opus 4.5',
-      description: 'Most capable model for complex analysis and creative tasks',
-      contextLength: 200000,
-      pricing: { input: 15.00, output: 75.00 }
-    },
-    {
-      id: 'claude-sonnet-4-20250514',
-      name: 'Claude Sonnet 4',
-      description: 'Excellent balance of intelligence, speed, and cost',
-      contextLength: 200000,
-      pricing: { input: 3.00, output: 15.00 }
-    },
-    {
-      id: 'claude-3-5-sonnet-20241022',
-      name: 'Claude 3.5 Sonnet',
-      description: 'Previous gen flagship, still highly capable',
-      contextLength: 200000,
-      pricing: { input: 3.00, output: 15.00 }
-    },
-    {
-      id: 'claude-3-5-haiku-20241022',
-      name: 'Claude 3.5 Haiku',
-      description: 'Fast and affordable for high-volume tasks',
-      contextLength: 200000,
-      pricing: { input: 0.80, output: 4.00 }
-    },
-    {
-      id: 'claude-3-opus-20240229',
-      name: 'Claude 3 Opus',
-      description: 'Previous gen most powerful model',
-      contextLength: 200000,
-      pricing: { input: 15.00, output: 75.00 }
+  const apiKey = config.getApiKey('anthropic');
+  if (!apiKey) throw new Error('Anthropic API key not configured');
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/models', {
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Anthropic API error: ${response.status}`);
     }
-  ];
+
+    const data = await response.json() as { data: Array<{ id: string; display_name?: string; created_at?: string }> };
+
+    return data.data
+      .filter(model => model.id.startsWith('claude'))
+      .map(model => ({
+        id: model.id,
+        name: model.display_name || formatModelName(model.id),
+        description: getAnthropicModelDescription(model.id),
+        contextLength: 200000,
+      }))
+      .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
+  } catch (error) {
+    // Fallback to known models if API fails
+    console.warn('Failed to fetch Anthropic models, using fallback list');
+    return [
+      { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5', description: 'Most capable model', contextLength: 200000 },
+      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Balanced intelligence and speed', contextLength: 200000 },
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Previous gen flagship', contextLength: 200000 },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fast and affordable', contextLength: 200000 },
+    ];
+  }
+}
+
+function formatModelName(modelId: string): string {
+  // Convert claude-opus-4-5-20251101 to Claude Opus 4.5
+  return modelId
+    .replace(/^claude-/, 'Claude ')
+    .replace(/-(\d+)-(\d+)-\d+$/, ' $1.$2')
+    .replace(/-(\d+)-\d+$/, ' $1')
+    .replace(/-/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function getAnthropicModelDescription(modelId: string): string {
+  if (modelId.includes('opus')) return 'Most capable model for complex tasks';
+  if (modelId.includes('sonnet')) return 'Balanced intelligence and speed';
+  if (modelId.includes('haiku')) return 'Fast and affordable';
+  return 'Claude language model';
 }
 
 /**
- * Get Google models
+ * Get Google models dynamically from API
  */
 async function getGoogleModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
 
   try {
-    // Google AI doesn't have a models list API in their current SDK
-    // So we'll provide known Gemini models
-    return [
-      {
-        id: 'gemini-2.5-pro-preview-06-05',
-        name: 'Gemini 2.5 Pro',
-        description: 'Most capable model with enhanced reasoning',
-        contextLength: 1048576, // 1M tokens
-      },
-      {
-        id: 'gemini-2.5-flash-preview-05-20',
-        name: 'Gemini 2.5 Flash',
-        description: 'Fast next-gen model with thinking capabilities',
-        contextLength: 1048576, // 1M tokens
-      },
-      {
-        id: 'gemini-2.0-flash',
-        name: 'Gemini 2.0 Flash',
-        description: 'Multimodal model with native tool use',
-        contextLength: 1048576, // 1M tokens
-      },
-      {
-        id: 'gemini-1.5-pro-latest',
-        name: 'Gemini 1.5 Pro',
-        description: 'Great for complex reasoning, 2M context',
-        contextLength: 2097152, // 2M tokens
-      },
-      {
-        id: 'gemini-1.5-flash-latest',
-        name: 'Gemini 1.5 Flash',
-        description: 'Fast and versatile for diverse tasks',
-        contextLength: 1048576, // 1M tokens
-      }
-    ];
+    // Use REST API directly for model listing
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+
+    if (!response.ok) {
+      throw new Error(`Google API error: ${response.status}`);
+    }
+
+    const data = await response.json() as { models: Array<{ name: string; displayName?: string; description?: string; inputTokenLimit?: number }> };
+
+    return data.models
+      .filter(model => model.name.includes('gemini'))
+      .map(model => ({
+        id: model.name.replace('models/', ''),
+        name: model.displayName || model.name.replace('models/', ''),
+        description: model.description || 'Google Gemini model',
+        contextLength: model.inputTokenLimit || 1048576,
+      }))
+      .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
-    throw new Error(`Failed to fetch Google models: ${error}`);
+    // Fallback to known models if API fails
+    console.warn('Failed to fetch Google models, using fallback list');
+    return [
+      { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro', description: 'Most capable', contextLength: 1048576 },
+      { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash', description: 'Fast next-gen', contextLength: 1048576 },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Multimodal', contextLength: 1048576 },
+      { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Complex reasoning', contextLength: 2097152 },
+      { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', description: 'Fast and versatile', contextLength: 1048576 },
+    ];
   }
 }
 
