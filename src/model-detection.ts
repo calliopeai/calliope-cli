@@ -179,39 +179,39 @@ async function getAnthropicModels(): Promise<ModelInfo[]> {
   // Anthropic doesn't have a public models API, so we'll provide known models
   return [
     {
+      id: 'claude-opus-4-5-20251101',
+      name: 'Claude Opus 4.5',
+      description: 'Most capable model for complex analysis and creative tasks',
+      contextLength: 200000,
+      pricing: { input: 15.00, output: 75.00 }
+    },
+    {
+      id: 'claude-sonnet-4-20250514',
+      name: 'Claude Sonnet 4',
+      description: 'Excellent balance of intelligence, speed, and cost',
+      contextLength: 200000,
+      pricing: { input: 3.00, output: 15.00 }
+    },
+    {
       id: 'claude-3-5-sonnet-20241022',
       name: 'Claude 3.5 Sonnet',
-      description: 'Most intelligent model, best for complex tasks',
+      description: 'Previous gen flagship, still highly capable',
       contextLength: 200000,
       pricing: { input: 3.00, output: 15.00 }
     },
     {
       id: 'claude-3-5-haiku-20241022',
       name: 'Claude 3.5 Haiku',
-      description: 'Fastest model, best for simple tasks',
+      description: 'Fast and affordable for high-volume tasks',
       contextLength: 200000,
-      pricing: { input: 0.25, output: 1.25 }
+      pricing: { input: 0.80, output: 4.00 }
     },
     {
       id: 'claude-3-opus-20240229',
       name: 'Claude 3 Opus',
-      description: 'Most powerful model for highly complex tasks',
+      description: 'Previous gen most powerful model',
       contextLength: 200000,
       pricing: { input: 15.00, output: 75.00 }
-    },
-    {
-      id: 'claude-3-sonnet-20240229',
-      name: 'Claude 3 Sonnet',
-      description: 'Balance of intelligence and speed',
-      contextLength: 200000,
-      pricing: { input: 3.00, output: 15.00 }
-    },
-    {
-      id: 'claude-3-haiku-20240307',
-      name: 'Claude 3 Haiku',
-      description: 'Fast and affordable for simple tasks',
-      contextLength: 200000,
-      pricing: { input: 0.25, output: 1.25 }
     }
   ];
 }
@@ -228,27 +228,33 @@ async function getGoogleModels(): Promise<ModelInfo[]> {
     // So we'll provide known Gemini models
     return [
       {
-        id: 'gemini-2.0-flash-exp',
-        name: 'Gemini 2.0 Flash (Experimental)',
-        description: 'Latest experimental multimodal model',
+        id: 'gemini-2.5-pro-preview-06-05',
+        name: 'Gemini 2.5 Pro',
+        description: 'Most capable model with enhanced reasoning',
+        contextLength: 1048576, // 1M tokens
+      },
+      {
+        id: 'gemini-2.5-flash-preview-05-20',
+        name: 'Gemini 2.5 Flash',
+        description: 'Fast next-gen model with thinking capabilities',
+        contextLength: 1048576, // 1M tokens
+      },
+      {
+        id: 'gemini-2.0-flash',
+        name: 'Gemini 2.0 Flash',
+        description: 'Multimodal model with native tool use',
         contextLength: 1048576, // 1M tokens
       },
       {
         id: 'gemini-1.5-pro-latest',
         name: 'Gemini 1.5 Pro',
-        description: 'Most capable model for complex reasoning',
+        description: 'Great for complex reasoning, 2M context',
         contextLength: 2097152, // 2M tokens
       },
       {
         id: 'gemini-1.5-flash-latest',
         name: 'Gemini 1.5 Flash',
         description: 'Fast and versatile for diverse tasks',
-        contextLength: 1048576, // 1M tokens
-      },
-      {
-        id: 'gemini-1.5-flash-8b-latest',
-        name: 'Gemini 1.5 Flash 8B',
-        description: 'Smaller, faster model for simpler tasks',
         contextLength: 1048576, // 1M tokens
       }
     ];
