@@ -35,9 +35,9 @@ calliope
 export ANTHROPIC_API_KEY=sk-ant-...
 calliope
 
-# Run without permission prompts (like Claude's --dangerously-skip-permissions)
-calliope -y
-calliope --dangerously-skip-permissions
+# Run in god mode (no permission prompts)
+calliope -g
+calliope --god-mode
 ```
 
 On first run, Calliope will guide you through:

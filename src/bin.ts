@@ -12,10 +12,9 @@ import * as config from './config.js';
 // Handle CLI flags
 const args = process.argv.slice(2);
 
-// Check for dangerous skip permissions flag
-const skipPermissions = args.includes('--dangerously-skip-permissions') ||
-                        args.includes('-y') ||
-                        args.includes('--yes');
+// Check for god-mode flag (skip all permission prompts)
+const skipPermissions = args.includes('--god-mode') ||
+                        args.includes('-g');
 
 // Export for CLI to access
 export { skipPermissions };
@@ -56,10 +55,10 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Show warning if skipping permissions
+  // Show warning if god-mode enabled
   if (skipPermissions) {
-    console.log('\x1b[33m⚠️  Running with --dangerously-skip-permissions\x1b[0m');
-    console.log('\x1b[2m   Tools will execute without confirmation prompts.\x1b[0m');
+    console.log('\x1b[35m⚡ GOD MODE ENABLED\x1b[0m');
+    console.log('\x1b[2m   Tools execute without confirmation. Use wisely.\x1b[0m');
     console.log();
   }
 
@@ -109,10 +108,8 @@ ${bold('OPTIONS')}
   --reset           Reset all configuration
   --skip-setup      Skip setup if API keys in environment
 
-  -y, --yes         Skip permission prompts (alias for below)
-  --dangerously-skip-permissions
-                    Run tools without confirmation prompts
-                    Use with caution - allows unrestricted execution
+  -g, --god-mode    Run tools without confirmation prompts
+                    Enables unrestricted autonomous execution
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
