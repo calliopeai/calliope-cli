@@ -12,6 +12,7 @@ set -e
 # Colors
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
 RED='\033[0;31m'
 DIM='\033[2m'
 BOLD='\033[1m'
@@ -28,25 +29,91 @@ echo ""
 echo -e "${DIM}  The Muse of Digital Eloquence${NC}"
 echo ""
 
+# Detect OS
+detect_os() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        echo "macos"
+    elif [[ -f /etc/debian_version ]]; then
+        echo "debian"
+    elif [[ -f /etc/redhat-release ]]; then
+        echo "redhat"
+    elif [[ -f /etc/arch-release ]]; then
+        echo "arch"
+    elif [[ -f /etc/alpine-release ]]; then
+        echo "alpine"
+    else
+        echo "linux"
+    fi
+}
+
+# Install Node.js
+install_node() {
+    local os=$(detect_os)
+    echo -e "${YELLOW}Node.js not found. Installing Node.js 20...${NC}"
+    echo ""
+
+    case $os in
+        macos)
+            if command -v brew &> /dev/null; then
+                echo -e "${DIM}Installing via Homebrew...${NC}"
+                brew install node@20
+                brew link node@20 --force --overwrite 2>/dev/null || true
+            else
+                echo -e "${DIM}Installing via official installer...${NC}"
+                # Download and run the official pkg installer
+                curl -fsSL https://nodejs.org/dist/v20.10.0/node-v20.10.0.pkg -o /tmp/node.pkg
+                sudo installer -pkg /tmp/node.pkg -target /
+                rm /tmp/node.pkg
+            fi
+            ;;
+        debian)
+            echo -e "${DIM}Installing via NodeSource...${NC}"
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+            ;;
+        redhat)
+            echo -e "${DIM}Installing via NodeSource...${NC}"
+            curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+            sudo yum install -y nodejs
+            ;;
+        arch)
+            echo -e "${DIM}Installing via pacman...${NC}"
+            sudo pacman -Sy --noconfirm nodejs npm
+            ;;
+        alpine)
+            echo -e "${DIM}Installing via apk...${NC}"
+            sudo apk add --no-cache nodejs npm
+            ;;
+        *)
+            echo -e "${RED}Could not detect package manager.${NC}"
+            echo "Please install Node.js 18+ manually: https://nodejs.org/"
+            exit 1
+            ;;
+    esac
+
+    # Verify installation
+    if command -v node &> /dev/null; then
+        echo -e "${GREEN}✓${NC} Node.js $(node -v) installed"
+    else
+        echo -e "${RED}Node.js installation failed.${NC}"
+        echo "Please install manually: https://nodejs.org/"
+        exit 1
+    fi
+}
+
 # Check for Node.js
 check_node() {
     if ! command -v node &> /dev/null; then
-        echo -e "${RED}Error: Node.js is not installed.${NC}"
-        echo ""
-        echo "Please install Node.js 18+ first:"
-        echo "  - macOS: brew install node"
-        echo "  - Ubuntu/Debian: curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - && sudo apt-get install -y nodejs"
-        echo "  - Or visit: https://nodejs.org/"
-        echo ""
-        exit 1
+        install_node
+        return
     fi
 
     # Check Node.js version
     NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
     if [ "$NODE_VERSION" -lt 18 ]; then
-        echo -e "${RED}Error: Node.js 18+ is required (found v$(node -v))${NC}"
-        echo "Please upgrade Node.js: https://nodejs.org/"
-        exit 1
+        echo -e "${YELLOW}Node.js 18+ required (found v$(node -v))${NC}"
+        install_node
+        return
     fi
 
     echo -e "${GREEN}✓${NC} Node.js $(node -v) detected"
