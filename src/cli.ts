@@ -323,6 +323,12 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
     spinnerIdx = (spinnerIdx + 1) % SPINNER.length;
   }, 80);
 
+  // Helper to clean up spinner
+  const clearSpinner = () => {
+    clearInterval(spinnerInterval);
+    process.stdout.write('\r\x1b[K'); // Clear line
+  };
+
   try {
     const maxIterations = config.get('maxIterations');
     let iteration = 0;
@@ -341,8 +347,7 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
 
       // Handle tool calls
       if (response.toolCalls && response.toolCalls.length > 0) {
-        clearInterval(spinnerInterval);
-        process.stdout.write('\r\x1b[K'); // Clear line
+        clearSpinner();
 
         // Add assistant message with tool calls
         state.messages.push({
@@ -369,8 +374,7 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
       }
 
       // No tool calls - final response
-      clearInterval(spinnerInterval);
-      process.stdout.write('\r\x1b[K'); // Clear line
+      clearSpinner();
 
       state.messages.push({
         role: 'assistant',
@@ -389,15 +393,15 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
 
     return finalResponse;
   } catch (error) {
-    clearInterval(spinnerInterval);
-    process.stdout.write('\r\x1b[K');
-
     const msg = error instanceof Error ? error.message : String(error);
     console.log();
     console.log(`${color('✗', 'red')} ${color(`Error: ${msg}`, 'red')}`);
     console.log();
 
     return '';
+  } finally {
+    // Ensure spinner is always cleaned up
+    clearInterval(spinnerInterval);
   }
 }
 

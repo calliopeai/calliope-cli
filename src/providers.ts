@@ -11,6 +11,93 @@ import * as config from './config.js';
 import type { Message, Tool, LLMResponse, ToolCall, LLMProvider } from './types.js';
 import { DEFAULT_MODELS } from './types.js';
 
+// Constants
+const MAX_TOKENS = 8192;
+
+// API base URLs for OpenAI-compatible providers
+const PROVIDER_BASE_URLS: Record<string, string> = {
+  openrouter: 'https://openrouter.ai/api/v1',
+  together: 'https://api.together.xyz/v1',
+  groq: 'https://api.groq.com/openai/v1',
+  fireworks: 'https://api.fireworks.ai/inference/v1',
+  mistral: 'https://api.mistral.ai/v1',
+  ai21: 'https://api.ai21.com/studio/v1',
+  huggingface: 'https://api-inference.huggingface.co/v1',
+};
+
+/**
+ * Convert messages to OpenAI format
+ */
+function toOpenAIMessages(messages: Message[]) {
+  return messages.map(m => {
+    if (m.role === 'tool') {
+      return {
+        role: 'tool' as const,
+        tool_call_id: m.toolCallId || '',
+        content: m.content,
+      };
+    }
+
+    if (m.toolCalls && m.toolCalls.length > 0) {
+      return {
+        role: 'assistant' as const,
+        content: m.content || null,
+        tool_calls: m.toolCalls.map(tc => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: {
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          },
+        })),
+      };
+    }
+
+    return {
+      role: m.role as 'system' | 'user' | 'assistant',
+      content: m.content,
+    };
+  });
+}
+
+/**
+ * Convert tools to OpenAI format
+ */
+function toOpenAITools(tools: Tool[]) {
+  return tools.map(t => ({
+    type: 'function' as const,
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    },
+  }));
+}
+
+/**
+ * Parse tool calls from OpenAI response
+ */
+function parseOpenAIToolCalls(toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined): ToolCall[] {
+  if (!toolCalls) return [];
+
+  const result: ToolCall[] = [];
+  for (const tc of toolCalls) {
+    let parsedArgs: Record<string, unknown> = {};
+    try {
+      parsedArgs = JSON.parse(tc.function.arguments);
+    } catch (error) {
+      const parseError = error instanceof SyntaxError ? error.message : 'Unknown parse error';
+      throw new Error(`Invalid tool arguments from LLM: ${parseError}. Raw: ${tc.function.arguments.substring(0, 200)}`);
+    }
+    result.push({
+      id: tc.id,
+      name: tc.function.name,
+      arguments: parsedArgs,
+    });
+  }
+  return result;
+}
+
 /**
  * Get available providers based on configured API keys
  */
@@ -154,7 +241,7 @@ async function chatAnthropic(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 8192,
+    max_tokens: MAX_TOKENS,
     system: systemMessage?.content || '',
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
@@ -256,53 +343,14 @@ async function chatOpenAI(
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
   const client = new OpenAI({ apiKey });
-
-  // Convert to OpenAI format
-  const openaiMessages = messages.map(m => {
-    if (m.role === 'tool') {
-      return {
-        role: 'tool' as const,
-        tool_call_id: m.toolCallId || '',
-        content: m.content,
-      };
-    }
-
-    if (m.toolCalls && m.toolCalls.length > 0) {
-      return {
-        role: 'assistant' as const,
-        content: m.content || null,
-        tool_calls: m.toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: {
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          },
-        })),
-      };
-    }
-
-    return {
-      role: m.role as 'system' | 'user' | 'assistant',
-      content: m.content,
-    };
-  });
-
-  // Convert tools to OpenAI format
-  const openaiTools = tools.map(t => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }));
+  const openaiMessages = toOpenAIMessages(messages);
+  const openaiTools = toOpenAITools(tools);
 
   const response = await client.chat.completions.create({
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: 8192,
+    max_tokens: MAX_TOKENS,
   });
 
   if (!response.choices || response.choices.length === 0) {
@@ -311,23 +359,7 @@ async function chatOpenAI(
 
   const choice = response.choices[0];
   const message = choice.message;
-
-  const toolCalls: ToolCall[] = [];
-  if (message.tool_calls) {
-    for (const tc of message.tool_calls) {
-      let parsedArgs: Record<string, unknown> = {};
-      try {
-        parsedArgs = JSON.parse(tc.function.arguments);
-      } catch {
-        throw new Error(`Invalid tool arguments from LLM: ${tc.function.arguments}`);
-      }
-      toolCalls.push({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: parsedArgs,
-      });
-    }
-  }
+  const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
   return {
     content: message.content || '',
@@ -363,70 +395,19 @@ async function chatOpenAICompatible(
     apiKey = config.getApiKey(provider);
     if (!apiKey) throw new Error(`${provider} API key not configured`);
 
-    const baseURLs: Record<string, string> = {
-      openrouter: 'https://openrouter.ai/api/v1',
-      together: 'https://api.together.xyz/v1',
-      groq: 'https://api.groq.com/openai/v1',
-      fireworks: 'https://api.fireworks.ai/inference/v1',
-      mistral: 'https://api.mistral.ai/v1',
-      ai21: 'https://api.ai21.com/studio/v1',
-      huggingface: 'https://api-inference.huggingface.co/v1',
-    };
-
-    baseURL = baseURLs[provider];
+    baseURL = PROVIDER_BASE_URLS[provider];
     if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
   }
 
-  const client = new OpenAI({
-    apiKey,
-    baseURL,
-  });
-
-  // Convert to OpenAI format (same as chatOpenAI)
-  const openaiMessages = messages.map(m => {
-    if (m.role === 'tool') {
-      return {
-        role: 'tool' as const,
-        tool_call_id: m.toolCallId || '',
-        content: m.content,
-      };
-    }
-
-    if (m.toolCalls && m.toolCalls.length > 0) {
-      return {
-        role: 'assistant' as const,
-        content: m.content || null,
-        tool_calls: m.toolCalls.map(tc => ({
-          id: tc.id,
-          type: 'function' as const,
-          function: {
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          },
-        })),
-      };
-    }
-
-    return {
-      role: m.role as 'system' | 'user' | 'assistant',
-      content: m.content,
-    };
-  });
-
-  const openaiTools = tools.map(t => ({
-    type: 'function' as const,
-    function: {
-      name: t.name,
-      description: t.description,
-      parameters: t.parameters,
-    },
-  }));
+  const client = new OpenAI({ apiKey, baseURL });
+  const openaiMessages = toOpenAIMessages(messages);
+  const openaiTools = toOpenAITools(tools);
 
   const response = await client.chat.completions.create({
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: 8192,
+    max_tokens: MAX_TOKENS,
   });
 
   if (!response.choices || response.choices.length === 0) {
@@ -435,23 +416,7 @@ async function chatOpenAICompatible(
 
   const choice = response.choices[0];
   const message = choice.message;
-
-  const toolCalls: ToolCall[] = [];
-  if (message.tool_calls) {
-    for (const tc of message.tool_calls) {
-      let parsedArgs: Record<string, unknown> = {};
-      try {
-        parsedArgs = JSON.parse(tc.function.arguments);
-      } catch {
-        throw new Error(`Invalid tool arguments from LLM: ${tc.function.arguments}`);
-      }
-      toolCalls.push({
-        id: tc.id,
-        name: tc.function.name,
-        arguments: parsedArgs,
-      });
-    }
-  }
+  const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
   return {
     content: message.content || '',

@@ -125,26 +125,47 @@ export async function executeTool(
     let result: string;
 
     switch (name) {
-      case 'shell':
-        result = await executeShell(args.command as string, cwd, timeout);
+      case 'shell': {
+        if (typeof args.command !== 'string') {
+          return { toolCallId: id, result: 'Error: command must be a string', isError: true };
+        }
+        result = await executeShell(args.command, cwd, timeout);
         break;
+      }
 
-      case 'read_file':
-        result = await readFile(args.path as string, cwd);
+      case 'read_file': {
+        if (typeof args.path !== 'string') {
+          return { toolCallId: id, result: 'Error: path must be a string', isError: true };
+        }
+        result = await readFile(args.path, cwd);
         break;
+      }
 
-      case 'write_file':
-        result = await writeFile(args.path as string, args.content as string, cwd);
+      case 'write_file': {
+        if (typeof args.path !== 'string') {
+          return { toolCallId: id, result: 'Error: path must be a string', isError: true };
+        }
+        if (typeof args.content !== 'string') {
+          return { toolCallId: id, result: 'Error: content must be a string', isError: true };
+        }
+        result = await writeFile(args.path, args.content, cwd);
         break;
+      }
 
-      case 'list_files':
-        result = await listFiles(args.path as string | undefined, args.recursive as boolean | undefined, cwd);
+      case 'list_files': {
+        const listPath = args.path !== undefined && typeof args.path !== 'string' ? undefined : args.path as string | undefined;
+        const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
+        result = await listFiles(listPath, recursive, cwd);
         break;
+      }
 
-      case 'think':
-        // Think tool just returns acknowledgment
+      case 'think': {
+        if (typeof args.thought !== 'string') {
+          return { toolCallId: id, result: 'Error: thought must be a string', isError: true };
+        }
         result = 'Thought recorded.';
         break;
+      }
 
       default:
         return { toolCallId: id, result: `Unknown tool: ${name}`, isError: true };
