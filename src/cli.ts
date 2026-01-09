@@ -54,6 +54,11 @@ const COMMANDS = [
   '/setup', '/config', '/exit', '/quit', '/q',
 ];
 
+// CLI Options
+interface CLIOptions {
+  skipPermissions?: boolean;
+}
+
 // CLI State
 interface CLIState {
   provider: LLMProvider;
@@ -62,6 +67,7 @@ interface CLIState {
   messages: Message[];
   cwd: string;
   running: boolean;
+  skipPermissions: boolean;
   loopActive: boolean;
   loopPrompt: string;
   loopIteration: number;
@@ -72,7 +78,7 @@ interface CLIState {
 /**
  * Start the CLI
  */
-export async function startCLI(): Promise<void> {
+export async function startCLI(options: CLIOptions = {}): Promise<void> {
   const state: CLIState = {
     provider: config.get('defaultProvider'),
     model: config.get('defaultModel'),
@@ -80,6 +86,7 @@ export async function startCLI(): Promise<void> {
     messages: [],
     cwd: process.cwd(),
     running: true,
+    skipPermissions: options.skipPermissions ?? false,
     loopActive: false,
     loopPrompt: '',
     loopIteration: 0,

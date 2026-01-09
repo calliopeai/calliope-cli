@@ -34,6 +34,10 @@ calliope
 # Or set API key via environment
 export ANTHROPIC_API_KEY=sk-ant-...
 calliope
+
+# Run without permission prompts (like Claude's --dangerously-skip-permissions)
+calliope -y
+calliope --dangerously-skip-permissions
 ```
 
 On first run, Calliope will guide you through:

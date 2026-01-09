@@ -12,6 +12,14 @@ import * as config from './config.js';
 // Handle CLI flags
 const args = process.argv.slice(2);
 
+// Check for dangerous skip permissions flag
+const skipPermissions = args.includes('--dangerously-skip-permissions') ||
+                        args.includes('-y') ||
+                        args.includes('--yes');
+
+// Export for CLI to access
+export { skipPermissions };
+
 async function main(): Promise<void> {
   // Handle --help
   if (args.includes('--help') || args.includes('-h')) {
@@ -48,6 +56,13 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Show warning if skipping permissions
+  if (skipPermissions) {
+    console.log('\x1b[33m⚠️  Running with --dangerously-skip-permissions\x1b[0m');
+    console.log('\x1b[2m   Tools will execute without confirmation prompts.\x1b[0m');
+    console.log();
+  }
+
   // Check if setup is needed
   if (!config.isSetupComplete()) {
     // Check if we have any API keys from environment
@@ -56,7 +71,7 @@ async function main(): Promise<void> {
                        process.env.OPENAI_API_KEY ||
                        process.env.OPENROUTER_API_KEY;
 
-    if (hasEnvKeys && args.includes('--skip-setup')) {
+    if (hasEnvKeys && (args.includes('--skip-setup') || skipPermissions)) {
       // Skip setup if env keys present and flag set
       config.markSetupComplete();
     } else {
@@ -76,7 +91,7 @@ async function main(): Promise<void> {
 async function startCLI(): Promise<void> {
   // Dynamically import the CLI to avoid loading everything upfront
   const { startCLI: start } = await import('./cli.js');
-  await start();
+  await start({ skipPermissions });
 }
 
 function printHelp(): void {
@@ -93,6 +108,11 @@ ${bold('OPTIONS')}
   --config          Show config file path and status
   --reset           Reset all configuration
   --skip-setup      Skip setup if API keys in environment
+
+  -y, --yes         Skip permission prompts (alias for below)
+  --dangerously-skip-permissions
+                    Run tools without confirmation prompts
+                    Use with caution - allows unrestricted execution
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
