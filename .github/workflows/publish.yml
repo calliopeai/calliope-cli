@@ -33,9 +33,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build
-        run: npm run build
-
       - name: Bump version (manual dispatch)
         if: github.event_name == 'workflow_dispatch'
         run: |
