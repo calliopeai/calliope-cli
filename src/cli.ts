@@ -9,6 +9,7 @@ import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
+import { checkForUpdates, getVersion } from './version-check.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
 // ANSI colors
@@ -114,10 +115,15 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     console.log(BANNER);
     const actualProvider = selectProvider(state.provider);
     const model = state.model || DEFAULT_MODELS[actualProvider];
+    console.log(`  ${color('v' + getVersion(), 'dim')}`);
+    console.log();
     console.log(`  ${color('Provider:', 'dim')} ${color(actualProvider, 'cyan')} (${color(model, 'dim')})`);
     console.log(`  ${color('Persona:', 'dim')} ${color(state.persona, 'cyan')}`);
     console.log(`  ${color('Directory:', 'dim')} ${color(state.cwd, 'dim')}`);
-    console.log();
+
+    // Check for updates
+    await checkForUpdates().catch(() => {});
+
     console.log(color('  ─────────────────────────────────────────────────────────────────', 'dim'));
     console.log(`  ${color('TAB', 'cyan')} ${color('autocomplete', 'dim')} ${color('│', 'dim')} ${color('/help', 'cyan')} ${color('│', 'dim')} ${color('/loop', 'cyan')} ${color('│', 'dim')} ${color('/provider', 'cyan')} ${color('│', 'dim')} ${color('ESC', 'cyan')} ${color('stop', 'dim')}`);
     console.log(color('  ─────────────────────────────────────────────────────────────────', 'dim'));

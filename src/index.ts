@@ -26,3 +26,4 @@ export * from './tools.js';
 export * from './types.js';
 export { startCLI } from './cli.js';
 export { runSetup, reconfigure } from './setup.js';
+export { getVersion, checkForUpdates } from './version-check.js';

@@ -1,0 +1,139 @@
+/**
+ * Version check utility
+ *
+ * Checks npm for newer versions and notifies the user.
+ */
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+
+const PACKAGE_NAME = '@calliopelabs/cli';
+const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// ANSI colors
+const c = {
+  reset: '\x1b[0m',
+  bold: '\x1b[1m',
+  dim: '\x1b[2m',
+  cyan: '\x1b[36m',
+  yellow: '\x1b[33m',
+  green: '\x1b[32m',
+};
+
+interface VersionCache {
+  lastCheck: number;
+  latestVersion: string | null;
+}
+
+function getCachePath(): string {
+  const configDir = join(homedir(), '.config', 'calliope');
+  if (!existsSync(configDir)) {
+    mkdirSync(configDir, { recursive: true });
+  }
+  return join(configDir, 'version-cache.json');
+}
+
+function readCache(): VersionCache | null {
+  try {
+    const cachePath = getCachePath();
+    if (existsSync(cachePath)) {
+      return JSON.parse(readFileSync(cachePath, 'utf-8'));
+    }
+  } catch {
+    // Ignore cache read errors
+  }
+  return null;
+}
+
+function writeCache(cache: VersionCache): void {
+  try {
+    writeFileSync(getCachePath(), JSON.stringify(cache));
+  } catch {
+    // Ignore cache write errors
+  }
+}
+
+function getCurrentVersion(): string {
+  try {
+    // Try to read from package.json in dist directory
+    const packagePath = new URL('../package.json', import.meta.url);
+    const pkg = JSON.parse(readFileSync(packagePath, 'utf-8'));
+    return pkg.version;
+  } catch {
+    return '0.0.0';
+  }
+}
+
+async function fetchLatestVersion(): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+
+    const response = await fetch(
+      `https://registry.npmjs.org/${PACKAGE_NAME}/latest`,
+      { signal: controller.signal }
+    );
+
+    clearTimeout(timeout);
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    return data.version || null;
+  } catch {
+    return null;
+  }
+}
+
+function compareVersions(current: string, latest: string): number {
+  const c = current.split('.').map(Number);
+  const l = latest.split('.').map(Number);
+
+  for (let i = 0; i < 3; i++) {
+    if ((l[i] || 0) > (c[i] || 0)) return 1;
+    if ((l[i] || 0) < (c[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+/**
+ * Check for updates and print notification if available
+ * Returns true if there's an update available
+ */
+export async function checkForUpdates(silent = false): Promise<boolean> {
+  const currentVersion = getCurrentVersion();
+  const cache = readCache();
+  const now = Date.now();
+
+  let latestVersion: string | null = null;
+
+  // Use cached version if recent enough
+  if (cache && (now - cache.lastCheck) < CHECK_INTERVAL_MS) {
+    latestVersion = cache.latestVersion;
+  } else {
+    // Fetch from npm (don't block startup - run async)
+    latestVersion = await fetchLatestVersion();
+    writeCache({ lastCheck: now, latestVersion });
+  }
+
+  if (!latestVersion) return false;
+
+  const hasUpdate = compareVersions(currentVersion, latestVersion) > 0;
+
+  if (hasUpdate && !silent) {
+    console.log();
+    console.log(`${c.yellow}${c.bold}  Update available!${c.reset} ${c.dim}${currentVersion}${c.reset} → ${c.green}${latestVersion}${c.reset}`);
+    console.log(`${c.dim}  Run ${c.cyan}npm install -g ${PACKAGE_NAME}${c.reset}${c.dim} to update${c.reset}`);
+    console.log();
+  }
+
+  return hasUpdate;
+}
+
+/**
+ * Get current version string
+ */
+export function getVersion(): string {
+  return getCurrentVersion();
+}

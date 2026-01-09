@@ -8,15 +8,7 @@
 
 import { runSetup } from './setup.js';
 import * as config from './config.js';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-// Get version from package.json
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'));
-const VERSION = packageJson.version;
+import { getVersion, checkForUpdates } from './version-check.js';
 
 // Handle CLI flags
 const args = process.argv.slice(2);
@@ -37,7 +29,8 @@ async function main(): Promise<void> {
 
   // Handle --version
   if (args.includes('--version') || args.includes('-v')) {
-    console.log(`calliope v${VERSION}`);
+    console.log(`calliope v${getVersion()}`);
+    await checkForUpdates();
     process.exit(0);
   }
 
