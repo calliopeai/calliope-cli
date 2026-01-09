@@ -23,6 +23,11 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('openrouter')) providers.push('openrouter');
   if (config.getApiKey('together')) providers.push('together');
   if (config.getApiKey('groq')) providers.push('groq');
+  if (config.getApiKey('mistral')) providers.push('mistral');
+  if (config.getBaseUrl('ollama')) providers.push('ollama');
+  if (config.getApiKey('ai21')) providers.push('ai21');
+  if (config.getApiKey('huggingface')) providers.push('huggingface');
+  if (config.getBaseUrl('litellm')) providers.push('litellm');
 
   return providers;
 }
@@ -32,15 +37,24 @@ export function getAvailableProviders(): LLMProvider[] {
  */
 export function selectProvider(preferred: LLMProvider): LLMProvider {
   if (preferred !== 'auto') {
-    const key = config.getApiKey(preferred);
-    if (key) return preferred;
+    // For Ollama/LiteLLM, check base URL instead of API key
+    if (preferred === 'ollama' || preferred === 'litellm') {
+      if (config.getBaseUrl(preferred)) return preferred;
+    } else {
+      const key = config.getApiKey(preferred);
+      if (key) return preferred;
+    }
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'openrouter', 'together', 'groq'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'ollama', 'litellm'];
 
   for (const p of priority) {
-    if (config.getApiKey(p)) return p;
+    if (p === 'ollama' || p === 'litellm') {
+      if (config.getBaseUrl(p)) return p;
+    } else if (config.getApiKey(p)) {
+      return p;
+    }
   }
 
   throw new Error('No API keys configured. Run `calliope --setup` to configure.');
@@ -68,6 +82,12 @@ export async function chat(
     case 'openrouter':
     case 'together':
     case 'groq':
+    case 'fireworks':
+    case 'mistral':
+    case 'ai21':
+    case 'huggingface':
+    case 'ollama':
+    case 'litellm':
       return chatOpenAICompatible(actualProvider, messages, tools, actualModel);
     default:
       throw new Error(`Provider ${actualProvider} not implemented`);
@@ -321,7 +341,7 @@ async function chatOpenAI(
 }
 
 /**
- * Chat with OpenAI-compatible APIs (OpenRouter, Together, Groq)
+ * Chat with OpenAI-compatible APIs (OpenRouter, Together, Groq, Mistral, etc.)
  */
 async function chatOpenAICompatible(
   provider: LLMProvider,
@@ -329,18 +349,37 @@ async function chatOpenAICompatible(
   tools: Tool[],
   model: string
 ): Promise<LLMResponse> {
-  const apiKey = config.getApiKey(provider);
-  if (!apiKey) throw new Error(`${provider} API key not configured`);
+  // Ollama and LiteLLM use base URL, others use API key
+  let apiKey: string | undefined;
+  let baseURL: string;
 
-  const baseURLs: Record<string, string> = {
-    openrouter: 'https://openrouter.ai/api/v1',
-    together: 'https://api.together.xyz/v1',
-    groq: 'https://api.groq.com/openai/v1',
-  };
+  if (provider === 'ollama') {
+    baseURL = config.getBaseUrl('ollama') || 'http://localhost:11434/v1';
+    apiKey = 'ollama'; // Ollama doesn't require a real API key
+  } else if (provider === 'litellm') {
+    baseURL = config.getBaseUrl('litellm') || 'http://localhost:4000/v1';
+    apiKey = config.getApiKey('litellm') || 'litellm'; // LiteLLM may or may not require key
+  } else {
+    apiKey = config.getApiKey(provider);
+    if (!apiKey) throw new Error(`${provider} API key not configured`);
+
+    const baseURLs: Record<string, string> = {
+      openrouter: 'https://openrouter.ai/api/v1',
+      together: 'https://api.together.xyz/v1',
+      groq: 'https://api.groq.com/openai/v1',
+      fireworks: 'https://api.fireworks.ai/inference/v1',
+      mistral: 'https://api.mistral.ai/v1',
+      ai21: 'https://api.ai21.com/studio/v1',
+      huggingface: 'https://api-inference.huggingface.co/v1',
+    };
+
+    baseURL = baseURLs[provider];
+    if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
+  }
 
   const client = new OpenAI({
     apiKey,
-    baseURL: baseURLs[provider],
+    baseURL,
   });
 
   // Convert to OpenAI format (same as chatOpenAI)

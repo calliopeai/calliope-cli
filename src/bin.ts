@@ -80,7 +80,12 @@ async function main(): Promise<void> {
                        process.env.OPENROUTER_API_KEY ||
                        process.env.TOGETHER_API_KEY ||
                        process.env.GROQ_API_KEY ||
-                       process.env.FIREWORKS_API_KEY;
+                       process.env.FIREWORKS_API_KEY ||
+                       process.env.MISTRAL_API_KEY ||
+                       process.env.OLLAMA_BASE_URL ||
+                       process.env.AI21_API_KEY ||
+                       process.env.HUGGINGFACE_API_KEY ||
+                       process.env.LITELLM_BASE_URL;
 
     if (hasEnvKeys && (args.includes('--skip-setup') || skipPermissions)) {
       // Skip setup if env keys present and flag set
@@ -130,6 +135,12 @@ ${bold('ENVIRONMENT VARIABLES')}
   OPENROUTER_API_KEY    OpenRouter API key
   TOGETHER_API_KEY      Together AI API key
   GROQ_API_KEY          Groq API key
+  MISTRAL_API_KEY       Mistral AI API key
+  AI21_API_KEY          AI21 Labs API key
+  HUGGINGFACE_API_KEY   HuggingFace API key
+  OLLAMA_BASE_URL       Ollama server URL (default: localhost:11434)
+  LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
+  LITELLM_API_KEY       LiteLLM API key (if required)
 
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands

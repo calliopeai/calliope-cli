@@ -62,6 +62,11 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.TOGETHER_API_KEY) envProviders.push('together');
   if (process.env.OPENROUTER_API_KEY) envProviders.push('openrouter');
   if (process.env.GROQ_API_KEY) envProviders.push('groq');
+  if (process.env.MISTRAL_API_KEY) envProviders.push('mistral');
+  if (process.env.OLLAMA_BASE_URL) envProviders.push('ollama');
+  if (process.env.AI21_API_KEY) envProviders.push('ai21');
+  if (process.env.HUGGINGFACE_API_KEY) envProviders.push('huggingface');
+  if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
 
   if (envProviders.length > 0) {
     console.log(c(`  Found API keys in environment: ${envProviders.join(', ')}`, 'green'));
@@ -78,6 +83,11 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'openrouter', name: 'OpenRouter', description: 'Access multiple models via one API' },
       { value: 'together', name: 'Together AI', description: 'Open source models (Llama, Mixtral)' },
       { value: 'groq', name: 'Groq', description: 'Ultra-fast inference' },
+      { value: 'mistral', name: 'Mistral AI', description: 'Mistral Large - European AI' },
+      { value: 'ollama', name: 'Ollama (Local)', description: 'Run models locally - no API key needed' },
+      { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
+      { value: 'ai21', name: 'AI21 Labs', description: 'Jamba models' },
+      { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
       { value: 'auto', name: 'Auto (use first available)', description: 'Automatically select based on available keys' },
     ],
     default: envProviders[0] || 'anthropic',
@@ -85,10 +95,41 @@ export async function runSetup(force = false): Promise<boolean> {
 
   config.set('defaultProvider', providerChoice as LLMProvider);
 
-  // API Key setup (if not in env)
+  // API Key or Base URL setup (if not in env)
   const needsKey = providerChoice !== 'auto' && !envProviders.includes(providerChoice);
 
-  if (needsKey) {
+  // Special handling for Ollama and LiteLLM (use base URL, not API key)
+  if (providerChoice === 'ollama' && needsKey) {
+    console.log();
+    console.log(c(`  Ollama runs locally and doesn't need an API key.`, 'dim'));
+    const baseUrl = await input({
+      message: 'Enter your Ollama base URL:',
+      default: 'http://localhost:11434',
+    });
+    config.set('ollamaBaseUrl', baseUrl);
+  } else if (providerChoice === 'litellm' && needsKey) {
+    console.log();
+    console.log(c(`  LiteLLM is a proxy server for multiple providers.`, 'dim'));
+    const baseUrl = await input({
+      message: 'Enter your LiteLLM proxy URL:',
+      default: 'http://localhost:4000',
+    });
+    config.set('litellmBaseUrl', baseUrl);
+
+    const needsApiKey = await confirm({
+      message: 'Does your LiteLLM proxy require an API key?',
+      default: false,
+    });
+    if (needsApiKey) {
+      const apiKey = await password({
+        message: 'Enter your LiteLLM API key:',
+        mask: '*',
+      });
+      if (apiKey && apiKey.length > 0) {
+        config.set('litellmApiKey', apiKey);
+      }
+    }
+  } else if (needsKey) {
     console.log();
     console.log(c(`  You'll need an API key for ${providerChoice}.`, 'dim'));
 
@@ -99,6 +140,9 @@ export async function runSetup(force = false): Promise<boolean> {
       openrouter: 'https://openrouter.ai/keys',
       together: 'https://api.together.xyz/settings/api-keys',
       groq: 'https://console.groq.com/keys',
+      mistral: 'https://console.mistral.ai/api-keys',
+      ai21: 'https://studio.ai21.com/account/api-keys',
+      huggingface: 'https://huggingface.co/settings/tokens',
     };
 
     if (apiKeyUrls[providerChoice]) {
@@ -114,6 +158,9 @@ export async function runSetup(force = false): Promise<boolean> {
       openrouter: { prefix: 'sk-or-', minLen: 40 },
       together: { minLen: 40 },
       groq: { prefix: 'gsk_', minLen: 40 },
+      mistral: { minLen: 30 },
+      ai21: { minLen: 30 },
+      huggingface: { prefix: 'hf_', minLen: 30 },
     };
 
     const pattern = keyPatterns[providerChoice] || { minLen: 20 };
@@ -141,6 +188,9 @@ export async function runSetup(force = false): Promise<boolean> {
       together: 'togetherApiKey',
       groq: 'groqApiKey',
       fireworks: 'fireworksApiKey',
+      mistral: 'mistralApiKey',
+      ai21: 'ai21ApiKey',
+      huggingface: 'huggingfaceApiKey',
     };
 
     if (keyMap[providerChoice]) {
@@ -212,6 +262,9 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
     { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', configKey: 'openrouterApiKey' },
     { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY', configKey: 'togetherApiKey' },
     { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY', configKey: 'groqApiKey' },
+    { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY', configKey: 'mistralApiKey' },
+    { id: 'ai21', name: 'AI21 Labs', envKey: 'AI21_API_KEY', configKey: 'ai21ApiKey' },
+    { id: 'huggingface', name: 'HuggingFace', envKey: 'HUGGINGFACE_API_KEY', configKey: 'huggingfaceApiKey' },
   ];
 
   for (const provider of providers) {

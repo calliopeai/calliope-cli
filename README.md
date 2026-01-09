@@ -49,13 +49,16 @@ On first run, Calliope will guide you through:
 
 ### Multi-Model Support
 
-Switch between providers on the fly:
+Switch between 12+ providers on the fly:
 
 ```
 calliope> /provider anthropic    # Use Claude
 calliope> /provider google       # Use Gemini
 calliope> /provider openai       # Use GPT
+calliope> /provider mistral      # Use Mistral
+calliope> /provider ollama       # Use local models
 calliope> /provider openrouter   # Use any model via OpenRouter
+calliope> /provider litellm      # Use LiteLLM proxy
 ```
 
 ### Ralph Wiggum Autonomous Loops
@@ -114,6 +117,12 @@ calliope> /persona minimal       # Extremely brief
 | `OPENROUTER_API_KEY` | OpenRouter API key |
 | `TOGETHER_API_KEY` | Together AI API key |
 | `GROQ_API_KEY` | Groq API key |
+| `MISTRAL_API_KEY` | Mistral AI API key |
+| `AI21_API_KEY` | AI21 Labs API key |
+| `HUGGINGFACE_API_KEY` | HuggingFace API key |
+| `OLLAMA_BASE_URL` | Ollama server URL (default: localhost:11434) |
+| `LITELLM_BASE_URL` | LiteLLM proxy URL (default: localhost:4000) |
+| `LITELLM_API_KEY` | LiteLLM API key (if required) |
 
 ## Configuration
 

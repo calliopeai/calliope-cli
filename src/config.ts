@@ -7,7 +7,7 @@
 
 import Conf from 'conf';
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'auto';
+export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
 export type AgentPersona = 'calliope' | 'professional' | 'minimal';
 
 export interface CalliopeConfig {
@@ -26,6 +26,12 @@ export interface CalliopeConfig {
   openrouterApiKey?: string;
   groqApiKey?: string;
   fireworksApiKey?: string;
+  mistralApiKey?: string;
+  ollamaBaseUrl?: string;  // Ollama uses base URL, not API key
+  ai21ApiKey?: string;
+  huggingfaceApiKey?: string;
+  litellmBaseUrl?: string;  // LiteLLM proxy URL
+  litellmApiKey?: string;
 
   // Agent settings
   persona: AgentPersona;
@@ -61,6 +67,12 @@ const config = new Conf<CalliopeConfig>({
     openrouterApiKey: { type: 'string' },
     groqApiKey: { type: 'string' },
     fireworksApiKey: { type: 'string' },
+    mistralApiKey: { type: 'string' },
+    ollamaBaseUrl: { type: 'string' },
+    ai21ApiKey: { type: 'string' },
+    huggingfaceApiKey: { type: 'string' },
+    litellmBaseUrl: { type: 'string' },
+    litellmApiKey: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'professional', 'minimal'] },
     maxIterations: { type: 'number', minimum: 1, maximum: 100 },
     fancyOutput: { type: 'boolean' },
@@ -140,6 +152,11 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (config.get('openrouterApiKey')) providers.push('openrouter');
   if (config.get('groqApiKey')) providers.push('groq');
   if (config.get('fireworksApiKey')) providers.push('fireworks');
+  if (config.get('mistralApiKey')) providers.push('mistral');
+  if (config.get('ollamaBaseUrl')) providers.push('ollama');
+  if (config.get('ai21ApiKey')) providers.push('ai21');
+  if (config.get('huggingfaceApiKey')) providers.push('huggingface');
+  if (config.get('litellmBaseUrl')) providers.push('litellm');
 
   return providers;
 }
@@ -156,6 +173,11 @@ export function getApiKey(provider: LLMProvider): string | undefined {
     openrouter: 'openrouterApiKey',
     groq: 'groqApiKey',
     fireworks: 'fireworksApiKey',
+    mistral: 'mistralApiKey',
+    ollama: 'ollamaBaseUrl',  // Returns base URL for Ollama
+    ai21: 'ai21ApiKey',
+    huggingface: 'huggingfaceApiKey',
+    litellm: 'litellmApiKey',
     auto: undefined,
   };
 
@@ -171,6 +193,11 @@ export function getApiKey(provider: LLMProvider): string | undefined {
     openrouterApiKey: 'OPENROUTER_API_KEY',
     groqApiKey: 'GROQ_API_KEY',
     fireworksApiKey: 'FIREWORKS_API_KEY',
+    mistralApiKey: 'MISTRAL_API_KEY',
+    ollamaBaseUrl: 'OLLAMA_BASE_URL',
+    ai21ApiKey: 'AI21_API_KEY',
+    huggingfaceApiKey: 'HUGGINGFACE_API_KEY',
+    litellmApiKey: 'LITELLM_API_KEY',
   };
 
   const envVar = envMap[key];
@@ -179,6 +206,19 @@ export function getApiKey(provider: LLMProvider): string | undefined {
   }
 
   return config.get(key) as string | undefined;
+}
+
+/**
+ * Get base URL for a provider (for Ollama/LiteLLM)
+ */
+export function getBaseUrl(provider: LLMProvider): string | undefined {
+  if (provider === 'ollama') {
+    return process.env.OLLAMA_BASE_URL || config.get('ollamaBaseUrl') || 'http://localhost:11434';
+  }
+  if (provider === 'litellm') {
+    return process.env.LITELLM_BASE_URL || config.get('litellmBaseUrl') || 'http://localhost:4000';
+  }
+  return undefined;
 }
 
 export default config;

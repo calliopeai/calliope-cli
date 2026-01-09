@@ -2,7 +2,7 @@
  * Calliope CLI Types
  */
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'auto';
+export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
 export type AgentPersona = 'calliope' | 'professional' | 'minimal';
 
 export interface Message {
@@ -57,6 +57,11 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openrouter: 'anthropic/claude-sonnet-4',
   groq: 'llama-3.3-70b-versatile',
   fireworks: 'accounts/fireworks/models/llama-v3p3-70b-instruct',
+  mistral: 'mistral-large-latest',
+  ollama: 'llama3.3',
+  ai21: 'jamba-1.5-large',
+  huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
+  litellm: 'gpt-4o',  // LiteLLM proxies to other providers
   auto: 'claude-sonnet-4-20250514',
 };
 
