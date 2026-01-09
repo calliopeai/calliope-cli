@@ -1,6 +1,6 @@
 {
-  "name": "@calliopeai/cli",
-  "version": "0.1.2",
+  "name": "@calliopelabs/cli",
+  "version": "0.1.0",
   "description": "Calliope - Multi-model AI agent CLI with Ralph Wiggum autonomous loops",
   "keywords": [
     "ai",

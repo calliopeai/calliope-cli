@@ -22,7 +22,7 @@ Multi-model AI agent CLI with Ralph Wiggum autonomous loops. Use Claude, Gemini,
 ## Installation
 
 ```bash
-npm install -g @calliopeai/cli
+npm install -g @calliopelabs/cli
 ```
 
 ## Quick Start
