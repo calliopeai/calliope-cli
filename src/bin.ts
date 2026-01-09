@@ -17,6 +17,9 @@ const args = process.argv.slice(2);
 const skipPermissions = args.includes('--god-mode') ||
                         args.includes('-g');
 
+// Check for legacy UI flag
+const useLegacyUI = args.includes('--legacy');
+
 // Export for CLI to access
 export { skipPermissions };
 
@@ -98,9 +101,15 @@ async function main(): Promise<void> {
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
-  // Dynamically import the CLI to avoid loading everything upfront
-  const { startCLI: start } = await import('./cli.js');
-  await start(options);
+  if (useLegacyUI) {
+    // Use legacy readline-based CLI
+    const { startCLI: start } = await import('./cli.js');
+    await start(options);
+  } else {
+    // Use new ink-based UI
+    const { startInkCLI } = await import('./ui-cli.js');
+    await startInkCLI(options);
+  }
 }
 
 function printHelp(): void {
@@ -120,6 +129,7 @@ ${bold('OPTIONS')}
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
+  --legacy          Use legacy readline UI instead of ink
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
