@@ -1,0 +1,61 @@
+{
+  "name": "@calliopeai/cli",
+  "version": "0.1.0",
+  "description": "Calliope - Multi-model AI agent CLI with Ralph Wiggum autonomous loops",
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "llm",
+    "anthropic",
+    "claude",
+    "gemini",
+    "openai",
+    "terminal",
+    "calliope",
+    "agentic"
+  ],
+  "author": "Calliope Labs Inc",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/calliopeai/calliope-cli.git"
+  },
+  "homepage": "https://github.com/calliopeai/calliope-cli#readme",
+  "bugs": {
+    "url": "https://github.com/calliopeai/calliope-cli/issues"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "calliope": "dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/bin.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@google/generative-ai": "^0.21.0",
+    "openai": "^4.77.0",
+    "chalk": "^5.3.0",
+    "conf": "^13.0.1",
+    "@inquirer/prompts": "^7.2.0",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
