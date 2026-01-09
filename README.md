@@ -213,6 +213,10 @@ Calliope can execute shell commands on your behalf. Safety measures include:
 - File operations are restricted to cwd and home directory
 - Use absolute paths within allowed directories
 
+## More from Calliope
+
+Check out our full suite of AI tools at **[calliope.ai](https://calliope.ai)**
+
 ## License
 
 MIT © 2026 Calliope Labs Inc
