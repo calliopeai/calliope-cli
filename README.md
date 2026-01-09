@@ -80,6 +80,25 @@ Calliope has access to:
 - **Read/Write Files** - File operations
 - **Think** - Structured reasoning
 
+### Model Selection
+
+Browse and select from available models with an interactive menu:
+
+```
+calliope> /models
+🔍 Discovering models for anthropic...
+✨ Found 5 models
+
+? Select a model for anthropic:
+❯ Claude 3.5 Sonnet (200K tokens) - $3.00/$15.00/1M
+  Claude 3.5 Haiku (200K tokens) - $0.25/$1.25/1M
+  Claude 3 Opus (200K tokens) - $15.00/$75.00/1M
+  ...
+
+calliope> /model              # Interactive selection
+calliope> /model gpt-4o       # Direct model set
+```
+
 ### Personas
 
 ```
@@ -94,12 +113,14 @@ calliope> /persona minimal       # Extremely brief
 |---------|-------------|
 | `/help` | Show all commands |
 | `/provider <name>` | Switch AI provider |
-| `/model <name>` | Set model |
+| `/model [name]` | Set model (interactive if no name) |
+| `/models` | Browse and select available models |
 | `/persona <name>` | Switch persona |
 | `/clear` | Clear conversation |
 | `/status` | Show current status |
 | `/loop "<prompt>"` | Start autonomous loop |
 | `/cancel-loop` | Stop active loop |
+| `/upgrade` | Check for and install updates |
 | `/setup` | Reconfigure |
 | `/exit` | Exit |
 

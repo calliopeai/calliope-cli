@@ -10,6 +10,7 @@ import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import { checkForUpdates, getVersion, getLatestVersion, performUpgrade } from './version-check.js';
+import { selectModelInteractively } from './model-detection.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
 // ANSI colors
@@ -46,7 +47,7 @@ ${color(' ╚═════╝╚═╝  ╚═╝╚══════╝╚�
 
 // Slash commands
 const COMMANDS = [
-  '/help', '/h', '/provider', '/p', '/model', '/m', '/persona',
+  '/help', '/h', '/provider', '/p', '/model', '/m', '/models', '/persona',
   '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop',
   '/setup', '/config', '/upgrade', '/exit', '/quit', '/q',
 ];
@@ -240,11 +241,33 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
       if (parts[1]) {
         state.model = parts[1];
         console.log(color(`Model set to: ${parts[1]}`, 'green'));
+        console.log();
       } else {
+        // Interactive model selection
         const actualProvider = selectProvider(state.provider);
-        console.log(`Model: ${state.model || DEFAULT_MODELS[actualProvider]}`);
+        console.log(`Current model: ${color(state.model || DEFAULT_MODELS[actualProvider], 'cyan')}`);
+        console.log();
+        const selectedModel = await selectModelInteractively(actualProvider);
+        if (selectedModel) {
+          state.model = selectedModel;
+          console.log();
+          console.log(color(`Model set to: ${selectedModel}`, 'green'));
+        }
+        console.log();
       }
-      console.log();
+      break;
+
+    case '/models':
+      {
+        const provider = selectProvider(state.provider);
+        const selectedModel = await selectModelInteractively(provider);
+        if (selectedModel) {
+          state.model = selectedModel;
+          console.log();
+          console.log(color(`Model set to: ${selectedModel}`, 'green'));
+        }
+        console.log();
+      }
       break;
 
     case '/persona':
@@ -401,7 +424,8 @@ function printHelp(): void {
   console.log(color('Commands:', 'bold'));
   console.log('  /help, /h          Show this help');
   console.log('  /provider <name>   Switch AI provider');
-  console.log('  /model <name>      Set model');
+  console.log('  /model [name]      Set model (interactive if no name)');
+  console.log('  /models            Browse and select available models');
   console.log('  /persona <name>    Switch persona (calliope, professional, minimal)');
   console.log('  /clear             Clear conversation');
   console.log('  /status            Show current status');
