@@ -137,3 +137,48 @@ export async function checkForUpdates(silent = false): Promise<boolean> {
 export function getVersion(): string {
   return getCurrentVersion();
 }
+
+/**
+ * Get latest version from npm (bypasses cache)
+ */
+export async function getLatestVersion(): Promise<string | null> {
+  return fetchLatestVersion();
+}
+
+/**
+ * Perform upgrade via npm
+ * Returns true if upgrade was successful
+ */
+export async function performUpgrade(): Promise<boolean> {
+  const { spawn } = await import('child_process');
+
+  return new Promise((resolve) => {
+    const isWindows = process.platform === 'win32';
+    const npmCmd = isWindows ? 'npm.cmd' : 'npm';
+
+    // Determine if we need sudo (Linux with system node)
+    const needsSudo = process.platform !== 'darwin' &&
+                      process.platform !== 'win32' &&
+                      !process.env.NVM_DIR;
+
+    const args = ['install', '-g', '@calliopelabs/cli@latest'];
+    const cmd = needsSudo ? 'sudo' : npmCmd;
+    const finalArgs = needsSudo ? [npmCmd, ...args] : args;
+
+    console.log(`${c.dim}Running: ${needsSudo ? 'sudo ' : ''}npm install -g @calliopelabs/cli@latest${c.reset}`);
+    console.log();
+
+    const child = spawn(cmd, finalArgs, {
+      stdio: 'inherit',
+      shell: isWindows,
+    });
+
+    child.on('close', (code) => {
+      resolve(code === 0);
+    });
+
+    child.on('error', () => {
+      resolve(false);
+    });
+  });
+}

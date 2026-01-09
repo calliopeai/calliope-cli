@@ -9,7 +9,7 @@ import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
-import { checkForUpdates, getVersion } from './version-check.js';
+import { checkForUpdates, getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
 // ANSI colors
@@ -48,7 +48,7 @@ ${color(' ╚═════╝╚═╝  ╚═╝╚══════╝╚�
 const COMMANDS = [
   '/help', '/h', '/provider', '/p', '/model', '/m', '/persona',
   '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop',
-  '/setup', '/config', '/exit', '/quit', '/q',
+  '/setup', '/config', '/upgrade', '/exit', '/quit', '/q',
 ];
 
 // CLI Options
@@ -110,6 +110,9 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     },
   });
 
+  // Check for updates (do this early, it's cached)
+  let hasUpdate = false;
+
   // Print welcome
   if (config.get('fancyOutput')) {
     console.log(BANNER);
@@ -122,15 +125,17 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     console.log(`  ${color('Directory:', 'dim')} ${color(state.cwd, 'dim')}`);
 
     // Check for updates
-    await checkForUpdates().catch(() => {});
+    hasUpdate = await checkForUpdates().catch(() => false);
 
     console.log(color('  ─────────────────────────────────────────────────────────────────', 'dim'));
     console.log(`  ${color('TAB', 'cyan')} ${color('autocomplete', 'dim')} ${color('│', 'dim')} ${color('/help', 'cyan')} ${color('│', 'dim')} ${color('/loop', 'cyan')} ${color('│', 'dim')} ${color('/provider', 'cyan')} ${color('│', 'dim')} ${color('ESC', 'cyan')} ${color('stop', 'dim')}`);
     console.log(color('  ─────────────────────────────────────────────────────────────────', 'dim'));
+
   } else {
     console.log('Calliope CLI');
     console.log(`Provider: ${selectProvider(state.provider)}`);
     console.log('/help for commands');
+    hasUpdate = await checkForUpdates(true).catch(() => false); // silent in non-fancy mode
   }
   console.log();
 
@@ -166,7 +171,35 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     process.exit(0);
   });
 
-  promptUser();
+  // If update available and autoUpgrade enabled, prompt user
+  if (hasUpdate && config.get('autoUpgrade')) {
+    rl.question(`${color('Upgrade now? (y/N/never)', 'cyan')} `, async (answer) => {
+      const a = answer.toLowerCase().trim();
+      if (a === 'y' || a === 'yes') {
+        const success = await performUpgrade();
+        if (success) {
+          console.log();
+          console.log(color('Upgrade complete! Restarting...', 'green'));
+          const { spawn } = await import('child_process');
+          const child = spawn(process.argv[0], process.argv.slice(1), {
+            stdio: 'inherit',
+            detached: true,
+          });
+          child.unref();
+          process.exit(0);
+        } else {
+          console.log(color('Upgrade failed. Use /upgrade to try again.', 'red'));
+        }
+      } else if (a === 'never') {
+        config.set('autoUpgrade', false);
+        console.log(color('Auto-upgrade disabled. Use /upgrade to update manually.', 'dim'));
+      }
+      console.log();
+      promptUser();
+    });
+  } else {
+    promptUser();
+  }
 }
 
 /**
@@ -268,6 +301,10 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
       console.log();
       break;
 
+    case '/upgrade':
+      await handleUpgrade(rl);
+      break;
+
     case '/exit':
     case '/quit':
     case '/q':
@@ -283,6 +320,77 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
       console.log(color(`Unknown command: ${cmd}. Type /help for help.`, 'red'));
       console.log();
   }
+}
+
+/**
+ * Handle upgrade command
+ */
+async function handleUpgrade(rl: readline.Interface): Promise<void> {
+  console.log();
+  console.log(color('Checking for updates...', 'cyan'));
+
+  const currentVersion = getVersion();
+  const latestVersion = await getLatestVersion();
+
+  if (!latestVersion) {
+    console.log(color('Could not check for updates. Try again later.', 'red'));
+    console.log();
+    return;
+  }
+
+  const current = currentVersion.split('.').map(Number);
+  const latest = latestVersion.split('.').map(Number);
+  let hasUpdate = false;
+
+  for (let i = 0; i < 3; i++) {
+    if ((latest[i] || 0) > (current[i] || 0)) {
+      hasUpdate = true;
+      break;
+    }
+    if ((latest[i] || 0) < (current[i] || 0)) break;
+  }
+
+  if (!hasUpdate) {
+    console.log(color(`You're on the latest version (v${currentVersion})`, 'green'));
+    console.log();
+    return;
+  }
+
+  console.log();
+  console.log(`${color('Update available:', 'yellow')} v${currentVersion} → ${color('v' + latestVersion, 'green')}`);
+  console.log();
+
+  // Prompt for confirmation
+  rl.question(`${color('Upgrade now? (y/N)', 'cyan')} `, async (answer) => {
+    if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
+      console.log();
+      const success = await performUpgrade();
+
+      if (success) {
+        console.log();
+        console.log(color('Upgrade complete!', 'green'));
+        console.log(color('Restarting Calliope...', 'dim'));
+        console.log();
+
+        // Restart the CLI
+        const { spawn } = await import('child_process');
+        const child = spawn(process.argv[0], process.argv.slice(1), {
+          stdio: 'inherit',
+          detached: true,
+        });
+        child.unref();
+        process.exit(0);
+      } else {
+        console.log();
+        console.log(color('Upgrade failed. Try manually:', 'red'));
+        console.log(color('  npm install -g @calliopelabs/cli@latest', 'dim'));
+        console.log();
+      }
+    } else {
+      console.log(color('Upgrade cancelled.', 'dim'));
+      console.log();
+    }
+  });
 }
 
 /**
@@ -307,6 +415,7 @@ function printHelp(): void {
   console.log(color('Config:', 'bold'));
   console.log('  /setup             Reconfigure');
   console.log('  /config            Show config path');
+  console.log('  /upgrade           Check for and install updates');
   console.log('  /exit              Exit');
   console.log();
 }

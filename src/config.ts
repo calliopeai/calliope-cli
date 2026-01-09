@@ -41,6 +41,9 @@ export interface CalliopeConfig {
   // Session settings
   autoSaveHistory: boolean;
   workspaceRoot?: string;
+
+  // Update settings
+  autoUpgrade: boolean;  // Prompt to upgrade on startup if update available
 }
 
 const DEFAULT_CONFIG: CalliopeConfig = {
@@ -50,6 +53,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   maxIterations: 20,
   fancyOutput: true,
   autoSaveHistory: true,
+  autoUpgrade: true,
 };
 
 // Create config store
@@ -78,6 +82,7 @@ const config = new Conf<CalliopeConfig>({
     fancyOutput: { type: 'boolean' },
     autoSaveHistory: { type: 'boolean' },
     workspaceRoot: { type: 'string' },
+    autoUpgrade: { type: 'boolean' },
   },
 });
 
