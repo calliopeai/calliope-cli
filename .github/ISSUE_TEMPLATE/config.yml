@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discord Community
+    url: https://discord.gg/calliope
+    about: Ask questions and discuss with the community
+  - name: Documentation
+    url: https://docs.calliope.ai/cli/
+    about: Check the documentation for answers
