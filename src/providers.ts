@@ -148,24 +148,30 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
 }
 
 /**
+ * Streaming callback type
+ */
+export type StreamCallback = (token: string) => void;
+
+/**
  * Chat with the selected provider
  */
 export async function chat(
   provider: LLMProvider,
   messages: Message[],
   tools: Tool[],
-  model?: string
+  model?: string,
+  onToken?: StreamCallback
 ): Promise<LLMResponse> {
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
 
   switch (actualProvider) {
     case 'anthropic':
-      return chatAnthropic(messages, tools, actualModel);
+      return chatAnthropic(messages, tools, actualModel, onToken);
     case 'google':
       return chatGoogle(messages, tools, actualModel);
     case 'openai':
-      return chatOpenAI(messages, tools, actualModel);
+      return chatOpenAI(messages, tools, actualModel, onToken);
     case 'openrouter':
     case 'together':
     case 'groq':
@@ -175,7 +181,7 @@ export async function chat(
     case 'huggingface':
     case 'ollama':
     case 'litellm':
-      return chatOpenAICompatible(actualProvider, messages, tools, actualModel);
+      return chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
     default:
       throw new Error(`Provider ${actualProvider} not implemented`);
   }
@@ -187,7 +193,8 @@ export async function chat(
 async function chatAnthropic(
   messages: Message[],
   tools: Tool[],
-  model: string
+  model: string,
+  onToken?: StreamCallback
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('anthropic');
   if (!apiKey) throw new Error('Anthropic API key not configured');
@@ -239,6 +246,39 @@ async function chatAnthropic(
     input_schema: t.parameters,
   }));
 
+  // Use streaming if callback provided and no tools (streaming tool use is complex)
+  if (onToken && anthropicTools.length === 0) {
+    let content = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    const stream = await client.messages.stream({
+      model,
+      max_tokens: MAX_TOKENS,
+      system: systemMessage?.content || '',
+      messages: anthropicMessages,
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        const text = event.delta.text;
+        content += text;
+        onToken(text);
+      } else if (event.type === 'message_delta' && event.usage) {
+        outputTokens = event.usage.output_tokens;
+      } else if (event.type === 'message_start' && event.message.usage) {
+        inputTokens = event.message.usage.input_tokens;
+      }
+    }
+
+    return {
+      content,
+      finishReason: 'stop',
+      usage: { inputTokens, outputTokens },
+    };
+  }
+
+  // Non-streaming request
   const response = await client.messages.create({
     model,
     max_tokens: MAX_TOKENS,
@@ -337,7 +377,8 @@ async function chatGoogle(
 async function chatOpenAI(
   messages: Message[],
   tools: Tool[],
-  model: string
+  model: string,
+  onToken?: StreamCallback
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -346,6 +387,32 @@ async function chatOpenAI(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
+  // Use streaming if callback provided and no tools
+  if (onToken && openaiTools.length === 0) {
+    let content = '';
+
+    const stream = await client.chat.completions.create({
+      model,
+      messages: openaiMessages,
+      max_tokens: MAX_TOKENS,
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        content += delta;
+        onToken(delta);
+      }
+    }
+
+    return {
+      content,
+      finishReason: 'stop',
+    };
+  }
+
+  // Non-streaming request
   const response = await client.chat.completions.create({
     model,
     messages: openaiMessages,
@@ -379,7 +446,8 @@ async function chatOpenAICompatible(
   provider: LLMProvider,
   messages: Message[],
   tools: Tool[],
-  model: string
+  model: string,
+  onToken?: StreamCallback
 ): Promise<LLMResponse> {
   // Ollama and LiteLLM use base URL, others use API key
   let apiKey: string | undefined;
@@ -403,6 +471,32 @@ async function chatOpenAICompatible(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
+  // Use streaming if callback provided and no tools
+  if (onToken && openaiTools.length === 0) {
+    let content = '';
+
+    const stream = await client.chat.completions.create({
+      model,
+      messages: openaiMessages,
+      max_tokens: MAX_TOKENS,
+      stream: true,
+    });
+
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        content += delta;
+        onToken(delta);
+      }
+    }
+
+    return {
+      content,
+      finishReason: 'stop',
+    };
+  }
+
+  // Non-streaming request
   const response = await client.chat.completions.create({
     model,
     messages: openaiMessages,

@@ -385,6 +385,35 @@ calliope 🔄> /context load
 - Security auditing with Snyk
 - Dual ESM/CJS builds
 
+### 11. Visual Diffs (like Claude Code)
+When files are edited, show a visual diff:
+```
+╭─ ✍️ write_file
+│  path: src/utils.ts
+├──────────────────────────────────────
+│  @@ -12,3 +12,5 @@
+│  - const old = "value";
+│  + const new = "better value";
+│  + const added = true;
+╰─ ✓
+```
+
+### 12. Thinking Display (Agent Reasoning)
+Replace static "Thinking..." with live status:
+```
+⠋ Analyzing request...
+⠙ Searching codebase for relevant files...
+⠹ Found 3 files to examine
+⠸ Reading src/providers.ts...
+⠼ Planning approach: will refactor error handling
+```
+
+Options:
+- Stream intermediate status messages
+- Display `think` tool output inline
+- Show tool previews before execution ("About to read src/foo.ts...")
+- Streaming token output for responses
+
 ---
 
 ## New Commands Summary
@@ -423,14 +452,15 @@ calliope 🔄> /context load
 
 | Phase | Features | Effort | Status |
 |-------|----------|--------|--------|
-| **1** | Mode system, risk display, Shift+Tab | Medium | 🔲 Not started |
-| **2** | ~/.calliope-cli/ storage, session persistence | Medium | 🔲 Not started |
-| **3** | TODO system, plan history | Medium | 🔲 Not started |
-| **4** | Chat history, context loading | Low | 🔲 Not started |
-| **5** | Error handling & resilience | Medium | 🔲 Not started |
-| **6** | Plugin architecture | High | 🔲 Not started |
-| **7** | Streaming, workflows | High | 🔲 Not started |
-| **8** | Testing, docs, DX tooling | Ongoing | 🔲 Not started |
+| **1** | Visual diffs, thinking display, streaming | Medium | 🔲 Not started |
+| **2** | Mode system, risk display, Shift+Tab | Medium | 🔲 Not started |
+| **3** | ~/.calliope-cli/ storage, session persistence | Medium | 🔲 Not started |
+| **4** | TODO system, plan history | Medium | 🔲 Not started |
+| **5** | Chat history, context loading | Low | 🔲 Not started |
+| **6** | Error handling & resilience | Medium | 🔲 Not started |
+| **7** | Plugin architecture | High | 🔲 Not started |
+| **8** | Workflows (extended loops) | High | 🔲 Not started |
+| **9** | Testing, docs, DX tooling | Ongoing | 🔲 Not started |
 
 ---
 

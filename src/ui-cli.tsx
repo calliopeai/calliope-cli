@@ -72,6 +72,59 @@ function Separator() {
   return <Text dimColor>{'─'.repeat(width)}</Text>;
 }
 
+interface ThinkingState {
+  status: string;
+  detail?: string;
+  thinking?: string;  // Output from think tool
+  iteration?: number;
+  maxIterations?: number;
+}
+
+function ThinkingDisplay({ state }: { state: ThinkingState }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame(f => (f + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <Box flexDirection="column" marginY={1}>
+      {/* Main status line */}
+      <Box>
+        <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
+        <Text> {state.status}</Text>
+        {state.iteration && state.maxIterations && (
+          <Text dimColor> ({state.iteration}/{state.maxIterations})</Text>
+        )}
+      </Box>
+
+      {/* Detail line */}
+      {state.detail && (
+        <Box marginLeft={2}>
+          <Text dimColor>↳ {state.detail}</Text>
+        </Box>
+      )}
+
+      {/* Thinking output (from think tool) */}
+      {state.thinking && (
+        <Box flexDirection="column" marginLeft={2} marginTop={1}>
+          <Text color="magenta">💭 Thinking:</Text>
+          {state.thinking.split('\n').slice(0, 5).map((line, i) => (
+            <Text key={i} dimColor>   {line.substring(0, 80)}</Text>
+          ))}
+          {state.thinking.split('\n').length > 5 && (
+            <Text dimColor>   ...</Text>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
+// Legacy simple indicator for non-agent operations
 function ProcessingIndicator({ label }: { label: string }) {
   const [frame, setFrame] = useState(0);
 
@@ -131,7 +184,44 @@ function MessageItem({ msg }: { msg: UIMessage }) {
           );
         }
       }
-      // Tool result
+
+      // Check for diff output from write_file
+      const isDiff = msg.content.startsWith('DIFF:');
+      if (isDiff) {
+        const lines = msg.content.split('\n');
+        const header = lines[0];
+        const isNewFile = header.includes('NEW_FILE:');
+        const filePath = isNewFile
+          ? header.replace('DIFF:NEW_FILE:', '')
+          : header.replace('DIFF:', '');
+        const diffLines = lines.slice(1, 12);
+        const hasMore = lines.length > 12;
+
+        return (
+          <Box flexDirection="column">
+            <Text>
+              <Text dimColor>├──</Text>
+              <Text color="yellow"> {isNewFile ? '(new file)' : '(modified)'}</Text>
+            </Text>
+            {diffLines.map((line, i) => {
+              let color: string | undefined;
+              if (line.startsWith('+ ')) color = 'green';
+              else if (line.startsWith('- ')) color = 'red';
+              else if (line.startsWith('@@')) color = 'cyan';
+              return (
+                <Text key={i}>
+                  <Text dimColor>│</Text>
+                  <Text color={color as 'green' | 'red' | 'cyan' | undefined}>  {line.substring(0, 80)}</Text>
+                </Text>
+              );
+            })}
+            {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
+            <Text><Text dimColor>╰─</Text> <Text color="green">✓</Text> <Text dimColor>{filePath}</Text></Text>
+          </Box>
+        );
+      }
+
+      // Regular tool result
       const lines = msg.content.split('\n').slice(0, 5);
       const hasMore = msg.content.split('\n').length > 5;
       const hasError = msg.content.toLowerCase().includes('error');
@@ -310,6 +400,8 @@ function TerminalChat() {
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
+  const [streamingResponse, setStreamingResponse] = useState<string>('');
 
   // Config state
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
@@ -477,12 +569,27 @@ function TerminalChat() {
   const runAgent = useCallback(async (prompt: string) => {
     llmMessages.current.push({ role: 'user', content: prompt });
     setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
+    setStreamingResponse('');
 
     const maxIterations = config.get('maxIterations');
 
     for (let i = 0; i < maxIterations; i++) {
       try {
-        const response = await chat(provider, llmMessages.current, TOOLS, model);
+        // Update thinking state for LLM call
+        setThinkingState({
+          status: i === 0 ? 'Analyzing request...' : 'Processing response...',
+          detail: `Iteration ${i + 1}/${maxIterations}`,
+          iteration: i + 1,
+          maxIterations,
+        });
+
+        // Streaming callback for final response
+        const onToken = (token: string) => {
+          setThinkingState(null); // Clear thinking when streaming starts
+          setStreamingResponse(prev => prev + token);
+        };
+
+        const response = await chat(provider, llmMessages.current, TOOLS, model, onToken);
 
         // Update token stats
         if (response.usage) {
@@ -502,7 +609,30 @@ function TerminalChat() {
           });
 
           for (const toolCall of response.toolCalls) {
-            addMessage('tool', `⚡ ${toolCall.name}: ${toolCall.arguments.command || toolCall.arguments.path || '...'}`);
+            const args = toolCall.arguments as Record<string, unknown>;
+            const toolPreview = String(args.command || args.path || '...');
+
+            // Special handling for think tool
+            if (toolCall.name === 'think') {
+              const thought = String(args.thought || '');
+              setThinkingState({
+                status: 'Reasoning...',
+                detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
+                thinking: thought,
+                iteration: i + 1,
+                maxIterations,
+              });
+            } else {
+              setThinkingState({
+                status: `Executing ${toolCall.name}...`,
+                detail: toolPreview.substring(0, 60),
+                thinking: undefined,
+                iteration: i + 1,
+                maxIterations,
+              });
+            }
+
+            addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}`);
             const result = await executeTool(toolCall, process.cwd());
 
             const preview = result.result.split('\n').slice(0, 3).join('\n');
@@ -517,12 +647,16 @@ function TerminalChat() {
           continue;
         }
 
-        // Final response
+        // Final response - move streaming content to message history
+        setThinkingState(null);
         llmMessages.current.push({ role: 'assistant', content: response.content });
         addMessage('assistant', response.content);
+        setStreamingResponse('');
         break;
 
       } catch (error) {
+        setThinkingState(null);
+        setStreamingResponse('');
         addMessage('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
         break;
       }
@@ -548,6 +682,8 @@ function TerminalChat() {
       await runAgent(trimmed);
     } finally {
       setIsProcessing(false);
+      setThinkingState(null);
+      setStreamingResponse('');
     }
   }, [isProcessing, handleCommand, runAgent, addMessage]);
 
@@ -600,8 +736,22 @@ function TerminalChat() {
       {/* Message History */}
       <MessageHistory messages={messages} />
 
-      {/* Processing Indicator */}
-      {isProcessing && <ProcessingIndicator label="Thinking..." />}
+      {/* Streaming Response */}
+      {streamingResponse && (
+        <Box flexDirection="column" marginTop={1} marginBottom={1}>
+          <Text color="cyan">✧ Calliope:</Text>
+          <Text> </Text>
+          {streamingResponse.split('\n').map((line, i) => (
+            <Text key={i}><Text color="blue">│</Text> {line}</Text>
+          ))}
+          <Text color="blue">│</Text>
+          <Text color="cyan">▌</Text>
+        </Box>
+      )}
+
+      {/* Thinking Display / Processing Indicator */}
+      {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
+      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Processing..." />}
 
       {/* Modal: Model Selector */}
       {modalMode === 'model' && availableModels.length > 0 && (

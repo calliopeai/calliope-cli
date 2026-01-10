@@ -247,6 +247,57 @@ async function readFile(filePath: string, cwd: string): Promise<string> {
 }
 
 /**
+ * Generate a simple line-diff between old and new content
+ */
+function generateDiff(oldContent: string, newContent: string, maxLines = 20): string {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+
+  const diff: string[] = [];
+  const maxIdx = Math.max(oldLines.length, newLines.length);
+
+  let changesFound = 0;
+  let contextLines = 0;
+  const contextWindow = 2;
+
+  for (let i = 0; i < maxIdx; i++) {
+    const oldLine = oldLines[i];
+    const newLine = newLines[i];
+
+    if (oldLine === newLine) {
+      // Same line - show as context if near a change
+      if (contextLines > 0) {
+        diff.push(`  ${newLine || ''}`);
+        contextLines--;
+      }
+    } else {
+      // Change detected
+      changesFound++;
+      if (changesFound > maxLines) {
+        diff.push('  ... (more changes truncated)');
+        break;
+      }
+
+      // Add line number marker on first change in region
+      if (contextLines === 0 && diff.length > 0) {
+        diff.push(`@@ line ${i + 1} @@`);
+      }
+
+      if (oldLine !== undefined && i < oldLines.length) {
+        diff.push(`- ${oldLine}`);
+      }
+      if (newLine !== undefined && i < newLines.length) {
+        diff.push(`+ ${newLine}`);
+      }
+
+      contextLines = contextWindow;
+    }
+  }
+
+  return diff.join('\n');
+}
+
+/**
  * Write a file
  */
 async function writeFile(filePath: string, content: string, cwd: string): Promise<string> {
@@ -258,8 +309,37 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
     fs.mkdirSync(dir, { recursive: true });
   }
 
+  // Read existing content for diff
+  let oldContent = '';
+  let isNewFile = true;
+  if (fs.existsSync(absPath)) {
+    try {
+      const stats = fs.statSync(absPath);
+      if (!stats.isDirectory() && stats.size < 100 * 1024) {
+        oldContent = fs.readFileSync(absPath, 'utf-8');
+        isNewFile = false;
+      }
+    } catch {
+      // Ignore errors reading old content
+    }
+  }
+
   fs.writeFileSync(absPath, content);
-  return `File written: ${absPath} (${content.length} bytes)`;
+
+  // Generate diff output
+  if (isNewFile) {
+    const lines = content.split('\n').slice(0, 10);
+    const preview = lines.map(l => `+ ${l}`).join('\n');
+    const more = content.split('\n').length > 10 ? '\n  ... (new file truncated)' : '';
+    return `DIFF:NEW_FILE:${absPath}\n${preview}${more}`;
+  } else {
+    const diff = generateDiff(oldContent, content);
+    if (diff.trim()) {
+      return `DIFF:${absPath}\n${diff}`;
+    } else {
+      return `File unchanged: ${absPath}`;
+    }
+  }
 }
 
 /**

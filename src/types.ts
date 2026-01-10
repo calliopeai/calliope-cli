@@ -5,6 +5,28 @@
 export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
 export type AgentPersona = 'calliope' | 'professional' | 'minimal';
 
+/**
+ * CLI operation modes
+ * - plan: Chat only, no tools executed
+ * - hybrid: Smart detection, plans before complex operations
+ * - work: Direct execution (current behavior)
+ */
+export type Mode = 'plan' | 'hybrid' | 'work';
+
+/**
+ * Risk levels for operations
+ */
+export type RiskLevel = 'none' | 'low' | 'medium' | 'high' | 'critical';
+
+/**
+ * Risk assessment result
+ */
+export interface RiskAssessment {
+  level: RiskLevel;
+  reason: string;
+  requiresConfirmation: boolean;
+}
+
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
@@ -63,6 +85,54 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
   auto: 'claude-sonnet-4-20250514',
+};
+
+// Mode display configuration
+export const MODE_CONFIG: Record<Mode, { icon: string; label: string; description: string }> = {
+  plan: {
+    icon: '📋',
+    label: 'Plan',
+    description: 'Chat only, no execution',
+  },
+  hybrid: {
+    icon: '🔄',
+    label: 'Hybrid',
+    description: 'Smart planning before execution',
+  },
+  work: {
+    icon: '🔧',
+    label: 'Work',
+    description: 'Direct execution',
+  },
+};
+
+// Risk display configuration
+export const RISK_CONFIG: Record<RiskLevel, { bar: string; color: string; label: string }> = {
+  none: {
+    bar: '░░░░░',
+    color: 'dim',
+    label: 'None',
+  },
+  low: {
+    bar: '█░░░░',
+    color: 'green',
+    label: 'Low',
+  },
+  medium: {
+    bar: '███░░',
+    color: 'yellow',
+    label: 'Medium',
+  },
+  high: {
+    bar: '████░',
+    color: 'red',
+    label: 'High',
+  },
+  critical: {
+    bar: '█████',
+    color: 'red',
+    label: 'CRITICAL',
+  },
 };
 
 // System prompts for different personas
