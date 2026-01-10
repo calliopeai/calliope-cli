@@ -1975,9 +1975,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
   // Render
   return (
     <Box flexDirection="column" width={width}>
-      {/* Banner - rendered once at top */}
-      <Banner provider={actualProvider} model={actualModel} />
-
       {/* Message History */}
       <MessageHistory messages={messages} />
 
@@ -2047,28 +2044,38 @@ function App() {
   return <TerminalChat />;
 }
 
-// Banner component rendered inside Ink
-function Banner({ provider, model }: { provider: string; model: string }) {
-  return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Text color="cyanBright">{BANNER_LINES[0]}</Text>
-      <Text color="cyanBright">{BANNER_LINES[1]}</Text>
-      <Text color="cyan">{BANNER_LINES[2]}</Text>
-      <Text color="cyan">{BANNER_LINES[3]}</Text>
-      <Text color="cyanBright">{BANNER_LINES[4]}</Text>
-      <Text color="cyan">{BANNER_LINES[5]}</Text>
-      <Text> </Text>
-      <Text dimColor>        The Muse of Digital Eloquence</Text>
-      <Text> </Text>
-      <Text dimColor>  v{getVersion()} | {provider}:{model}</Text>
-      <Text dimColor>  /help for commands | ESC to exit</Text>
-    </Box>
-  );
+
+// Print banner before Ink takes over (stays fixed at top)
+function printBanner(): void {
+  const provider = selectProvider(config.get('defaultProvider'));
+  const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
+
+  const cyan = '\x1b[36m';
+  const cyanBright = '\x1b[96m';
+  const dim = '\x1b[2m';
+  const reset = '\x1b[0m';
+
+  console.log();
+  console.log(`${cyanBright}${BANNER_LINES[0]}${reset}`);
+  console.log(`${cyanBright}${BANNER_LINES[1]}${reset}`);
+  console.log(`${cyan}${BANNER_LINES[2]}${reset}`);
+  console.log(`${cyan}${BANNER_LINES[3]}${reset}`);
+  console.log(`${cyanBright}${BANNER_LINES[4]}${reset}`);
+  console.log(`${cyan}${BANNER_LINES[5]}${reset}`);
+  console.log();
+  console.log(`${dim}        The Muse of Digital Eloquence${reset}`);
+  console.log();
+  console.log(`${dim}  v${getVersion()} | ${provider}:${model}${reset}`);
+  console.log(`${dim}  /help for commands | ESC to exit${reset}`);
+  console.log();
 }
 
 export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+  // Print banner BEFORE Ink starts - it stays fixed at the top
+  printBanner();
+
   const { waitUntilExit } = render(<App />, {
-    patchConsole: true,  // Prevent console.log from mixing with Ink output
+    patchConsole: true,  // Prevent console.log during session from mixing with Ink
   });
   await waitUntilExit();
 }
