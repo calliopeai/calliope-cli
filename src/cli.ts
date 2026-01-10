@@ -5,12 +5,20 @@
  */
 
 import * as readline from 'readline';
+import * as path from 'path';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import { checkForUpdates, getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { selectModelInteractively } from './model-detection.js';
+import * as memory from './memory.js';
+import * as hooks from './hooks.js';
+import * as modelRouter from './model-router.js';
+import * as summarization from './summarization.js';
+import * as themes from './themes.js';
+import * as branching from './branching.js';
+import * as fuzzySearch from './fuzzy-search.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
 // ANSI colors
@@ -50,6 +58,7 @@ const COMMANDS = [
   '/help', '/h', '/provider', '/p', '/model', '/m', '/models', '/persona',
   '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop',
   '/setup', '/config', '/upgrade', '/exit', '/quit', '/q',
+  '/memory', '/hooks', '/route', '/summarize', '/theme', '/branch', '/find', '/search',
 ];
 
 // CLI Options
@@ -71,6 +80,8 @@ interface CLIState {
   loopIteration: number;
   loopMaxIterations: number;
   loopCompletionPromise?: string;
+  autoRoute: boolean;
+  currentBranch: string;
 }
 
 /**
@@ -89,13 +100,24 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     loopPrompt: '',
     loopIteration: 0,
     loopMaxIterations: 50,
+    autoRoute: false,
+    currentBranch: 'main',
   };
 
-  // Add system message
+  // Add system message with memory context
+  const systemPrompt = getSystemPrompt(state.persona);
+  const memoryContext = memory.buildMemoryContext(process.cwd());
+  const fullPrompt = memoryContext.trim()
+    ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
+    : systemPrompt;
+
   state.messages.push({
     role: 'system',
-    content: getSystemPrompt(state.persona),
+    content: fullPrompt,
   });
+
+  // Execute session start hooks
+  hooks.executeHooks('session-start', {}).catch(() => {});
 
   // Setup readline
   const rl = readline.createInterface({
@@ -324,6 +346,167 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
       console.log();
       break;
 
+    case '/memory':
+      if (parts[1] === 'init') {
+        const memPath = memory.initProjectMemory(state.cwd);
+        console.log(color(`Created: ${memPath}`, 'green'));
+      } else if (parts[1] === 'show') {
+        const mem = memory.getProjectMemory(state.cwd);
+        console.log(color('Project Memory:', 'bold'));
+        if (mem.context.length) console.log(`Context: ${mem.context.join(', ')}`);
+        if (mem.preferences.length) console.log(`Preferences: ${mem.preferences.join(', ')}`);
+        if (mem.history.length) console.log(`History: ${mem.history.slice(-3).join(', ')}`);
+      } else if (parts[1] === 'add' && parts[2] && parts[3]) {
+        const type = parts[2] as 'context' | 'preference' | 'history' | 'note';
+        const content = parts.slice(3).join(' ');
+        const memPath = memory.findProjectMemory(state.cwd) || path.join(state.cwd, 'CALLIOPE.md');
+        memory.addMemoryEntry(memPath, { type, content });
+        console.log(color(`Added ${type}: ${content}`, 'green'));
+      } else if (parts[1] === 'global') {
+        const globalMem = memory.getGlobalMemory();
+        console.log(color('Global Memory:', 'bold'));
+        if (globalMem.preferences.length) console.log(`Preferences: ${globalMem.preferences.join(', ')}`);
+      } else {
+        console.log('Usage: /memory [init|show|add <type> <content>|global]');
+      }
+      console.log();
+      break;
+
+    case '/hooks':
+      if (parts[1] === 'init') {
+        hooks.initDefaultHooks();
+        console.log(color('Initialized default hooks', 'green'));
+      } else if (parts[1] === 'list') {
+        console.log(hooks.listHooksFormatted());
+      } else {
+        console.log('Usage: /hooks [init|list]');
+      }
+      console.log();
+      break;
+
+    case '/route':
+    case '/autoroute':
+      if (parts[1] === 'on') {
+        state.autoRoute = true;
+        console.log(color('Auto-routing ON', 'green'));
+      } else if (parts[1] === 'off') {
+        state.autoRoute = false;
+        console.log(color('Auto-routing OFF', 'green'));
+      } else if (parts[1] === 'test' && parts[2]) {
+        const testMsg = parts.slice(2).join(' ');
+        const decision = modelRouter.routeRequest(testMsg, state.provider);
+        console.log(`Tier: ${color(decision.tier, 'cyan')} (${decision.complexity})`);
+        console.log(`Model: ${decision.model.model}`);
+        console.log(`Reason: ${decision.reason}`);
+      } else {
+        const tiers = modelRouter.getAllTiers(state.provider);
+        console.log(`Auto-route: ${state.autoRoute ? 'ON' : 'OFF'}`);
+        console.log(`Tiers: fast=${tiers.fast.model}, balanced=${tiers.balanced.model}, smart=${tiers.smart.model}`);
+      }
+      console.log();
+      break;
+
+    case '/summarize':
+      if (parts[1] === 'context' || !parts[1]) {
+        const summary = summarization.extractKeyInfo(state.messages);
+        console.log(color('Context Summary:', 'bold'));
+        if (summary.topics.length) console.log(`Topics: ${summary.topics.join(', ')}`);
+        if (summary.decisions.length) console.log(`Decisions: ${summary.decisions.join(', ')}`);
+        if (summary.actions.length) console.log(`Actions: ${summary.actions.slice(0, 5).join(', ')}`);
+      } else if (parts[1] === 'compact') {
+        const result = summarization.summarizeConversation(state.messages, { maxTokens: 50000 });
+        if (result.summarizedCount > 0) {
+          state.messages = result.messages;
+          console.log(color(`Compacted ${result.summarizedCount} messages`, 'green'));
+        } else {
+          console.log(color('Context already within limits', 'dim'));
+        }
+      }
+      console.log();
+      break;
+
+    case '/theme':
+      if (parts[1] === 'list') {
+        const themeList = themes.listThemes();
+        const current = themes.getCurrentThemeName();
+        console.log(`Themes: ${themeList.map(t => t.name === current ? color(t.name, 'green') : t.name).join(', ')}`);
+      } else if (parts[1]) {
+        if (themes.setCurrentTheme(parts[1])) {
+          console.log(color(`Theme set to: ${parts[1]}`, 'green'));
+        } else {
+          console.log(color(`Theme not found: ${parts[1]}`, 'red'));
+        }
+      } else {
+        console.log(`Current: ${themes.getCurrentThemeName()}`);
+        console.log(`Available: ${themes.listThemes().map(t => t.name).join(', ')}`);
+      }
+      console.log();
+      break;
+
+    case '/branch':
+      {
+        // Use a simple session ID for the legacy CLI
+        const sessionId = 'default-session';
+        if (parts[1] === 'list') {
+          const branches = branching.listBranches(sessionId);
+          console.log(`Branches: ${branches.map(b => b.id === state.currentBranch ? color(b.id, 'green') : b.id).join(', ')}`);
+        } else if (parts[1] === 'new' && parts[2]) {
+          const description = parts.slice(3).join(' ') || undefined;
+          const branch = branching.createBranch(sessionId, parts[2], state.messages, description);
+          state.currentBranch = branch.id;
+          console.log(color(`Created branch: ${parts[2]}`, 'green'));
+        } else if (parts[1] === 'switch' && parts[2]) {
+          const result = branching.switchBranch(sessionId, parts[2], state.messages);
+          if (result) {
+            state.messages = result;
+            state.currentBranch = parts[2];
+            console.log(color(`Switched to branch: ${parts[2]}`, 'green'));
+          } else {
+            console.log(color(`Branch not found: ${parts[2]}`, 'red'));
+          }
+        } else {
+          console.log(`Current: ${state.currentBranch}`);
+          console.log('Usage: /branch [list|new <name>|switch <name>]');
+        }
+      }
+      console.log();
+      break;
+
+    case '/find':
+      if (parts[1]) {
+        const results = fuzzySearch.searchFiles(parts[1], state.cwd, { maxResults: 10 });
+        if (results.length) {
+          console.log(color('Matches:', 'bold'));
+          for (const r of results) {
+            console.log(`  ${r.relativePath} (${Math.round(r.score * 100)}%)`);
+          }
+        } else {
+          console.log(color('No matches found', 'dim'));
+        }
+      } else {
+        console.log('Usage: /find <pattern>');
+      }
+      console.log();
+      break;
+
+    case '/search':
+      if (parts[1]) {
+        const query = parts.slice(1).join(' ').toLowerCase();
+        const matches = state.messages.filter(m => {
+          const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+          return content.toLowerCase().includes(query);
+        });
+        console.log(`Found ${matches.length} messages containing "${query}"`);
+        for (const m of matches.slice(0, 5)) {
+          const preview = (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).slice(0, 80);
+          console.log(`  [${m.role}] ${preview}...`);
+        }
+      } else {
+        console.log('Usage: /search <query>');
+      }
+      console.log();
+      break;
+
     case '/upgrade':
       await handleUpgrade(rl);
       break;
@@ -426,9 +609,23 @@ function printHelp(): void {
   console.log('  /provider <name>   Switch AI provider');
   console.log('  /model [name]      Set model (interactive if no name)');
   console.log('  /models            Browse and select available models');
+  console.log('  /route [on|off]    Auto model routing by complexity');
   console.log('  /persona <name>    Switch persona (calliope, professional, minimal)');
   console.log('  /clear             Clear conversation');
   console.log('  /status            Show current status');
+  console.log();
+  console.log(color('Memory & Context:', 'bold'));
+  console.log('  /memory [init|show|add|global]  Project memory');
+  console.log('  /summarize [context|compact]    Summarize conversation');
+  console.log('  /search <query>    Search conversation');
+  console.log();
+  console.log(color('Navigation:', 'bold'));
+  console.log('  /find <pattern>    Fuzzy file search');
+  console.log('  /branch [list|new|switch]  Conversation branches');
+  console.log();
+  console.log(color('Extensions:', 'bold'));
+  console.log('  /hooks [init|list] Pre/post tool hooks');
+  console.log('  /theme [name|list] Color themes');
   console.log();
   console.log(color('Ralph Wiggum Loop:', 'bold'));
   console.log('  /loop "<prompt>"   Start autonomous loop');
@@ -493,9 +690,31 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
 
         // Execute tools
         for (const toolCall of response.toolCalls) {
+          // Execute pre-tool hooks
+          const preHookResult = await hooks.checkHooksAllow('pre-tool', {
+            tool: toolCall.name,
+            toolArgs: toolCall.arguments as Record<string, unknown>,
+          });
+          if (!preHookResult.allowed) {
+            console.log(`${color('│', 'dim')}  ${color(`Blocked by hook: ${preHookResult.reason}`, 'red')}`);
+            state.messages.push({
+              role: 'tool',
+              content: `[Blocked by hook: ${preHookResult.reason}]`,
+              toolCallId: toolCall.id,
+            });
+            continue;
+          }
+
           printToolCall(toolCall);
           const result = await executeTool(toolCall, state.cwd);
           printToolResult(toolCall.name, result.result);
+
+          // Execute post-tool hooks
+          hooks.executeHooks('post-tool', {
+            tool: toolCall.name,
+            toolArgs: toolCall.arguments as Record<string, unknown>,
+            toolResult: result.result,
+          }).catch(() => {});
 
           state.messages.push({
             role: 'tool',

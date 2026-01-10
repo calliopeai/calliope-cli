@@ -2,7 +2,7 @@
 
 > The Muse of Digital Eloquence
 
-Multi-model AI agent CLI with Ralph Wiggum autonomous loops. Use Claude, Gemini, GPT, and more from a single elegant interface.
+Multi-model AI agent CLI with autonomous loops, project memory, and advanced tooling. Use Claude, Gemini, GPT, and more from a single elegant interface.
 
 ```
  ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗
@@ -36,11 +36,6 @@ calliope -g
 calliope --god-mode
 ```
 
-On first run, Calliope will guide you through:
-1. Selecting an AI provider (Anthropic, Google, OpenAI, etc.)
-2. Entering your API key
-3. Choosing a persona (Calliope, Professional, or Minimal)
-
 ## Features
 
 ### Multi-Model Support
@@ -48,81 +43,246 @@ On first run, Calliope will guide you through:
 Switch between 12+ providers on the fly:
 
 ```
-calliope> /provider anthropic    # Use Claude
-calliope> /provider google       # Use Gemini
-calliope> /provider openai       # Use GPT
-calliope> /provider mistral      # Use Mistral
-calliope> /provider ollama       # Use local models
-calliope> /provider openrouter   # Use any model via OpenRouter
-calliope> /provider litellm      # Use LiteLLM proxy
+/provider anthropic    # Use Claude
+/provider google       # Use Gemini
+/provider openai       # Use GPT
+/provider mistral      # Use Mistral
+/provider ollama       # Use local models
+/provider openrouter   # Use any model via OpenRouter
+/provider litellm      # Use LiteLLM proxy
 ```
 
-### Ralph Wiggum Autonomous Loops
+### Auto Model Routing
 
-Run tasks autonomously until completion:
+Automatically select the best model based on task complexity:
 
 ```
-calliope> /loop "Build a REST API with CRUD operations. Output DONE when complete." --max-iterations 20 --completion-promise "DONE"
+/route on              # Enable auto-routing
+/route test "explain quantum computing"  # Test routing decision
 ```
 
-The loop will:
-- Run your prompt repeatedly
-- Each iteration sees the previous work (files, git history)
-- Stop when it outputs the completion promise
-- Or stop at max iterations
+Model tiers:
+- **Fast**: Haiku/GPT-4o Mini/Flash - quick, simple tasks
+- **Balanced**: Sonnet/GPT-4o/Pro - moderate complexity
+- **Smart**: Opus/o1/Pro - complex reasoning tasks
 
-Cancel anytime with `/cancel-loop` or `ESC`.
+### Project Memory (CALLIOPE.md)
+
+Persistent memory across sessions using markdown files:
+
+```
+/memory init           # Create CALLIOPE.md
+/memory add context "This is a TypeScript project"
+/memory add preference "Use functional components"
+/memory show           # View project memory
+/memory global         # View global preferences
+```
+
+Calliope automatically loads context from standard files:
+- `CALLIOPE.md` - Project memory
+- `CLAUDE.md` - Claude context
+- `README.md`, `SPEC.md`, `TODO.md`
+- `ARCHITECTURE.md`, `DESIGN.md`, `NOTES.md`
+- `.cursorrules`, `.github/copilot-instructions.md`
 
 ### Tools
 
-Calliope has access to:
-- **Shell** - Run any command
-- **Read/Write Files** - File operations
-- **Think** - Structured reasoning
+Built-in tools for autonomous operation:
 
-### Model Selection
+| Tool | Description |
+|------|-------------|
+| `shell` | Execute shell commands |
+| `read_file` | Read file contents |
+| `write_file` | Write files with diff preview |
+| `list_files` | Directory listing |
+| `think` | Structured reasoning |
+| `execute_code` | Run Python/Node/Bash in sandbox |
+| `web_search` | Search the web |
+| `git` | Git operations |
+| `mermaid` | Generate diagrams |
 
-Browse and select from available models with an interactive menu:
+### Sandboxed Code Execution
 
-```
-calliope> /models
-🔍 Discovering models for anthropic...
-✨ Found 5 models
-
-? Select a model for anthropic:
-❯ Claude 3.5 Sonnet (200K tokens) - $3.00/$15.00/1M
-  Claude 3.5 Haiku (200K tokens) - $0.25/$1.25/1M
-  Claude 3 Opus (200K tokens) - $15.00/$75.00/1M
-  ...
-
-calliope> /model              # Interactive selection
-calliope> /model gpt-4o       # Direct model set
-```
-
-### Personas
+Execute code safely in Docker containers:
 
 ```
-calliope> /persona calliope      # Poetic, creative
-calliope> /persona professional  # Clear, concise
-calliope> /persona minimal       # Extremely brief
+The execute_code tool automatically:
+- Uses Docker when available (recommended)
+- Falls back to local execution
+- Shows [sandboxed] or [unsandboxed] status
+- Enforces resource limits and timeouts
 ```
 
-## Commands
+### MCP Server Support
 
+Connect external tools via Model Context Protocol:
+
+```
+/mcp add https://mcp-server.example.com
+/mcp list              # Show connected servers
+/mcp tools             # List available tools
+/mcp refresh           # Reconnect all servers
+```
+
+### Agent Skills (AgentSkills.io)
+
+Install reusable skills from the registry:
+
+```
+/skills add git-workflow
+/skills add code-review
+/skills list
+/skills info <name>
+```
+
+### Conversation Branching
+
+Fork conversations to explore different approaches:
+
+```
+/branch new experiment "Try approach B"
+/branch list
+/branch switch experiment
+/branch delete experiment
+```
+
+### Themes
+
+Customize the color scheme:
+
+```
+/theme list            # Show available themes
+/theme monokai         # Set theme
+```
+
+Available themes: `default`, `light`, `monokai`, `nord`, `minimal`
+
+### Hooks System
+
+Run custom scripts before/after tool execution:
+
+```
+/hooks init            # Initialize default hooks
+/hooks list            # Show configured hooks
+/hooks add pre-shell "echo Running: $CALLIOPE_COMMAND"
+```
+
+Hook events: `pre-tool`, `post-tool`, `pre-shell`, `post-shell`, `pre-write`, `post-write`, `session-start`, `session-end`
+
+### Context Summarization
+
+Manage long conversations:
+
+```
+/summarize context     # View conversation summary
+/summarize compact     # Compress context to fit limits
+```
+
+### Project Configuration (.calliope)
+
+Human-readable project config:
+
+```
+/project init          # Create .calliope file
+/project show          # View config
+/project run build     # Run defined command
+```
+
+Format:
+```
+project: My Project
+provider: anthropic
+model: claude-sonnet-4-20250514
+
+[tech]
+typescript
+react
+postgres
+
+[conventions]
+Use functional components
+Prefer async/await
+
+[commands]
+build: npm run build
+test: npm test
+```
+
+## Commands Reference
+
+### Core
 | Command | Description |
 |---------|-------------|
 | `/help` | Show all commands |
-| `/provider <name>` | Switch AI provider |
-| `/model [name]` | Set model (interactive if no name) |
-| `/models` | Browse and select available models |
-| `/persona <name>` | Switch persona |
+| `/exit` | Exit Calliope |
 | `/clear` | Clear conversation |
 | `/status` | Show current status |
-| `/loop "<prompt>"` | Start autonomous loop |
-| `/cancel-loop` | Stop active loop |
-| `/upgrade` | Check for and install updates |
-| `/setup` | Reconfigure |
-| `/exit` | Exit |
+| `/config` | Show configuration |
+
+### Model & Provider
+| Command | Description |
+|---------|-------------|
+| `/provider [name]` | Switch AI provider |
+| `/model [name]` | Set model (interactive if no name) |
+| `/models` | Browse available models |
+| `/route [on\|off\|test]` | Auto model routing |
+| `/persona [name]` | Switch persona |
+
+### Modes
+| Command | Description |
+|---------|-------------|
+| `/mode [plan\|hybrid\|work]` | Switch operating mode |
+| `/confirm [on\|off]` | Toggle risky op confirmation |
+
+Modes:
+- **Plan**: Analyze and plan, don't execute
+- **Hybrid**: Plan then execute (default)
+- **Work**: Execute without planning
+
+### Session & History
+| Command | Description |
+|---------|-------------|
+| `/session [list\|info]` | Session management |
+| `/history [search]` | Chat history |
+| `/context [load\|summary]` | Context management |
+| `/summarize [context\|compact]` | Summarize conversation |
+
+### Memory & Config
+| Command | Description |
+|---------|-------------|
+| `/memory [init\|add\|show\|global]` | Project memory |
+| `/project [init\|show\|run]` | Project config |
+| `/profile [name\|save\|del]` | Switch/save profiles |
+
+### Search & Navigation
+| Command | Description |
+|---------|-------------|
+| `/find <pattern>` | Fuzzy file search |
+| `/search <query>` | Search conversation |
+| `/branch [new\|switch\|list]` | Conversation branches |
+
+### Tools & Extensions
+| Command | Description |
+|---------|-------------|
+| `/mcp [list\|add\|remove\|tools]` | MCP servers |
+| `/skills [list\|add\|remove\|info]` | Agent skills |
+| `/hooks [list\|add\|init]` | Pre/post tool hooks |
+
+### Tasks & Planning
+| Command | Description |
+|---------|-------------|
+| `/todo [add\|done\|list]` | Manage TODOs |
+| `/plans [list\|view]` | View plan history |
+
+### Interface
+| Command | Description |
+|---------|-------------|
+| `/theme [name\|list]` | Color themes |
+| `/copy` | Copy last response |
+| `/export [file.md]` | Export conversation |
+| `/edit` | Edit last message |
+| `/undo` | Remove last exchange |
+| `/upgrade` | Check for updates |
 
 ## Environment Variables
 
@@ -156,84 +316,77 @@ calliope --reset
 calliope --setup
 ```
 
-## Examples
+### Profiles
 
-### Basic Usage
+Save and switch between configurations:
 
-```bash
-$ calliope
-calliope> What's in this directory?
-✧ Calliope:
-│ Let me check...
-╭─ ⚡ shell
-│  $ ls -la
-│  ...
-╰─ ✓
-│ This directory contains...
+```
+/profile save work     # Save current settings
+/profile work          # Load profile
+/profile delete work   # Delete profile
+/profile list          # Show all profiles
 ```
 
-### Autonomous Loop
+Built-in profiles: `fast`, `smart`, `cheap`, `local`
 
-```bash
-calliope> /loop "Refactor all TypeScript files to use strict mode. Run tsc after each change. Output DONE when no errors." --max-iterations 30 --completion-promise "DONE"
+## Keyboard Shortcuts
 
-╭─ 🔄 Ralph Loop Started
-│  Max: 30
-│  Promise: DONE
-╰─ /cancel-loop to stop
+| Key | Action |
+|-----|--------|
+| `ESC` | Exit |
+| `Shift+Tab` | Cycle modes |
+| `Ctrl+C` | Cancel operation |
+| `Ctrl+L` | Clear screen |
+| `Up/Down` | Navigate history |
+| `Tab` | Tab completion |
 
-╭─ Iteration 1/30
-...
-🎉 Completion promise detected!
+## File References
+
+Reference files directly in your messages:
+
 ```
+@filename.ts           # Include file content
+./path/to/file         # Relative path
+/absolute/path/file    # Absolute path
+```
+
+Images are automatically detected and sent for vision models.
 
 ## Security
 
 ### API Key Storage
-
-API keys entered during setup are stored in `~/.config/calliope/config.json`. For better security:
-- **Prefer environment variables** over stored keys
-- The config file should have restricted permissions (0600)
-- Never commit your config file to version control
+- Keys stored in `~/.config/calliope/config.json`
+- Prefer environment variables for better security
+- Never commit config to version control
 
 ### Tool Execution
-
-Calliope can execute shell commands on your behalf. Safety measures include:
-- **Path traversal protection** - File operations are restricted to the current directory and home folder
-- **God mode warning** - Running with `-g`/`--god-mode` shows a clear warning
-- **Timeout limits** - Shell commands timeout after 60 seconds by default
+- Path traversal protection
+- Sandboxed code execution via Docker
+- Timeout limits on all commands
+- Hook system for custom validation
 
 ### Best Practices
-
-1. **Review before running** - In normal mode, review tool calls before execution
-2. **Use god mode carefully** - Only use `--god-mode` for trusted, well-defined tasks
-3. **Limit iterations** - Always set `--max-iterations` on autonomous loops
-4. **Work in project directories** - Run Calliope from your project root, not system directories
+1. Review tool calls before execution
+2. Use god mode (`-g`) only for trusted tasks
+3. Set iteration limits on loops
+4. Work from project directories, not system directories
 
 ## Troubleshooting
 
-### Common Issues
-
 **"No API keys configured"**
-- Run `calliope --setup` to configure your API key
-- Or set environment variable: `export ANTHROPIC_API_KEY=sk-ant-...`
-
-**"API key too short"**
-- API keys have minimum length requirements (usually 40+ characters)
-- Make sure you copied the full key
+- Run `calliope --setup` or set environment variable
 
 **"Empty response from API"**
-- Check your API key is valid and has credits
-- Try a different provider with `/provider`
+- Check API key validity and credits
+- Try a different provider
 
 **"Access denied" for file operations**
-- File operations are restricted to cwd and home directory
-- Use absolute paths within allowed directories
+- Operations restricted to cwd and home directory
 
-## More from Calliope
-
-Check out our full suite of AI tools at **[calliope.ai](https://calliope.ai)**
+**Docker not available for sandbox**
+- Install Docker for safer code execution
+- Without Docker, code runs locally (unsandboxed)
 
 ## License
 
-MIT © 2026 Calliope Labs Inc
+MIT

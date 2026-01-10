@@ -102,14 +102,15 @@ export function initStorage(): void {
     }
   }
 
-  // Initialize global todos if not exists
-  if (!fs.existsSync(paths.globalTodos)) {
-    writeJSON(paths.globalTodos, []);
+  // Initialize global todos if not exists (line-based format)
+  const globalTodosFile = paths.globalTodos.replace('.json', '.txt');
+  if (!fs.existsSync(globalTodosFile)) {
+    fs.writeFileSync(globalTodosFile, '');
   }
 }
 
 // ============================================================================
-// JSON Helpers
+// JSON Helpers (for config/session metadata)
 // ============================================================================
 
 function readJSON<T>(filePath: string, defaultValue: T): T {
@@ -130,6 +131,140 @@ function writeJSON(filePath: string, data: unknown): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+// ============================================================================
+// Line-based Format Helpers (for chat/todos - more token efficient)
+// ============================================================================
+
+/**
+ * Chat format (human readable, minimal tokens):
+ * @2025-01-09T12:34:56 id=msg_123
+ * role: content here
+ * can span multiple lines
+ *
+ * @2025-01-09T12:34:57 id=msg_124
+ * assistant: response here
+ */
+
+function formatChatMessage(msg: ChatMessage): string {
+  const header = `@${msg.timestamp} id=${msg.id}${msg.toolCallId ? ` tool=${msg.toolCallId}` : ''}`;
+  const content = `${msg.role}: ${msg.content}`;
+  return `${header}\n${content}\n`;
+}
+
+function parseChatLine(block: string): ChatMessage | null {
+  const lines = block.trim().split('\n');
+  if (lines.length < 2) return null;
+
+  // Parse header: @timestamp id=xxx [tool=yyy]
+  const headerMatch = lines[0].match(/^@(\S+)\s+id=(\S+)(?:\s+tool=(\S+))?$/);
+  if (!headerMatch) return null;
+
+  const [, timestamp, id, toolCallId] = headerMatch;
+
+  // Parse content: role: text
+  const contentLine = lines.slice(1).join('\n');
+  const roleMatch = contentLine.match(/^(user|assistant|system|tool):\s*([\s\S]*)$/);
+  if (!roleMatch) return null;
+
+  const [, role, content] = roleMatch;
+
+  return {
+    id,
+    timestamp,
+    role: role as ChatMessage['role'],
+    content: content.trim(),
+    toolCallId,
+  };
+}
+
+function readChatHistory(filePath: string): ChatMessage[] {
+  if (!fs.existsSync(filePath)) return [];
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const blocks = content.split(/\n(?=@\d)/); // Split on newline followed by @timestamp
+    const messages: ChatMessage[] = [];
+
+    for (const block of blocks) {
+      if (!block.trim()) continue;
+      const msg = parseChatLine(block);
+      if (msg) messages.push(msg);
+    }
+
+    return messages;
+  } catch {
+    return [];
+  }
+}
+
+function appendChatMessage(filePath: string, msg: ChatMessage): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.appendFileSync(filePath, formatChatMessage(msg) + '\n');
+}
+
+/**
+ * Todo format (simple line-based):
+ * id|status|priority|tags|createdAt|completedAt|content
+ */
+
+function formatTodo(todo: Todo): string {
+  const tags = todo.tags.join(',');
+  const completed = todo.completedAt || '';
+  // Escape | in content
+  const content = todo.content.replace(/\|/g, '\\|').replace(/\n/g, '\\n');
+  return `${todo.id}|${todo.status}|${todo.priority}|${tags}|${todo.createdAt}|${completed}|${content}`;
+}
+
+function parseTodoLine(line: string): Todo | null {
+  const parts = line.split('|');
+  if (parts.length < 7) return null;
+
+  const [id, status, priority, tags, createdAt, completedAt, ...contentParts] = parts;
+  const content = contentParts.join('|').replace(/\\n/g, '\n').replace(/\\\|/g, '|');
+
+  return {
+    id,
+    status: status as Todo['status'],
+    priority: priority as Todo['priority'],
+    tags: tags ? tags.split(',') : [],
+    createdAt,
+    completedAt: completedAt || undefined,
+    content,
+  };
+}
+
+function readTodos(filePath: string): Todo[] {
+  if (!fs.existsSync(filePath)) return [];
+
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const lines = content.trim().split('\n');
+    const todos: Todo[] = [];
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const todo = parseTodoLine(line);
+      if (todo) todos.push(todo);
+    }
+
+    return todos;
+  } catch {
+    return [];
+  }
+}
+
+function writeTodos(filePath: string, todos: Todo[]): void {
+  const dir = path.dirname(filePath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const content = todos.map(formatTodo).join('\n') + (todos.length > 0 ? '\n' : '');
+  fs.writeFileSync(filePath, content);
 }
 
 // ============================================================================
@@ -183,8 +318,10 @@ export function getOrCreateSession(projectPath: string): Session {
   };
 
   writeJSON(sessionFile, session);
-  writeJSON(path.join(sessionDir, 'chat-history.json'), []);
-  writeJSON(path.join(sessionDir, 'todos.json'), []);
+  // Create empty chat history file (line-based format)
+  fs.writeFileSync(path.join(sessionDir, 'chat.log'), '');
+  // Create empty todos file (line-based format)
+  fs.writeFileSync(path.join(sessionDir, 'todos.txt'), '');
 
   updateCurrentSymlink(sessionDir);
 
@@ -262,8 +399,7 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
   const session = getCurrentSession();
   if (!session) return;
 
-  const historyFile = path.join(paths.currentSession, 'chat-history.json');
-  const history = readJSON<ChatMessage[]>(historyFile, []);
+  const historyFile = path.join(paths.currentSession, 'chat.log');
 
   const newMessage: ChatMessage = {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -271,12 +407,12 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
     ...message,
   };
 
-  history.push(newMessage);
-  writeJSON(historyFile, history);
+  // Append to chat log (line-based format)
+  appendChatMessage(historyFile, newMessage);
 
   // Update session message count
   const sessionFile = path.join(paths.currentSession, 'session.json');
-  session.messageCount = history.length;
+  session.messageCount += 1;
   session.lastAccessedAt = new Date().toISOString();
   writeJSON(sessionFile, session);
 }
@@ -285,8 +421,8 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
  * Get chat history for current session
  */
 export function getChatHistory(limit?: number): ChatMessage[] {
-  const historyFile = path.join(paths.currentSession, 'chat-history.json');
-  const history = readJSON<ChatMessage[]>(historyFile, []);
+  const historyFile = path.join(paths.currentSession, 'chat.log');
+  const history = readChatHistory(historyFile);
 
   if (limit) {
     return history.slice(-limit);
@@ -314,15 +450,16 @@ export function searchChatHistory(query: string): ChatMessage[] {
  * Get todos for current session
  */
 export function getSessionTodos(): Todo[] {
-  const todosFile = path.join(paths.currentSession, 'todos.json');
-  return readJSON<Todo[]>(todosFile, []);
+  const todosFile = path.join(paths.currentSession, 'todos.txt');
+  return readTodos(todosFile);
 }
 
 /**
  * Get global todos
  */
 export function getGlobalTodos(): Todo[] {
-  return readJSON<Todo[]>(paths.globalTodos, []);
+  const globalTodosFile = paths.globalTodos.replace('.json', '.txt');
+  return readTodos(globalTodosFile);
 }
 
 /**
@@ -346,14 +483,15 @@ export function addTodo(
   };
 
   if (options.global) {
+    const globalTodosFile = paths.globalTodos.replace('.json', '.txt');
     const todos = getGlobalTodos();
     todos.push(todo);
-    writeJSON(paths.globalTodos, todos);
+    writeTodos(globalTodosFile, todos);
   } else {
-    const todosFile = path.join(paths.currentSession, 'todos.json');
-    const todos = readJSON<Todo[]>(todosFile, []);
+    const todosFile = path.join(paths.currentSession, 'todos.txt');
+    const todos = readTodos(todosFile);
     todos.push(todo);
-    writeJSON(todosFile, todos);
+    writeTodos(todosFile, todos);
   }
 
   return todo;
@@ -367,8 +505,10 @@ export function updateTodo(
   updates: Partial<Pick<Todo, 'status' | 'content' | 'priority' | 'tags'>>,
   global = false
 ): Todo | null {
-  const filePath = global ? paths.globalTodos : path.join(paths.currentSession, 'todos.json');
-  const todos = readJSON<Todo[]>(filePath, []);
+  const filePath = global
+    ? paths.globalTodos.replace('.json', '.txt')
+    : path.join(paths.currentSession, 'todos.txt');
+  const todos = readTodos(filePath);
 
   const index = todos.findIndex(t => t.id === id);
   if (index === -1) return null;
@@ -380,7 +520,7 @@ export function updateTodo(
     todo.completedAt = new Date().toISOString();
   }
 
-  writeJSON(filePath, todos);
+  writeTodos(filePath, todos);
   return todo;
 }
 
@@ -388,14 +528,16 @@ export function updateTodo(
  * Delete a todo
  */
 export function deleteTodo(id: string, global = false): boolean {
-  const filePath = global ? paths.globalTodos : path.join(paths.currentSession, 'todos.json');
-  const todos = readJSON<Todo[]>(filePath, []);
+  const filePath = global
+    ? paths.globalTodos.replace('.json', '.txt')
+    : path.join(paths.currentSession, 'todos.txt');
+  const todos = readTodos(filePath);
 
   const index = todos.findIndex(t => t.id === id);
   if (index === -1) return false;
 
   todos.splice(index, 1);
-  writeJSON(filePath, todos);
+  writeTodos(filePath, todos);
   return true;
 }
 
