@@ -14,6 +14,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
 import TextInput from 'ink-text-input';
+import * as fs from 'fs';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
@@ -25,6 +26,12 @@ import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from './files.js';
 import { renderMarkdown } from './markdown.js';
+import * as mcp from './mcp.js';
+import * as skills from './skills.js';
+import * as memory from './memory.js';
+import * as hooks from './hooks.js';
+import * as modelRouter from './model-router.js';
+import * as summarization from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
 
@@ -546,12 +553,37 @@ function TerminalChat() {
 
   // Session state
   const sessionRef = useRef<storage.Session | null>(null);
+  const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
 
-  // Initialize session on mount
+  // Initialize session and load memory on mount
   useEffect(() => {
     const session = storage.getOrCreateSession(process.cwd());
     sessionRef.current = session;
-  }, []);
+
+    // Load memory context into system prompt
+    if (!memoryLoaded) {
+      const cwd = process.cwd();
+      const memoryContext = memory.buildMemoryContext(cwd);
+      if (memoryContext.trim()) {
+        // Append memory context to system prompt
+        const currentSystem = llmMessages.current[0];
+        if (currentSystem && currentSystem.role === 'system') {
+          const systemContent = typeof currentSystem.content === 'string'
+            ? currentSystem.content
+            : '';
+          llmMessages.current[0] = {
+            role: 'system',
+            content: systemContent + '\n\n--- Project Context ---\n' + memoryContext,
+          };
+        }
+      }
+      setMemoryLoaded(true);
+
+      // Execute session start hooks
+      hooks.executeHooks('session-start', {}).catch(() => {});
+    }
+  }, [memoryLoaded]);
 
   // Derived values
   const actualProvider = selectProvider(provider);
@@ -579,12 +611,14 @@ function TerminalChat() {
   /mode [plan|hybrid|work] - Switch modes (Shift+Tab to cycle)
   /provider [name]         - Switch AI provider
   /model [name]            - Switch model
+  /route [on|off|test]     - Auto model routing by complexity
   /persona [name]          - Switch personality
   /todo [add|done|list]    - Manage TODOs
   /plans [list|view]       - View plan history
   /session [list|info]     - Session management
   /history [search]        - Chat history
   /context [load|summary]  - Context management
+  /summarize [context|compact] - Summarize/compact context
   /clear                   - Clear conversation
   /copy                    - Copy last response to clipboard
   /export [file.md]        - Export conversation to markdown
@@ -592,13 +626,23 @@ function TerminalChat() {
   /undo                    - Remove last exchange
   /confirm [on|off]        - Toggle risky op confirmation
   /profile [name|save|del] - Switch/save/delete profiles
+  /mcp [add|remove|tools]  - Manage MCP servers
+  /skills [add|remove]     - Manage agent skills
+  /memory [init|add|show]  - Project memory (CALLIOPE.md)
+  /project [init|show|run] - Project config (.calliope)
+  /find <pattern>          - Fuzzy file search
+  /branch [new|switch]     - Conversation branches
+  /theme [name|list]       - Color themes
+  /hooks [list|add]        - Pre/post tool hooks
+  /search <query>          - Search conversation
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
   /exit                    - Exit
 
 File references: @filename, ./path, /absolute/path
-Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
+Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work
+Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         break;
 
       case '/provider':
@@ -851,6 +895,386 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         break;
       }
 
+      case '/mcp': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const servers = mcp.listServers();
+          if (servers.length === 0) {
+            addMessage('system', 'No MCP servers registered.\n\nUsage:\n  /mcp add <url>  - Register MCP server\n  /mcp remove <id> - Remove server');
+          } else {
+            const list = servers.map(s => {
+              const status = s.status === 'connected' ? '🟢' : s.status === 'error' ? '🔴' : '⚪';
+              return `${status} ${s.name} (${s.tools.length} tools)\n   ${s.url}`;
+            }).join('\n\n');
+            addMessage('system', `MCP Servers:\n\n${list}`);
+          }
+        } else if (subCmd === 'add' && parts[2]) {
+          const url = parts[2];
+          addMessage('system', `Registering MCP server: ${url}...`);
+          try {
+            const server = await mcp.registerServer(url);
+            addMessage('system', `✓ Registered: ${server.name} (${server.tools.length} tools)`);
+          } catch (e) {
+            addMessage('error', `Failed to register: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else if ((subCmd === 'remove' || subCmd === 'rm') && parts[2]) {
+          if (mcp.unregisterServer(parts[2])) {
+            addMessage('system', '✓ Server removed');
+          } else {
+            addMessage('error', 'Server not found');
+          }
+        } else if (subCmd === 'refresh') {
+          const servers = mcp.listServers();
+          let connected = 0;
+          for (const s of servers) {
+            const updated = await mcp.refreshServer(s.id);
+            if (updated?.status === 'connected') connected++;
+          }
+          addMessage('system', `Refreshed ${servers.length} servers (${connected} connected)`);
+        } else if (subCmd === 'tools') {
+          const tools = mcp.getMCPTools();
+          if (tools.length === 0) {
+            addMessage('system', 'No MCP tools available. Add servers with /mcp add <url>');
+          } else {
+            const list = tools.map(t => `• ${t.name}\n  ${t.description}`).join('\n\n');
+            addMessage('system', `MCP Tools:\n\n${list}`);
+          }
+        } else {
+          addMessage('system', 'Usage: /mcp [list|add <url>|remove <id>|refresh|tools]');
+        }
+        break;
+      }
+
+      case '/skills': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const allSkills = skills.getSkills();
+          if (allSkills.length === 0) {
+            addMessage('system', 'No skills installed.\n\nUsage:\n  /skills add <name>     - Install from agentskills.io\n  /skills add <github-url> - Install from GitHub\n  /skills add <path>     - Install from local directory');
+          } else {
+            const list = allSkills.map(s => {
+              const src = s.source === 'github' ? '(GitHub)' : s.source === 'registry' ? '(agentskills.io)' : '(local)';
+              return `• ${s.metadata.name} ${src}\n  ${s.metadata.description.substring(0, 80)}...`;
+            }).join('\n\n');
+            addMessage('system', `Installed Skills:\n\n${list}`);
+          }
+        } else if (subCmd === 'add' && parts[2]) {
+          const source = parts[2];
+          addMessage('system', `Installing skill: ${source}...`);
+          try {
+            let skill;
+            if (source.startsWith('http')) {
+              skill = await skills.installFromGithub(source);
+            } else if (fs.existsSync(source)) {
+              skill = skills.installLocalSkill(source);
+            } else {
+              skill = await skills.installFromRegistry(source);
+            }
+            if (skill) {
+              addMessage('system', `✓ Installed: ${skill.metadata.name}`);
+            } else {
+              addMessage('error', 'Failed to install skill');
+            }
+          } catch (e) {
+            addMessage('error', `Failed: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else if ((subCmd === 'remove' || subCmd === 'rm') && parts[2]) {
+          if (skills.uninstallSkill(parts[2])) {
+            addMessage('system', '✓ Skill removed');
+          } else {
+            addMessage('error', 'Skill not found');
+          }
+        } else if (subCmd === 'info' && parts[2]) {
+          const skill = skills.getSkill(parts[2]);
+          if (skill) {
+            let info = `# ${skill.metadata.name}\n\n`;
+            info += `${skill.metadata.description}\n\n`;
+            if (skill.metadata.compatibility) info += `Compatibility: ${skill.metadata.compatibility}\n`;
+            if (skill.metadata.license) info += `License: ${skill.metadata.license}\n`;
+            if (skill.sourceUrl) info += `Source: ${skill.sourceUrl}\n`;
+            addMessage('system', info);
+          } else {
+            addMessage('error', 'Skill not found');
+          }
+        } else {
+          addMessage('system', 'Usage: /skills [list|add <source>|remove <name>|info <name>]');
+        }
+        break;
+      }
+
+      case '/memory': {
+        const memory = await import('./memory.js');
+        const subCmd = parts[1];
+        const cwd = process.cwd();
+
+        if (subCmd === 'init') {
+          const memPath = memory.initProjectMemory(cwd);
+          addMessage('system', `Created: ${memPath}\nEdit the file to add context and preferences.`);
+        } else if (subCmd === 'show' || !subCmd) {
+          const memPath = memory.findProjectMemory(cwd);
+          if (!memPath) {
+            addMessage('system', 'No CALLIOPE.md found.\nRun /memory init to create one.');
+          } else {
+            const mem = memory.loadMemory(memPath);
+            let info = `Memory: ${memPath}\n\n`;
+            if (mem.context.length) info += `**Context:**\n${mem.context.map(c => `  - ${c}`).join('\n')}\n\n`;
+            if (mem.preferences.length) info += `**Preferences:**\n${mem.preferences.map(p => `  - ${p}`).join('\n')}\n\n`;
+            if (mem.history.length) info += `**History:**\n${mem.history.slice(-5).map(h => `  - ${h}`).join('\n')}\n`;
+            addMessage('system', info);
+          }
+        } else if (subCmd === 'add' && parts[2]) {
+          const type = parts[2] as 'context' | 'preference' | 'history' | 'note';
+          const content = parts.slice(3).join(' ');
+          if (!content) {
+            addMessage('error', 'Usage: /memory add <type> <content>');
+          } else {
+            let memPath = memory.findProjectMemory(cwd);
+            if (!memPath) {
+              memPath = memory.initProjectMemory(cwd);
+            }
+            memory.addMemoryEntry(memPath, {
+              type,
+              content,
+              timestamp: new Date().toISOString().split('T')[0],
+            });
+            addMessage('system', `Added ${type}: ${content}`);
+          }
+        } else if (subCmd === 'remove' && parts[2]) {
+          const type = parts[2] as 'context' | 'preference' | 'history' | 'note';
+          const content = parts.slice(3).join(' ');
+          const memPath = memory.findProjectMemory(cwd);
+          if (memPath && memory.removeMemoryEntry(memPath, type, content)) {
+            addMessage('system', `Removed matching ${type}`);
+          } else {
+            addMessage('error', 'Entry not found');
+          }
+        } else if (subCmd === 'global') {
+          const globalMem = memory.getGlobalMemory();
+          let info = 'Global Memory:\n\n';
+          if (globalMem.preferences.length) info += `**Preferences:**\n${globalMem.preferences.map(p => `  - ${p}`).join('\n')}\n`;
+          if (globalMem.notes.length) info += `**Notes:**\n${globalMem.notes.map(n => `  - ${n}`).join('\n')}\n`;
+          addMessage('system', info || 'No global memories yet.');
+        } else {
+          addMessage('system', 'Usage: /memory [init|show|add <type> <text>|remove <type> <text>|global]');
+        }
+        break;
+      }
+
+      case '/find': {
+        const fuzzy = await import('./fuzzy-search.js');
+        const query = parts.slice(1).join(' ');
+        if (!query) {
+          addMessage('system', 'Usage: /find <pattern>\nFuzzy search for files');
+        } else {
+          const results = fuzzy.searchWithHighlight(process.cwd(), query, { maxResults: 20 });
+          if (results.length === 0) {
+            addMessage('system', 'No files found');
+          } else {
+            const list = results.map((r, i) => `${i + 1}. ${r.highlighted}`).join('\n');
+            addMessage('system', `Found ${results.length} files:\n\n${list}`);
+          }
+        }
+        break;
+      }
+
+      case '/branch': {
+        const branching = await import('./branching.js');
+        const subCmd = parts[1];
+        const sessionId = `session_${Date.now()}`;  // Would use actual session ID
+
+        if (subCmd === 'list' || !subCmd) {
+          const tree = branching.getBranchTree(sessionId);
+          addMessage('system', `Branches:\n${tree}`);
+        } else if (subCmd === 'new' && parts[2]) {
+          const branch = branching.createBranch(sessionId, parts[2], llmMessages.current, parts.slice(3).join(' '));
+          addMessage('system', `Created branch: ${branch.name}`);
+        } else if (subCmd === 'switch' && parts[2]) {
+          const msgs = branching.switchBranch(sessionId, parts[2], llmMessages.current);
+          if (msgs) {
+            llmMessages.current = msgs;
+            addMessage('system', `Switched to branch: ${parts[2]}`);
+          } else {
+            addMessage('error', 'Branch not found');
+          }
+        } else if (subCmd === 'delete' && parts[2]) {
+          if (branching.deleteBranch(sessionId, parts[2])) {
+            addMessage('system', 'Branch deleted');
+          } else {
+            addMessage('error', 'Cannot delete branch');
+          }
+        } else {
+          addMessage('system', 'Usage: /branch [list|new <name>|switch <name>|delete <name>]');
+        }
+        break;
+      }
+
+      case '/theme': {
+        const themes = await import('./themes.js');
+        const subCmd = parts[1];
+
+        if (subCmd === 'list' || !subCmd) {
+          const list = themes.listThemes();
+          const current = themes.getCurrentThemeName();
+          const formatted = list.map(t => {
+            const marker = t.name === current ? ' *' : '';
+            const custom = t.custom ? ' (custom)' : '';
+            return `  ${t.name}${marker}${custom} - ${t.description || 'No description'}`;
+          }).join('\n');
+          addMessage('system', `Available themes:\n${formatted}`);
+        } else if (themes.setCurrentTheme(subCmd)) {
+          themes.clearThemeCache();
+          addMessage('system', `Theme set to: ${subCmd}`);
+        } else {
+          addMessage('error', `Theme not found: ${subCmd}`);
+        }
+        break;
+      }
+
+      case '/hooks': {
+        const hooks = await import('./hooks.js');
+        const subCmd = parts[1];
+
+        if (subCmd === 'list' || !subCmd) {
+          addMessage('system', hooks.listHooksFormatted());
+        } else if (subCmd === 'add' && parts[2]) {
+          const event = parts[2] as import('./hooks.js').HookEvent;
+          const command = parts.slice(3).join(' ');
+          if (!command) {
+            addMessage('system', 'Usage: /hooks add <event> <command>');
+          } else {
+            hooks.addHook({ event, name: `Hook for ${event}`, command, enabled: true, async: false });
+            addMessage('system', 'Hook added');
+          }
+        } else if (subCmd === 'init') {
+          hooks.initDefaultHooks();
+          addMessage('system', 'Default hooks initialized');
+        } else {
+          addMessage('system', 'Usage: /hooks [list|add <event> <command>|init]');
+        }
+        break;
+      }
+
+      case '/search': {
+        const query = parts.slice(1).join(' ');
+        if (!query) {
+          addMessage('system', 'Usage: /search <query>\nSearch conversation history');
+        } else {
+          const lower = query.toLowerCase();
+          const matches = messages.filter(m => m.content.toLowerCase().includes(lower));
+          if (matches.length === 0) {
+            addMessage('system', 'No matches found');
+          } else {
+            const results = matches.slice(-10).map(m => {
+              const preview = m.content.slice(0, 100).replace(/\n/g, ' ');
+              return `[${m.type}] ${preview}...`;
+            }).join('\n\n');
+            addMessage('system', `Found ${matches.length} matches:\n\n${results}`);
+          }
+        }
+        break;
+      }
+
+      case '/project': {
+        const projectConfig = await import('./project-config.js');
+        const subCmd = parts[1];
+        const cwd = process.cwd();
+
+        if (subCmd === 'init') {
+          const configPath = projectConfig.createProjectConfig(cwd);
+          addMessage('system', `Created project config: ${configPath}\nEdit the file to customize settings.`);
+        } else if (subCmd === 'show' || !subCmd) {
+          const configPath = projectConfig.findProjectConfig(cwd);
+          if (!configPath) {
+            addMessage('system', 'No project config found.\nRun /project init to create one.');
+          } else {
+            const cfg = projectConfig.loadProjectConfig(configPath);
+            if (cfg) {
+              let info = `Config: ${configPath}\n\n`;
+              if (cfg.project) info += `Project: ${cfg.project}\n`;
+              if (cfg.provider) info += `Provider: ${cfg.provider}\n`;
+              if (cfg.model) info += `Model: ${cfg.model}\n`;
+              if (cfg.tech?.length) info += `Tech: ${cfg.tech.join(', ')}\n`;
+              if (cfg.conventions?.length) info += `\nConventions:\n${cfg.conventions.map(c => `  - ${c}`).join('\n')}\n`;
+              if (cfg.commands) info += `\nCommands: ${Object.keys(cfg.commands).join(', ')}\n`;
+              addMessage('system', info);
+            } else {
+              addMessage('error', 'Failed to parse config');
+            }
+          }
+        } else if (subCmd === 'run' && parts[2]) {
+          const configPath = projectConfig.findProjectConfig(cwd);
+          const cfg = configPath ? projectConfig.loadProjectConfig(configPath) : null;
+          const cmdName = parts[2];
+          if (cfg?.commands?.[cmdName]) {
+            addMessage('system', `Running: ${cfg.commands[cmdName]}`);
+            // Queue the command to run
+            const { spawn } = await import('child_process');
+            const proc = spawn('sh', ['-c', cfg.commands[cmdName]], { cwd, stdio: 'pipe' });
+            let output = '';
+            proc.stdout?.on('data', (d) => output += d.toString());
+            proc.stderr?.on('data', (d) => output += d.toString());
+            proc.on('close', (code) => {
+              addMessage('system', `Exit ${code}\n${output}`);
+            });
+          } else {
+            addMessage('error', `Command not found: ${cmdName}`);
+          }
+        } else {
+          addMessage('system', 'Usage: /project [init|show|run <cmd>]');
+        }
+        break;
+      }
+
+      case '/route':
+      case '/autoroute': {
+        if (parts[1] === 'on') {
+          setAutoRoute(true);
+          addMessage('system', '✓ Auto-routing ON - model selected based on task complexity');
+        } else if (parts[1] === 'off') {
+          setAutoRoute(false);
+          addMessage('system', '✓ Auto-routing OFF - using fixed model');
+        } else if (parts[1] === 'test' && parts[2]) {
+          const testMsg = parts.slice(2).join(' ');
+          const decision = modelRouter.routeRequest(testMsg, actualProvider);
+          addMessage('system', `Route test: ${decision.tier} tier (${decision.complexity})\nModel: ${decision.model.model}\nReason: ${decision.reason}\nConfidence: ${Math.round(decision.confidence * 100)}%`);
+        } else {
+          const tiers = modelRouter.getAllTiers(actualProvider);
+          addMessage('system', `Auto-route: ${autoRoute ? 'ON' : 'OFF'}\n\nModel tiers for ${actualProvider}:\n  fast: ${tiers.fast.model}\n  balanced: ${tiers.balanced.model}\n  smart: ${tiers.smart.model}\n\nUsage: /route [on|off|test <message>]`);
+        }
+        break;
+      }
+
+      case '/summarize': {
+        const subCmd = parts[1];
+        if (subCmd === 'context' || !subCmd) {
+          const msgCount = llmMessages.current.length;
+          if (msgCount < 5) {
+            addMessage('system', 'Not enough messages to summarize.');
+          } else {
+            const summary = summarization.extractKeyInfo(llmMessages.current);
+            let info = 'Context Summary:\n\n';
+            if (summary.topics.length) info += `**Topics:** ${summary.topics.join(', ')}\n`;
+            if (summary.decisions.length) info += `**Decisions:**\n${summary.decisions.map(d => `  - ${d}`).join('\n')}\n`;
+            if (summary.actions.length) info += `**Actions:**\n${summary.actions.map(a => `  - ${a}`).join('\n')}\n`;
+            if (summary.codeChanges.length) info += `**Code Changes:**\n${summary.codeChanges.slice(0, 5).map(c => `  - ${c}`).join('\n')}\n`;
+            addMessage('system', info || 'No key information extracted.');
+          }
+        } else if (subCmd === 'compact') {
+          // Summarize and compact the conversation
+          const result = summarization.summarizeConversation(llmMessages.current, { maxTokens: 50000 });
+          if (result.summarizedCount > 0) {
+            llmMessages.current = result.messages;
+            setContextTokens(estimateContextTokens());
+            addMessage('system', `✓ Compacted ${result.summarizedCount} messages (${result.originalTokens} → ${result.reducedTokens} tokens)`);
+          } else {
+            addMessage('system', 'Context already within limits, no compaction needed.');
+          }
+        } else {
+          addMessage('system', 'Usage: /summarize [context|compact]');
+        }
+        break;
+      }
+
       case '/upgrade':
         addMessage('system', 'Checking for updates...');
         try {
@@ -1052,6 +1476,19 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
     setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
     setStreamingResponse('');
 
+    // Auto-route to appropriate model based on task complexity
+    let effectiveModel = model;
+    if (autoRoute && typeof content === 'string') {
+      const routeDecision = modelRouter.routeRequest(content, provider, {
+        messageCount: stats.messageCount,
+        hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
+      });
+      effectiveModel = routeDecision.model.model;
+      if (effectiveModel !== model) {
+        addMessage('system', `[Auto-route: ${routeDecision.tier} tier - ${routeDecision.reason}]`);
+      }
+    }
+
     const maxIterations = config.get('maxIterations');
 
     for (let i = 0; i < maxIterations; i++) {
@@ -1080,7 +1517,7 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
           });
         };
 
-        const response = await chat(provider, llmMessages.current, TOOLS, model, onToken, onRetry);
+        const response = await chat(provider, llmMessages.current, TOOLS, effectiveModel, onToken, onRetry);
 
         // Update token stats and cost
         if (response.usage) {
@@ -1155,7 +1592,30 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
             }
 
             addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+
+            // Execute pre-tool hooks
+            const preHookResult = await hooks.checkHooksAllow('pre-tool', {
+              tool: toolCall.name,
+              toolArgs: args,
+            });
+            if (!preHookResult.allowed) {
+              addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: `[Blocked by hook: ${preHookResult.reason}]`,
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
             const result = await executeTool(toolCall, process.cwd());
+
+            // Execute post-tool hooks
+            hooks.executeHooks('post-tool', {
+              tool: toolCall.name,
+              toolArgs: args,
+              toolResult: result.result,
+            }).catch(() => {});
 
             const preview = result.result.split('\n').slice(0, 3).join('\n');
             addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
@@ -1175,6 +1635,13 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         addMessage('assistant', response.content);
         setStreamingResponse('');
         setContextTokens(estimateContextTokens());
+
+        // Auto-continue if response was truncated due to length
+        if (response.finishReason === 'length') {
+          addMessage('system', '(auto-continuing...)');
+          llmMessages.current.push({ role: 'user', content: 'Please continue where you left off.' });
+          continue; // Loop again to get continuation
+        }
         break;
 
       } catch (error) {

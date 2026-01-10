@@ -8,6 +8,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool, ToolCall, ToolResult } from './types.js';
+import * as sandbox from './sandbox.js';
 
 /**
  * Available tools for the agent
@@ -525,24 +526,36 @@ async function executeCode(
   cwd: string,
   timeout: number
 ): Promise<string> {
-  // Create temp file
-  const tmpDir = path.join(cwd, '.calliope-tmp');
-  if (!fs.existsSync(tmpDir)) {
-    fs.mkdirSync(tmpDir, { recursive: true });
+  // Map language names to sandbox language types
+  const sandboxLang = language === 'node' ? 'node' : language;
+
+  // Try sandboxed execution first (using Docker if available)
+  const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
+    timeout,
+    mountWorkdir: true,
+    readOnly: false,
+  });
+
+  const sandboxIndicator = result.sandboxed ? '🔒 [sandboxed]' : '⚠️ [unsandboxed]';
+  const statusIndicator = result.success ? '✓' : '✗';
+
+  let output = `${sandboxIndicator} ${statusIndicator} [${language}]\n`;
+
+  if (result.stdout) {
+    output += `Output:\n${result.stdout}\n`;
   }
 
-  const ext = { python: '.py', node: '.js', bash: '.sh' }[language];
-  const tmpFile = path.join(tmpDir, `code-${Date.now()}${ext}`);
-  fs.writeFileSync(tmpFile, code);
-
-  try {
-    const cmd = { python: 'python3', node: 'node', bash: 'bash' }[language];
-    const result = await executeShell(`${cmd} "${tmpFile}"`, cwd, timeout);
-    return `[${language}] Output:\n${result}`;
-  } finally {
-    // Cleanup
-    try { fs.unlinkSync(tmpFile); } catch {}
+  if (result.stderr) {
+    output += `Errors:\n${result.stderr}\n`;
   }
+
+  if (!result.success && !result.stdout && !result.stderr) {
+    output += `Exit code: ${result.exitCode}\n`;
+  }
+
+  output += `Duration: ${result.duration}ms`;
+
+  return output;
 }
 
 /**

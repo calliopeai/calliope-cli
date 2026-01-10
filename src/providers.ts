@@ -398,10 +398,18 @@ async function chatAnthropic(
     }
   }
 
+  // Map Anthropic stop reasons to our finish reasons
+  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+  if (response.stop_reason === 'tool_use') {
+    finishReason = 'tool_use';
+  } else if (response.stop_reason === 'max_tokens') {
+    finishReason = 'length';
+  }
+
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    finishReason: response.stop_reason === 'tool_use' ? 'tool_use' : 'stop',
+    finishReason,
     usage: {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
@@ -542,10 +550,18 @@ async function chatOpenAI(
   const message = choice.message;
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
+  // Map OpenAI finish reasons
+  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+  if (choice.finish_reason === 'tool_calls') {
+    finishReason = 'tool_use';
+  } else if (choice.finish_reason === 'length') {
+    finishReason = 'length';
+  }
+
   return {
     content: message.content || '',
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    finishReason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'stop',
+    finishReason,
     usage: response.usage ? {
       inputTokens: response.usage.prompt_tokens,
       outputTokens: response.usage.completion_tokens,
@@ -626,10 +642,18 @@ async function chatOpenAICompatible(
   const message = choice.message;
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
+  // Map finish reasons
+  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+  if (choice.finish_reason === 'tool_calls') {
+    finishReason = 'tool_use';
+  } else if (choice.finish_reason === 'length') {
+    finishReason = 'length';
+  }
+
   return {
     content: message.content || '',
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    finishReason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'stop',
+    finishReason,
     usage: response.usage ? {
       inputTokens: response.usage.prompt_tokens,
       outputTokens: response.usage.completion_tokens,
