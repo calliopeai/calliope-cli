@@ -13,7 +13,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
-import TextInput from 'ink-text-input';
 import * as fs from 'fs';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
@@ -394,30 +393,78 @@ function ChatInput({
   value,
   onChange,
   onSubmit,
+  onEscape,
+  onCycleMode,
   disabled,
-  mode
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
+  onEscape: () => void;
+  onCycleMode: () => void;
   disabled: boolean;
-  mode: Mode;
 }) {
-  const modeConfig = MODE_CONFIG[mode];
+  // Handle ALL keyboard input here - single source of input handling
+  useInput((input, key) => {
+    // ESC to exit (always works)
+    if (key.escape) {
+      onEscape();
+      return;
+    }
+
+    // Ctrl+C to exit (always works)
+    if (key.ctrl && input === 'c') {
+      onEscape();
+      return;
+    }
+
+    // When disabled, ignore all other input
+    if (disabled) return;
+
+    // Shift+Tab to cycle mode
+    if (key.shift && key.tab) {
+      onCycleMode();
+      return;
+    }
+
+    // Enter to submit
+    if (key.return) {
+      if (value.trim()) {
+        onSubmit(value);
+      }
+      return;
+    }
+
+    // Backspace/Delete
+    if (key.backspace || key.delete) {
+      onChange(value.slice(0, -1));
+      return;
+    }
+
+    // Ctrl+U to clear line
+    if (key.ctrl && input === 'u') {
+      onChange('');
+      return;
+    }
+
+    // Ignore control keys, meta, and navigation
+    if (key.ctrl || key.meta || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab) {
+      return;
+    }
+
+    // Regular character input - append to value
+    if (input) {
+      onChange(value + input);
+    }
+  });
 
   return (
     <Box flexDirection="column">
       <Separator />
       <Box>
-        <Text color={disabled ? 'gray' : 'cyan'}>calliope </Text>
-        <Text dimColor={disabled}>{modeConfig.icon}</Text>
-        <Text dimColor>&gt; </Text>
-        <TextInput
-          value={value}
-          onChange={onChange}
-          onSubmit={onSubmit}
-          focus={!disabled}
-        />
+        <Text color={disabled ? 'gray' : 'cyan'}>calliope&gt; </Text>
+        <Text>{value}</Text>
+        <Text color="cyan">▌</Text>
       </Box>
     </Box>
   );
@@ -1757,15 +1804,6 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
     });
   }, []);
 
-  // Keyboard shortcuts (Escape to exit, Shift+Tab to cycle mode)
-  useInput((input, key) => {
-    if (key.escape && !isModalActive) exit();
-    // Shift+Tab to cycle mode (key.shift && key.tab)
-    if (key.shift && key.tab && !isProcessing) {
-      cycleMode();
-    }
-  }, { isActive: !isModalActive });
-
   // Render
   return (
     <Box flexDirection="column" width={width}>
@@ -1813,8 +1851,9 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         value={input}
         onChange={setInput}
         onSubmit={handleSubmit}
+        onEscape={exit}
+        onCycleMode={cycleMode}
         disabled={isModalActive || isProcessing}
-        mode={mode}
       />
 
       {/* Status Bar */}
