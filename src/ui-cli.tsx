@@ -339,6 +339,15 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
       try {
         const response = await chat(provider, llmMessages.current, TOOLS, model);
 
+        // Update token stats
+        if (response.usage) {
+          setStats(s => ({
+            ...s,
+            inputTokens: s.inputTokens + response.usage!.inputTokens,
+            outputTokens: s.outputTokens + response.usage!.outputTokens,
+          }));
+        }
+
         // Handle tool calls
         if (response.toolCalls && response.toolCalls.length > 0) {
           llmMessages.current.push({
@@ -469,17 +478,6 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
 
   return (
     <Box flexDirection="column" width={width}>
-      {/* ASCII Banner */}
-      <Box flexDirection="column">
-        {BANNER_LINES.map((line, i) => (
-          <Text key={i} color={i < 2 || i > 3 ? 'cyanBright' : 'cyan'}>{line}</Text>
-        ))}
-      </Box>
-      <Text dimColor>        The Muse of Digital Eloquence</Text>
-      <Text> </Text>
-      <Text dimColor>  v{getVersion()} | {selectProvider(provider)}:{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}</Text>
-      <Text dimColor>  /help for commands | ESC to exit</Text>
-      <Sep />
 
       {/* Messages - Static for history */}
       <Static items={messages}>
@@ -528,40 +526,59 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
 
       {/* Input (hidden when in modal mode) */}
       {!modelSelectMode && !upgradeMode && !upgrading && (
-        <>
-          <Sep />
-          <Box>
-            <Text color="cyan">calliope</Text>
-            <Text dimColor>&gt; </Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-          </Box>
-        </>
+        <Box>
+          <Text color="cyan">calliope</Text>
+          <Text dimColor>&gt; </Text>
+          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        </Box>
       )}
 
-      {/* Footer */}
-      <Sep />
-      <Box width={width} justifyContent="space-between">
-        <Text>
-          <Text color="cyan">{selectProvider(provider)}</Text>
-          <Text dimColor>:</Text>
-          <Text>{actualModel.length > 30 ? actualModel.slice(0, 27) + '...' : actualModel}</Text>
-        </Text>
-        <Text>
-          <Text color="yellow">{formatTokens(stats.inputTokens + stats.outputTokens)}</Text>
-          <Text dimColor> tokens</Text>
-        </Text>
-        <Text>
-          <Text color="green">{formatCost(stats.cost)}</Text>
-          <Text dimColor> │ </Text>
-          <Text dimColor>{formatTime(stats.startTime)}</Text>
+      {/* Status bar */}
+      <Box marginTop={1}>
+        <Text dimColor>
+          {selectProvider(provider)}:{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}
+          {' │ '}
+          {formatTokens(stats.inputTokens + stats.outputTokens)} tokens
+          {' │ '}
+          {formatCost(stats.cost)}
         </Text>
       </Box>
     </Box>
   );
 }
 
+// ANSI colors for banner
+const c = {
+  reset: '\x1b[0m',
+  cyan: '\x1b[36m',
+  brightCyan: '\x1b[96m',
+  dim: '\x1b[2m',
+};
+
+// Print banner before Ink starts
+function printBanner(provider: string, model: string): void {
+  console.log();
+  console.log(`${c.brightCyan}${BANNER_LINES[0]}${c.reset}`);
+  console.log(`${c.brightCyan}${BANNER_LINES[1]}${c.reset}`);
+  console.log(`${c.cyan}${BANNER_LINES[2]}${c.reset}`);
+  console.log(`${c.cyan}${BANNER_LINES[3]}${c.reset}`);
+  console.log(`${c.brightCyan}${BANNER_LINES[4]}${c.reset}`);
+  console.log(`${c.cyan}${BANNER_LINES[5]}${c.reset}`);
+  console.log();
+  console.log(`${c.dim}        The Muse of Digital Eloquence${c.reset}`);
+  console.log();
+  console.log(`  ${c.dim}v${getVersion()} | ${provider}:${model}${c.reset}`);
+  console.log(`  ${c.dim}/help for commands | ESC to exit${c.reset}`);
+  console.log();
+}
+
 // Export start function
 export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+  // Print banner before Ink takes over
+  const provider = selectProvider(config.get('defaultProvider'));
+  const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
+  printBanner(provider, model);
+
   const { waitUntilExit } = render(<App skipPermissions={options.skipPermissions} />);
   await waitUntilExit();
 }
