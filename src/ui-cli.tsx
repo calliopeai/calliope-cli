@@ -403,18 +403,21 @@ function ChatInput({
   disabled: boolean;
   mode: Mode;
 }) {
-  if (disabled) return null;
-
   const modeConfig = MODE_CONFIG[mode];
 
   return (
     <Box flexDirection="column">
       <Separator />
       <Box>
-        <Text color="cyan">calliope </Text>
-        <Text>{modeConfig.icon}</Text>
+        <Text color={disabled ? 'gray' : 'cyan'}>calliope </Text>
+        <Text dimColor={disabled}>{modeConfig.icon}</Text>
         <Text dimColor>&gt; </Text>
-        <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
+        <TextInput
+          value={value}
+          onChange={onChange}
+          onSubmit={onSubmit}
+          focus={!disabled}
+        />
       </Box>
     </Box>
   );
