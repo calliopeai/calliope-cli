@@ -64,6 +64,10 @@ const TOOL_ICONS: Record<string, string> = {
   write_file: '✍️',
   list_files: '📁',
   think: '💭',
+  execute_code: '▶️',
+  web_search: '🔍',
+  git: '🔀',
+  mermaid: '📊',
 };
 
 // ============================================================================

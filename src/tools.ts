@@ -90,6 +90,85 @@ export const TOOLS: Tool[] = [
       required: ['thought'],
     },
   },
+  {
+    name: 'execute_code',
+    description: 'Execute code in a sandboxed environment. Supports Python, Node.js, and shell scripts.',
+    parameters: {
+      type: 'object',
+      properties: {
+        language: {
+          type: 'string',
+          description: 'The programming language: python, node, bash',
+          enum: ['python', 'node', 'bash'],
+        },
+        code: {
+          type: 'string',
+          description: 'The code to execute',
+        },
+      },
+      required: ['language', 'code'],
+    },
+  },
+  {
+    name: 'web_search',
+    description: 'Search the web for information. Returns a summary of top results.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'The search query',
+        },
+        num_results: {
+          type: 'number',
+          description: 'Number of results to return (default: 5, max: 10)',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'git',
+    description: 'Execute git commands safely. Supports common git operations.',
+    parameters: {
+      type: 'object',
+      properties: {
+        operation: {
+          type: 'string',
+          description: 'Git operation: status, diff, log, branch, add, commit, push, pull, stash',
+          enum: ['status', 'diff', 'log', 'branch', 'add', 'commit', 'push', 'pull', 'stash'],
+        },
+        args: {
+          type: 'string',
+          description: 'Additional arguments for the git command',
+        },
+      },
+      required: ['operation'],
+    },
+  },
+  {
+    name: 'mermaid',
+    description: 'Generate a Mermaid diagram. The output can be rendered as a visual graph.',
+    parameters: {
+      type: 'object',
+      properties: {
+        type: {
+          type: 'string',
+          description: 'Diagram type: flowchart, sequence, class, state, er, gantt, pie',
+          enum: ['flowchart', 'sequence', 'class', 'state', 'er', 'gantt', 'pie'],
+        },
+        content: {
+          type: 'string',
+          description: 'The Mermaid diagram content (without the diagram type declaration)',
+        },
+        title: {
+          type: 'string',
+          description: 'Optional title for the diagram',
+        },
+      },
+      required: ['type', 'content'],
+    },
+  },
 ];
 
 /**
@@ -164,6 +243,38 @@ export async function executeTool(
           return { toolCallId: id, result: 'Error: thought must be a string', isError: true };
         }
         result = 'Thought recorded.';
+        break;
+      }
+
+      case 'execute_code': {
+        const language = String(args.language || '');
+        const code = String(args.code || '');
+        if (!['python', 'node', 'bash'].includes(language)) {
+          return { toolCallId: id, result: 'Error: language must be python, node, or bash', isError: true };
+        }
+        result = await executeCode(language as 'python' | 'node' | 'bash', code, cwd, timeout);
+        break;
+      }
+
+      case 'web_search': {
+        const query = String(args.query || '');
+        const numResults = Math.min(10, Math.max(1, Number(args.num_results) || 5));
+        result = await webSearch(query, numResults);
+        break;
+      }
+
+      case 'git': {
+        const operation = String(args.operation || '');
+        const gitArgs = String(args.args || '');
+        result = await executeGit(operation, gitArgs, cwd);
+        break;
+      }
+
+      case 'mermaid': {
+        const diagramType = String(args.type || 'flowchart');
+        const content = String(args.content || '');
+        const title = args.title ? String(args.title) : undefined;
+        result = generateMermaidDiagram(diagramType, content, title);
         break;
       }
 
@@ -403,4 +514,177 @@ function listFilesRecursive(dir: string, prefix: string, depth: number): string 
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Execute code in a sandboxed environment
+ */
+async function executeCode(
+  language: 'python' | 'node' | 'bash',
+  code: string,
+  cwd: string,
+  timeout: number
+): Promise<string> {
+  // Create temp file
+  const tmpDir = path.join(cwd, '.calliope-tmp');
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+
+  const ext = { python: '.py', node: '.js', bash: '.sh' }[language];
+  const tmpFile = path.join(tmpDir, `code-${Date.now()}${ext}`);
+  fs.writeFileSync(tmpFile, code);
+
+  try {
+    const cmd = { python: 'python3', node: 'node', bash: 'bash' }[language];
+    const result = await executeShell(`${cmd} "${tmpFile}"`, cwd, timeout);
+    return `[${language}] Output:\n${result}`;
+  } finally {
+    // Cleanup
+    try { fs.unlinkSync(tmpFile); } catch {}
+  }
+}
+
+/**
+ * Search the web using DuckDuckGo
+ */
+async function webSearch(query: string, numResults: number): Promise<string> {
+  try {
+    // Use DuckDuckGo HTML search (no API key needed)
+    const encodedQuery = encodeURIComponent(query);
+    const url = `https://html.duckduckgo.com/html/?q=${encodedQuery}`;
+
+    const https = await import('https');
+
+    return new Promise((resolve) => {
+      const req = https.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Calliope/1.0)',
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          // Parse results from HTML
+          const results: string[] = [];
+          const linkRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)/g;
+          const snippetRegex = /<a[^>]*class="result__snippet"[^>]*>([^<]*)/g;
+
+          let match;
+          let snippetMatch;
+          let i = 0;
+
+          while ((match = linkRegex.exec(data)) !== null && i < numResults) {
+            const href = match[1];
+            const title = match[2].replace(/&amp;/g, '&').replace(/&#x27;/g, "'");
+
+            // Get corresponding snippet
+            snippetMatch = snippetRegex.exec(data);
+            const snippet = snippetMatch
+              ? snippetMatch[1].replace(/&amp;/g, '&').replace(/&#x27;/g, "'").substring(0, 150)
+              : '';
+
+            results.push(`${i + 1}. ${title}\n   ${snippet}\n   ${href}\n`);
+            i++;
+          }
+
+          if (results.length === 0) {
+            resolve(`No results found for: ${query}`);
+          } else {
+            resolve(`Web search results for "${query}":\n\n${results.join('\n')}`);
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        resolve(`Search error: ${err.message}`);
+      });
+
+      req.setTimeout(10000, () => {
+        req.destroy();
+        resolve('Search timed out');
+      });
+    });
+  } catch (err) {
+    return `Search error: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
+/**
+ * Execute git commands safely
+ */
+async function executeGit(operation: string, args: string, cwd: string): Promise<string> {
+  const allowedOps = ['status', 'diff', 'log', 'branch', 'add', 'commit', 'push', 'pull', 'stash'];
+
+  if (!allowedOps.includes(operation)) {
+    return `Error: Unknown git operation: ${operation}. Allowed: ${allowedOps.join(', ')}`;
+  }
+
+  // Sanitize args to prevent command injection
+  const safeArgs = args.replace(/[;&|`$]/g, '');
+
+  let command: string;
+  switch (operation) {
+    case 'status':
+      command = 'git status --short';
+      break;
+    case 'diff':
+      command = `git diff ${safeArgs}`.trim();
+      break;
+    case 'log':
+      command = `git log --oneline -20 ${safeArgs}`.trim();
+      break;
+    case 'branch':
+      command = `git branch ${safeArgs}`.trim();
+      break;
+    case 'add':
+      command = `git add ${safeArgs || '.'}`.trim();
+      break;
+    case 'commit':
+      if (!safeArgs.includes('-m')) {
+        return 'Error: commit requires -m "message"';
+      }
+      command = `git commit ${safeArgs}`.trim();
+      break;
+    case 'push':
+      command = `git push ${safeArgs}`.trim();
+      break;
+    case 'pull':
+      command = `git pull ${safeArgs}`.trim();
+      break;
+    case 'stash':
+      command = `git stash ${safeArgs}`.trim();
+      break;
+    default:
+      return `Unknown operation: ${operation}`;
+  }
+
+  return executeShell(command, cwd, 30000);
+}
+
+/**
+ * Generate a Mermaid diagram
+ */
+function generateMermaidDiagram(type: string, content: string, title?: string): string {
+  const header = title ? `---\ntitle: ${title}\n---\n` : '';
+
+  // Map type to Mermaid syntax
+  const typeMap: Record<string, string> = {
+    'flowchart': 'flowchart TD',
+    'sequence': 'sequenceDiagram',
+    'class': 'classDiagram',
+    'state': 'stateDiagram-v2',
+    'er': 'erDiagram',
+    'gantt': 'gantt',
+    'pie': 'pie',
+  };
+
+  const diagramType = typeMap[type] || 'flowchart TD';
+
+  const diagram = `\`\`\`mermaid
+${header}${diagramType}
+${content}
+\`\`\``;
+
+  return `MERMAID_DIAGRAM:\n${diagram}\n\nTo view this diagram, paste the mermaid code into https://mermaid.live or a markdown viewer that supports Mermaid.`;
 }
