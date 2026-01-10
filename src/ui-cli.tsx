@@ -601,6 +601,51 @@ function ToolConfirmation({
 }
 
 // ============================================================================
+// Slash Commands (for tab completion)
+// ============================================================================
+
+const SLASH_COMMANDS = [
+  '/help', '/h',
+  '/mode', '/m',
+  '/provider', '/p',
+  '/model',
+  '/models',
+  '/route',
+  '/persona',
+  '/todo',
+  '/plans',
+  '/session',
+  '/history',
+  '/context',
+  '/summarize',
+  '/clear', '/c',
+  '/copy',
+  '/export',
+  '/edit',
+  '/undo',
+  '/redo',
+  '/confirm',
+  '/profile',
+  '/mcp',
+  '/skills',
+  '/memory',
+  '/project',
+  '/find',
+  '/branch',
+  '/theme',
+  '/hooks',
+  '/search',
+  '/status', '/s',
+  '/config',
+  '/set',
+  '/agents',
+  '/upgrade',
+  '/loop',
+  '/cancel-loop',
+  '/exit',
+];
+
+// ============================================================================
 // Input Components
 // ============================================================================
 
@@ -692,7 +737,33 @@ function ChatInput({
       return;
     }
 
-    // Ignore control keys, meta, and navigation
+    // Tab completion for slash commands
+    if (key.tab && !key.shift && value.startsWith('/')) {
+      const partial = value.toLowerCase();
+      const matches = SLASH_COMMANDS.filter(cmd =>
+        cmd.startsWith(partial) && cmd !== partial
+      );
+
+      if (matches.length === 1) {
+        // Single match - complete it
+        onChange(matches[0] + ' ');
+      } else if (matches.length > 1) {
+        // Multiple matches - find longest common prefix
+        let commonPrefix = matches[0];
+        for (const match of matches) {
+          while (!match.startsWith(commonPrefix)) {
+            commonPrefix = commonPrefix.slice(0, -1);
+          }
+        }
+        if (commonPrefix.length > value.length) {
+          onChange(commonPrefix);
+        }
+        // Could show matches in UI, but for now just complete common prefix
+      }
+      return;
+    }
+
+    // Ignore other control keys, meta, and navigation
     if (key.ctrl || key.meta || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab) {
       return;
     }
