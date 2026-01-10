@@ -606,6 +606,14 @@ function TerminalChat() {
   const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
   const [memoryLoaded, setMemoryLoaded] = useState(false);
 
+  // Ralph Wiggum loop state
+  const [loopActive, setLoopActive] = useState(false);
+  const [loopPrompt, setLoopPrompt] = useState<string>('');
+  const [loopMaxIterations, setLoopMaxIterations] = useState(100);
+  const [loopCompletionPromise, setLoopCompletionPromise] = useState<string | undefined>();
+  const [loopIteration, setLoopIteration] = useState(0);
+  const loopCancelledRef = useRef(false);
+
   // Initialize session and load memory on mount
   useEffect(() => {
     const session = storage.getOrCreateSession(process.cwd());
@@ -885,8 +893,58 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         break;
 
       case '/setup':
-      case '/loop':
-        addMessage('system', 'This feature requires legacy CLI. Run: calliope --legacy');
+        addMessage('system', 'Run `calliope --setup` to reconfigure.');
+        break;
+
+      case '/loop': {
+        // Parse /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
+        const loopArgs = parts.slice(1).join(' ');
+        const maxIterMatch = loopArgs.match(/--max-iterations\s+(\d+)/);
+        const completionMatch = loopArgs.match(/--completion-promise\s+"([^"]+)"/);
+
+        let prompt = loopArgs
+          .replace(/--max-iterations\s+\d+/, '')
+          .replace(/--completion-promise\s+"[^"]+"/, '')
+          .trim();
+
+        // Handle quoted prompt
+        const quotedMatch = prompt.match(/^"([^"]+)"$/);
+        if (quotedMatch) prompt = quotedMatch[1];
+
+        if (!prompt) {
+          addMessage('system', `Usage: /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
+Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE"`);
+          break;
+        }
+
+        // Start the loop
+        setLoopActive(true);
+        setLoopPrompt(prompt);
+        setLoopMaxIterations(maxIterMatch ? parseInt(maxIterMatch[1], 10) : 100);
+        setLoopCompletionPromise(completionMatch ? completionMatch[1] : undefined);
+        setLoopIteration(0);
+        loopCancelledRef.current = false;
+
+        addMessage('system', `🔄 Ralph Wiggum Loop Started
+  Prompt: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"
+  Max iterations: ${maxIterMatch ? maxIterMatch[1] : '100'}
+  ${completionMatch ? `Completion promise: "${completionMatch[1]}"` : 'No completion promise (runs until max iterations)'}
+  Use /cancel-loop to stop`);
+
+        // Start the loop execution (non-blocking)
+        runLoop(prompt, maxIterMatch ? parseInt(maxIterMatch[1], 10) : 100, completionMatch?.[1]);
+        break;
+      }
+
+      case '/cancel-loop':
+      case '/stop':
+        if (loopActive) {
+          loopCancelledRef.current = true;
+          setLoopActive(false);
+          addMessage('system', '🛑 Loop cancelled');
+        } else {
+          addMessage('system', 'No active loop to cancel');
+        }
         break;
 
       case '/confirm':
@@ -1540,6 +1598,7 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
     }
 
     const maxIterations = config.get('maxIterations');
+    let completedNaturally = false;
 
     for (let i = 0; i < maxIterations; i++) {
       try {
@@ -1692,6 +1751,7 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
           llmMessages.current.push({ role: 'user', content: 'Please continue where you left off.' });
           continue; // Loop again to get continuation
         }
+        completedNaturally = true;
         break;
 
       } catch (error) {
@@ -1701,9 +1761,74 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         break;
       }
     }
+
+    // Only show warning if we hit the limit without completing naturally
+    if (!completedNaturally) {
+      addMessage('system', `⚠️ Reached ${maxIterations} iterations limit. Task may be incomplete. Adjust with /config.`);
+    }
+
     // Update context tokens after agent run
     setContextTokens(estimateContextTokens());
   }, [provider, model, addMessage, mode, estimateContextTokens]);
+
+  // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
+  const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
+    setIsProcessing(true);
+
+    for (let i = 0; i < maxIter; i++) {
+      // Check if cancelled
+      if (loopCancelledRef.current) {
+        addMessage('system', '🛑 Loop cancelled by user');
+        break;
+      }
+
+      setLoopIteration(i + 1);
+      addMessage('system', `🔄 Loop iteration ${i + 1}/${maxIter}`);
+
+      // Add the loop prompt as user message
+      llmMessages.current.push({ role: 'user', content: prompt });
+
+      try {
+        // Run the agent
+        await runAgent(prompt);
+
+        // Check for completion promise in the last assistant message
+        if (completionPromise) {
+          const lastMessage = llmMessages.current[llmMessages.current.length - 1];
+          if (lastMessage?.role === 'assistant') {
+            const content = typeof lastMessage.content === 'string'
+              ? lastMessage.content
+              : JSON.stringify(lastMessage.content);
+            if (content.includes(completionPromise)) {
+              addMessage('system', `🎉 Completion promise "${completionPromise}" detected! Loop finished.`);
+              break;
+            }
+          }
+        }
+
+        // Check cancelled again after agent run
+        if (loopCancelledRef.current) {
+          addMessage('system', '🛑 Loop cancelled by user');
+          break;
+        }
+
+        // Small delay between iterations
+        await new Promise(r => setTimeout(r, 500));
+
+      } catch (error) {
+        addMessage('error', `Loop error: ${error instanceof Error ? error.message : String(error)}`);
+        break;
+      }
+    }
+
+    // If we completed all iterations without hitting completion promise
+    if (!loopCancelledRef.current && !completionPromise) {
+      addMessage('system', `✅ Loop completed ${maxIter} iterations`);
+    }
+
+    setLoopActive(false);
+    setIsProcessing(false);
+  }, [runAgent, addMessage]);
 
   // Handle input submission
   const handleSubmit = useCallback(async (value: string) => {
