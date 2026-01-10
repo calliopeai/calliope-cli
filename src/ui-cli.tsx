@@ -58,6 +58,113 @@ interface SessionStats {
 }
 
 // ============================================================================
+// Error Boundary
+// ============================================================================
+
+interface ErrorBoundaryProps {
+  children: React.ReactNode;
+  onReset?: () => void;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: string;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null, errorInfo: '' };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    // Log error details
+    const info = errorInfo.componentStack || '';
+    this.setState({ errorInfo: info });
+    
+    // Could also log to file or external service
+    console.error('Calliope Error:', error);
+    console.error('Component Stack:', info);
+  }
+
+  handleRetry = (): void => {
+    this.setState({ hasError: false, error: null, errorInfo: '' });
+    this.props.onReset?.();
+  };
+
+  render(): React.ReactNode {
+    if (this.state.hasError) {
+      return <ErrorFallback 
+        error={this.state.error} 
+        errorInfo={this.state.errorInfo}
+        onRetry={this.handleRetry}
+      />;
+    }
+    return this.props.children;
+  }
+}
+
+function ErrorFallback({ 
+  error, 
+  errorInfo,
+  onRetry 
+}: { 
+  error: Error | null; 
+  errorInfo: string;
+  onRetry: () => void;
+}) {
+  const { exit } = useApp();
+
+  useInput((input, key) => {
+    if (input === 'r' || input === 'R') {
+      onRetry();
+    } else if (input === 'q' || input === 'Q' || key.escape) {
+      exit();
+    }
+  });
+
+  return (
+    <Box flexDirection="column" padding={1}>
+      <Box marginBottom={1}>
+        <Text color="red" bold>⚠️  Calliope encountered an error</Text>
+      </Box>
+      
+      <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor="red" padding={1}>
+        <Text color="red">{error?.message || 'Unknown error'}</Text>
+        {error?.name && error.name !== 'Error' && (
+          <Text dimColor>Type: {error.name}</Text>
+        )}
+      </Box>
+
+      {errorInfo && (
+        <Box flexDirection="column" marginBottom={1}>
+          <Text dimColor>Component trace:</Text>
+          <Text dimColor>{errorInfo.split('\n').slice(0, 5).join('\n')}</Text>
+        </Box>
+      )}
+
+      <Box marginTop={1}>
+        <Text>
+          <Text color="cyan">[R]</Text>
+          <Text>etry  </Text>
+          <Text color="cyan">[Q]</Text>
+          <Text>uit</Text>
+        </Text>
+      </Box>
+
+      <Box marginTop={1}>
+        <Text dimColor>If this persists, try: calliope --legacy</Text>
+      </Box>
+    </Box>
+  );
+}
+
+// ============================================================================
 // Constants
 // ============================================================================
 
@@ -2642,7 +2749,17 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 // ============================================================================
 
 function App() {
-  return <TerminalChat />;
+  const [resetKey, setResetKey] = React.useState(0);
+  
+  const handleReset = React.useCallback(() => {
+    setResetKey(k => k + 1);
+  }, []);
+
+  return (
+    <ErrorBoundary onReset={handleReset}>
+      <TerminalChat key={resetKey} />
+    </ErrorBoundary>
+  );
 }
 
 
