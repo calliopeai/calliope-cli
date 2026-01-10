@@ -11,7 +11,7 @@ import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
-import { getVersion } from './version-check.js';
+import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
@@ -108,6 +108,31 @@ function ModelSelector({ models, selectedIndex, onSelect, onCancel }: ModelSelec
   );
 }
 
+// Upgrade Prompt Component
+interface UpgradePromptProps {
+  currentVersion: string;
+  latestVersion: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function UpgradePrompt({ currentVersion, latestVersion, onConfirm, onCancel }: UpgradePromptProps) {
+  useInput((input, key) => {
+    if (input === 'y' || input === 'Y') {
+      onConfirm();
+    } else if (input === 'n' || input === 'N' || key.escape) {
+      onCancel();
+    }
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Text color="yellow">Update available: v{currentVersion} → <Text color="green">v{latestVersion}</Text></Text>
+      <Text>Upgrade now? <Text color="cyan">(y/N)</Text></Text>
+    </Box>
+  );
+}
+
 // Main App
 function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
   const { exit } = useApp();
@@ -125,6 +150,11 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
   const [modelSelectMode, setModelSelectMode] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [modelLoading, setModelLoading] = useState(false);
+
+  // Upgrade state
+  const [upgradeMode, setUpgradeMode] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [upgrading, setUpgrading] = useState(false);
 
   const [stats, setStats] = useState<Stats>({
     provider: selectProvider(config.get('defaultProvider')),
@@ -154,7 +184,7 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
     switch (command) {
       case '/help':
       case '/h':
-        addMessage('system', `Commands: /help /provider /model /models /persona /clear /status /exit`);
+        addMessage('system', `Commands: /help /provider /model /models /persona /clear /status /config /upgrade /exit\nLoop mode: use --legacy flag`);
         return true;
 
       case '/provider':
@@ -235,6 +265,52 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
       case '/status':
       case '/s':
         addMessage('system', `${selectProvider(provider)}:${model || DEFAULT_MODELS[selectProvider(provider)]} | ${stats.messages} msgs | ${formatTokens(stats.inputTokens + stats.outputTokens)} tokens | ${formatCost(stats.cost)}`);
+        return true;
+
+      case '/config':
+        addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}`);
+        return true;
+
+      case '/setup':
+        addMessage('system', 'Setup requires legacy CLI mode. Run: calliope --legacy then /setup');
+        return true;
+
+      case '/loop':
+        addMessage('system', 'Loop mode requires legacy CLI. Run: calliope --legacy');
+        return true;
+
+      case '/cancel-loop':
+        addMessage('system', 'No active loop');
+        return true;
+
+      case '/upgrade':
+        addMessage('system', 'Checking for updates...');
+        try {
+          const current = getVersion();
+          const latest = await getLatestVersion();
+          if (!latest) {
+            addMessage('error', 'Could not check for updates');
+            return true;
+          }
+          const currentParts = current.split('.').map(Number);
+          const latestParts = latest.split('.').map(Number);
+          let hasUpdate = false;
+          for (let i = 0; i < 3; i++) {
+            if ((latestParts[i] || 0) > (currentParts[i] || 0)) {
+              hasUpdate = true;
+              break;
+            }
+            if ((latestParts[i] || 0) < (currentParts[i] || 0)) break;
+          }
+          if (!hasUpdate) {
+            addMessage('system', `You're on the latest version (v${current})`);
+          } else {
+            setLatestVersion(latest);
+            setUpgradeMode(true);
+          }
+        } catch (e) {
+          addMessage('error', `Failed to check for updates: ${e instanceof Error ? e.message : String(e)}`);
+        }
         return true;
 
       case '/exit':
@@ -355,6 +431,40 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
     addMessage('system', 'Model selection cancelled');
   }, [addMessage]);
 
+  // Upgrade handlers
+  const handleUpgradeConfirm = useCallback(async () => {
+    setUpgradeMode(false);
+    setUpgrading(true);
+    addMessage('system', 'Upgrading...');
+    try {
+      const success = await performUpgrade();
+      if (success) {
+        addMessage('system', 'Upgrade complete! Restarting...');
+        // Restart the CLI
+        const { spawn } = await import('child_process');
+        const child = spawn(process.argv[0], process.argv.slice(1), {
+          stdio: 'inherit',
+          detached: true,
+        });
+        child.unref();
+        process.exit(0);
+      } else {
+        addMessage('error', 'Upgrade failed. Try: npm install -g @calliopelabs/cli@latest');
+      }
+    } catch (e) {
+      addMessage('error', `Upgrade failed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setUpgrading(false);
+      setLatestVersion(null);
+    }
+  }, [addMessage]);
+
+  const handleUpgradeCancel = useCallback(() => {
+    setUpgradeMode(false);
+    setLatestVersion(null);
+    addMessage('system', 'Upgrade cancelled');
+  }, [addMessage]);
+
   const actualModel = model || DEFAULT_MODELS[selectProvider(provider)];
 
   return (
@@ -405,8 +515,19 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
         />
       )}
 
-      {/* Input (hidden when in model select mode) */}
-      {!modelSelectMode && (
+      {/* Upgrade Confirmation */}
+      {upgradeMode && latestVersion && (
+        <UpgradePrompt
+          currentVersion={getVersion()}
+          latestVersion={latestVersion}
+          onConfirm={handleUpgradeConfirm}
+          onCancel={handleUpgradeCancel}
+        />
+      )}
+      {upgrading && <Text color="yellow">⠋ Upgrading...</Text>}
+
+      {/* Input (hidden when in modal mode) */}
+      {!modelSelectMode && !upgradeMode && !upgrading && (
         <>
           <Sep />
           <Box>
