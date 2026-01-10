@@ -12,8 +12,18 @@ import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import { getVersion } from './version-check.js';
-import { selectModelInteractively } from './model-detection.js';
+import { getAvailableModels, type ModelInfo } from './model-detection.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, ToolCall } from './types.js';
+
+// ASCII Banner
+const BANNER_LINES = [
+  ' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗',
+  '██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝',
+  '██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ',
+  '██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ',
+  '╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗',
+  ' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝',
+];
 
 // UI Message type
 interface UIMessage {
@@ -49,6 +59,55 @@ function Sep() {
   return <Text dimColor>{'─'.repeat(stdout?.columns || 80)}</Text>;
 }
 
+// Model Selector Component (Ink-native, replaces inquirer)
+interface ModelSelectorProps {
+  models: ModelInfo[];
+  selectedIndex: number;
+  onSelect: (model: string) => void;
+  onCancel: () => void;
+}
+
+function ModelSelector({ models, selectedIndex, onSelect, onCancel }: ModelSelectorProps) {
+  const [index, setIndex] = useState(selectedIndex);
+  const pageSize = 10;
+  const start = Math.max(0, Math.min(index - Math.floor(pageSize / 2), models.length - pageSize));
+  const visible = models.slice(start, start + pageSize);
+
+  useInput((input, key) => {
+    if (key.upArrow) {
+      setIndex(i => Math.max(0, i - 1));
+    } else if (key.downArrow) {
+      setIndex(i => Math.min(models.length - 1, i + 1));
+    } else if (key.return) {
+      onSelect(models[index].id);
+    } else if (key.escape || input === 'q') {
+      onCancel();
+    }
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Text color="yellow">Select model (↑/↓ navigate, Enter select, Esc cancel):</Text>
+      {visible.map((model, i) => {
+        const globalIndex = start + i;
+        const isSelected = globalIndex === index;
+        const name = model.name || model.id;
+        const displayName = name.length > 50 ? name.slice(0, 47) + '...' : name;
+        return (
+          <Box key={model.id}>
+            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+              {isSelected ? '❯ ' : '  '}{displayName}
+            </Text>
+          </Box>
+        );
+      })}
+      {models.length > pageSize && (
+        <Text dimColor>  ({index + 1}/{models.length})</Text>
+      )}
+    </Box>
+  );
+}
+
 // Main App
 function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
   const { exit } = useApp();
@@ -61,6 +120,12 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
   const [model, setModel] = useState<string | undefined>(config.get('defaultModel'));
   const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
+
+  // Model selection state
+  const [modelSelectMode, setModelSelectMode] = useState(false);
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [modelLoading, setModelLoading] = useState(false);
+
   const [stats, setStats] = useState<Stats>({
     provider: selectProvider(config.get('defaultProvider')),
     model: config.get('defaultModel') || DEFAULT_MODELS[selectProvider(config.get('defaultProvider'))],
@@ -111,21 +176,41 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
           setStats(s => ({ ...s, model: parts[1] }));
           addMessage('system', `Model: ${parts[1]}`);
         } else {
-          const selected = await selectModelInteractively(selectProvider(provider));
-          if (selected) {
-            setModel(selected);
-            setStats(s => ({ ...s, model: selected }));
-            addMessage('system', `Model: ${selected}`);
+          // Trigger inline model selection
+          setModelLoading(true);
+          addMessage('system', `Discovering models for ${selectProvider(provider)}...`);
+          try {
+            const models = await getAvailableModels(selectProvider(provider));
+            if (models.length > 0) {
+              setAvailableModels(models);
+              setModelSelectMode(true);
+            } else {
+              addMessage('error', 'No models found');
+            }
+          } catch (e) {
+            addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+          } finally {
+            setModelLoading(false);
           }
         }
         return true;
 
       case '/models':
-        const selected = await selectModelInteractively(selectProvider(provider));
-        if (selected) {
-          setModel(selected);
-          setStats(s => ({ ...s, model: selected }));
-          addMessage('system', `Model: ${selected}`);
+        // Trigger inline model selection
+        setModelLoading(true);
+        addMessage('system', `Discovering models for ${selectProvider(provider)}...`);
+        try {
+          const models = await getAvailableModels(selectProvider(provider));
+          if (models.length > 0) {
+            setAvailableModels(models);
+            setModelSelectMode(true);
+          } else {
+            addMessage('error', 'No models found');
+          }
+        } catch (e) {
+          addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+        } finally {
+          setModelLoading(false);
         }
         return true;
 
@@ -250,18 +335,41 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
     };
   }, [stdout]);
 
-  // Escape to exit
+  // Escape to exit (but not when in model select mode)
   useInput((_, key) => {
-    if (key.escape) exit();
-  });
+    if (key.escape && !modelSelectMode) exit();
+  }, { isActive: !modelSelectMode });
+
+  // Model selection handlers
+  const handleModelSelect = useCallback((selectedModel: string) => {
+    setModel(selectedModel);
+    setStats(s => ({ ...s, model: selectedModel }));
+    addMessage('system', `Model: ${selectedModel}`);
+    setModelSelectMode(false);
+    setAvailableModels([]);
+  }, [addMessage]);
+
+  const handleModelCancel = useCallback(() => {
+    setModelSelectMode(false);
+    setAvailableModels([]);
+    addMessage('system', 'Model selection cancelled');
+  }, [addMessage]);
+
   const actualModel = model || DEFAULT_MODELS[selectProvider(provider)];
 
   return (
     <Box flexDirection="column" width={width}>
-      {/* Banner */}
-      <Text color="cyan" bold>Calliope</Text>
-      <Text dimColor>v{getVersion()} | /help for commands</Text>
+      {/* ASCII Banner */}
+      <Box flexDirection="column">
+        {BANNER_LINES.map((line, i) => (
+          <Text key={i} color={i < 2 || i > 3 ? 'cyanBright' : 'cyan'}>{line}</Text>
+        ))}
+      </Box>
+      <Text dimColor>        The Muse of Digital Eloquence</Text>
       <Text> </Text>
+      <Text dimColor>  v{getVersion()} | {selectProvider(provider)}:{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}</Text>
+      <Text dimColor>  /help for commands | ESC to exit</Text>
+      <Sep />
 
       {/* Messages - Static for history */}
       <Static items={messages}>
@@ -285,14 +393,29 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
 
       {/* Processing indicator */}
       {isProcessing && <Text color="cyan">⠋ Thinking...</Text>}
+      {modelLoading && <Text color="yellow">⠋ Loading models...</Text>}
 
-      {/* Input */}
-      <Sep />
-      <Box>
-        <Text color="cyan">calliope</Text>
-        <Text dimColor>&gt; </Text>
-        <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-      </Box>
+      {/* Model Selector (when active) */}
+      {modelSelectMode && availableModels.length > 0 && (
+        <ModelSelector
+          models={availableModels}
+          selectedIndex={0}
+          onSelect={handleModelSelect}
+          onCancel={handleModelCancel}
+        />
+      )}
+
+      {/* Input (hidden when in model select mode) */}
+      {!modelSelectMode && (
+        <>
+          <Sep />
+          <Box>
+            <Text color="cyan">calliope</Text>
+            <Text dimColor>&gt; </Text>
+            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+          </Box>
+        </>
+      )}
 
       {/* Footer */}
       <Sep />
