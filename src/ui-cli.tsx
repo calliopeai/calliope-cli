@@ -230,7 +230,7 @@ function ThinkingDisplay({ state }: { state: ThinkingState }) {
       <Box>
         <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
         <Text> {state.status}</Text>
-        {state.iteration && state.maxIterations && (
+        {state.iteration != null && state.maxIterations && (
           <Text dimColor> ({state.iteration}/{state.maxIterations})</Text>
         )}
       </Box>
