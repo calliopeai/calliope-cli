@@ -889,8 +889,51 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         break;
 
       case '/config':
-        addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}`);
+        addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
         break;
+
+      case '/set': {
+        // /set <key> <value>
+        const key = parts[1];
+        const value = parts.slice(2).join(' ');
+        if (!key || !value) {
+          addMessage('system', `Usage: /set <key> <value>
+Available keys:
+  maxIterations <number>  - Max agent iterations (current: ${config.get('maxIterations')})
+  persona <name>          - calliope, professional, minimal
+  fancyOutput <bool>      - true/false`);
+          break;
+        }
+
+        try {
+          if (key === 'maxIterations') {
+            const num = parseInt(value, 10);
+            if (isNaN(num) || num < 1 || num > 10000) {
+              addMessage('error', 'maxIterations must be 1-10000');
+              break;
+            }
+            config.set('maxIterations', num);
+            addMessage('system', `✓ maxIterations set to ${num}`);
+          } else if (key === 'persona') {
+            if (!['calliope', 'professional', 'minimal'].includes(value)) {
+              addMessage('error', 'persona must be: calliope, professional, or minimal');
+              break;
+            }
+            config.set('persona', value as 'calliope' | 'professional' | 'minimal');
+            setPersona(value as AgentPersona);
+            addMessage('system', `✓ persona set to ${value}`);
+          } else if (key === 'fancyOutput') {
+            const bool = value === 'true';
+            config.set('fancyOutput', bool);
+            addMessage('system', `✓ fancyOutput set to ${bool}`);
+          } else {
+            addMessage('error', `Unknown config key: ${key}`);
+          }
+        } catch (err) {
+          addMessage('error', `Failed to set ${key}: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        break;
+      }
 
       case '/setup':
         addMessage('system', 'Run `calliope --setup` to reconfigure.');
