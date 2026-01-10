@@ -693,6 +693,49 @@ function TerminalChat() {
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [queueInput, setQueueInput] = useState('');
 
+  // Undo/Redo history - stores snapshots of conversation state
+  interface ConversationSnapshot {
+    messages: UIMessage[];
+    llmMessages: LLMMessage[];
+    timestamp: Date;
+  }
+  const undoStack = useRef<ConversationSnapshot[]>([]);
+  const redoStack = useRef<ConversationSnapshot[]>([]);
+  const MAX_UNDO_HISTORY = 10;
+
+  // Conversation bookmarks
+  interface Bookmark {
+    id: string;
+    name: string;
+    messageIndex: number;
+    llmMessageIndex: number;
+    timestamp: Date;
+  }
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+
+  // Prompt templates
+  interface PromptTemplate {
+    name: string;
+    prompt: string;
+    createdAt: Date;
+  }
+  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
+
+  // Save state before changes (call before modifying messages)
+  const saveUndoState = useCallback(() => {
+    undoStack.current.push({
+      messages: [...messages],
+      llmMessages: [...llmMessages.current],
+      timestamp: new Date(),
+    });
+    // Limit stack size
+    if (undoStack.current.length > MAX_UNDO_HISTORY) {
+      undoStack.current.shift();
+    }
+    // Clear redo stack on new action
+    redoStack.current = [];
+  }, [messages]);
+
   // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
     { role: 'system', content: getSystemPrompt(persona) }
@@ -817,7 +860,8 @@ function TerminalChat() {
   /copy                    - Copy last response to clipboard
   /export [file.md]        - Export conversation to markdown
   /edit                    - Edit and resend last message
-  /undo                    - Remove last exchange
+  /undo                    - Undo last action (up to 10 steps)
+  /redo                    - Redo undone action
   /confirm [on|off]        - Toggle risky op confirmation
   /profile [name|save|del] - Switch/save/delete profiles
   /mcp [add|remove|tools]  - Manage MCP servers
@@ -833,6 +877,11 @@ function TerminalChat() {
   /config                  - Show config
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
+  /template [save|use|del] - Manage prompt templates
+  /cost                    - Show cost tracking summary
+  /bookmark [name]         - Create bookmark at current point
+  /bookmark list           - List all bookmarks
+  /bookmark goto <n>       - Jump to bookmark
   /queue [show|clear]      - Manage queued messages
   /resume [n]              - Resume previous session (load n messages)
   /exit                    - Exit
@@ -997,28 +1046,48 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (sp
       }
 
       case '/undo': {
-        // Remove last exchange (user message + assistant response)
-        let removed = 0;
-        const newMessages = [...messages];
-        // Remove from the end until we've removed a user message
-        while (newMessages.length > 0 && removed < 10) {
-          const last = newMessages.pop();
-          removed++;
-          if (last?.type === 'user') break;
+        if (undoStack.current.length === 0) {
+          addMessage('system', 'Nothing to undo.');
+          break;
         }
+        
+        // Save current state to redo stack
+        redoStack.current.push({
+          messages: [...messages],
+          llmMessages: [...llmMessages.current],
+          timestamp: new Date(),
+        });
+        
+        // Restore previous state
+        const prevState = undoStack.current.pop()!;
+        setMessages(prevState.messages);
+        llmMessages.current = prevState.llmMessages;
+        setContextTokens(estimateContextTokens());
+        
+        addMessage('system', `✓ Undone (${undoStack.current.length} more available)`);
+        break;
+      }
 
-        // Also remove from LLM context
-        while (llmMessages.current.length > 1) {
-          const last = llmMessages.current[llmMessages.current.length - 1];
-          if (last.role === 'user') {
-            llmMessages.current.pop();
-            break;
-          }
-          llmMessages.current.pop();
+      case '/redo': {
+        if (redoStack.current.length === 0) {
+          addMessage('system', 'Nothing to redo.');
+          break;
         }
-
-        setMessages(newMessages);
-        addMessage('system', `✓ Removed last ${removed} message(s)`);
+        
+        // Save current state to undo stack
+        undoStack.current.push({
+          messages: [...messages],
+          llmMessages: [...llmMessages.current],
+          timestamp: new Date(),
+        });
+        
+        // Restore redo state
+        const redoState = redoStack.current.pop()!;
+        setMessages(redoState.messages);
+        llmMessages.current = redoState.llmMessages;
+        setContextTokens(estimateContextTokens());
+        
+        addMessage('system', `✓ Redone (${redoStack.current.length} more available)`);
         break;
       }
 
@@ -1757,6 +1826,118 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         break;
       }
 
+      case '/template':
+      case '/t': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          if (templates.length === 0) {
+            addMessage('system', 'No templates saved.\n\nUsage:\n  /template save <name> <prompt>\n  /template use <name>\n  /template delete <name>');
+          } else {
+            const list = templates.map((t, i) => 
+              `  ${i + 1}. ${t.name}: "${t.prompt.substring(0, 50)}${t.prompt.length > 50 ? '...' : ''}"`
+            ).join('\n');
+            addMessage('system', `Templates:\n${list}`);
+          }
+        } else if (subCmd === 'save' && parts[2]) {
+          const name = parts[2];
+          const prompt = parts.slice(3).join(' ').replace(/^["']|["']$/g, '');
+          if (!prompt) {
+            addMessage('error', 'Usage: /template save <name> "<prompt>"');
+          } else {
+            setTemplates(prev => {
+              const filtered = prev.filter(t => t.name !== name);
+              return [...filtered, { name, prompt, createdAt: new Date() }];
+            });
+            addMessage('system', `✓ Template saved: ${name}`);
+          }
+        } else if (subCmd === 'use' && parts[2]) {
+          const name = parts[2];
+          const template = templates.find(t => t.name === name);
+          if (template) {
+            setInput(template.prompt);
+            addMessage('system', `✓ Template loaded: ${name} (press Enter to send)`);
+          } else {
+            addMessage('error', `Template not found: ${name}`);
+          }
+        } else if (subCmd === 'delete' && parts[2]) {
+          const name = parts[2];
+          const found = templates.find(t => t.name === name);
+          if (found) {
+            setTemplates(prev => prev.filter(t => t.name !== name));
+            addMessage('system', `✓ Template deleted: ${name}`);
+          } else {
+            addMessage('error', `Template not found: ${name}`);
+          }
+        } else {
+          addMessage('system', 'Usage: /template [list|save <name> <prompt>|use <name>|delete <name>]');
+        }
+        break;
+      }
+
+      case '/cost':
+      case '/costs': {
+        const subCmd = parts[1];
+        if (subCmd === 'reset') {
+          storage.resetCosts();
+          addMessage('system', '✓ Cost tracking reset');
+        } else {
+          addMessage('system', storage.getCostSummary());
+        }
+        break;
+      }
+
+      case '/bookmark':
+      case '/bm': {
+        const subCmd = parts[1];
+        if (!subCmd || subCmd === 'list') {
+          // List bookmarks
+          if (bookmarks.length === 0) {
+            addMessage('system', 'No bookmarks. Use /bookmark "name" to create one.');
+          } else {
+            const list = bookmarks.map((b, i) => 
+              `  ${i + 1}. 🔖 ${b.name} (message #${b.messageIndex})`
+            ).join('\n');
+            addMessage('system', `Bookmarks:\n${list}\n\nUse /bookmark goto <number> to jump.`);
+          }
+        } else if (subCmd === 'goto' && parts[2]) {
+          const idx = parseInt(parts[2]) - 1;
+          if (idx >= 0 && idx < bookmarks.length) {
+            const bm = bookmarks[idx];
+            // Save current state for undo
+            saveUndoState();
+            // Restore to bookmark point
+            setMessages(messages.slice(0, bm.messageIndex + 1));
+            llmMessages.current = llmMessages.current.slice(0, bm.llmMessageIndex + 1);
+            setContextTokens(estimateContextTokens());
+            addMessage('system', `✓ Jumped to bookmark: ${bm.name}`);
+          } else {
+            addMessage('error', `Invalid bookmark number. Use /bookmark list to see available.`);
+          }
+        } else if (subCmd === 'delete' && parts[2]) {
+          const idx = parseInt(parts[2]) - 1;
+          if (idx >= 0 && idx < bookmarks.length) {
+            const removed = bookmarks[idx];
+            setBookmarks(prev => prev.filter((_, i) => i !== idx));
+            addMessage('system', `✓ Deleted bookmark: ${removed.name}`);
+          } else {
+            addMessage('error', 'Invalid bookmark number.');
+          }
+        } else {
+          // Create bookmark with given name
+          const name = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
+          const bm: Bookmark = {
+            id: `bm_${Date.now()}`,
+            name,
+            messageIndex: messages.length - 1,
+            llmMessageIndex: llmMessages.current.length - 1,
+            timestamp: new Date(),
+          };
+          setBookmarks(prev => [...prev, bm]);
+          addMessage('system', `🔖 Bookmark created: "${name}"`);
+        }
+        break;
+      }
+
       case '/queue':
       case '/q': {
         // /q is now queue, use /exit to quit
@@ -1889,6 +2070,8 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             outputTokens: s.outputTokens + response.usage!.outputTokens,
             cost: s.cost + usageCost,
           }));
+          // Persist cost to storage
+          storage.recordCost(usageCost, actualProvider, sessionRef.current?.id);
         }
 
         // Handle tool calls with parallel execution support
@@ -2216,6 +2399,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       return;
     }
 
+    // Save state for undo before modifying conversation
+    saveUndoState();
+
     // Parse file references from input
     const { text: cleanText, files } = parseFileReferences(trimmed, process.cwd());
 
@@ -2253,7 +2439,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       setThinkingState(null);
       setStreamingResponse('');
     }
-  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model]);
+  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model, saveUndoState]);
 
   // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {

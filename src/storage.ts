@@ -640,3 +640,110 @@ export function searchCommandHistory(query: string): string[] {
 
   return history.filter(cmd => cmd.toLowerCase().includes(lower));
 }
+
+// ============================================================================
+// Cost Tracking
+// ============================================================================
+
+export interface CostRecord {
+  totalCost: number;
+  costByProvider: Record<string, number>;
+  costByDay: Record<string, number>;
+  costBySession: Record<string, number>;
+  lastUpdated: string;
+}
+
+/**
+ * Get cost tracking file path
+ */
+function getCostFilePath(): string {
+  return path.join(paths.root, 'costs.json');
+}
+
+/**
+ * Load cost records
+ */
+export function getCosts(): CostRecord {
+  const filePath = getCostFilePath();
+  if (!fs.existsSync(filePath)) {
+    return {
+      totalCost: 0,
+      costByProvider: {},
+      costByDay: {},
+      costBySession: {},
+      lastUpdated: new Date().toISOString(),
+    };
+  }
+  return readJSON(filePath, {
+    totalCost: 0,
+    costByProvider: {},
+    costByDay: {},
+    costBySession: {},
+    lastUpdated: new Date().toISOString(),
+  } as CostRecord) || {
+    totalCost: 0,
+    costByProvider: {},
+    costByDay: {},
+    costBySession: {},
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+/**
+ * Record a cost
+ */
+export function recordCost(cost: number, provider: string, sessionId?: string): void {
+  initStorage();
+  const costs = getCosts();
+  const today = new Date().toISOString().split('T')[0];
+
+  costs.totalCost += cost;
+  costs.costByProvider[provider] = (costs.costByProvider[provider] || 0) + cost;
+  costs.costByDay[today] = (costs.costByDay[today] || 0) + cost;
+  
+  if (sessionId) {
+    costs.costBySession[sessionId] = (costs.costBySession[sessionId] || 0) + cost;
+  }
+  
+  costs.lastUpdated = new Date().toISOString();
+  writeJSON(getCostFilePath(), costs);
+}
+
+/**
+ * Get cost summary for display
+ */
+export function getCostSummary(): string {
+  const costs = getCosts();
+  const today = new Date().toISOString().split('T')[0];
+  const todayCost = costs.costByDay[today] || 0;
+
+  const lines = [
+    `Total: $${costs.totalCost.toFixed(4)}`,
+    `Today: $${todayCost.toFixed(4)}`,
+    '',
+    'By Provider:',
+  ];
+
+  for (const [provider, cost] of Object.entries(costs.costByProvider)) {
+    lines.push(`  ${provider}: $${cost.toFixed(4)}`);
+  }
+
+  // Last 7 days
+  lines.push('', 'Last 7 Days:');
+  const dates = Object.keys(costs.costByDay).sort().slice(-7);
+  for (const date of dates) {
+    lines.push(`  ${date}: $${costs.costByDay[date].toFixed(4)}`);
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Reset cost tracking
+ */
+export function resetCosts(): void {
+  const filePath = getCostFilePath();
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+}
