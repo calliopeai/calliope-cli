@@ -1807,6 +1807,9 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
   // Render
   return (
     <Box flexDirection="column" width={width}>
+      {/* Banner - rendered once at top */}
+      <Banner provider={actualProvider} model={actualModel} />
+
       {/* Message History */}
       <MessageHistory messages={messages} />
 
@@ -1876,36 +1879,28 @@ function App() {
   return <TerminalChat />;
 }
 
-// ANSI colors for pre-Ink banner
-const ansi = {
-  reset: '\x1b[0m',
-  cyan: '\x1b[36m',
-  brightCyan: '\x1b[96m',
-  dim: '\x1b[2m',
-};
-
-function printBanner(provider: string, model: string): void {
-  console.log();
-  console.log(`${ansi.brightCyan}${BANNER_LINES[0]}${ansi.reset}`);
-  console.log(`${ansi.brightCyan}${BANNER_LINES[1]}${ansi.reset}`);
-  console.log(`${ansi.cyan}${BANNER_LINES[2]}${ansi.reset}`);
-  console.log(`${ansi.cyan}${BANNER_LINES[3]}${ansi.reset}`);
-  console.log(`${ansi.brightCyan}${BANNER_LINES[4]}${ansi.reset}`);
-  console.log(`${ansi.cyan}${BANNER_LINES[5]}${ansi.reset}`);
-  console.log();
-  console.log(`${ansi.dim}        The Muse of Digital Eloquence${ansi.reset}`);
-  console.log();
-  console.log(`  ${ansi.dim}v${getVersion()} | ${provider}:${model}${ansi.reset}`);
-  console.log(`  ${ansi.dim}/help for commands | ESC to exit${ansi.reset}`);
-  console.log();
+// Banner component rendered inside Ink
+function Banner({ provider, model }: { provider: string; model: string }) {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text color="cyanBright">{BANNER_LINES[0]}</Text>
+      <Text color="cyanBright">{BANNER_LINES[1]}</Text>
+      <Text color="cyan">{BANNER_LINES[2]}</Text>
+      <Text color="cyan">{BANNER_LINES[3]}</Text>
+      <Text color="cyanBright">{BANNER_LINES[4]}</Text>
+      <Text color="cyan">{BANNER_LINES[5]}</Text>
+      <Text> </Text>
+      <Text dimColor>        The Muse of Digital Eloquence</Text>
+      <Text> </Text>
+      <Text dimColor>  v{getVersion()} | {provider}:{model}</Text>
+      <Text dimColor>  /help for commands | ESC to exit</Text>
+    </Box>
+  );
 }
 
 export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
-  const provider = selectProvider(config.get('defaultProvider'));
-  const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
-
-  printBanner(provider, model);
-
-  const { waitUntilExit } = render(<App />);
+  const { waitUntilExit } = render(<App />, {
+    patchConsole: true,  // Prevent console.log from mixing with Ink output
+  });
   await waitUntilExit();
 }
