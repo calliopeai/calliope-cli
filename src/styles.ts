@@ -1,20 +1,23 @@
 /**
- * Calliope CLI - Shared Styles
+ * Calliope CLI - Shared Styling
  *
- * Centralized styling constants for consistent UI across CLI and Ink interfaces.
+ * Centralized colors, icons, and formatting utilities.
  */
 
 // ============================================================================
-// ANSI Colors (for legacy CLI)
+// ANSI Color Codes
 // ============================================================================
 
-export const ANSI = {
+export const colors = {
+  // Reset
   reset: '\x1b[0m',
+
+  // Modifiers
   bold: '\x1b[1m',
   dim: '\x1b[2m',
   italic: '\x1b[3m',
   underline: '\x1b[4m',
-  
+
   // Standard colors
   black: '\x1b[30m',
   red: '\x1b[31m',
@@ -24,7 +27,7 @@ export const ANSI = {
   magenta: '\x1b[35m',
   cyan: '\x1b[36m',
   white: '\x1b[37m',
-  
+
   // Bright colors
   brightBlack: '\x1b[90m',
   brightRed: '\x1b[91m',
@@ -34,7 +37,7 @@ export const ANSI = {
   brightMagenta: '\x1b[95m',
   brightCyan: '\x1b[96m',
   brightWhite: '\x1b[97m',
-  
+
   // Background colors
   bgRed: '\x1b[41m',
   bgGreen: '\x1b[42m',
@@ -42,145 +45,168 @@ export const ANSI = {
   bgBlue: '\x1b[44m',
 } as const;
 
+export type ColorName = keyof typeof colors;
+
 /**
- * Apply ANSI color to text
+ * Apply color to text (with auto-reset)
  */
-export function ansi(text: string, ...styles: (keyof typeof ANSI)[]): string {
-  const codes = styles.map(s => ANSI[s]).join('');
-  return `${codes}${text}${ANSI.reset}`;
+export function color(text: string, ...styles: ColorName[]): string {
+  if (styles.length === 0) return text;
+  const codes = styles.map(s => colors[s]).join('');
+  return `${codes}${text}${colors.reset}`;
+}
+
+/**
+ * Apply color only if terminal supports it
+ */
+export function colorIf(condition: boolean, text: string, ...styles: ColorName[]): string {
+  return condition ? color(text, ...styles) : text;
 }
 
 // ============================================================================
-// Icons
+// Tool Icons
 // ============================================================================
 
-export const ICONS = {
-  // Tools
-  shell: '⚡',
+export const TOOL_ICONS: Record<string, string> = {
+  // File operations
   read_file: '📄',
   write_file: '✍️',
   list_files: '📁',
-  think: '💭',
+
+  // Execution
+  shell: '⚡',
   execute_code: '▶️',
+
+  // Search & analysis
   web_search: '🔍',
+  think: '💭',
+
+  // Version control
   git: '🔀',
+
+  // Diagrams
   mermaid: '📊',
-  
-  // Status
+
+  // Default
+  default: '⚙️',
+} as const;
+
+export function getToolIcon(toolName: string): string {
+  return TOOL_ICONS[toolName] || TOOL_ICONS.default;
+}
+
+// ============================================================================
+// Status Icons
+// ============================================================================
+
+export const STATUS_ICONS = {
   success: '✓',
   error: '✗',
   warning: '⚠️',
   info: 'ℹ️',
-  
-  // UI
-  spinner: ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'],
-  prompt: '›',
-  calliope: '✧',
-  
-  // Risk levels
-  riskNone: '░░░░░',
-  riskLow: '█░░░░',
-  riskMedium: '███░░',
-  riskHigh: '████░',
-  riskCritical: '█████',
-  
-  // Modes
-  modePlan: '📋',
-  modeHybrid: '🔄',
-  modeWork: '🔧',
-  
-  // Branches
-  branchLine: '│',
-  branchCorner: '╰─',
-  branchTee: '├─',
-  branchTop: '╭─',
+  pending: '○',
+  complete: '●',
+  blocked: '🛑',
+  thinking: '💭',
+  running: '⚡',
 } as const;
 
-/**
- * Get icon for a tool
- */
-export function getToolIcon(toolName: string): string | readonly string[] {
-  return ICONS[toolName as keyof typeof ICONS] || '⚙️';
-}
+// ============================================================================
+// Risk Level Display
+// ============================================================================
+
+export const RISK_COLORS: Record<string, ColorName> = {
+  none: 'green',
+  low: 'green',
+  medium: 'yellow',
+  high: 'red',
+  critical: 'red',
+};
+
+export const RISK_ICONS: Record<string, string> = {
+  none: '',
+  low: '░',
+  medium: '▒',
+  high: '▓',
+  critical: '█',
+};
 
 // ============================================================================
-// Box Drawing
+// Spinner Frames
+// ============================================================================
+
+export const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
+export const SPINNER_DOTS = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'] as const;
+
+export const SPINNER_SIMPLE = ['|', '/', '-', '\\'] as const;
+
+// ============================================================================
+// Box Drawing Characters
 // ============================================================================
 
 export const BOX = {
-  // Single line
-  horizontal: '─',
-  vertical: '│',
+  // Corners
   topLeft: '╭',
   topRight: '╮',
   bottomLeft: '╰',
   bottomRight: '╯',
+
+  // Lines
+  horizontal: '─',
+  vertical: '│',
+
+  // Connectors
   teeRight: '├',
   teeLeft: '┤',
   teeDown: '┬',
   teeUp: '┴',
   cross: '┼',
-  
-  // Double line
-  doubleHorizontal: '═',
-  doubleVertical: '║',
-  doubleTopLeft: '╔',
-  doubleTopRight: '╗',
-  doubleBottomLeft: '╚',
-  doubleBottomRight: '╝',
+
+  // Heavy variants
+  heavyHorizontal: '━',
+  heavyVertical: '┃',
 } as const;
-
-/**
- * Create a horizontal separator
- */
-export function separator(width: number, char = BOX.horizontal): string {
-  return char.repeat(width);
-}
-
-// ============================================================================
-// Banner
-// ============================================================================
-
-export const BANNER_LINES = [
-  ' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗',
-  '██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝',
-  '██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ',
-  '██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ',
-  '╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗',
-  ' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝',
-] as const;
-
-export const TAGLINE = 'The Muse of Digital Eloquence';
-
-/**
- * Print the banner with ANSI colors
- */
-export function printBanner(): void {
-  console.log();
-  console.log(ansi(BANNER_LINES[0], 'brightCyan'));
-  console.log(ansi(BANNER_LINES[1], 'brightCyan'));
-  console.log(ansi(BANNER_LINES[2], 'cyan'));
-  console.log(ansi(BANNER_LINES[3], 'cyan'));
-  console.log(ansi(BANNER_LINES[4], 'brightCyan'));
-  console.log(ansi(BANNER_LINES[5], 'cyan'));
-  console.log();
-  console.log(ansi(`        ${TAGLINE}`, 'dim'));
-  console.log();
-}
 
 // ============================================================================
 // Formatting Utilities
 // ============================================================================
 
 /**
- * Format a key-value pair for display
+ * Create a horizontal separator line
  */
-export function formatKV(key: string, value: string, keyColor: keyof typeof ANSI = 'dim'): string {
-  return `${ansi(key + ':', keyColor)} ${value}`;
+export function separator(width: number = 80, char: string = BOX.horizontal): string {
+  return char.repeat(width);
 }
 
 /**
- * Format a number with K/M suffix
+ * Truncate text with ellipsis
+ */
+export function truncate(text: string, maxLength: number, suffix: string = '...'): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - suffix.length) + suffix;
+}
+
+/**
+ * Pad text to a fixed width
+ */
+export function pad(text: string, width: number, align: 'left' | 'right' | 'center' = 'left'): string {
+  if (text.length >= width) return text;
+  const padding = width - text.length;
+  switch (align) {
+    case 'right':
+      return ' '.repeat(padding) + text;
+    case 'center':
+      const left = Math.floor(padding / 2);
+      const right = padding - left;
+      return ' '.repeat(left) + text + ' '.repeat(right);
+    default:
+      return text + ' '.repeat(padding);
+  }
+}
+
+/**
+ * Format a number with K/M suffixes
  */
 export function formatNumber(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -189,20 +215,52 @@ export function formatNumber(n: number): string {
 }
 
 /**
- * Format currency
+ * Format bytes with appropriate unit
  */
-export function formatCost(cost: number): string {
-  if (cost < 0.01) return '<$0.01';
-  if (cost < 1) return `$${cost.toFixed(2)}`;
-  return `$${cost.toFixed(2)}`;
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} KB`;
+  return `${bytes} B`;
 }
 
 /**
- * Truncate text with ellipsis
+ * Format duration in human-readable form
  */
-export function truncate(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength - 3) + '...';
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 3600000) return `${Math.floor(ms / 60000)}m ${Math.floor((ms % 60000) / 1000)}s`;
+  return `${Math.floor(ms / 3600000)}h ${Math.floor((ms % 3600000) / 60000)}m`;
+}
+
+/**
+ * Format cost in dollars
+ */
+export function formatCost(cost: number): string {
+  if (cost < 0.01) return '<$0.01';
+  if (cost < 1) return `$${cost.toFixed(3)}`;
+  return `$${cost.toFixed(2)}`;
+}
+
+// ============================================================================
+// Pre-built Styled Elements
+// ============================================================================
+
+/**
+ * Create a styled box header
+ */
+export function boxHeader(title: string, width: number = 60): string {
+  const padded = ` ${title} `;
+  const sideWidth = Math.floor((width - padded.length - 2) / 2);
+  return `${BOX.topLeft}${BOX.horizontal.repeat(sideWidth)}${padded}${BOX.horizontal.repeat(width - sideWidth - padded.length - 2)}${BOX.topRight}`;
+}
+
+/**
+ * Create a styled box footer
+ */
+export function boxFooter(width: number = 60): string {
+  return `${BOX.bottomLeft}${BOX.horizontal.repeat(width - 2)}${BOX.bottomRight}`;
 }
 
 /**
@@ -211,47 +269,4 @@ export function truncate(text: string, maxLength: number): string {
 export function indent(text: string, spaces: number = 2): string {
   const prefix = ' '.repeat(spaces);
   return text.split('\n').map(line => prefix + line).join('\n');
-}
-
-// ============================================================================
-// Color Schemes
-// ============================================================================
-
-export const COLOR_SCHEMES = {
-  default: {
-    primary: 'cyan',
-    secondary: 'blue',
-    success: 'green',
-    warning: 'yellow',
-    error: 'red',
-    muted: 'dim',
-  },
-  monochrome: {
-    primary: 'white',
-    secondary: 'brightWhite',
-    success: 'white',
-    warning: 'white',
-    error: 'white',
-    muted: 'dim',
-  },
-  warm: {
-    primary: 'yellow',
-    secondary: 'magenta',
-    success: 'green',
-    warning: 'brightYellow',
-    error: 'red',
-    muted: 'dim',
-  },
-} as const;
-
-export type ColorScheme = keyof typeof COLOR_SCHEMES;
-
-let currentScheme: ColorScheme = 'default';
-
-export function setColorScheme(scheme: ColorScheme): void {
-  currentScheme = scheme;
-}
-
-export function getColor(role: keyof typeof COLOR_SCHEMES.default): keyof typeof ANSI {
-  return COLOR_SCHEMES[currentScheme][role] as keyof typeof ANSI;
 }
