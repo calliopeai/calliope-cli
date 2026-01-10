@@ -146,6 +146,99 @@ export function classifyError(error: unknown): ClassifiedError {
     };
   }
 
+  // File not found errors (but not model errors)
+  if (
+    !lowerMessage.includes('model') && (
+      lowerMessage.includes('enoent') ||
+      lowerMessage.includes('no such file') ||
+      (lowerMessage.includes('not found') && (lowerMessage.includes('file') || lowerMessage.includes('path') || lowerMessage.includes('directory'))) ||
+      lowerMessage.includes('does not exist')
+    )
+  ) {
+    // Extract filename if possible
+    const pathMatch = message.match(/['"]([^'"]+)['"]/);
+    const filePath = pathMatch ? pathMatch[1] : 'the file';
+    return {
+      category: 'invalid_request',
+      message: `File not found: ${filePath}`,
+      suggestion: 'Check the file path. Use /find <name> to search for files, or list_files to explore.',
+      retryable: false,
+    };
+  }
+
+  // Permission errors
+  if (
+    lowerMessage.includes('permission denied') ||
+    lowerMessage.includes('eacces') ||
+    lowerMessage.includes('eperm') ||
+    lowerMessage.includes('access denied')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Permission denied',
+      suggestion: 'Check file permissions with `ls -la`. You may need elevated privileges.',
+      retryable: false,
+    };
+  }
+
+  // Disk/space errors
+  if (
+    lowerMessage.includes('enospc') ||
+    lowerMessage.includes('no space') ||
+    lowerMessage.includes('disk full')
+  ) {
+    return {
+      category: 'server',
+      message: 'Disk space exhausted',
+      suggestion: 'Free up disk space and try again.',
+      retryable: false,
+    };
+  }
+
+  // Context/token limit errors
+  if (
+    lowerMessage.includes('context length') ||
+    lowerMessage.includes('token limit') ||
+    lowerMessage.includes('maximum context') ||
+    lowerMessage.includes('too long')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Context limit exceeded',
+      suggestion: 'Use /summarize compact to reduce context, or /clear to start fresh.',
+      retryable: false,
+    };
+  }
+
+  // Model not found errors
+  if (
+    lowerMessage.includes('model not found') ||
+    lowerMessage.includes('invalid model') ||
+    lowerMessage.includes('does not exist') && lowerMessage.includes('model')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Model not available',
+      suggestion: 'Use /models to see available models, or /provider to switch providers.',
+      retryable: false,
+    };
+  }
+
+  // Content policy / safety errors
+  if (
+    lowerMessage.includes('content policy') ||
+    lowerMessage.includes('safety') ||
+    lowerMessage.includes('blocked') ||
+    lowerMessage.includes('harmful')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Content blocked by safety filter',
+      suggestion: 'Rephrase your request to avoid triggering content filters.',
+      retryable: false,
+    };
+  }
+
   // Unknown error
   return {
     category: 'unknown',
@@ -157,14 +250,49 @@ export function classifyError(error: unknown): ClassifiedError {
 }
 
 /**
- * Format an error for user display
+ * Format an error for user display with category-specific styling
  */
-export function formatError(error: unknown): string {
+export function formatError(error: unknown, context?: { tool?: string; provider?: string }): string {
   const classified = classifyError(error);
 
-  let output = `✗ ${classified.message}`;
+  // Category-specific icons
+  const categoryIcons: Record<ErrorCategory, string> = {
+    network: '🌐',
+    rate_limit: '⏱️',
+    auth: '🔑',
+    invalid_request: '❌',
+    server: '🖥️',
+    timeout: '⏰',
+    unknown: '❓',
+  };
+
+  const icon = categoryIcons[classified.category];
+  let output = `${icon} ${classified.message}`;
+  
+  // Add context if provided
+  if (context?.tool) {
+    output = `${icon} [${context.tool}] ${classified.message}`;
+  }
+  
+  // Add suggestion
   if (classified.suggestion) {
-    output += `\n  💡 ${classified.suggestion}`;
+    output += `\n   💡 ${classified.suggestion}`;
+  }
+  
+  // Add provider-specific help for auth errors
+  if (classified.category === 'auth' && context?.provider) {
+    const providerHelp = getProviderSuggestion(context.provider, error);
+    if (providerHelp) {
+      output += `\n   🔗 ${providerHelp}`;
+    }
+  }
+  
+  // Add retry info for retryable errors
+  if (classified.retryable && classified.retryAfterMs) {
+    const waitSecs = Math.round(classified.retryAfterMs / 1000);
+    if (waitSecs > 0) {
+      output += `\n   ⏳ Auto-retry in ${waitSecs}s...`;
+    }
   }
 
   return output;

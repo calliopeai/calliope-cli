@@ -142,7 +142,7 @@ describe('classifyError', () => {
 describe('formatError', () => {
   it('should format network errors with suggestion', () => {
     const result = formatError(new Error('ECONNREFUSED'));
-    expect(result).toContain('✗');
+    expect(result).toContain('🌐'); // Network icon
     expect(result).toContain('💡');
     expect(result).toContain('internet connection');
   });
@@ -242,3 +242,58 @@ describe('withRetry', () => {
     expect(retryAttempts).toEqual([1, 2]);
   });
 });
+
+  // Tests for newly added error patterns
+  describe('file errors', () => {
+    it('should classify ENOENT as file not found', () => {
+      const result = classifyError(new Error("ENOENT: no such file or directory, open '/path/to/file.txt'"));
+      expect(result.category).toBe('invalid_request');
+      expect(result.message).toContain('File not found');
+      expect(result.suggestion).toContain('/find');
+    });
+
+    it('should classify permission denied', () => {
+      const result = classifyError(new Error('EACCES: permission denied'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.message).toContain('Permission denied');
+      expect(result.suggestion).toContain('ls -la');
+    });
+  });
+
+  describe('context errors', () => {
+    it('should classify context length exceeded', () => {
+      const result = classifyError(new Error('Maximum context length exceeded'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.suggestion).toContain('/summarize compact');
+    });
+  });
+
+  describe('model errors', () => {
+    it('should classify model not found', () => {
+      const result = classifyError(new Error('Model not found: gpt-5-turbo'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.suggestion).toContain('/models');
+    });
+  });
+
+  describe('content policy errors', () => {
+    it('should classify content policy violations', () => {
+      const result = classifyError(new Error('Content blocked by safety filter'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.suggestion).toContain('Rephrase');
+    });
+  });
+
+  describe('formatError enhancements', () => {
+    it('should show category-specific icons', () => {
+      expect(formatError(new Error('rate limit'))).toContain('⏱️');
+      expect(formatError(new Error('unauthorized'))).toContain('🔑');
+      expect(formatError(new Error('timeout'))).toContain('⏰');
+      expect(formatError(new Error('500 server error'))).toContain('🖥️');
+    });
+
+    it('should show auto-retry info for retryable errors', () => {
+      const result = formatError(new Error('ECONNREFUSED'));
+      expect(result).toContain('Auto-retry');
+    });
+  });
