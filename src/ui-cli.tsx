@@ -369,21 +369,54 @@ function ChatInput({
   );
 }
 
+// Context window limits by model (approximate)
+const CONTEXT_LIMITS: Record<string, number> = {
+  'claude-sonnet-4': 200000,
+  'claude-opus-4': 200000,
+  'claude-3': 200000,
+  'gpt-4o': 128000,
+  'gpt-4-turbo': 128000,
+  'gpt-4': 8192,
+  'gemini-2': 1000000,
+  'gemini-1.5-pro': 1000000,
+  'gemini-1.5-flash': 1000000,
+  'llama-3.3': 128000,
+  'llama-3.1': 128000,
+  'mistral-large': 128000,
+  'default': 32000,
+};
+
+function getContextLimit(model: string): number {
+  for (const [key, limit] of Object.entries(CONTEXT_LIMITS)) {
+    if (model.toLowerCase().includes(key.toLowerCase())) {
+      return limit;
+    }
+  }
+  return CONTEXT_LIMITS.default;
+}
+
 function StatusBar({
   provider,
   model,
   stats,
-  mode
+  mode,
+  contextTokens,
 }: {
   provider: string;
   model: string;
   stats: SessionStats;
   mode: Mode;
+  contextTokens: number;
 }) {
   const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
   const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
   const displayModel = model.length > 25 ? model.slice(0, 22) + '...' : model;
   const modeConfig = MODE_CONFIG[mode];
+
+  // Context usage indicator
+  const contextLimit = getContextLimit(model);
+  const contextPct = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
+  const contextColor = contextPct > 80 ? 'red' : contextPct > 50 ? 'yellow' : 'green';
 
   return (
     <Box flexDirection="column">
@@ -393,11 +426,13 @@ function StatusBar({
         {' │ '}
         {provider}:{displayModel}
         {' │ '}
-        {formatTokens(stats.inputTokens + stats.outputTokens)} tokens
+        <Text color={contextColor}>{formatTokens(contextTokens)}/{formatTokens(contextLimit)}</Text>
+        {' │ '}
+        {formatTokens(stats.inputTokens + stats.outputTokens)} used
         {' │ '}
         {formatCost(stats.cost)}
         {' │ '}
-        <Text dimColor>Shift+Tab: mode</Text>
+        <Text dimColor>Esc: exit</Text>
       </Text>
     </Box>
   );
@@ -437,11 +472,31 @@ function TerminalChat() {
     cost: 0,
     messageCount: 0,
   });
+  const [contextTokens, setContextTokens] = useState(0);
 
   // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
     { role: 'system', content: getSystemPrompt(persona) }
   ]);
+
+  // Estimate context tokens (rough: ~4 chars per token)
+  const estimateContextTokens = useCallback(() => {
+    let chars = 0;
+    for (const msg of llmMessages.current) {
+      if (typeof msg.content === 'string') {
+        chars += msg.content.length;
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === 'text') {
+            chars += block.text.length;
+          } else if (block.type === 'image') {
+            chars += 1000; // Images count as ~250 tokens
+          }
+        }
+      }
+    }
+    return Math.round(chars / 4);
+  }, []);
 
   // Session state
   const sessionRef = useRef<storage.Session | null>(null);
@@ -1002,6 +1057,7 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         llmMessages.current.push({ role: 'assistant', content: response.content });
         addMessage('assistant', response.content);
         setStreamingResponse('');
+        setContextTokens(estimateContextTokens());
         break;
 
       } catch (error) {
@@ -1011,7 +1067,9 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         break;
       }
     }
-  }, [provider, model, addMessage, mode]);
+    // Update context tokens after agent run
+    setContextTokens(estimateContextTokens());
+  }, [provider, model, addMessage, mode, estimateContextTokens]);
 
   // Handle input submission
   const handleSubmit = useCallback(async (value: string) => {
@@ -1178,6 +1236,7 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         model={actualModel}
         mode={mode}
         stats={stats}
+        contextTokens={contextTokens}
       />
     </Box>
   );
