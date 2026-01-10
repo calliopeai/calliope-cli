@@ -21,6 +21,7 @@ import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG } from './typ
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
 import { assessToolRisk, detectComplexity } from './risk.js';
+import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel } from './types.js';
 
@@ -472,7 +473,23 @@ function TerminalChat() {
     switch (command) {
       case '/help':
       case '/h':
-        addMessage('system', 'Commands: /help /mode /provider /model /persona /clear /status /config /upgrade /exit\nModes: plan (📋) hybrid (🔄) work (🔧) | Shift+Tab to cycle');
+        addMessage('system', `Commands:
+  /mode [plan|hybrid|work] - Switch modes (Shift+Tab to cycle)
+  /provider [name]         - Switch AI provider
+  /model [name]            - Switch model
+  /persona [name]          - Switch personality
+  /todo [add|done|list]    - Manage TODOs
+  /plans [list|view]       - View plan history
+  /session [list|info]     - Session management
+  /history [search]        - Chat history
+  /context [load|summary]  - Context management
+  /clear                   - Clear conversation
+  /status                  - Show status
+  /config                  - Show config
+  /upgrade                 - Check for updates
+  /exit                    - Exit
+
+Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         break;
 
       case '/provider':
@@ -784,7 +801,17 @@ function TerminalChat() {
           setStreamingResponse(prev => prev + token);
         };
 
-        const response = await chat(provider, llmMessages.current, TOOLS, model, onToken);
+        // Retry callback for error recovery
+        const onRetry = (attempt: number, error: Error, delayMs: number) => {
+          setThinkingState({
+            status: `Retrying... (attempt ${attempt + 1})`,
+            detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`,
+            iteration: i + 1,
+            maxIterations,
+          });
+        };
+
+        const response = await chat(provider, llmMessages.current, TOOLS, model, onToken, onRetry);
 
         // Update token stats
         if (response.usage) {
@@ -868,11 +895,11 @@ function TerminalChat() {
       } catch (error) {
         setThinkingState(null);
         setStreamingResponse('');
-        addMessage('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
+        addMessage('error', formatError(error));
         break;
       }
     }
-  }, [provider, model, addMessage]);
+  }, [provider, model, addMessage, mode]);
 
   // Handle input submission
   const handleSubmit = useCallback(async (value: string) => {

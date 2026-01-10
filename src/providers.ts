@@ -8,6 +8,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import * as config from './config.js';
+import { withRetry, classifyError, type RetryOptions } from './errors.js';
 import type { Message, Tool, LLMResponse, ToolCall, LLMProvider } from './types.js';
 import { DEFAULT_MODELS } from './types.js';
 
@@ -153,38 +154,53 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
 export type StreamCallback = (token: string) => void;
 
 /**
- * Chat with the selected provider
+ * Retry callback type for UI updates
+ */
+export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
+
+/**
+ * Chat with the selected provider (with automatic retry)
  */
 export async function chat(
   provider: LLMProvider,
   messages: Message[],
   tools: Tool[],
   model?: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  onRetry?: RetryCallback
 ): Promise<LLMResponse> {
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
 
-  switch (actualProvider) {
-    case 'anthropic':
-      return chatAnthropic(messages, tools, actualModel, onToken);
-    case 'google':
-      return chatGoogle(messages, tools, actualModel);
-    case 'openai':
-      return chatOpenAI(messages, tools, actualModel, onToken);
-    case 'openrouter':
-    case 'together':
-    case 'groq':
-    case 'fireworks':
-    case 'mistral':
-    case 'ai21':
-    case 'huggingface':
-    case 'ollama':
-    case 'litellm':
-      return chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
-    default:
-      throw new Error(`Provider ${actualProvider} not implemented`);
-  }
+  const doChat = async (): Promise<LLMResponse> => {
+    switch (actualProvider) {
+      case 'anthropic':
+        return chatAnthropic(messages, tools, actualModel, onToken);
+      case 'google':
+        return chatGoogle(messages, tools, actualModel);
+      case 'openai':
+        return chatOpenAI(messages, tools, actualModel, onToken);
+      case 'openrouter':
+      case 'together':
+      case 'groq':
+      case 'fireworks':
+      case 'mistral':
+      case 'ai21':
+      case 'huggingface':
+      case 'ollama':
+      case 'litellm':
+        return chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+      default:
+        throw new Error(`Provider ${actualProvider} not implemented`);
+    }
+  };
+
+  // Wrap with retry logic
+  return withRetry(doChat, {
+    maxRetries: 2,
+    initialDelayMs: 1000,
+    onRetry: onRetry,
+  });
 }
 
 /**
