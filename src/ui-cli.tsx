@@ -732,6 +732,7 @@ function ChatInput({
   cwd,
   suggestions,
   onSuggestionsChange,
+  onNavigateHistory,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -745,6 +746,7 @@ function ChatInput({
   cwd?: string;
   suggestions?: string[];
   onSuggestionsChange?: (suggestions: string[]) => void;
+  onNavigateHistory?: (direction: 'up' | 'down') => void;
 }) {
   const workingDir = cwd || process.cwd();
   // Handle ALL keyboard input here - single source of input handling
@@ -870,8 +872,18 @@ function ChatInput({
       }
     }
 
+    // Up/down arrows for history navigation
+    if (key.upArrow && onNavigateHistory) {
+      onNavigateHistory('up');
+      return;
+    }
+    if (key.downArrow && onNavigateHistory) {
+      onNavigateHistory('down');
+      return;
+    }
+
     // Ignore other control keys, meta, and navigation
-    if (key.ctrl || key.meta || key.upArrow || key.downArrow || key.leftArrow || key.rightArrow || key.tab) {
+    if (key.ctrl || key.meta || key.leftArrow || key.rightArrow || key.tab) {
       return;
     }
 
@@ -997,6 +1009,11 @@ function TerminalChat() {
   const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
   const [streamingResponse, setStreamingResponse] = useState<string>('');
 
+  // Input history for up/down arrow navigation
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [savedInput, setSavedInput] = useState(''); // Save current input when navigating
+
   // Clear suggestions when input changes significantly
   const handleInputChange = useCallback((newValue: string) => {
     setInput(newValue);
@@ -1004,7 +1021,45 @@ function TerminalChat() {
     if (!newValue || !newValue.startsWith('/')) {
       setSuggestions([]);
     }
+    // Reset history navigation when user types
+    setHistoryIndex(-1);
   }, []);
+
+  // Navigate input history
+  const navigateHistory = useCallback((direction: 'up' | 'down') => {
+    if (inputHistory.length === 0) return;
+
+    if (direction === 'up') {
+      if (historyIndex === -1) {
+        // Save current input before navigating
+        setSavedInput(input);
+        setHistoryIndex(inputHistory.length - 1);
+        setInput(inputHistory[inputHistory.length - 1]);
+      } else if (historyIndex > 0) {
+        setHistoryIndex(historyIndex - 1);
+        setInput(inputHistory[historyIndex - 1]);
+      }
+    } else {
+      if (historyIndex === -1) return;
+      if (historyIndex < inputHistory.length - 1) {
+        setHistoryIndex(historyIndex + 1);
+        setInput(inputHistory[historyIndex + 1]);
+      } else {
+        // Return to saved input
+        setHistoryIndex(-1);
+        setInput(savedInput);
+      }
+    }
+  }, [inputHistory, historyIndex, input, savedInput]);
+
+  // Add to history when submitting
+  const addToHistory = useCallback((value: string) => {
+    if (value.trim() && (inputHistory.length === 0 || inputHistory[inputHistory.length - 1] !== value)) {
+      setInputHistory(prev => [...prev.slice(-100), value]); // Keep last 100 entries
+    }
+    setHistoryIndex(-1);
+    setSavedInput('');
+  }, [inputHistory]);
 
   // Config state
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
@@ -2781,6 +2836,8 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     const trimmed = value.trim();
     if (!trimmed || isProcessing) return;
 
+    // Add to history for up/down arrow navigation
+    addToHistory(trimmed);
     setInput('');
 
     if (trimmed.startsWith('/')) {
@@ -2838,7 +2895,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       setThinkingState(null);
       setStreamingResponse('');
     }
-  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model, saveUndoState]);
+  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model, saveUndoState, addToHistory]);
 
   // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {
@@ -3017,6 +3074,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         cwd={process.cwd()}
         suggestions={suggestions}
         onSuggestionsChange={setSuggestions}
+        onNavigateHistory={navigateHistory}
       />
 
       {/* Status Bar */}
