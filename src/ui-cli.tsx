@@ -16,7 +16,7 @@ import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
 import * as fs from 'fs';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
-import { TOOLS, executeTool } from './tools.js';
+import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG, supportsVision, calculateCost } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
@@ -34,6 +34,10 @@ import * as summarization from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
 import { executeParallel, analyzeDependencies, getParallelizationStats, canParallelize } from './parallel-tools.js';
+import { getAgentStatusReport } from './agterm/index.js';
+
+// Module-level state for agterm mode
+let moduleAgtermEnabled = false;
 
 // ============================================================================
 // Types
@@ -77,6 +81,11 @@ const TOOL_ICONS: Record<string, string> = {
   web_search: '🔍',
   git: '🔀',
   mermaid: '📊',
+  // AGTerm tools
+  spawn_agent: '🤖',
+  check_agent: '📋',
+  list_agents: '📊',
+  cancel_agent: '🛑',
 };
 
 // ============================================================================
@@ -721,11 +730,12 @@ function TerminalChat() {
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
+  /agents                  - Show sub-agent status (--agterm mode)
   /exit                    - Exit
 
 File references: @filename, ./path, /absolute/path
 Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work
-Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
+Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (spawn_agent, check_agent tools available)' : ''}`);
         break;
 
       case '/provider':
@@ -915,6 +925,14 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
 
       case '/config':
         addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
+        break;
+
+      case '/agents':
+        if (!moduleAgtermEnabled) {
+          addMessage('system', 'AGTerm mode not enabled. Start with --agterm flag to unlock multi-agent features.');
+        } else {
+          addMessage('system', getAgentStatusReport());
+        }
         break;
 
       case '/set': {
@@ -1706,7 +1724,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           });
         };
 
-        const response = await chat(provider, llmMessages.current, TOOLS, effectiveModel, onToken, onRetry);
+        const response = await chat(provider, llmMessages.current, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
 
         // Update token stats and cost
         if (response.usage) {
@@ -2210,7 +2228,10 @@ function printBanner(): void {
   console.log();
 }
 
-export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+export async function startInkCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
+  // Set module-level agterm state
+  moduleAgtermEnabled = options.agtermEnabled ?? false;
+
   // Print banner BEFORE Ink starts - it stays fixed at the top
   printBanner();
 

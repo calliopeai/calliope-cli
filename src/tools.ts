@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
+import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
 
 /**
  * Available tools for the agent
@@ -173,6 +174,17 @@ export const TOOLS: Tool[] = [
 ];
 
 /**
+ * Get all available tools
+ * Includes agterm tools when agtermEnabled is true
+ */
+export function getTools(agtermEnabled: boolean = false): Tool[] {
+  if (agtermEnabled) {
+    return [...TOOLS, ...getAgtermTools()];
+  }
+  return TOOLS;
+}
+
+/**
  * Validate path is within allowed directory (prevent path traversal)
  */
 function validatePath(filePath: string, cwd: string): string {
@@ -200,6 +212,11 @@ export async function executeTool(
   timeout = 60000
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
+
+  // Handle agterm tools
+  if (isAgtermTool(name)) {
+    return executeAgtermTool(toolCall, cwd);
+  }
 
   try {
     let result: string;
