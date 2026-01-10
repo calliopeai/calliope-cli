@@ -485,11 +485,16 @@ function TerminalChat() {
   /history [search]        - Chat history
   /context [load|summary]  - Context management
   /clear                   - Clear conversation
+  /copy                    - Copy last response to clipboard
+  /export [file.md]        - Export conversation to markdown
+  /edit                    - Edit and resend last message
+  /undo                    - Remove last exchange
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
   /exit                    - Exit
 
+File references: @filename, ./path, /absolute/path
 Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         break;
 
@@ -568,6 +573,110 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
         llmMessages.current = [{ role: 'system', content: getSystemPrompt(persona) }];
         setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
         break;
+
+      case '/copy': {
+        // Copy last assistant response to clipboard
+        const lastAssistant = [...messages].reverse().find(m => m.type === 'assistant');
+        if (lastAssistant) {
+          try {
+            const { execSync } = await import('child_process');
+            // Try different clipboard commands based on platform
+            const content = lastAssistant.content;
+            if (process.platform === 'darwin') {
+              execSync('pbcopy', { input: content });
+            } else if (process.platform === 'win32') {
+              execSync('clip', { input: content });
+            } else {
+              // Linux - try xclip, xsel, or wl-copy
+              try {
+                execSync('xclip -selection clipboard', { input: content });
+              } catch {
+                try {
+                  execSync('xsel --clipboard --input', { input: content });
+                } catch {
+                  execSync('wl-copy', { input: content });
+                }
+              }
+            }
+            addMessage('system', '✓ Copied to clipboard');
+          } catch (e) {
+            addMessage('error', `Clipboard not available: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else {
+          addMessage('system', 'No assistant message to copy');
+        }
+        break;
+      }
+
+      case '/export': {
+        // Export conversation to markdown
+        const filename = parts[1] || `calliope-export-${Date.now()}.md`;
+        const fs = await import('fs');
+        const path = await import('path');
+
+        let markdown = `# Calliope Conversation Export\n\n`;
+        markdown += `**Date:** ${new Date().toLocaleString()}\n`;
+        markdown += `**Provider:** ${actualProvider}\n`;
+        markdown += `**Model:** ${actualModel}\n\n---\n\n`;
+
+        for (const msg of messages) {
+          if (msg.type === 'user') {
+            markdown += `## 👤 User\n\n${msg.content}\n\n`;
+          } else if (msg.type === 'assistant') {
+            markdown += `## 🤖 Assistant\n\n${msg.content}\n\n`;
+          } else if (msg.type === 'tool') {
+            markdown += `> 🔧 Tool: ${msg.content}\n\n`;
+          } else if (msg.type === 'system') {
+            markdown += `> ℹ️ ${msg.content}\n\n`;
+          } else if (msg.type === 'error') {
+            markdown += `> ⚠️ Error: ${msg.content}\n\n`;
+          }
+        }
+
+        const filepath = path.resolve(process.cwd(), filename);
+        fs.writeFileSync(filepath, markdown);
+        addMessage('system', `✓ Exported to ${filename}`);
+        break;
+      }
+
+      case '/edit': {
+        // Edit last user message
+        const lastUserIdx = [...messages].reverse().findIndex(m => m.type === 'user');
+        if (lastUserIdx >= 0) {
+          const lastUser = messages[messages.length - 1 - lastUserIdx];
+          setInput(lastUser.content);
+          addMessage('system', 'Edit the message above and press Enter to resend');
+        } else {
+          addMessage('system', 'No user message to edit');
+        }
+        break;
+      }
+
+      case '/undo': {
+        // Remove last exchange (user message + assistant response)
+        let removed = 0;
+        const newMessages = [...messages];
+        // Remove from the end until we've removed a user message
+        while (newMessages.length > 0 && removed < 10) {
+          const last = newMessages.pop();
+          removed++;
+          if (last?.type === 'user') break;
+        }
+
+        // Also remove from LLM context
+        while (llmMessages.current.length > 1) {
+          const last = llmMessages.current[llmMessages.current.length - 1];
+          if (last.role === 'user') {
+            llmMessages.current.pop();
+            break;
+          }
+          llmMessages.current.pop();
+        }
+
+        setMessages(newMessages);
+        addMessage('system', `✓ Removed last ${removed} message(s)`);
+        break;
+      }
 
       case '/status':
       case '/s':
