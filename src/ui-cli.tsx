@@ -240,17 +240,41 @@ function MessageItem({ msg }: { msg: UIMessage }) {
         );
       }
 
-      // Regular tool result
-      const lines = msg.content.split('\n').slice(0, 5);
-      const hasMore = msg.content.split('\n').length > 5;
-      const hasError = msg.content.toLowerCase().includes('error');
+      // Regular tool result with enhanced status detection
+      const allLines = msg.content.split('\n');
+      const lines = allLines.slice(0, 5);
+      const totalLines = allLines.length;
+      const hasMore = totalLines > 5;
+      
+      // Enhanced status detection
+      const lowerContent = msg.content.toLowerCase();
+      const hasError = lowerContent.includes('error') || 
+                       lowerContent.includes('failed') ||
+                       lowerContent.includes('permission denied') ||
+                       lowerContent.includes('not found') ||
+                       lowerContent.includes('exception');
+      const hasWarning = lowerContent.includes('warning') || 
+                         lowerContent.includes('deprecated') ||
+                         lowerContent.includes('caution');
+      
+      // Determine status icon and color
+      let statusIcon = '✓';
+      let statusColor: 'green' | 'red' | 'yellow' = 'green';
+      if (hasError) {
+        statusIcon = '✗';
+        statusColor = 'red';
+      } else if (hasWarning) {
+        statusIcon = '⚠';
+        statusColor = 'yellow';
+      }
+      
       return (
         <Box flexDirection="column">
           {lines.map((line, i) => (
             <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
           ))}
-          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
-          <Text><Text dimColor>╰─</Text> {hasError ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>
+          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>... ({totalLines - 5} more lines)</Text></Text>}
+          <Text><Text dimColor>╰─</Text> <Text color={statusColor}>{statusIcon}</Text></Text>
         </Box>
       );
     }
