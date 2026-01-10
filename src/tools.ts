@@ -10,6 +10,7 @@ import * as path from 'path';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
 import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
+import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 
 /**
  * Available tools for the agent
@@ -188,19 +189,8 @@ export function getTools(agtermEnabled: boolean = false): Tool[] {
  * Validate path is within allowed directory (prevent path traversal)
  */
 function validatePath(filePath: string, cwd: string): string {
-  const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
-  const normalizedPath = path.resolve(absPath);
-  const normalizedCwd = path.resolve(cwd);
-
-  // Allow access to cwd and subdirectories, or absolute paths within home
-  const homeDir = process.env.HOME || process.env.USERPROFILE || '/tmp';
-  const normalizedHome = path.resolve(homeDir);
-
-  if (!normalizedPath.startsWith(normalizedCwd) && !normalizedPath.startsWith(normalizedHome)) {
-    throw new Error(`Access denied: ${filePath} is outside allowed directories`);
-  }
-
-  return normalizedPath;
+  // Use scope manager for path validation
+  return scopeValidatePath(filePath, cwd);
 }
 
 /**

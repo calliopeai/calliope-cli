@@ -34,6 +34,7 @@ import * as summarization from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
 import { executeParallel, analyzeDependencies, getParallelizationStats, canParallelize } from './parallel-tools.js';
+import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from './scope.js';
 import { getAgentStatusReport } from './agterm/index.js';
 
 // Module-level state for agterm mode
@@ -877,6 +878,9 @@ function TerminalChat() {
   /config                  - Show config
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
+  /scope [details|reset]   - Show/manage file access scope
+  /add-dir <path>          - Add directory to allowed scope
+  /remove-dir <path>       - Remove directory from scope
   /template [save|use|del] - Manage prompt templates
   /cost                    - Show cost tracking summary
   /bookmark [name]         - Create bookmark at current point
@@ -1822,6 +1826,50 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           addMessage('system', `Context: ${msgCount} messages (~${Math.round(estTokens)} tokens)`);
         } else {
           addMessage('system', 'Usage: /context [load [n]|summary]');
+        }
+        break;
+      }
+
+      case '/scope':
+      case '/dirs': {
+        const subCmd = parts[1];
+        if (subCmd === 'details' || subCmd === 'full') {
+          addMessage('system', getScopeDetails());
+        } else if (subCmd === 'reset') {
+          resetScope(process.cwd());
+          addMessage('system', '✓ Scope reset to current directory only');
+        } else {
+          addMessage('system', getScopeSummary());
+        }
+        break;
+      }
+
+      case '/add-dir': {
+        const dirPath = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
+        if (!dirPath) {
+          addMessage('system', 'Usage: /add-dir <path>\n\nAdd a directory to the allowed scope.\nThe agent can only access files within scope.');
+        } else {
+          const result = addToScope(dirPath);
+          if (result.success) {
+            addMessage('system', `✓ ${result.message}`);
+          } else {
+            addMessage('error', result.message);
+          }
+        }
+        break;
+      }
+
+      case '/remove-dir': {
+        const dirPath = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
+        if (!dirPath) {
+          addMessage('system', 'Usage: /remove-dir <path>\n\nRemove a directory from the allowed scope.');
+        } else {
+          const result = removeFromScope(dirPath);
+          if (result.success) {
+            addMessage('system', `✓ ${result.message}`);
+          } else {
+            addMessage('error', result.message);
+          }
         }
         break;
       }
