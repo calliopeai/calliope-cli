@@ -1,7 +1,14 @@
 /**
- * Calliope CLI - Ink UI Integration
+ * Calliope CLI - Ink UI
  *
- * Connects the ink-based UI to the existing agent/provider logic.
+ * Component hierarchy inspired by Claude Code:
+ * App
+ * └── TerminalChat (main hub)
+ *     ├── MessageHistory (Static for messages)
+ *     │   └── MessageItem (formatted messages)
+ *     ├── ProcessingIndicator (animated spinner)
+ *     ├── ChatInput (input line)
+ *     └── StatusBar (footer)
  */
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
@@ -13,9 +20,29 @@ import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona, ToolCall } from './types.js';
+import type { Message as LLMMessage, LLMProvider, AgentPersona } from './types.js';
 
-// ASCII Banner
+// ============================================================================
+// Types
+// ============================================================================
+
+interface UIMessage {
+  id: string;
+  type: 'user' | 'assistant' | 'tool' | 'system' | 'error';
+  content: string;
+}
+
+interface SessionStats {
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+  messageCount: number;
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
 const BANNER_LINES = [
   ' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗',
   '██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝',
@@ -25,39 +52,27 @@ const BANNER_LINES = [
   ' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝',
 ];
 
-// UI Message type
-interface UIMessage {
-  id: string;
-  type: 'user' | 'assistant' | 'tool' | 'system' | 'error';
-  content: string;
-}
-
-// Session stats
-interface Stats {
-  provider: string;
-  model: string;
-  inputTokens: number;
-  outputTokens: number;
-  cost: number;
-  messages: number;
-  startTime: Date;
-}
-
-// Format helpers
-const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
-const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
-const formatTime = (d: Date) => {
-  const s = Math.floor((Date.now() - d.getTime()) / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  return m < 60 ? `${m}m` : `${Math.floor(m/60)}h${m%60}m`;
-};
-
-// Spinner frames
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-// Animated Spinner component
-function Spinner({ label }: { label: string }) {
+const TOOL_ICONS: Record<string, string> = {
+  shell: '⚡',
+  read_file: '📄',
+  write_file: '✍️',
+  list_files: '📁',
+  think: '💭',
+};
+
+// ============================================================================
+// Utility Components
+// ============================================================================
+
+function Separator() {
+  const { stdout } = useStdout();
+  const width = stdout?.columns || 80;
+  return <Text dimColor>{'─'.repeat(width)}</Text>;
+}
+
+function ProcessingIndicator({ label }: { label: string }) {
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
@@ -68,121 +83,119 @@ function Spinner({ label }: { label: string }) {
   }, []);
 
   return (
-    <Text>
+    <Box marginY={1}>
       <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
       <Text dimColor> {label}</Text>
-    </Text>
+    </Box>
   );
 }
 
-// Tool icons
-const TOOL_ICONS: Record<string, string> = {
-  shell: '⚡',
-  read_file: '📄',
-  write_file: '✍️',
-  list_files: '📁',
-  think: '💭',
-};
+// ============================================================================
+// Message Components
+// ============================================================================
 
-// Separator
-function Sep() {
-  const { stdout } = useStdout();
-  return <Text dimColor>{'─'.repeat(stdout?.columns || 80)}</Text>;
-}
+function MessageItem({ msg }: { msg: UIMessage }) {
+  switch (msg.type) {
+    case 'user':
+      return (
+        <Box flexDirection="column" marginTop={1}>
+          <Text><Text color="cyan">›</Text> {msg.content}</Text>
+        </Box>
+      );
 
-// Message component with nice formatting
-function Message({ msg }: { msg: UIMessage }) {
-  if (msg.type === 'user') {
-    return (
-      <Box flexDirection="column">
-        <Text> </Text>
-        <Text><Text color="cyan">›</Text> {msg.content}</Text>
-      </Box>
-    );
-  }
-
-  if (msg.type === 'assistant') {
-    const lines = msg.content.split('\n');
-    return (
-      <Box flexDirection="column">
-        <Text> </Text>
-        <Text><Text color="cyan">✧ Calliope:</Text></Text>
-        <Text> </Text>
-        {lines.map((line, i) => (
-          <Text key={i}><Text color="blue">│</Text> {line}</Text>
-        ))}
-        <Text> </Text>
-      </Box>
-    );
-  }
-
-  if (msg.type === 'tool') {
-    // Parse tool message format: "⚡ tool_name: preview" or just result lines
-    const isToolCall = msg.content.startsWith('⚡');
-    if (isToolCall) {
-      const match = msg.content.match(/^⚡ (\w+): (.*)$/);
-      if (match) {
-        const [, toolName, preview] = match;
-        const icon = TOOL_ICONS[toolName] || '⚙️';
-        return (
-          <Box flexDirection="column">
-            <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text></Text>
-            <Text><Text dimColor>│</Text>  <Text dimColor>{preview}</Text></Text>
-          </Box>
-        );
-      }
+    case 'assistant': {
+      const lines = msg.content.split('\n');
+      return (
+        <Box flexDirection="column" marginTop={1} marginBottom={1}>
+          <Text color="cyan">✧ Calliope:</Text>
+          <Text> </Text>
+          {lines.map((line, i) => (
+            <Text key={i}><Text color="blue">│</Text> {line}</Text>
+          ))}
+        </Box>
+      );
     }
-    // Tool result
-    const lines = msg.content.split('\n').slice(0, 5);
-    const hasMore = msg.content.split('\n').length > 5;
-    const hasError = msg.content.toLowerCase().includes('error');
-    return (
-      <Box flexDirection="column">
-        {lines.map((line, i) => (
-          <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
-        ))}
-        {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
-        <Text><Text dimColor>╰─</Text> {hasError ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>
-      </Box>
-    );
-  }
 
-  if (msg.type === 'system') {
-    return <Text color="yellow">{msg.content}</Text>;
-  }
+    case 'tool': {
+      const isToolCall = msg.content.startsWith('⚡');
+      if (isToolCall) {
+        const match = msg.content.match(/^⚡ (\w+): (.*)$/);
+        if (match) {
+          const [, toolName, preview] = match;
+          const icon = TOOL_ICONS[toolName] || '⚙️';
+          return (
+            <Box flexDirection="column">
+              <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text></Text>
+              <Text><Text dimColor>│</Text>  <Text dimColor>{preview}</Text></Text>
+            </Box>
+          );
+        }
+      }
+      // Tool result
+      const lines = msg.content.split('\n').slice(0, 5);
+      const hasMore = msg.content.split('\n').length > 5;
+      const hasError = msg.content.toLowerCase().includes('error');
+      return (
+        <Box flexDirection="column">
+          {lines.map((line, i) => (
+            <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
+          ))}
+          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
+          <Text><Text dimColor>╰─</Text> {hasError ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>
+        </Box>
+      );
+    }
 
-  // error
-  return <Text color="red">✗ {msg.content}</Text>;
+    case 'system':
+      return <Text color="yellow">{msg.content}</Text>;
+
+    case 'error':
+      return <Text color="red">✗ {msg.content}</Text>;
+
+    default:
+      return <Text>{msg.content}</Text>;
+  }
 }
 
-// Model Selector Component (Ink-native, replaces inquirer)
-interface ModelSelectorProps {
+function MessageHistory({ messages }: { messages: UIMessage[] }) {
+  return (
+    <Static items={messages}>
+      {(msg) => (
+        <Box key={msg.id}>
+          <MessageItem msg={msg} />
+        </Box>
+      )}
+    </Static>
+  );
+}
+
+// ============================================================================
+// Modal Components
+// ============================================================================
+
+function ModelSelector({
+  models,
+  onSelect,
+  onCancel
+}: {
   models: ModelInfo[];
-  selectedIndex: number;
   onSelect: (model: string) => void;
   onCancel: () => void;
-}
-
-function ModelSelector({ models, selectedIndex, onSelect, onCancel }: ModelSelectorProps) {
-  const [index, setIndex] = useState(selectedIndex);
+}) {
+  const [index, setIndex] = useState(0);
   const pageSize = 10;
   const start = Math.max(0, Math.min(index - Math.floor(pageSize / 2), models.length - pageSize));
   const visible = models.slice(start, start + pageSize);
 
   useInput((input, key) => {
-    if (key.upArrow) {
-      setIndex(i => Math.max(0, i - 1));
-    } else if (key.downArrow) {
-      setIndex(i => Math.min(models.length - 1, i + 1));
-    } else if (key.return) {
-      onSelect(models[index].id);
-    } else if (key.escape || input === 'q') {
-      onCancel();
-    }
+    if (key.upArrow) setIndex(i => Math.max(0, i - 1));
+    else if (key.downArrow) setIndex(i => Math.min(models.length - 1, i + 1));
+    else if (key.return) onSelect(models[index].id);
+    else if (key.escape || input === 'q') onCancel();
   });
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" marginY={1}>
       <Text color="yellow">Select model (↑/↓ navigate, Enter select, Esc cancel):</Text>
       {visible.map((model, i) => {
         const globalIndex = start + i;
@@ -190,11 +203,9 @@ function ModelSelector({ models, selectedIndex, onSelect, onCancel }: ModelSelec
         const name = model.name || model.id;
         const displayName = name.length > 50 ? name.slice(0, 47) + '...' : name;
         return (
-          <Box key={model.id}>
-            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
-              {isSelected ? '❯ ' : '  '}{displayName}
-            </Text>
-          </Box>
+          <Text key={model.id} color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+            {isSelected ? '❯ ' : '  '}{displayName}
+          </Text>
         );
       })}
       {models.length > pageSize && (
@@ -204,141 +215,196 @@ function ModelSelector({ models, selectedIndex, onSelect, onCancel }: ModelSelec
   );
 }
 
-// Upgrade Prompt Component
-interface UpgradePromptProps {
+function UpgradePrompt({
+  currentVersion,
+  latestVersion,
+  onConfirm,
+  onCancel
+}: {
   currentVersion: string;
   latestVersion: string;
   onConfirm: () => void;
   onCancel: () => void;
-}
-
-function UpgradePrompt({ currentVersion, latestVersion, onConfirm, onCancel }: UpgradePromptProps) {
+}) {
   useInput((input, key) => {
-    if (input === 'y' || input === 'Y') {
-      onConfirm();
-    } else if (input === 'n' || input === 'N' || key.escape) {
-      onCancel();
-    }
+    if (input === 'y' || input === 'Y') onConfirm();
+    else if (input === 'n' || input === 'N' || key.escape) onCancel();
   });
 
   return (
-    <Box flexDirection="column">
-      <Text color="yellow">Update available: v{currentVersion} → <Text color="green">v{latestVersion}</Text></Text>
+    <Box flexDirection="column" marginY={1}>
+      <Text color="yellow">
+        Update available: v{currentVersion} → <Text color="green">v{latestVersion}</Text>
+      </Text>
       <Text>Upgrade now? <Text color="cyan">(y/N)</Text></Text>
     </Box>
   );
 }
 
-// Main App
-function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
+// ============================================================================
+// Input Components
+// ============================================================================
+
+function ChatInput({
+  value,
+  onChange,
+  onSubmit,
+  disabled
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  disabled: boolean;
+}) {
+  if (disabled) return null;
+
+  return (
+    <Box flexDirection="column">
+      <Separator />
+      <Box>
+        <Text color="cyan">calliope</Text>
+        <Text dimColor>&gt; </Text>
+        <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
+      </Box>
+    </Box>
+  );
+}
+
+function StatusBar({
+  provider,
+  model,
+  stats
+}: {
+  provider: string;
+  model: string;
+  stats: SessionStats;
+}) {
+  const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
+  const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
+  const displayModel = model.length > 25 ? model.slice(0, 22) + '...' : model;
+
+  return (
+    <Box flexDirection="column">
+      <Separator />
+      <Text dimColor>
+        {provider}:{displayModel}
+        {' │ '}
+        {formatTokens(stats.inputTokens + stats.outputTokens)} tokens
+        {' │ '}
+        {formatCost(stats.cost)}
+      </Text>
+    </Box>
+  );
+}
+
+// ============================================================================
+// Main Chat Component
+// ============================================================================
+
+function TerminalChat() {
   const { exit } = useApp();
   const { stdout } = useStdout();
+  const width = stdout?.columns || 80;
 
-  // State
+  // Core state
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Config state
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
   const [model, setModel] = useState<string | undefined>(config.get('defaultModel'));
   const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
 
-  // Model selection state
-  const [modelSelectMode, setModelSelectMode] = useState(false);
+  // Modal state
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade'>('none');
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [modelLoading, setModelLoading] = useState(false);
-
-  // Upgrade state
-  const [upgradeMode, setUpgradeMode] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [upgrading, setUpgrading] = useState(false);
 
-  const [stats, setStats] = useState<Stats>({
-    provider: selectProvider(config.get('defaultProvider')),
-    model: config.get('defaultModel') || DEFAULT_MODELS[selectProvider(config.get('defaultProvider'))],
+  // Stats
+  const [stats, setStats] = useState<SessionStats>({
     inputTokens: 0,
     outputTokens: 0,
     cost: 0,
-    messages: 0,
-    startTime: new Date(),
+    messageCount: 0,
   });
 
-  // Conversation history for LLM
+  // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
     { role: 'system', content: getSystemPrompt(persona) }
   ]);
 
-  // Add UI message
+  // Derived values
+  const actualProvider = selectProvider(provider);
+  const actualModel = model || DEFAULT_MODELS[actualProvider];
+  const isModalActive = modalMode !== 'none';
+
+  // Add message helper
   const addMessage = useCallback((type: UIMessage['type'], content: string) => {
-    setMessages(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, type, content }]);
+    setMessages(prev => [...prev, {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      type,
+      content
+    }]);
   }, []);
 
-  // Handle commands
-  const handleCommand = useCallback(async (cmd: string): Promise<boolean> => {
+  // Handle slash commands
+  const handleCommand = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.split(/\s+/);
     const command = parts[0].toLowerCase();
 
     switch (command) {
       case '/help':
       case '/h':
-        addMessage('system', `Commands: /help /provider /model /models /persona /clear /status /config /upgrade /exit\nLoop mode: use --legacy flag`);
-        return true;
+        addMessage('system', 'Commands: /help /provider /model /models /persona /clear /status /config /upgrade /exit\nLoop mode: use --legacy flag');
+        break;
 
       case '/provider':
       case '/p':
         if (parts[1]) {
           const p = parts[1].toLowerCase() as LLMProvider;
           setProvider(p);
-          setStats(s => ({ ...s, provider: selectProvider(p) }));
           addMessage('system', `Provider: ${selectProvider(p)}`);
         } else {
-          addMessage('system', `Provider: ${selectProvider(provider)} | Available: ${getAvailableProviders().join(', ')}`);
+          addMessage('system', `Provider: ${actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
         }
-        return true;
+        break;
 
       case '/model':
       case '/m':
         if (parts[1]) {
           setModel(parts[1]);
-          setStats(s => ({ ...s, model: parts[1] }));
           addMessage('system', `Model: ${parts[1]}`);
         } else {
-          // Trigger inline model selection
-          setModelLoading(true);
-          addMessage('system', `Discovering models for ${selectProvider(provider)}...`);
+          addMessage('system', `Discovering models for ${actualProvider}...`);
           try {
-            const models = await getAvailableModels(selectProvider(provider));
+            const models = await getAvailableModels(actualProvider);
             if (models.length > 0) {
               setAvailableModels(models);
-              setModelSelectMode(true);
+              setModalMode('model');
             } else {
               addMessage('error', 'No models found');
             }
           } catch (e) {
             addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
-          } finally {
-            setModelLoading(false);
           }
         }
-        return true;
+        break;
 
       case '/models':
-        // Trigger inline model selection
-        setModelLoading(true);
-        addMessage('system', `Discovering models for ${selectProvider(provider)}...`);
+        addMessage('system', `Discovering models for ${actualProvider}...`);
         try {
-          const models = await getAvailableModels(selectProvider(provider));
+          const models = await getAvailableModels(actualProvider);
           if (models.length > 0) {
             setAvailableModels(models);
-            setModelSelectMode(true);
+            setModalMode('model');
           } else {
             addMessage('error', 'No models found');
           }
         } catch (e) {
           addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
-        } finally {
-          setModelLoading(false);
         }
-        return true;
+        break;
 
       case '/persona':
         if (parts[1] && ['calliope', 'professional', 'minimal'].includes(parts[1])) {
@@ -349,35 +415,28 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
         } else {
           addMessage('system', `Persona: ${persona} | Options: calliope, professional, minimal`);
         }
-        return true;
+        break;
 
       case '/clear':
       case '/c':
         setMessages([]);
         llmMessages.current = [{ role: 'system', content: getSystemPrompt(persona) }];
-        setStats(s => ({ ...s, messages: 0, inputTokens: 0, outputTokens: 0, cost: 0 }));
-        return true;
+        setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
+        break;
 
       case '/status':
       case '/s':
-        addMessage('system', `${selectProvider(provider)}:${model || DEFAULT_MODELS[selectProvider(provider)]} | ${stats.messages} msgs | ${formatTokens(stats.inputTokens + stats.outputTokens)} tokens | ${formatCost(stats.cost)}`);
-        return true;
+        addMessage('system', `${actualProvider}:${actualModel} | ${stats.messageCount} msgs | ${stats.inputTokens + stats.outputTokens} tokens`);
+        break;
 
       case '/config':
         addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}`);
-        return true;
+        break;
 
       case '/setup':
-        addMessage('system', 'Setup requires legacy CLI mode. Run: calliope --legacy then /setup');
-        return true;
-
       case '/loop':
-        addMessage('system', 'Loop mode requires legacy CLI. Run: calliope --legacy');
-        return true;
-
-      case '/cancel-loop':
-        addMessage('system', 'No active loop');
-        return true;
+        addMessage('system', 'This feature requires legacy CLI. Run: calliope --legacy');
+        break;
 
       case '/upgrade':
         addMessage('system', 'Checking for updates...');
@@ -386,52 +445,42 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
           const latest = await getLatestVersion();
           if (!latest) {
             addMessage('error', 'Could not check for updates');
-            return true;
+            break;
           }
-          const currentParts = current.split('.').map(Number);
-          const latestParts = latest.split('.').map(Number);
-          let hasUpdate = false;
-          for (let i = 0; i < 3; i++) {
-            if ((latestParts[i] || 0) > (currentParts[i] || 0)) {
-              hasUpdate = true;
-              break;
-            }
-            if ((latestParts[i] || 0) < (currentParts[i] || 0)) break;
-          }
-          if (!hasUpdate) {
-            addMessage('system', `You're on the latest version (v${current})`);
-          } else {
+          const [cMaj, cMin, cPat] = current.split('.').map(Number);
+          const [lMaj, lMin, lPat] = latest.split('.').map(Number);
+          const hasUpdate = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
+
+          if (hasUpdate) {
             setLatestVersion(latest);
-            setUpgradeMode(true);
+            setModalMode('upgrade');
+          } else {
+            addMessage('system', `You're on the latest version (v${current})`);
           }
         } catch (e) {
           addMessage('error', `Failed to check for updates: ${e instanceof Error ? e.message : String(e)}`);
         }
-        return true;
+        break;
 
       case '/exit':
       case '/quit':
       case '/q':
         exit();
-        return true;
+        break;
 
       default:
-        addMessage('error', `Unknown command: ${command}`);
-        return true;
+        addMessage('error', `Unknown command: ${command}. Type /help for help.`);
     }
-  }, [provider, model, persona, stats, addMessage, exit]);
+  }, [actualProvider, actualModel, persona, stats, addMessage, exit]);
 
-  // Run agent
+  // Run agent with user prompt
   const runAgent = useCallback(async (prompt: string) => {
     llmMessages.current.push({ role: 'user', content: prompt });
-    setStats(s => ({ ...s, messages: s.messages + 1 }));
+    setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
 
     const maxIterations = config.get('maxIterations');
-    let iteration = 0;
 
-    while (iteration < maxIterations) {
-      iteration++;
-
+    for (let i = 0; i < maxIterations; i++) {
       try {
         const response = await chat(provider, llmMessages.current, TOOLS, model);
 
@@ -445,7 +494,7 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
         }
 
         // Handle tool calls
-        if (response.toolCalls && response.toolCalls.length > 0) {
+        if (response.toolCalls?.length) {
           llmMessages.current.push({
             role: 'assistant',
             content: response.content,
@@ -474,14 +523,13 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
         break;
 
       } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        addMessage('error', `Error: ${msg}`);
+        addMessage('error', `Error: ${error instanceof Error ? error.message : String(error)}`);
         break;
       }
     }
   }, [provider, model, addMessage]);
 
-  // Handle submit
+  // Handle input submission
   const handleSubmit = useCallback(async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || isProcessing) return;
@@ -503,49 +551,28 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
     }
   }, [isProcessing, handleCommand, runAgent, addMessage]);
 
-  // Track terminal width for resize
-  const [width, setWidth] = useState(stdout?.columns || 80);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setWidth(stdout?.columns || 80);
-    };
-    process.stdout.on('resize', handleResize);
-    return () => {
-      process.stdout.off('resize', handleResize);
-    };
-  }, [stdout]);
-
-  // Escape to exit (but not when in model select mode)
-  useInput((_, key) => {
-    if (key.escape && !modelSelectMode) exit();
-  }, { isActive: !modelSelectMode });
-
-  // Model selection handlers
+  // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {
     setModel(selectedModel);
-    setStats(s => ({ ...s, model: selectedModel }));
     addMessage('system', `Model: ${selectedModel}`);
-    setModelSelectMode(false);
+    setModalMode('none');
     setAvailableModels([]);
   }, [addMessage]);
 
-  const handleModelCancel = useCallback(() => {
-    setModelSelectMode(false);
+  const handleModalCancel = useCallback(() => {
+    setModalMode('none');
     setAvailableModels([]);
-    addMessage('system', 'Model selection cancelled');
-  }, [addMessage]);
+    setLatestVersion(null);
+  }, []);
 
-  // Upgrade handlers
   const handleUpgradeConfirm = useCallback(async () => {
-    setUpgradeMode(false);
-    setUpgrading(true);
+    setModalMode('none');
     addMessage('system', 'Upgrading...');
+
     try {
       const success = await performUpgrade();
       if (success) {
         addMessage('system', 'Upgrade complete! Restarting...');
-        // Restart the CLI
         const { spawn } = await import('child_process');
         const child = spawn(process.argv[0], process.argv.slice(1), {
           stdio: 'inherit',
@@ -558,116 +585,99 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
       }
     } catch (e) {
       addMessage('error', `Upgrade failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setUpgrading(false);
-      setLatestVersion(null);
     }
-  }, [addMessage]);
-
-  const handleUpgradeCancel = useCallback(() => {
-    setUpgradeMode(false);
     setLatestVersion(null);
-    addMessage('system', 'Upgrade cancelled');
   }, [addMessage]);
 
-  const actualModel = model || DEFAULT_MODELS[selectProvider(provider)];
+  // Escape to exit (but not in modal)
+  useInput((_, key) => {
+    if (key.escape && !isModalActive) exit();
+  }, { isActive: !isModalActive });
 
+  // Render
   return (
     <Box flexDirection="column" width={width}>
+      {/* Message History */}
+      <MessageHistory messages={messages} />
 
-      {/* Messages - Static for history */}
-      <Static items={messages}>
-        {(msg) => (
-          <Box key={msg.id} marginBottom={msg.type === 'assistant' ? 1 : 0}>
-            <Message msg={msg} />
-          </Box>
-        )}
-      </Static>
+      {/* Processing Indicator */}
+      {isProcessing && <ProcessingIndicator label="Thinking..." />}
 
-      {/* Processing indicator */}
-      {isProcessing && <Spinner label="Thinking..." />}
-      {modelLoading && <Spinner label="Loading models..." />}
-
-      {/* Model Selector (when active) */}
-      {modelSelectMode && availableModels.length > 0 && (
+      {/* Modal: Model Selector */}
+      {modalMode === 'model' && availableModels.length > 0 && (
         <ModelSelector
           models={availableModels}
-          selectedIndex={0}
           onSelect={handleModelSelect}
-          onCancel={handleModelCancel}
+          onCancel={handleModalCancel}
         />
       )}
 
-      {/* Upgrade Confirmation */}
-      {upgradeMode && latestVersion && (
+      {/* Modal: Upgrade Prompt */}
+      {modalMode === 'upgrade' && latestVersion && (
         <UpgradePrompt
           currentVersion={getVersion()}
           latestVersion={latestVersion}
           onConfirm={handleUpgradeConfirm}
-          onCancel={handleUpgradeCancel}
+          onCancel={handleModalCancel}
         />
       )}
-      {upgrading && <Text color="yellow">⠋ Upgrading...</Text>}
 
-      {/* Input (hidden when in modal mode) */}
-      {!modelSelectMode && !upgradeMode && !upgrading && (
-        <Box flexDirection="column">
-          <Sep />
-          <Box>
-            <Text color="cyan">calliope</Text>
-            <Text dimColor>&gt; </Text>
-            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
-          </Box>
-        </Box>
-      )}
+      {/* Chat Input */}
+      <ChatInput
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        disabled={isModalActive || isProcessing}
+      />
 
-      {/* Status bar */}
-      <Box flexDirection="column">
-        <Sep />
-        <Text dimColor>
-          {selectProvider(provider)}:{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}
-          {' │ '}
-          {formatTokens(stats.inputTokens + stats.outputTokens)} tokens
-          {' │ '}
-          {formatCost(stats.cost)}
-        </Text>
-      </Box>
+      {/* Status Bar */}
+      <StatusBar
+        provider={actualProvider}
+        model={actualModel}
+        stats={stats}
+      />
     </Box>
   );
 }
 
-// ANSI colors for banner
-const c = {
+// ============================================================================
+// App Wrapper & Entry Point
+// ============================================================================
+
+function App() {
+  return <TerminalChat />;
+}
+
+// ANSI colors for pre-Ink banner
+const ansi = {
   reset: '\x1b[0m',
   cyan: '\x1b[36m',
   brightCyan: '\x1b[96m',
   dim: '\x1b[2m',
 };
 
-// Print banner before Ink starts
 function printBanner(provider: string, model: string): void {
   console.log();
-  console.log(`${c.brightCyan}${BANNER_LINES[0]}${c.reset}`);
-  console.log(`${c.brightCyan}${BANNER_LINES[1]}${c.reset}`);
-  console.log(`${c.cyan}${BANNER_LINES[2]}${c.reset}`);
-  console.log(`${c.cyan}${BANNER_LINES[3]}${c.reset}`);
-  console.log(`${c.brightCyan}${BANNER_LINES[4]}${c.reset}`);
-  console.log(`${c.cyan}${BANNER_LINES[5]}${c.reset}`);
+  console.log(`${ansi.brightCyan}${BANNER_LINES[0]}${ansi.reset}`);
+  console.log(`${ansi.brightCyan}${BANNER_LINES[1]}${ansi.reset}`);
+  console.log(`${ansi.cyan}${BANNER_LINES[2]}${ansi.reset}`);
+  console.log(`${ansi.cyan}${BANNER_LINES[3]}${ansi.reset}`);
+  console.log(`${ansi.brightCyan}${BANNER_LINES[4]}${ansi.reset}`);
+  console.log(`${ansi.cyan}${BANNER_LINES[5]}${ansi.reset}`);
   console.log();
-  console.log(`${c.dim}        The Muse of Digital Eloquence${c.reset}`);
+  console.log(`${ansi.dim}        The Muse of Digital Eloquence${ansi.reset}`);
   console.log();
-  console.log(`  ${c.dim}v${getVersion()} | ${provider}:${model}${c.reset}`);
-  console.log(`  ${c.dim}/help for commands | ESC to exit${c.reset}`);
+  console.log(`  ${ansi.dim}v${getVersion()} | ${provider}:${model}${ansi.reset}`);
+  console.log(`  ${ansi.dim}/help for commands | ESC to exit${ansi.reset}`);
   console.log();
 }
 
-// Export start function
 export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
-  // Print banner before Ink takes over
   const provider = selectProvider(config.get('defaultProvider'));
   const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
+
   printBanner(provider, model);
 
-  const { waitUntilExit } = render(<App skipPermissions={options.skipPermissions} />);
+  const { waitUntilExit } = render(<App />);
   await waitUntilExit();
 }
