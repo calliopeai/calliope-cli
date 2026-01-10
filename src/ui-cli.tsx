@@ -17,10 +17,12 @@ import TextInput from 'ink-text-input';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
-import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
+import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona } from './types.js';
+import { assessToolRisk, detectComplexity } from './risk.js';
+import * as storage from './storage.js';
+import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel } from './types.js';
 
 // ============================================================================
 // Types
@@ -339,20 +341,25 @@ function ChatInput({
   value,
   onChange,
   onSubmit,
-  disabled
+  disabled,
+  mode
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   disabled: boolean;
+  mode: Mode;
 }) {
   if (disabled) return null;
+
+  const modeConfig = MODE_CONFIG[mode];
 
   return (
     <Box flexDirection="column">
       <Separator />
       <Box>
-        <Text color="cyan">calliope</Text>
+        <Text color="cyan">calliope </Text>
+        <Text>{modeConfig.icon}</Text>
         <Text dimColor>&gt; </Text>
         <TextInput value={value} onChange={onChange} onSubmit={onSubmit} />
       </Box>
@@ -363,25 +370,32 @@ function ChatInput({
 function StatusBar({
   provider,
   model,
-  stats
+  stats,
+  mode
 }: {
   provider: string;
   model: string;
   stats: SessionStats;
+  mode: Mode;
 }) {
   const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
   const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
   const displayModel = model.length > 25 ? model.slice(0, 22) + '...' : model;
+  const modeConfig = MODE_CONFIG[mode];
 
   return (
     <Box flexDirection="column">
       <Separator />
       <Text dimColor>
+        {modeConfig.icon} {modeConfig.label}
+        {' │ '}
         {provider}:{displayModel}
         {' │ '}
         {formatTokens(stats.inputTokens + stats.outputTokens)} tokens
         {' │ '}
         {formatCost(stats.cost)}
+        {' │ '}
+        <Text dimColor>Shift+Tab: mode</Text>
       </Text>
     </Box>
   );
@@ -407,6 +421,7 @@ function TerminalChat() {
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
   const [model, setModel] = useState<string | undefined>(config.get('defaultModel'));
   const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
+  const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
 
   // Modal state
   const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade'>('none');
@@ -425,6 +440,15 @@ function TerminalChat() {
   const llmMessages = useRef<LLMMessage[]>([
     { role: 'system', content: getSystemPrompt(persona) }
   ]);
+
+  // Session state
+  const sessionRef = useRef<storage.Session | null>(null);
+
+  // Initialize session on mount
+  useEffect(() => {
+    const session = storage.getOrCreateSession(process.cwd());
+    sessionRef.current = session;
+  }, []);
 
   // Derived values
   const actualProvider = selectProvider(provider);
@@ -448,7 +472,7 @@ function TerminalChat() {
     switch (command) {
       case '/help':
       case '/h':
-        addMessage('system', 'Commands: /help /provider /model /models /persona /clear /status /config /upgrade /exit\nLoop mode: use --legacy flag');
+        addMessage('system', 'Commands: /help /mode /provider /model /persona /clear /status /config /upgrade /exit\nModes: plan (📋) hybrid (🔄) work (🔧) | Shift+Tab to cycle');
         break;
 
       case '/provider':
@@ -495,6 +519,17 @@ function TerminalChat() {
           }
         } catch (e) {
           addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+        }
+        break;
+
+      case '/mode':
+        if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
+          const m = parts[1] as Mode;
+          setMode(m);
+          addMessage('system', `Mode: ${MODE_CONFIG[m].icon} ${MODE_CONFIG[m].label} - ${MODE_CONFIG[m].description}`);
+        } else {
+          const currentConfig = MODE_CONFIG[mode];
+          addMessage('system', `Mode: ${currentConfig.icon} ${currentConfig.label}\nOptions: plan (📋), hybrid (🔄), work (🔧)\nUse Shift+Tab to cycle`);
         }
         break;
 
@@ -554,6 +589,166 @@ function TerminalChat() {
         }
         break;
 
+      case '/session':
+        if (parts[1] === 'list') {
+          const sessions = storage.listSessions(5);
+          if (sessions.length === 0) {
+            addMessage('system', 'No previous sessions found.');
+          } else {
+            const list = sessions.map(s =>
+              `${s.projectName} (${new Date(s.lastAccessedAt).toLocaleDateString()}) - ${s.messageCount} msgs`
+            ).join('\n');
+            addMessage('system', `Recent sessions:\n${list}`);
+          }
+        } else if (parts[1] === 'info') {
+          const session = sessionRef.current;
+          if (session) {
+            addMessage('system', `Session: ${session.projectName}\nCreated: ${new Date(session.createdAt).toLocaleString()}\nMessages: ${session.messageCount}`);
+          } else {
+            addMessage('system', 'No active session.');
+          }
+        } else {
+          addMessage('system', 'Usage: /session [list|info]');
+        }
+        break;
+
+      case '/todo': {
+        const subCommand = parts[1];
+        if (subCommand === 'add' && parts.length > 2) {
+          const content = parts.slice(2).join(' ');
+          const isGlobal = content.includes('--global');
+          const isHigh = content.includes('--priority') && content.includes('high');
+          const cleanContent = content.replace(/--global|--priority\s*\w+/g, '').trim();
+          const todo = storage.addTodo(cleanContent, {
+            global: isGlobal,
+            priority: isHigh ? 'high' : 'normal',
+          });
+          addMessage('system', `✓ TODO added (#${todo.id.slice(-4)}${isGlobal ? ', global' : ''})`);
+        } else if (subCommand === 'done' && parts[2]) {
+          const id = parts[2];
+          const todos = [...storage.getSessionTodos(), ...storage.getGlobalTodos()];
+          const todo = todos.find(t => t.id.endsWith(id) || t.id === id);
+          if (todo) {
+            storage.updateTodo(todo.id, { status: 'completed' });
+            addMessage('system', `✓ TODO #${id} marked done`);
+          } else {
+            addMessage('error', `TODO #${id} not found`);
+          }
+        } else if (subCommand === 'list' || !subCommand) {
+          const sessionTodos = storage.getSessionTodos();
+          const globalTodos = storage.getGlobalTodos();
+          const pending = [...sessionTodos, ...globalTodos].filter(t => t.status !== 'completed');
+          const completed = [...sessionTodos, ...globalTodos].filter(t => t.status === 'completed').slice(-3);
+
+          if (pending.length === 0 && completed.length === 0) {
+            addMessage('system', 'No TODOs. Use /todo add <task> to create one.');
+          } else {
+            let output = '📋 TODOs:\n';
+            if (pending.length > 0) {
+              output += pending.map(t =>
+                `  ${t.priority === 'high' ? '!' : '□'} #${t.id.slice(-4)} ${t.content}`
+              ).join('\n');
+            }
+            if (completed.length > 0) {
+              output += '\n\nCompleted:\n' + completed.map(t =>
+                `  ✓ #${t.id.slice(-4)} ${t.content}`
+              ).join('\n');
+            }
+            addMessage('system', output);
+          }
+        } else {
+          addMessage('system', 'Usage: /todo [add <task>|done <id>|list]');
+        }
+        break;
+      }
+
+      case '/plans': {
+        const subCommand = parts[1];
+        if (subCommand === 'list' || !subCommand) {
+          const plans = storage.getPlans();
+          if (plans.length === 0) {
+            addMessage('system', 'No plans yet. Plans are created in hybrid mode.');
+          } else {
+            const list = plans.slice(0, 5).map(p =>
+              `${p.status === 'completed' ? '✓' : '○'} ${p.id.slice(-4)}: ${p.title}`
+            ).join('\n');
+            addMessage('system', `📋 Plans:\n${list}`);
+          }
+        } else if (subCommand === 'view' && parts[2]) {
+          const plans = storage.getPlans();
+          const plan = plans.find(p => p.id.endsWith(parts[2]) || p.id === parts[2]);
+          if (plan) {
+            const phases = plan.phases.map(ph =>
+              `  ${ph.status === 'completed' ? '✓' : '○'} ${ph.name} (${ph.risk} risk)`
+            ).join('\n');
+            addMessage('system', `Plan: ${plan.title}\nStatus: ${plan.status}\n\nPhases:\n${phases}`);
+          } else {
+            addMessage('error', `Plan #${parts[2]} not found`);
+          }
+        } else {
+          addMessage('system', 'Usage: /plans [list|view <id>]');
+        }
+        break;
+      }
+
+      case '/history': {
+        const subCommand = parts[1];
+        if (subCommand === 'search' && parts[2]) {
+          const query = parts.slice(2).join(' ');
+          const results = storage.searchChatHistory(query);
+          if (results.length === 0) {
+            addMessage('system', `No matches for "${query}"`);
+          } else {
+            const list = results.slice(-5).map(m =>
+              `${new Date(m.timestamp).toLocaleTimeString()}: ${m.content.substring(0, 60)}...`
+            ).join('\n');
+            addMessage('system', `🔍 Found ${results.length} matches:\n${list}`);
+          }
+        } else if (subCommand === 'clear') {
+          addMessage('system', 'History is preserved per session. Start a new session for fresh history.');
+        } else {
+          const history = storage.getChatHistory(5);
+          if (history.length === 0) {
+            addMessage('system', 'No chat history yet.');
+          } else {
+            const list = history.map(m =>
+              `${m.role}: ${m.content.substring(0, 50)}...`
+            ).join('\n');
+            addMessage('system', `Recent history:\n${list}\n\nUse /history search <query> to search.`);
+          }
+        }
+        break;
+      }
+
+      case '/context': {
+        const subCommand = parts[1];
+        if (subCommand === 'load') {
+          const limit = parseInt(parts[2]) || 20;
+          const history = storage.getChatHistory(limit);
+          if (history.length > 0) {
+            // Load history into LLM context
+            for (const msg of history) {
+              if (msg.role === 'user' || msg.role === 'assistant') {
+                llmMessages.current.push({
+                  role: msg.role,
+                  content: msg.content,
+                });
+              }
+            }
+            addMessage('system', `✓ Loaded ${history.length} messages into context`);
+          } else {
+            addMessage('system', 'No history to load.');
+          }
+        } else if (subCommand === 'summary') {
+          const msgCount = llmMessages.current.length;
+          const estTokens = llmMessages.current.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
+          addMessage('system', `Context: ${msgCount} messages (~${Math.round(estTokens)} tokens)`);
+        } else {
+          addMessage('system', 'Usage: /context [load [n]|summary]');
+        }
+        break;
+      }
+
       case '/exit':
       case '/quit':
       case '/q':
@@ -612,6 +807,11 @@ function TerminalChat() {
             const args = toolCall.arguments as Record<string, unknown>;
             const toolPreview = String(args.command || args.path || '...');
 
+            // Assess risk
+            const risk = assessToolRisk(toolCall);
+            const riskConfig = RISK_CONFIG[risk.level];
+            const riskDisplay = risk.level !== 'none' ? ` [${riskConfig.bar}]` : '';
+
             // Special handling for think tool
             if (toolCall.name === 'think') {
               const thought = String(args.thought || '');
@@ -632,7 +832,18 @@ function TerminalChat() {
               });
             }
 
-            addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}`);
+            // In plan mode, don't execute tools (except think)
+            if (mode === 'plan' && toolCall.name !== 'think') {
+              addMessage('tool', `📋 ${toolCall.name}: ${toolPreview}${riskDisplay} (plan mode - not executed)`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: '[Plan mode: Tool not executed. Describe what this would do.]',
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
+            addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
             const result = await executeTool(toolCall, process.cwd());
 
             const preview = result.result.split('\n').slice(0, 3).join('\n');
@@ -725,9 +936,23 @@ function TerminalChat() {
     setLatestVersion(null);
   }, [addMessage]);
 
-  // Escape to exit (but not in modal)
-  useInput((_, key) => {
+  // Cycle through modes
+  const cycleMode = useCallback(() => {
+    setMode(current => {
+      const modes: Mode[] = ['plan', 'hybrid', 'work'];
+      const idx = modes.indexOf(current);
+      const next = modes[(idx + 1) % modes.length];
+      return next;
+    });
+  }, []);
+
+  // Keyboard shortcuts (Escape to exit, Shift+Tab to cycle mode)
+  useInput((input, key) => {
     if (key.escape && !isModalActive) exit();
+    // Shift+Tab to cycle mode (key.shift && key.tab)
+    if (key.shift && key.tab && !isProcessing) {
+      cycleMode();
+    }
   }, { isActive: !isModalActive });
 
   // Render
@@ -778,12 +1003,14 @@ function TerminalChat() {
         onChange={setInput}
         onSubmit={handleSubmit}
         disabled={isModalActive || isProcessing}
+        mode={mode}
       />
 
       {/* Status Bar */}
       <StatusBar
         provider={actualProvider}
         model={actualModel}
+        mode={mode}
         stats={stats}
       />
     </Box>
