@@ -10,6 +10,13 @@ import Conf from 'conf';
 export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
 export type AgentPersona = 'calliope' | 'professional' | 'minimal';
 
+export interface Profile {
+  provider: LLMProvider;
+  model?: string;
+  persona: AgentPersona;
+  confirmMode?: boolean;
+}
+
 export interface CalliopeConfig {
   // Setup state
   setupComplete: boolean;
@@ -44,6 +51,10 @@ export interface CalliopeConfig {
 
   // Update settings
   autoUpgrade: boolean;  // Prompt to upgrade on startup if update available
+
+  // Profiles
+  profiles?: Record<string, Profile>;
+  activeProfile?: string;
 }
 
 const DEFAULT_CONFIG: CalliopeConfig = {
@@ -224,6 +235,106 @@ export function getBaseUrl(provider: LLMProvider): string | undefined {
     return process.env.LITELLM_BASE_URL || config.get('litellmBaseUrl') || 'http://localhost:4000';
   }
   return undefined;
+}
+
+// Built-in profiles
+const BUILTIN_PROFILES: Record<string, Profile> = {
+  fast: {
+    provider: 'groq',
+    model: 'llama-3.3-70b-versatile',
+    persona: 'minimal',
+    confirmMode: false,
+  },
+  smart: {
+    provider: 'anthropic',
+    model: 'claude-sonnet-4-20250514',
+    persona: 'calliope',
+    confirmMode: true,
+  },
+  cheap: {
+    provider: 'google',
+    model: 'gemini-2.0-flash',
+    persona: 'professional',
+    confirmMode: true,
+  },
+  local: {
+    provider: 'ollama',
+    model: 'llama3.3',
+    persona: 'professional',
+    confirmMode: true,
+  },
+};
+
+/**
+ * Get a profile by name (built-in or custom)
+ */
+export function getProfile(name: string): Profile | undefined {
+  // Check built-in profiles first
+  if (BUILTIN_PROFILES[name]) {
+    return BUILTIN_PROFILES[name];
+  }
+  // Check custom profiles
+  const profiles = config.get('profiles') || {};
+  return profiles[name];
+}
+
+/**
+ * Save a custom profile
+ */
+export function saveProfile(name: string, profile: Profile): void {
+  const profiles = config.get('profiles') || {};
+  profiles[name] = profile;
+  config.set('profiles', profiles);
+}
+
+/**
+ * Delete a custom profile
+ */
+export function deleteProfile(name: string): boolean {
+  if (BUILTIN_PROFILES[name]) {
+    return false; // Can't delete built-in profiles
+  }
+  const profiles = config.get('profiles') || {};
+  if (profiles[name]) {
+    delete profiles[name];
+    config.set('profiles', profiles);
+    return true;
+  }
+  return false;
+}
+
+/**
+ * List all available profiles
+ */
+export function listProfiles(): { name: string; profile: Profile; builtin: boolean }[] {
+  const result: { name: string; profile: Profile; builtin: boolean }[] = [];
+
+  // Add built-in profiles
+  for (const [name, profile] of Object.entries(BUILTIN_PROFILES)) {
+    result.push({ name, profile, builtin: true });
+  }
+
+  // Add custom profiles
+  const customProfiles = config.get('profiles') || {};
+  for (const [name, profile] of Object.entries(customProfiles)) {
+    result.push({ name, profile, builtin: false });
+  }
+
+  return result;
+}
+
+/**
+ * Set the active profile
+ */
+export function setActiveProfile(name: string | undefined): void {
+  config.set('activeProfile', name);
+}
+
+/**
+ * Get the active profile name
+ */
+export function getActiveProfile(): string | undefined {
+  return config.get('activeProfile');
 }
 
 export default config;

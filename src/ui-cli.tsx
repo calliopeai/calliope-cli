@@ -588,6 +588,7 @@ function TerminalChat() {
   /edit                    - Edit and resend last message
   /undo                    - Remove last exchange
   /confirm [on|off]        - Toggle risky op confirmation
+  /profile [name|save|del] - Switch/save/delete profiles
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
@@ -802,6 +803,50 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
           addMessage('system', `Confirm mode: ${confirmMode ? 'ON' : 'OFF'}\nUsage: /confirm [on|off]`);
         }
         break;
+
+      case '/profile': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const profiles = config.listProfiles();
+          const active = config.getActiveProfile();
+          const list = profiles.map(p => {
+            const marker = p.name === active ? '→ ' : '  ';
+            const tag = p.builtin ? '(built-in)' : '(custom)';
+            return `${marker}${p.name}: ${p.profile.provider}/${p.profile.model || 'default'} ${tag}`;
+          }).join('\n');
+          addMessage('system', `Profiles:\n${list}\n\nUsage: /profile <name> | /profile save <name>`);
+        } else if (subCmd === 'save' && parts[2]) {
+          const name = parts[2];
+          config.saveProfile(name, {
+            provider: provider,
+            model: model,
+            persona: persona,
+            confirmMode: confirmMode,
+          });
+          addMessage('system', `✓ Saved profile: ${name}`);
+        } else if (subCmd === 'delete' && parts[2]) {
+          const name = parts[2];
+          if (config.deleteProfile(name)) {
+            addMessage('system', `✓ Deleted profile: ${name}`);
+          } else {
+            addMessage('error', `Cannot delete profile: ${name} (built-in or not found)`);
+          }
+        } else {
+          // Load profile
+          const profile = config.getProfile(subCmd);
+          if (profile) {
+            setProvider(profile.provider);
+            if (profile.model) setModel(profile.model);
+            setPersona(profile.persona);
+            if (profile.confirmMode !== undefined) setConfirmMode(profile.confirmMode);
+            config.setActiveProfile(subCmd);
+            addMessage('system', `✓ Loaded profile: ${subCmd} (${profile.provider}/${profile.model || 'default'})`);
+          } else {
+            addMessage('error', `Profile not found: ${subCmd}\nBuilt-in: fast, smart, cheap, local`);
+          }
+        }
+        break;
+      }
 
       case '/upgrade':
         addMessage('system', 'Checking for updates...');
