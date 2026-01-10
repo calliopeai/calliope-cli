@@ -909,9 +909,9 @@ function ChatInput({
         </Box>
       )}
       {/* Queue indicator */}
-      {queuedCount && queuedCount > 0 && (
+      {(queuedCount ?? 0) > 0 && (
         <Box>
-          <Text color="yellow">📨 {queuedCount} message{queuedCount > 1 ? 's' : ''} queued (will be sent after current task)</Text>
+          <Text color="yellow">📨 {queuedCount} message{queuedCount! > 1 ? 's' : ''} queued (will be sent after current task)</Text>
         </Box>
       )}
       <Box>
