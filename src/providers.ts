@@ -9,8 +9,69 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import * as config from './config.js';
 import { withRetry, classifyError, type RetryOptions } from './errors.js';
-import type { Message, Tool, LLMResponse, ToolCall, LLMProvider } from './types.js';
+import type { Message, Tool, LLMResponse, ToolCall, LLMProvider, MessageContent, TextContent, ImageContent } from './types.js';
 import { DEFAULT_MODELS } from './types.js';
+
+/**
+ * Extract text from MessageContent
+ */
+function getTextContent(content: MessageContent): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  return content
+    .filter(block => block.type === 'text')
+    .map(block => (block as TextContent).text)
+    .join('\n');
+}
+
+/**
+ * Convert MessageContent to Anthropic content format
+ */
+function toAnthropicContent(content: MessageContent): Anthropic.MessageParam['content'] {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content.map(block => {
+    if (block.type === 'text') {
+      return { type: 'text' as const, text: block.text };
+    } else if (block.type === 'image') {
+      return {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: block.mediaType,
+          data: block.data,
+        },
+      };
+    }
+    return { type: 'text' as const, text: '' };
+  });
+}
+
+/**
+ * Convert MessageContent to OpenAI content format
+ */
+function toOpenAIContent(content: MessageContent): string | OpenAI.Chat.Completions.ChatCompletionContentPart[] {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content.map(block => {
+    if (block.type === 'text') {
+      return { type: 'text' as const, text: block.text };
+    } else if (block.type === 'image') {
+      return {
+        type: 'image_url' as const,
+        image_url: {
+          url: `data:${block.mediaType};base64,${block.data}`,
+        },
+      };
+    }
+    return { type: 'text' as const, text: '' };
+  });
+}
 
 // Constants
 const MAX_TOKENS = 8192;
@@ -35,14 +96,14 @@ function toOpenAIMessages(messages: Message[]) {
       return {
         role: 'tool' as const,
         tool_call_id: m.toolCallId || '',
-        content: m.content,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
       };
     }
 
     if (m.toolCalls && m.toolCalls.length > 0) {
       return {
         role: 'assistant' as const,
-        content: m.content || null,
+        content: typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : null),
         tool_calls: m.toolCalls.map(tc => ({
           id: tc.id,
           type: 'function' as const,
@@ -54,9 +115,17 @@ function toOpenAIMessages(messages: Message[]) {
       };
     }
 
+    // Handle multi-modal content for user messages
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      return {
+        role: 'user' as const,
+        content: toOpenAIContent(m.content),
+      };
+    }
+
     return {
       role: m.role as 'system' | 'user' | 'assistant',
-      content: m.content,
+      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
     };
   });
 }
@@ -229,16 +298,18 @@ async function chatAnthropic(
         content: [{
           type: 'tool_result' as const,
           tool_use_id: m.toolCallId || '',
-          content: m.content,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
         }],
       };
     }
 
     if (m.toolCalls && m.toolCalls.length > 0) {
+      const textContent = typeof m.content === 'string' ? m.content :
+        (Array.isArray(m.content) ? m.content.filter(b => b.type === 'text').map(b => (b as TextContent).text).join('\n') : '');
       return {
         role: 'assistant' as const,
         content: [
-          ...(m.content ? [{ type: 'text' as const, text: m.content }] : []),
+          ...(textContent ? [{ type: 'text' as const, text: textContent }] : []),
           ...m.toolCalls.map(tc => ({
             type: 'tool_use' as const,
             id: tc.id,
@@ -249,9 +320,17 @@ async function chatAnthropic(
       };
     }
 
+    // Handle multi-modal content for user messages
+    if (m.role === 'user' && Array.isArray(m.content)) {
+      return {
+        role: 'user' as const,
+        content: toAnthropicContent(m.content),
+      };
+    }
+
     return {
       role: m.role as 'user' | 'assistant',
-      content: m.content,
+      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
     };
   });
 
@@ -271,7 +350,7 @@ async function chatAnthropic(
     const stream = await client.messages.stream({
       model,
       max_tokens: MAX_TOKENS,
-      system: systemMessage?.content || '',
+      system: systemMessage ? getTextContent(systemMessage.content) : '',
       messages: anthropicMessages,
     });
 
@@ -298,7 +377,7 @@ async function chatAnthropic(
   const response = await client.messages.create({
     model,
     max_tokens: MAX_TOKENS,
-    system: systemMessage?.content || '',
+    system: systemMessage ? getTextContent(systemMessage.content) : '',
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
   });
@@ -347,7 +426,7 @@ async function chatGoogle(
   // Build history (exclude last message)
   const history = messages.slice(0, -1).filter(m => m.role !== 'system').map(m => ({
     role: m.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: m.content }],
+    parts: [{ text: getTextContent(m.content) }],
   }));
 
   if (messages.length === 0) {
@@ -358,10 +437,29 @@ async function chatGoogle(
 
   const chat = genModel.startChat({
     history,
-    systemInstruction: systemMessage?.content,
+    systemInstruction: systemMessage ? getTextContent(systemMessage.content) : undefined,
   });
 
-  const result = await chat.sendMessage(lastMessage.content);
+  // Convert last message to Gemini format (with image support)
+  const lastMessageParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (typeof lastMessage.content === 'string') {
+    lastMessageParts.push({ text: lastMessage.content });
+  } else {
+    for (const block of lastMessage.content) {
+      if (block.type === 'text') {
+        lastMessageParts.push({ text: block.text });
+      } else if (block.type === 'image') {
+        lastMessageParts.push({
+          inlineData: {
+            mimeType: block.mediaType,
+            data: block.data,
+          },
+        });
+      }
+    }
+  }
+
+  const result = await chat.sendMessage(lastMessageParts);
   const response = result.response;
   const text = response.text();
 

@@ -27,9 +27,22 @@ export interface RiskAssessment {
   requiresConfirmation: boolean;
 }
 
+export interface ImageContent {
+  type: 'image';
+  mediaType: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  data: string; // base64
+}
+
+export interface TextContent {
+  type: 'text';
+  text: string;
+}
+
+export type MessageContent = string | (TextContent | ImageContent)[];
+
 export interface Message {
   role: 'user' | 'assistant' | 'system' | 'tool';
-  content: string;
+  content: MessageContent;
   toolCallId?: string;
   toolCalls?: ToolCall[];
 }
@@ -177,4 +190,66 @@ Be extremely concise. Execute tasks efficiently.`,
 
 export function getSystemPrompt(persona: AgentPersona): string {
   return PERSONA_PROMPTS[persona];
+}
+
+// Pricing per 1M tokens (input, output) in USD
+export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // Anthropic
+  'claude-sonnet-4-20250514': { input: 3, output: 15 },
+  'claude-opus-4-20250514': { input: 15, output: 75 },
+  'claude-3-5-sonnet-20241022': { input: 3, output: 15 },
+  'claude-3-5-haiku-20241022': { input: 0.8, output: 4 },
+  'claude-3-opus-20240229': { input: 15, output: 75 },
+  // OpenAI
+  'gpt-4o': { input: 2.5, output: 10 },
+  'gpt-4o-mini': { input: 0.15, output: 0.6 },
+  'gpt-4-turbo': { input: 10, output: 30 },
+  'o1': { input: 15, output: 60 },
+  'o1-mini': { input: 3, output: 12 },
+  // Google
+  'gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'gemini-1.5-pro': { input: 1.25, output: 5 },
+  'gemini-1.5-flash': { input: 0.075, output: 0.3 },
+  // Mistral
+  'mistral-large-latest': { input: 2, output: 6 },
+  'mistral-small-latest': { input: 0.2, output: 0.6 },
+  // Groq (free tier, minimal cost)
+  'llama-3.3-70b-versatile': { input: 0.59, output: 0.79 },
+  'llama-3.1-8b-instant': { input: 0.05, output: 0.08 },
+  // Together
+  'meta-llama/Llama-3.3-70B-Instruct-Turbo': { input: 0.88, output: 0.88 },
+  // Default fallback
+  'default': { input: 1, output: 3 },
+};
+
+/**
+ * Calculate cost for token usage
+ */
+export function calculateCost(
+  model: string,
+  inputTokens: number,
+  outputTokens: number
+): number {
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING['default'];
+  const inputCost = (inputTokens / 1_000_000) * pricing.input;
+  const outputCost = (outputTokens / 1_000_000) * pricing.output;
+  return inputCost + outputCost;
+}
+
+/**
+ * Providers that support vision
+ */
+export const VISION_PROVIDERS: LLMProvider[] = ['anthropic', 'openai', 'google'];
+
+/**
+ * Check if a provider/model supports vision
+ */
+export function supportsVision(provider: LLMProvider, model?: string): boolean {
+  if (!VISION_PROVIDERS.includes(provider)) return false;
+  // Most modern models from these providers support vision
+  if (model?.includes('haiku') || model?.includes('mini')) return true;
+  if (model?.includes('sonnet') || model?.includes('opus')) return true;
+  if (model?.includes('gpt-4')) return true;
+  if (model?.includes('gemini')) return true;
+  return true;
 }

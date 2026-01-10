@@ -17,13 +17,14 @@ import TextInput from 'ink-text-input';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool } from './tools.js';
-import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG } from './types.js';
+import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG, supportsVision, calculateCost } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
 import { assessToolRisk, detectComplexity } from './risk.js';
 import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel } from './types.js';
+import { parseFileReferences, processFilesForMessage, formatFileInfo } from './files.js';
+import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent } from './types.js';
 
 // ============================================================================
 // Types
@@ -778,8 +779,8 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
   }, [actualProvider, actualModel, persona, stats, addMessage, exit]);
 
   // Run agent with user prompt
-  const runAgent = useCallback(async (prompt: string) => {
-    llmMessages.current.push({ role: 'user', content: prompt });
+  const runAgent = useCallback(async (content: MessageContent) => {
+    llmMessages.current.push({ role: 'user', content });
     setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
     setStreamingResponse('');
 
@@ -813,12 +814,14 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
 
         const response = await chat(provider, llmMessages.current, TOOLS, model, onToken, onRetry);
 
-        // Update token stats
+        // Update token stats and cost
         if (response.usage) {
+          const usageCost = calculateCost(model || DEFAULT_MODELS[provider], response.usage.inputTokens, response.usage.outputTokens);
           setStats(s => ({
             ...s,
             inputTokens: s.inputTokens + response.usage!.inputTokens,
             outputTokens: s.outputTokens + response.usage!.outputTokens,
+            cost: s.cost + usageCost,
           }));
         }
 
@@ -913,17 +916,44 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
       return;
     }
 
-    addMessage('user', trimmed);
+    // Parse file references from input
+    const { text: cleanText, files } = parseFileReferences(trimmed, process.cwd());
+
+    // Show user message (with file info if any)
+    if (files.length > 0) {
+      const fileInfo = formatFileInfo(files);
+      addMessage('user', `${cleanText}\n📎 ${fileInfo}`);
+    } else {
+      addMessage('user', trimmed);
+    }
+
     setIsProcessing(true);
 
     try {
-      await runAgent(trimmed);
+      // Build message content (with file/image support)
+      let messageContent: MessageContent;
+
+      if (files.length > 0) {
+        const visionSupported = supportsVision(provider, model);
+        const { content, warnings } = processFilesForMessage(cleanText || trimmed, files, visionSupported);
+
+        // Show any warnings about files
+        for (const warning of warnings) {
+          addMessage('system', warning);
+        }
+
+        messageContent = content;
+      } else {
+        messageContent = trimmed;
+      }
+
+      await runAgent(messageContent);
     } finally {
       setIsProcessing(false);
       setThinkingState(null);
       setStreamingResponse('');
     }
-  }, [isProcessing, handleCommand, runAgent, addMessage]);
+  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model]);
 
   // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {
