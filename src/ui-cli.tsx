@@ -53,10 +53,106 @@ const formatTime = (d: Date) => {
   return m < 60 ? `${m}m` : `${Math.floor(m/60)}h${m%60}m`;
 };
 
+// Spinner frames
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+// Animated Spinner component
+function Spinner({ label }: { label: string }) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame(f => (f + 1) % SPINNER_FRAMES.length);
+    }, 80);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <Text>
+      <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
+      <Text dimColor> {label}</Text>
+    </Text>
+  );
+}
+
+// Tool icons
+const TOOL_ICONS: Record<string, string> = {
+  shell: '⚡',
+  read_file: '📄',
+  write_file: '✍️',
+  list_files: '📁',
+  think: '💭',
+};
+
 // Separator
 function Sep() {
   const { stdout } = useStdout();
   return <Text dimColor>{'─'.repeat(stdout?.columns || 80)}</Text>;
+}
+
+// Message component with nice formatting
+function Message({ msg }: { msg: UIMessage }) {
+  if (msg.type === 'user') {
+    return (
+      <Box flexDirection="column">
+        <Text> </Text>
+        <Text><Text color="cyan">›</Text> {msg.content}</Text>
+      </Box>
+    );
+  }
+
+  if (msg.type === 'assistant') {
+    const lines = msg.content.split('\n');
+    return (
+      <Box flexDirection="column">
+        <Text> </Text>
+        <Text><Text color="cyan">✧ Calliope:</Text></Text>
+        <Text> </Text>
+        {lines.map((line, i) => (
+          <Text key={i}><Text color="blue">│</Text> {line}</Text>
+        ))}
+        <Text> </Text>
+      </Box>
+    );
+  }
+
+  if (msg.type === 'tool') {
+    // Parse tool message format: "⚡ tool_name: preview" or just result lines
+    const isToolCall = msg.content.startsWith('⚡');
+    if (isToolCall) {
+      const match = msg.content.match(/^⚡ (\w+): (.*)$/);
+      if (match) {
+        const [, toolName, preview] = match;
+        const icon = TOOL_ICONS[toolName] || '⚙️';
+        return (
+          <Box flexDirection="column">
+            <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text></Text>
+            <Text><Text dimColor>│</Text>  <Text dimColor>{preview}</Text></Text>
+          </Box>
+        );
+      }
+    }
+    // Tool result
+    const lines = msg.content.split('\n').slice(0, 5);
+    const hasMore = msg.content.split('\n').length > 5;
+    const hasError = msg.content.toLowerCase().includes('error');
+    return (
+      <Box flexDirection="column">
+        {lines.map((line, i) => (
+          <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
+        ))}
+        {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
+        <Text><Text dimColor>╰─</Text> {hasError ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>
+      </Box>
+    );
+  }
+
+  if (msg.type === 'system') {
+    return <Text color="yellow">{msg.content}</Text>;
+  }
+
+  // error
+  return <Text color="red">✗ {msg.content}</Text>;
 }
 
 // Model Selector Component (Ink-native, replaces inquirer)
@@ -482,26 +578,15 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
       {/* Messages - Static for history */}
       <Static items={messages}>
         {(msg) => (
-          <Box key={msg.id}>
-            <Text
-              color={
-                msg.type === 'user' ? 'cyan' :
-                msg.type === 'assistant' ? 'white' :
-                msg.type === 'tool' ? 'green' :
-                msg.type === 'system' ? 'yellow' :
-                'red'
-              }
-            >
-              {msg.type === 'user' ? '› ' : msg.type === 'assistant' ? '│ ' : msg.type === 'tool' ? '  ' : ''}
-              {msg.content}
-            </Text>
+          <Box key={msg.id} marginBottom={msg.type === 'assistant' ? 1 : 0}>
+            <Message msg={msg} />
           </Box>
         )}
       </Static>
 
       {/* Processing indicator */}
-      {isProcessing && <Text color="cyan">⠋ Thinking...</Text>}
-      {modelLoading && <Text color="yellow">⠋ Loading models...</Text>}
+      {isProcessing && <Spinner label="Thinking..." />}
+      {modelLoading && <Spinner label="Loading models..." />}
 
       {/* Model Selector (when active) */}
       {modelSelectMode && availableModels.length > 0 && (
