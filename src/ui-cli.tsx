@@ -638,12 +638,82 @@ const SLASH_COMMANDS = [
   '/status', '/s',
   '/config',
   '/set',
+  '/scope',
+  '/add-dir',
+  '/remove-dir',
   '/agents',
   '/upgrade',
   '/loop',
   '/cancel-loop',
   '/exit',
 ];
+
+// Commands that take a path argument (for file tab completion)
+const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find'];
+
+/**
+ * Get file/directory completions for a partial path
+ */
+function getPathCompletions(partial: string, cwd: string): string[] {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Handle empty or relative paths
+    let searchDir: string;
+    let prefix: string;
+
+    if (!partial || partial === '') {
+      searchDir = cwd;
+      prefix = '';
+    } else if (partial.startsWith('/')) {
+      // Absolute path
+      const lastSlash = partial.lastIndexOf('/');
+      searchDir = partial.substring(0, lastSlash) || '/';
+      prefix = partial.substring(lastSlash + 1);
+    } else if (partial.startsWith('~')) {
+      // Home directory
+      const home = process.env.HOME || '/tmp';
+      const expanded = partial.replace('~', home);
+      const lastSlash = expanded.lastIndexOf('/');
+      searchDir = expanded.substring(0, lastSlash) || home;
+      prefix = expanded.substring(lastSlash + 1);
+    } else {
+      // Relative path
+      const lastSlash = partial.lastIndexOf('/');
+      if (lastSlash === -1) {
+        searchDir = cwd;
+        prefix = partial;
+      } else {
+        searchDir = path.join(cwd, partial.substring(0, lastSlash));
+        prefix = partial.substring(lastSlash + 1);
+      }
+    }
+
+    if (!fs.existsSync(searchDir)) return [];
+
+    const entries = fs.readdirSync(searchDir, { withFileTypes: true });
+    const matches: string[] = [];
+
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') && !prefix.startsWith('.')) continue; // Skip hidden unless typing hidden
+      if (prefix && !entry.name.toLowerCase().startsWith(prefix.toLowerCase())) continue;
+
+      const fullPath = path.join(searchDir, entry.name);
+      const displayPath = partial.startsWith('/')
+        ? fullPath
+        : partial.startsWith('~')
+          ? fullPath.replace(process.env.HOME || '', '~')
+          : path.relative(cwd, fullPath) || entry.name;
+
+      matches.push(entry.isDirectory() ? displayPath + '/' : displayPath);
+    }
+
+    return matches.sort().slice(0, 10); // Limit to 10 suggestions
+  } catch {
+    return [];
+  }
+}
 
 // ============================================================================
 // Input Components
@@ -659,6 +729,9 @@ function ChatInput({
   isProcessing,
   queuedCount,
   onQueueMessage,
+  cwd,
+  suggestions,
+  onSuggestionsChange,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -669,7 +742,11 @@ function ChatInput({
   isProcessing?: boolean;
   queuedCount?: number;
   onQueueMessage?: (msg: string) => void;
+  cwd?: string;
+  suggestions?: string[];
+  onSuggestionsChange?: (suggestions: string[]) => void;
 }) {
+  const workingDir = cwd || process.cwd();
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
     // ESC to exit (always works)
@@ -737,30 +814,60 @@ function ChatInput({
       return;
     }
 
-    // Tab completion for slash commands
-    if (key.tab && !key.shift && value.startsWith('/')) {
-      const partial = value.toLowerCase();
-      const matches = SLASH_COMMANDS.filter(cmd =>
-        cmd.startsWith(partial) && cmd !== partial
-      );
+    // Tab completion for slash commands and paths
+    if (key.tab && !key.shift) {
+      // Check if we're completing a path after a path command
+      const parts = value.split(/\s+/);
+      const cmd = parts[0]?.toLowerCase();
 
-      if (matches.length === 1) {
-        // Single match - complete it
-        onChange(matches[0] + ' ');
-      } else if (matches.length > 1) {
-        // Multiple matches - find longest common prefix
-        let commonPrefix = matches[0];
-        for (const match of matches) {
-          while (!match.startsWith(commonPrefix)) {
-            commonPrefix = commonPrefix.slice(0, -1);
+      if (PATH_COMMANDS.includes(cmd) && parts.length >= 1) {
+        // Path completion
+        const pathPart = parts.slice(1).join(' ');
+        const completions = getPathCompletions(pathPart, workingDir);
+
+        if (completions.length === 1) {
+          onChange(`${cmd} ${completions[0]}`);
+          onSuggestionsChange?.([]);
+        } else if (completions.length > 1) {
+          // Find common prefix
+          let commonPrefix = completions[0];
+          for (const comp of completions) {
+            while (!comp.startsWith(commonPrefix)) {
+              commonPrefix = commonPrefix.slice(0, -1);
+            }
           }
+          if (commonPrefix.length > pathPart.length) {
+            onChange(`${cmd} ${commonPrefix}`);
+          }
+          onSuggestionsChange?.(completions);
         }
-        if (commonPrefix.length > value.length) {
-          onChange(commonPrefix);
-        }
-        // Could show matches in UI, but for now just complete common prefix
+        return;
       }
-      return;
+
+      // Slash command completion
+      if (value.startsWith('/')) {
+        const partial = value.toLowerCase();
+        const matches = SLASH_COMMANDS.filter(cmdName =>
+          cmdName.startsWith(partial) && cmdName !== partial
+        );
+
+        if (matches.length === 1) {
+          onChange(matches[0] + ' ');
+          onSuggestionsChange?.([]);
+        } else if (matches.length > 1) {
+          let commonPrefix = matches[0];
+          for (const match of matches) {
+            while (!match.startsWith(commonPrefix)) {
+              commonPrefix = commonPrefix.slice(0, -1);
+            }
+          }
+          if (commonPrefix.length > value.length) {
+            onChange(commonPrefix);
+          }
+          onSuggestionsChange?.(matches);
+        }
+        return;
+      }
     }
 
     // Ignore other control keys, meta, and navigation
@@ -777,10 +884,18 @@ function ChatInput({
   // Determine prompt style based on state
   const promptColor = disabled ? 'gray' : isProcessing ? 'yellow' : 'cyan';
   const promptText = isProcessing ? 'queue>' : 'calliope>';
-  
+
   return (
     <Box flexDirection="column">
       <Separator />
+      {/* Suggestions display */}
+      {suggestions && suggestions.length > 0 && (
+        <Box>
+          <Text dimColor>Tab: </Text>
+          <Text color="cyan">{suggestions.slice(0, 5).join('  ')}</Text>
+          {suggestions.length > 5 && <Text dimColor>  (+{suggestions.length - 5} more)</Text>}
+        </Box>
+      )}
       {/* Queue indicator */}
       {queuedCount && queuedCount > 0 && (
         <Box>
@@ -876,10 +991,20 @@ function TerminalChat() {
 
   // Core state
   const [input, setInput] = useState('');
+  const [suggestions, setSuggestions] = useState<string[]>([]);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
   const [streamingResponse, setStreamingResponse] = useState<string>('');
+
+  // Clear suggestions when input changes significantly
+  const handleInputChange = useCallback((newValue: string) => {
+    setInput(newValue);
+    // Clear suggestions if user clears input or submits
+    if (!newValue || !newValue.startsWith('/')) {
+      setSuggestions([]);
+    }
+  }, []);
 
   // Config state
   const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
@@ -2878,7 +3003,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {/* Chat Input */}
       <ChatInput
         value={input}
-        onChange={setInput}
+        onChange={handleInputChange}
         onSubmit={handleSubmit}
         onEscape={exit}
         onCycleMode={cycleMode}
@@ -2889,6 +3014,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           setQueuedMessages(prev => [...prev, msg]);
           addMessage('system', `📨 Queued: "${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}"`);
         }}
+        cwd={process.cwd()}
+        suggestions={suggestions}
+        onSuggestionsChange={setSuggestions}
       />
 
       {/* Status Bar */}
