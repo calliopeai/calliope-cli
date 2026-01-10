@@ -33,6 +33,7 @@ import * as modelRouter from './model-router.js';
 import * as summarization from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
+import { executeParallel, analyzeDependencies, getParallelizationStats, canParallelize } from './parallel-tools.js';
 
 // ============================================================================
 // Types
@@ -1682,7 +1683,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           }));
         }
 
-        // Handle tool calls
+        // Handle tool calls with parallel execution support
         if (response.toolCalls?.length) {
           llmMessages.current.push({
             role: 'assistant',
@@ -1690,102 +1691,199 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             toolCalls: response.toolCalls,
           });
 
+          // ============================================================
+          // Phase 1: Pre-check all tools, categorize into blocked vs executable
+          // ============================================================
+          interface ToolPreCheck {
+            toolCall: ToolCall;
+            args: Record<string, unknown>;
+            preview: string;
+            risk: ReturnType<typeof assessToolRisk>;
+            riskDisplay: string;
+            blocked: boolean;
+            blockReason?: string;
+            blockContent?: string;
+          }
+          
+          const preChecks: ToolPreCheck[] = [];
+          const executableTools: ToolCall[] = [];
+          
           for (const toolCall of response.toolCalls) {
             const args = toolCall.arguments as Record<string, unknown>;
             const toolPreview = String(args.command || args.path || '...');
-
-            // Assess risk
             const risk = assessToolRisk(toolCall);
             const riskConfig = RISK_CONFIG[risk.level];
             const riskDisplay = risk.level !== 'none' ? ` [${riskConfig.bar}]` : '';
-
-            // Special handling for think tool
-            if (toolCall.name === 'think') {
-              const thought = String(args.thought || '');
-              setThinkingState({
-                status: 'Reasoning...',
-                detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
-                thinking: thought,
-                iteration: i + 1,
-                maxIterations,
-              });
-            } else {
-              setThinkingState({
-                status: `Executing ${toolCall.name}...`,
-                detail: toolPreview.substring(0, 60),
-                thinking: undefined,
-                iteration: i + 1,
-                maxIterations,
-              });
-            }
-
-            // In plan mode, don't execute tools (except think)
+            
+            const preCheck: ToolPreCheck = {
+              toolCall,
+              args,
+              preview: toolPreview,
+              risk,
+              riskDisplay,
+              blocked: false,
+            };
+            
+            // Check blocking conditions
             if (mode === 'plan' && toolCall.name !== 'think') {
+              preCheck.blocked = true;
+              preCheck.blockReason = 'plan mode';
+              preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
               addMessage('tool', `📋 ${toolCall.name}: ${toolPreview}${riskDisplay} (plan mode - not executed)`);
-              llmMessages.current.push({
-                role: 'tool',
-                content: '[Plan mode: Tool not executed. Describe what this would do.]',
-                toolCallId: toolCall.id,
-              });
-              continue;
-            }
-
-            // Check if confirmation is required for risky operations
-            if (confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
-              // Show warning and skip execution
+            } else if (confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
+              preCheck.blocked = true;
+              preCheck.blockReason = 'confirmation required';
+              preCheck.blockContent = `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`;
               const riskIcon = risk.level === 'critical' ? '🛑' : '⚠️';
               addMessage('tool', `${riskIcon} ${toolCall.name}: ${toolPreview}${riskDisplay}\n  → Requires confirmation (use /confirm off to disable)`);
-              llmMessages.current.push({
-                role: 'tool',
-                content: `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`,
-                toolCallId: toolCall.id,
-              });
-              continue;
-            }
-
-            addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-
-            // Execute pre-tool hooks
-            const preHookResult = await hooks.checkHooksAllow('pre-tool', {
-              tool: toolCall.name,
-              toolArgs: args,
-            });
-            if (!preHookResult.allowed) {
-              addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
-              llmMessages.current.push({
-                role: 'tool',
-                content: `[Blocked by hook: ${preHookResult.reason}]`,
-                toolCallId: toolCall.id,
-              });
-              continue;
-            }
-
-            const result = await executeTool(toolCall, process.cwd());
-
-            // Execute post-tool hooks
-            hooks.executeHooks('post-tool', {
-              tool: toolCall.name,
-              toolArgs: args,
-              toolResult: result.result,
-            }).catch(() => {});
-
-            // For think tool, show the actual thought content
-            if (toolCall.name === 'think') {
-              const thought = String(args.thought || '');
-              addMessage('tool', thought);
             } else {
-              const preview = result.result.split('\n').slice(0, 3).join('\n');
-              addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+              // Check pre-tool hooks
+              const preHookResult = await hooks.checkHooksAllow('pre-tool', {
+                tool: toolCall.name,
+                toolArgs: args,
+              });
+              if (!preHookResult.allowed) {
+                preCheck.blocked = true;
+                preCheck.blockReason = 'blocked by hook';
+                preCheck.blockContent = `[Blocked by hook: ${preHookResult.reason}]`;
+                addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+                addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
+              } else {
+                // Tool can be executed
+                executableTools.push(toolCall);
+                addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+              }
             }
-
-            llmMessages.current.push({
-              role: 'tool',
-              content: result.result,
-              toolCallId: toolCall.id,
-            });
+            
+            preChecks.push(preCheck);
+            
+            // Add blocked tool results to LLM messages
+            if (preCheck.blocked) {
+              llmMessages.current.push({
+                role: 'tool',
+                content: preCheck.blockContent!,
+                toolCallId: toolCall.id,
+              });
+            }
+          }
+          
+          // ============================================================
+          // Phase 2: Execute tools (parallel when beneficial)
+          // ============================================================
+          if (executableTools.length > 0) {
+            const parallelStats = getParallelizationStats(executableTools);
+            const useParallel = parallelStats.maxParallel > 1 && executableTools.length > 1;
+            
+            if (useParallel) {
+              // Show parallelization info
+              setThinkingState({
+                status: `Executing ${executableTools.length} tools in parallel...`,
+                detail: `${parallelStats.stages} stages, up to ${parallelStats.maxParallel}x speedup`,
+                iteration: i + 1,
+                maxIterations,
+              });
+              
+              // Execute in parallel using dependency-aware staging
+              const results = await executeParallel(
+                executableTools,
+                async (call) => {
+                  const result = await executeTool(call, process.cwd());
+                  return result.result;
+                },
+                (completed, total, current) => {
+                  setThinkingState({
+                    status: `Executing tools... (${completed + 1}/${total})`,
+                    detail: current.name,
+                    iteration: i + 1,
+                    maxIterations,
+                  });
+                }
+              );
+              
+              // Process results sequentially for UI and LLM messages
+              for (const result of results) {
+                const toolCall = result.toolCall;
+                const args = toolCall.arguments as Record<string, unknown>;
+                
+                // Execute post-tool hooks
+                hooks.executeHooks('post-tool', {
+                  tool: toolCall.name,
+                  toolArgs: args,
+                  toolResult: result.result,
+                }).catch(() => {});
+                
+                // Display result
+                if (toolCall.name === 'think') {
+                  const thought = String(args.thought || '');
+                  addMessage('tool', thought);
+                } else if (result.error) {
+                  addMessage('tool', `Error: ${result.error}`);
+                } else {
+                  const preview = result.result.split('\n').slice(0, 3).join('\n');
+                  addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+                }
+                
+                llmMessages.current.push({
+                  role: 'tool',
+                  content: result.error ? `Error: ${result.error}` : result.result,
+                  toolCallId: toolCall.id,
+                });
+              }
+            } else {
+              // Sequential execution (single tool or dependencies prevent parallelization)
+              for (const toolCall of executableTools) {
+                const args = toolCall.arguments as Record<string, unknown>;
+                const toolPreview = String(args.command || args.path || '...');
+                
+                // Special handling for think tool UI
+                if (toolCall.name === 'think') {
+                  const thought = String(args.thought || '');
+                  setThinkingState({
+                    status: 'Reasoning...',
+                    detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
+                    thinking: thought,
+                    iteration: i + 1,
+                    maxIterations,
+                  });
+                } else {
+                  setThinkingState({
+                    status: `Executing ${toolCall.name}...`,
+                    detail: toolPreview.substring(0, 60),
+                    thinking: undefined,
+                    iteration: i + 1,
+                    maxIterations,
+                  });
+                }
+                
+                const result = await executeTool(toolCall, process.cwd());
+                
+                // Execute post-tool hooks
+                hooks.executeHooks('post-tool', {
+                  tool: toolCall.name,
+                  toolArgs: args,
+                  toolResult: result.result,
+                }).catch(() => {});
+                
+                // Display result
+                if (toolCall.name === 'think') {
+                  const thought = String(args.thought || '');
+                  addMessage('tool', thought);
+                } else {
+                  const preview = result.result.split('\n').slice(0, 3).join('\n');
+                  addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+                }
+                
+                llmMessages.current.push({
+                  role: 'tool',
+                  content: result.result,
+                  toolCallId: toolCall.id,
+                });
+              }
+            }
           }
           continue;
         }
+
 
         // Final response - move streaming content to message history
         setThinkingState(null);
