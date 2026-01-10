@@ -20,8 +20,11 @@ const skipPermissions = args.includes('--god-mode') ||
 // Check for legacy UI flag
 const useLegacyUI = args.includes('--legacy');
 
+// Check for AGTerm mode (multi-agent orchestration)
+const agtermEnabled = args.includes('--agterm') || args.includes('-a');
+
 // Export for CLI to access
-export { skipPermissions };
+export { skipPermissions, agtermEnabled };
 
 async function main(): Promise<void> {
   // Handle --help
@@ -67,6 +70,13 @@ async function main(): Promise<void> {
     console.log();
   }
 
+  // Show notice if agterm mode enabled
+  if (agtermEnabled) {
+    console.log('\x1b[36m🤖 AGTERM MODE ENABLED\x1b[0m');
+    console.log('\x1b[2m   Multi-agent orchestration active. Use /agents to see available sub-agents.\x1b[0m');
+    console.log();
+  }
+
   // Check if setup is needed
   if (!config.isSetupComplete()) {
     // Check if we have any API keys from environment
@@ -100,15 +110,21 @@ async function main(): Promise<void> {
   await startCLI();
 }
 
-async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
+  // Merge in global flags
+  const fullOptions = {
+    ...options,
+    agtermEnabled: options.agtermEnabled ?? agtermEnabled,
+  };
+
   if (useLegacyUI) {
     // Use legacy readline-based CLI
     const { startCLI: start } = await import('./cli.js');
-    await start(options);
+    await start(fullOptions);
   } else {
     // Use new ink-based UI
     const { startInkCLI } = await import('./ui-cli.js');
-    await startInkCLI(options);
+    await startInkCLI(fullOptions);
   }
 }
 
@@ -129,6 +145,8 @@ ${bold('OPTIONS')}
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
+  -a, --agterm      Enable multi-agent orchestration mode
+                    Unlock spawn_agent, check_agent tools
   --legacy          Use legacy readline UI instead of ink
 
 ${bold('ENVIRONMENT VARIABLES')}
