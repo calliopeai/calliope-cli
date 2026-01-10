@@ -383,6 +383,43 @@ function UpgradePrompt({
   );
 }
 
+function SessionResumePrompt({
+  session,
+  onResume,
+  onNew,
+}: {
+  session: { projectName: string; lastAccessedAt: string; messageCount: number };
+  onResume: () => void;
+  onNew: () => void;
+}) {
+  useInput((input, key) => {
+    if (input === 'r' || input === 'R') onResume();
+    else if (input === 'n' || input === 'N' || key.escape) onNew();
+  });
+
+  const timeAgo = (() => {
+    const diff = Date.now() - new Date(session.lastAccessedAt).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
+    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
+    const minutes = Math.floor(diff / (1000 * 60));
+    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+  })();
+
+  return (
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text color="cyan" bold>📂 Previous Session Found</Text>
+      <Text> </Text>
+      <Text>Project: <Text color="yellow">{session.projectName}</Text></Text>
+      <Text>Last active: <Text dimColor>{timeAgo}</Text></Text>
+      <Text>Messages: <Text dimColor>{session.messageCount}</Text></Text>
+      <Text> </Text>
+      <Text><Text color="cyan">[R]</Text>esume session  <Text color="cyan">[N]</Text>ew session</Text>
+    </Box>
+  );
+}
+
 function ToolConfirmation({
   toolCall,
   riskLevel,
@@ -430,6 +467,9 @@ function ChatInput({
   onEscape,
   onCycleMode,
   disabled,
+  isProcessing,
+  queuedCount,
+  onQueueMessage,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -437,6 +477,9 @@ function ChatInput({
   onEscape: () => void;
   onCycleMode: () => void;
   disabled: boolean;
+  isProcessing?: boolean;
+  queuedCount?: number;
+  onQueueMessage?: (msg: string) => void;
 }) {
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
@@ -452,8 +495,32 @@ function ChatInput({
       return;
     }
 
-    // When disabled, ignore all other input
+    // When fully disabled (modal), ignore all input
     if (disabled) return;
+
+    // When processing, queue messages instead of submitting directly
+    if (isProcessing) {
+      // Allow typing
+      if (key.backspace || key.delete) {
+        onChange(value.slice(0, -1));
+        return;
+      }
+      if (key.ctrl && input === 'u') {
+        onChange('');
+        return;
+      }
+      // Enter queues the message
+      if (key.return && value.trim() && onQueueMessage) {
+        onQueueMessage(value.trim());
+        onChange('');
+        return;
+      }
+      // Regular input
+      if (input && !key.ctrl && !key.meta && !key.tab) {
+        onChange(value + input);
+      }
+      return;
+    }
 
     // Shift+Tab to cycle mode
     if (key.shift && key.tab) {
@@ -492,13 +559,23 @@ function ChatInput({
     }
   });
 
+  // Determine prompt style based on state
+  const promptColor = disabled ? 'gray' : isProcessing ? 'yellow' : 'cyan';
+  const promptText = isProcessing ? 'queue>' : 'calliope>';
+  
   return (
     <Box flexDirection="column">
       <Separator />
+      {/* Queue indicator */}
+      {queuedCount && queuedCount > 0 && (
+        <Box>
+          <Text color="yellow">📨 {queuedCount} message{queuedCount > 1 ? 's' : ''} queued (will be sent after current task)</Text>
+        </Box>
+      )}
       <Box>
-        <Text color={disabled ? 'gray' : 'cyan'}>calliope&gt; </Text>
+        <Text color={promptColor}>{promptText} </Text>
         <Text>{value}</Text>
-        <Text color="cyan">▌</Text>
+        <Text color={promptColor}>▌</Text>
       </Box>
     </Box>
   );
@@ -597,7 +674,8 @@ function TerminalChat() {
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume'>('none');
+  const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: ToolCall; resolve: (approved: boolean) => void } | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
@@ -610,6 +688,10 @@ function TerminalChat() {
     messageCount: 0,
   });
   const [contextTokens, setContextTokens] = useState(0);
+
+  // Message queue for human-in-the-loop feedback during processing
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const [queueInput, setQueueInput] = useState('');
 
   // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
@@ -650,7 +732,27 @@ function TerminalChat() {
 
   // Initialize session and load memory on mount
   useEffect(() => {
-    const session = storage.getOrCreateSession(process.cwd());
+    const cwd = process.cwd();
+    
+    // Check for existing session with messages
+    const existingSessions = storage.listSessions(5);
+    const recentSession = existingSessions.find(s => 
+      s.projectPath === cwd && 
+      s.messageCount > 0 &&
+      Date.now() - new Date(s.lastAccessedAt).getTime() < 24 * 60 * 60 * 1000 // Within 24 hours
+    );
+    
+    if (recentSession && !sessionRef.current) {
+      // Offer to resume
+      setPreviousSession({
+        projectName: recentSession.projectName,
+        lastAccessedAt: recentSession.lastAccessedAt,
+        messageCount: recentSession.messageCount,
+      });
+      setModalMode('session-resume');
+    }
+    
+    const session = storage.getOrCreateSession(cwd);
     sessionRef.current = session;
 
     // Load memory context into system prompt
@@ -731,6 +833,8 @@ function TerminalChat() {
   /config                  - Show config
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
+  /queue [show|clear]      - Manage queued messages
+  /resume [n]              - Resume previous session (load n messages)
   /exit                    - Exit
 
 File references: @filename, ./path, /absolute/path
@@ -1653,9 +1757,59 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         break;
       }
 
+      case '/queue':
+      case '/q': {
+        // /q is now queue, use /exit to quit
+        if (command === '/q' && !parts[1]) {
+          // Just /q with no args shows queue
+          if (queuedMessages.length === 0) {
+            addMessage('system', 'No messages queued. Type while agent is processing to queue feedback.');
+          } else {
+            const list = queuedMessages.map((m, i) => `  ${i + 1}. ${m.substring(0, 60)}${m.length > 60 ? '...' : ''}`).join('\n');
+            addMessage('system', `📨 Queued messages (${queuedMessages.length}):\n${list}\n\nUse /queue clear to remove all.`);
+          }
+          break;
+        }
+        const subCmd = parts[1];
+        if (subCmd === 'clear') {
+          const count = queuedMessages.length;
+          setQueuedMessages([]);
+          addMessage('system', `✓ Cleared ${count} queued message${count !== 1 ? 's' : ''}`);
+        } else if (subCmd === 'show' || !subCmd) {
+          if (queuedMessages.length === 0) {
+            addMessage('system', 'No messages queued.');
+          } else {
+            const list = queuedMessages.map((m, i) => `  ${i + 1}. ${m}`).join('\n');
+            addMessage('system', `📨 Queued messages:\n${list}`);
+          }
+        } else {
+          addMessage('system', 'Usage: /queue [show|clear]\n\nTip: Type while agent is processing to queue follow-up messages.');
+        }
+        break;
+      }
+
+      case '/resume': {
+        // Resume previous session manually
+        const history = storage.getChatHistory(parseInt(parts[1]) || 20);
+        if (history.length === 0) {
+          addMessage('system', 'No previous messages to resume.');
+        } else {
+          for (const msg of history) {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+              llmMessages.current.push({
+                role: msg.role,
+                content: msg.content,
+              });
+            }
+          }
+          addMessage('system', `✓ Loaded ${history.length} messages from previous session`);
+          setContextTokens(estimateContextTokens());
+        }
+        break;
+      }
+
       case '/exit':
       case '/quit':
-      case '/q':
         exit();
         break;
 
@@ -1970,7 +2124,26 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
     // Update context tokens after agent run
     setContextTokens(estimateContextTokens());
-  }, [provider, model, addMessage, mode, estimateContextTokens]);
+
+    // Process any queued messages (human-in-the-loop feedback)
+    if (queuedMessages.length > 0) {
+      const queued = [...queuedMessages];
+      setQueuedMessages([]); // Clear the queue
+      
+      // Combine queued messages into a single follow-up
+      const followUp = queued.length === 1 
+        ? queued[0]
+        : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
+      
+      addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
+      
+      // Recursively run agent with follow-up
+      // Use setTimeout to avoid stack overflow and allow UI to update
+      setTimeout(() => {
+        runAgent(followUp);
+      }, 100);
+    }
+  }, [provider, model, addMessage, mode, estimateContextTokens, queuedMessages]);
 
   // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
@@ -2172,6 +2345,36 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         />
       )}
 
+      {/* Modal: Session Resume */}
+      {modalMode === 'session-resume' && previousSession && (
+        <SessionResumePrompt
+          session={previousSession}
+          onResume={() => {
+            // Load chat history into context
+            const history = storage.getChatHistory(20);
+            if (history.length > 0) {
+              for (const msg of history) {
+                if (msg.role === 'user' || msg.role === 'assistant') {
+                  llmMessages.current.push({
+                    role: msg.role,
+                    content: msg.content,
+                  });
+                }
+              }
+              addMessage('system', `✓ Resumed session with ${history.length} messages loaded`);
+              setContextTokens(estimateContextTokens());
+            }
+            setModalMode('none');
+            setPreviousSession(null);
+          }}
+          onNew={() => {
+            addMessage('system', '✓ Starting fresh session');
+            setModalMode('none');
+            setPreviousSession(null);
+          }}
+        />
+      )}
+
       {/* Chat Input */}
       <ChatInput
         value={input}
@@ -2179,7 +2382,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         onSubmit={handleSubmit}
         onEscape={exit}
         onCycleMode={cycleMode}
-        disabled={isModalActive || isProcessing}
+        disabled={isModalActive}
+        isProcessing={isProcessing}
+        queuedCount={queuedMessages.length}
+        onQueueMessage={(msg) => {
+          setQueuedMessages(prev => [...prev, msg]);
+          addMessage('system', `📨 Queued: "${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}"`);
+        }}
       />
 
       {/* Status Bar */}
