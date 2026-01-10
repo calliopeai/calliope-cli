@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Calliope - Multi-model AI agent CLI with Ralph Wiggum autonomous loops",
   "keywords": [
     "ai",
@@ -39,7 +39,10 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/bin.js",
-    "prepublishOnly": "npm run build"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
@@ -53,7 +56,9 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/react": "^19.2.7",
-    "typescript": "^5.7.2"
+    "@vitest/coverage-v8": "^4.0.16",
+    "typescript": "^5.7.2",
+    "vitest": "^4.0.16"
   },
   "engines": {
     "node": ">=18.0.0"
