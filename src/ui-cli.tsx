@@ -611,15 +611,19 @@ function App({ skipPermissions = false }: { skipPermissions?: boolean }) {
 
       {/* Input (hidden when in modal mode) */}
       {!modelSelectMode && !upgradeMode && !upgrading && (
-        <Box>
-          <Text color="cyan">calliope</Text>
-          <Text dimColor>&gt; </Text>
-          <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+        <Box flexDirection="column">
+          <Sep />
+          <Box>
+            <Text color="cyan">calliope</Text>
+            <Text dimColor>&gt; </Text>
+            <TextInput value={input} onChange={setInput} onSubmit={handleSubmit} />
+          </Box>
         </Box>
       )}
 
       {/* Status bar */}
-      <Box marginTop={1}>
+      <Box flexDirection="column">
+        <Sep />
         <Text dimColor>
           {selectProvider(provider)}:{actualModel.length > 25 ? actualModel.slice(0, 22) + '...' : actualModel}
           {' │ '}
