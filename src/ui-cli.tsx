@@ -24,6 +24,7 @@ import { assessToolRisk, detectComplexity } from './risk.js';
 import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from './files.js';
+import { renderMarkdown } from './markdown.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
 
@@ -166,7 +167,9 @@ function MessageItem({ msg }: { msg: UIMessage }) {
       );
 
     case 'assistant': {
-      const lines = msg.content.split('\n');
+      // Render markdown with syntax highlighting
+      const rendered = renderMarkdown(msg.content);
+      const lines = rendered.split('\n');
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
