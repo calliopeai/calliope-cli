@@ -16,7 +16,7 @@ import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
 import * as fs from 'fs';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
-import { TOOLS, executeTool, getTools } from './tools.js';
+import { TOOLS, executeTool } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG, supportsVision, calculateCost } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
 import { getAvailableModels, type ModelInfo } from './model-detection.js';
@@ -33,12 +33,6 @@ import * as modelRouter from './model-router.js';
 import * as summarization from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
 import { requiresConfirmation } from './risk.js';
-import { executeParallel, analyzeDependencies, getParallelizationStats, canParallelize } from './parallel-tools.js';
-import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from './scope.js';
-import { getAgentStatusReport } from './agterm/index.js';
-
-// Module-level state for agterm mode
-let moduleAgtermEnabled = false;
 
 // ============================================================================
 // Types
@@ -55,113 +49,6 @@ interface SessionStats {
   outputTokens: number;
   cost: number;
   messageCount: number;
-}
-
-// ============================================================================
-// Error Boundary
-// ============================================================================
-
-interface ErrorBoundaryProps {
-  children: React.ReactNode;
-  onReset?: () => void;
-}
-
-interface ErrorBoundaryState {
-  hasError: boolean;
-  error: Error | null;
-  errorInfo: string;
-}
-
-class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false, error: null, errorInfo: '' };
-  }
-
-  static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    // Log error details
-    const info = errorInfo.componentStack || '';
-    this.setState({ errorInfo: info });
-    
-    // Could also log to file or external service
-    console.error('Calliope Error:', error);
-    console.error('Component Stack:', info);
-  }
-
-  handleRetry = (): void => {
-    this.setState({ hasError: false, error: null, errorInfo: '' });
-    this.props.onReset?.();
-  };
-
-  render(): React.ReactNode {
-    if (this.state.hasError) {
-      return <ErrorFallback 
-        error={this.state.error} 
-        errorInfo={this.state.errorInfo}
-        onRetry={this.handleRetry}
-      />;
-    }
-    return this.props.children;
-  }
-}
-
-function ErrorFallback({ 
-  error, 
-  errorInfo,
-  onRetry 
-}: { 
-  error: Error | null; 
-  errorInfo: string;
-  onRetry: () => void;
-}) {
-  const { exit } = useApp();
-
-  useInput((input, key) => {
-    if (input === 'r' || input === 'R') {
-      onRetry();
-    } else if (input === 'q' || input === 'Q' || key.escape) {
-      exit();
-    }
-  });
-
-  return (
-    <Box flexDirection="column" padding={1}>
-      <Box marginBottom={1}>
-        <Text color="red" bold>⚠️  Calliope encountered an error</Text>
-      </Box>
-      
-      <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor="red" padding={1}>
-        <Text color="red">{error?.message || 'Unknown error'}</Text>
-        {error?.name && error.name !== 'Error' && (
-          <Text dimColor>Type: {error.name}</Text>
-        )}
-      </Box>
-
-      {errorInfo && (
-        <Box flexDirection="column" marginBottom={1}>
-          <Text dimColor>Component trace:</Text>
-          <Text dimColor>{errorInfo.split('\n').slice(0, 5).join('\n')}</Text>
-        </Box>
-      )}
-
-      <Box marginTop={1}>
-        <Text>
-          <Text color="cyan">[R]</Text>
-          <Text>etry  </Text>
-          <Text color="cyan">[Q]</Text>
-          <Text>uit</Text>
-        </Text>
-      </Box>
-
-      <Box marginTop={1}>
-        <Text dimColor>If this persists, try: calliope --legacy</Text>
-      </Box>
-    </Box>
-  );
 }
 
 // ============================================================================
@@ -189,11 +76,6 @@ const TOOL_ICONS: Record<string, string> = {
   web_search: '🔍',
   git: '🔀',
   mermaid: '📊',
-  // AGTerm tools
-  spawn_agent: '🤖',
-  check_agent: '📋',
-  list_agents: '📊',
-  cancel_agent: '🛑',
 };
 
 // ============================================================================
@@ -357,41 +239,17 @@ function MessageItem({ msg }: { msg: UIMessage }) {
         );
       }
 
-      // Regular tool result with enhanced status detection
-      const allLines = msg.content.split('\n');
-      const lines = allLines.slice(0, 5);
-      const totalLines = allLines.length;
-      const hasMore = totalLines > 5;
-      
-      // Enhanced status detection
-      const lowerContent = msg.content.toLowerCase();
-      const hasError = lowerContent.includes('error') || 
-                       lowerContent.includes('failed') ||
-                       lowerContent.includes('permission denied') ||
-                       lowerContent.includes('not found') ||
-                       lowerContent.includes('exception');
-      const hasWarning = lowerContent.includes('warning') || 
-                         lowerContent.includes('deprecated') ||
-                         lowerContent.includes('caution');
-      
-      // Determine status icon and color
-      let statusIcon = '✓';
-      let statusColor: 'green' | 'red' | 'yellow' = 'green';
-      if (hasError) {
-        statusIcon = '✗';
-        statusColor = 'red';
-      } else if (hasWarning) {
-        statusIcon = '⚠';
-        statusColor = 'yellow';
-      }
-      
+      // Regular tool result
+      const lines = msg.content.split('\n').slice(0, 5);
+      const hasMore = msg.content.split('\n').length > 5;
+      const hasError = msg.content.toLowerCase().includes('error');
       return (
         <Box flexDirection="column">
           {lines.map((line, i) => (
             <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
           ))}
-          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>... ({totalLines - 5} more lines)</Text></Text>}
-          <Text><Text dimColor>╰─</Text> <Text color={statusColor}>{statusIcon}</Text></Text>
+          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
+          <Text><Text dimColor>╰─</Text> {hasError ? <Text color="red">✗</Text> : <Text color="green">✓</Text>}</Text>
         </Box>
       );
     }
@@ -491,79 +349,6 @@ function UpgradePrompt({
   );
 }
 
-function ComplexityWarning({
-  reason,
-  onProceed,
-  onPlan,
-  onCancel,
-}: {
-  reason: string;
-  onProceed: () => void;
-  onPlan: () => void;
-  onCancel: () => void;
-}) {
-  useInput((input, key) => {
-    if (input === 'p' || input === 'P') onProceed();
-    else if (input === 'l' || input === 'L') onPlan();
-    else if (key.escape || input === 'c' || input === 'C') onCancel();
-  });
-
-  return (
-    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="yellow" bold>🔍 Complex Operation Detected</Text>
-      <Text> </Text>
-      <Text dimColor>{reason}</Text>
-      <Text> </Text>
-      <Text>This operation may affect multiple files or require careful planning.</Text>
-      <Text> </Text>
-      <Text color="cyan">How would you like to proceed?</Text>
-      <Text> </Text>
-      <Text>
-        <Text color="green">[P]</Text><Text>roceed directly  </Text>
-        <Text color="yellow">[L]</Text><Text>et me plan first  </Text>
-        <Text color="red">[C]</Text><Text>ancel</Text>
-      </Text>
-    </Box>
-  );
-}
-
-function SessionResumePrompt({
-  session,
-  onResume,
-  onNew,
-}: {
-  session: { projectName: string; lastAccessedAt: string; messageCount: number };
-  onResume: () => void;
-  onNew: () => void;
-}) {
-  useInput((input, key) => {
-    if (input === 'r' || input === 'R') onResume();
-    else if (input === 'n' || input === 'N' || key.escape) onNew();
-  });
-
-  const timeAgo = (() => {
-    const diff = Date.now() - new Date(session.lastAccessedAt).getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
-    const days = Math.floor(hours / 24);
-    if (days > 0) return `${days} day${days > 1 ? 's' : ''} ago`;
-    if (hours > 0) return `${hours} hour${hours > 1 ? 's' : ''} ago`;
-    const minutes = Math.floor(diff / (1000 * 60));
-    return `${minutes} minute${minutes > 1 ? 's' : ''} ago`;
-  })();
-
-  return (
-    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text color="cyan" bold>📂 Previous Session Found</Text>
-      <Text> </Text>
-      <Text>Project: <Text color="yellow">{session.projectName}</Text></Text>
-      <Text>Last active: <Text dimColor>{timeAgo}</Text></Text>
-      <Text>Messages: <Text dimColor>{session.messageCount}</Text></Text>
-      <Text> </Text>
-      <Text><Text color="cyan">[R]</Text>esume session  <Text color="cyan">[N]</Text>ew session</Text>
-    </Box>
-  );
-}
-
 function ToolConfirmation({
   toolCall,
   riskLevel,
@@ -611,9 +396,6 @@ function ChatInput({
   onEscape,
   onCycleMode,
   disabled,
-  isProcessing,
-  queuedCount,
-  onQueueMessage,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -621,9 +403,6 @@ function ChatInput({
   onEscape: () => void;
   onCycleMode: () => void;
   disabled: boolean;
-  isProcessing?: boolean;
-  queuedCount?: number;
-  onQueueMessage?: (msg: string) => void;
 }) {
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
@@ -639,32 +418,8 @@ function ChatInput({
       return;
     }
 
-    // When fully disabled (modal), ignore all input
+    // When disabled, ignore all other input
     if (disabled) return;
-
-    // When processing, queue messages instead of submitting directly
-    if (isProcessing) {
-      // Allow typing
-      if (key.backspace || key.delete) {
-        onChange(value.slice(0, -1));
-        return;
-      }
-      if (key.ctrl && input === 'u') {
-        onChange('');
-        return;
-      }
-      // Enter queues the message
-      if (key.return && value.trim() && onQueueMessage) {
-        onQueueMessage(value.trim());
-        onChange('');
-        return;
-      }
-      // Regular input
-      if (input && !key.ctrl && !key.meta && !key.tab) {
-        onChange(value + input);
-      }
-      return;
-    }
 
     // Shift+Tab to cycle mode
     if (key.shift && key.tab) {
@@ -703,23 +458,13 @@ function ChatInput({
     }
   });
 
-  // Determine prompt style based on state
-  const promptColor = disabled ? 'gray' : isProcessing ? 'yellow' : 'cyan';
-  const promptText = isProcessing ? 'queue>' : 'calliope>';
-  
   return (
     <Box flexDirection="column">
       <Separator />
-      {/* Queue indicator */}
-      {queuedCount && queuedCount > 0 && (
-        <Box>
-          <Text color="yellow">📨 {queuedCount} message{queuedCount > 1 ? 's' : ''} queued (will be sent after current task)</Text>
-        </Box>
-      )}
       <Box>
-        <Text color={promptColor}>{promptText} </Text>
+        <Text color={disabled ? 'gray' : 'cyan'}>calliope&gt; </Text>
         <Text>{value}</Text>
-        <Text color={promptColor}>▌</Text>
+        <Text color="cyan">▌</Text>
       </Box>
     </Box>
   );
@@ -818,9 +563,7 @@ function TerminalChat() {
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning'>('none');
-  const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
-  const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm'>('none');
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: ToolCall; resolve: (approved: boolean) => void } | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
@@ -833,53 +576,6 @@ function TerminalChat() {
     messageCount: 0,
   });
   const [contextTokens, setContextTokens] = useState(0);
-
-  // Message queue for human-in-the-loop feedback during processing
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
-  const [queueInput, setQueueInput] = useState('');
-
-  // Undo/Redo history - stores snapshots of conversation state
-  interface ConversationSnapshot {
-    messages: UIMessage[];
-    llmMessages: LLMMessage[];
-    timestamp: Date;
-  }
-  const undoStack = useRef<ConversationSnapshot[]>([]);
-  const redoStack = useRef<ConversationSnapshot[]>([]);
-  const MAX_UNDO_HISTORY = 10;
-
-  // Conversation bookmarks
-  interface Bookmark {
-    id: string;
-    name: string;
-    messageIndex: number;
-    llmMessageIndex: number;
-    timestamp: Date;
-  }
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-
-  // Prompt templates
-  interface PromptTemplate {
-    name: string;
-    prompt: string;
-    createdAt: Date;
-  }
-  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-
-  // Save state before changes (call before modifying messages)
-  const saveUndoState = useCallback(() => {
-    undoStack.current.push({
-      messages: [...messages],
-      llmMessages: [...llmMessages.current],
-      timestamp: new Date(),
-    });
-    // Limit stack size
-    if (undoStack.current.length > MAX_UNDO_HISTORY) {
-      undoStack.current.shift();
-    }
-    // Clear redo stack on new action
-    redoStack.current = [];
-  }, [messages]);
 
   // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
@@ -920,27 +616,7 @@ function TerminalChat() {
 
   // Initialize session and load memory on mount
   useEffect(() => {
-    const cwd = process.cwd();
-    
-    // Check for existing session with messages
-    const existingSessions = storage.listSessions(5);
-    const recentSession = existingSessions.find(s => 
-      s.projectPath === cwd && 
-      s.messageCount > 0 &&
-      Date.now() - new Date(s.lastAccessedAt).getTime() < 24 * 60 * 60 * 1000 // Within 24 hours
-    );
-    
-    if (recentSession && !sessionRef.current) {
-      // Offer to resume
-      setPreviousSession({
-        projectName: recentSession.projectName,
-        lastAccessedAt: recentSession.lastAccessedAt,
-        messageCount: recentSession.messageCount,
-      });
-      setModalMode('session-resume');
-    }
-    
-    const session = storage.getOrCreateSession(cwd);
+    const session = storage.getOrCreateSession(process.cwd());
     sessionRef.current = session;
 
     // Load memory context into system prompt
@@ -1005,8 +681,7 @@ function TerminalChat() {
   /copy                    - Copy last response to clipboard
   /export [file.md]        - Export conversation to markdown
   /edit                    - Edit and resend last message
-  /undo                    - Undo last action (up to 10 steps)
-  /redo                    - Redo undone action
+  /undo                    - Remove last exchange
   /confirm [on|off]        - Toggle risky op confirmation
   /profile [name|save|del] - Switch/save/delete profiles
   /mcp [add|remove|tools]  - Manage MCP servers
@@ -1021,22 +696,11 @@ function TerminalChat() {
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
-  /agents                  - Show sub-agent status (--agterm mode)
-  /scope [details|reset]   - Show/manage file access scope
-  /add-dir <path>          - Add directory to allowed scope
-  /remove-dir <path>       - Remove directory from scope
-  /template [save|use|del] - Manage prompt templates
-  /cost                    - Show cost tracking summary
-  /bookmark [name]         - Create bookmark at current point
-  /bookmark list           - List all bookmarks
-  /bookmark goto <n>       - Jump to bookmark
-  /queue [show|clear]      - Manage queued messages
-  /resume [n]              - Resume previous session (load n messages)
   /exit                    - Exit
 
 File references: @filename, ./path, /absolute/path
 Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work
-Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (spawn_agent, check_agent tools available)' : ''}`);
+Auto-route: ${autoRoute ? 'ON' : 'OFF'}`);
         break;
 
       case '/provider':
@@ -1194,48 +858,28 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (sp
       }
 
       case '/undo': {
-        if (undoStack.current.length === 0) {
-          addMessage('system', 'Nothing to undo.');
-          break;
+        // Remove last exchange (user message + assistant response)
+        let removed = 0;
+        const newMessages = [...messages];
+        // Remove from the end until we've removed a user message
+        while (newMessages.length > 0 && removed < 10) {
+          const last = newMessages.pop();
+          removed++;
+          if (last?.type === 'user') break;
         }
-        
-        // Save current state to redo stack
-        redoStack.current.push({
-          messages: [...messages],
-          llmMessages: [...llmMessages.current],
-          timestamp: new Date(),
-        });
-        
-        // Restore previous state
-        const prevState = undoStack.current.pop()!;
-        setMessages(prevState.messages);
-        llmMessages.current = prevState.llmMessages;
-        setContextTokens(estimateContextTokens());
-        
-        addMessage('system', `✓ Undone (${undoStack.current.length} more available)`);
-        break;
-      }
 
-      case '/redo': {
-        if (redoStack.current.length === 0) {
-          addMessage('system', 'Nothing to redo.');
-          break;
+        // Also remove from LLM context
+        while (llmMessages.current.length > 1) {
+          const last = llmMessages.current[llmMessages.current.length - 1];
+          if (last.role === 'user') {
+            llmMessages.current.pop();
+            break;
+          }
+          llmMessages.current.pop();
         }
-        
-        // Save current state to undo stack
-        undoStack.current.push({
-          messages: [...messages],
-          llmMessages: [...llmMessages.current],
-          timestamp: new Date(),
-        });
-        
-        // Restore redo state
-        const redoState = redoStack.current.pop()!;
-        setMessages(redoState.messages);
-        llmMessages.current = redoState.llmMessages;
-        setContextTokens(estimateContextTokens());
-        
-        addMessage('system', `✓ Redone (${redoStack.current.length} more available)`);
+
+        setMessages(newMessages);
+        addMessage('system', `✓ Removed last ${removed} message(s)`);
         break;
       }
 
@@ -1246,14 +890,6 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (sp
 
       case '/config':
         addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
-        break;
-
-      case '/agents':
-        if (!moduleAgtermEnabled) {
-          addMessage('system', 'AGTerm mode not enabled. Start with --agterm flag to unlock multi-agent features.');
-        } else {
-          addMessage('system', getAgentStatusReport());
-        }
         break;
 
       case '/set': {
@@ -1974,215 +1610,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         break;
       }
 
-      case '/scope':
-      case '/dirs': {
-        const subCmd = parts[1];
-        if (subCmd === 'details' || subCmd === 'full') {
-          addMessage('system', getScopeDetails());
-        } else if (subCmd === 'reset') {
-          resetScope(process.cwd());
-          addMessage('system', '✓ Scope reset to current directory only');
-        } else {
-          addMessage('system', getScopeSummary());
-        }
-        break;
-      }
-
-      case '/add-dir': {
-        const dirPath = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
-        if (!dirPath) {
-          addMessage('system', 'Usage: /add-dir <path>\n\nAdd a directory to the allowed scope.\nThe agent can only access files within scope.');
-        } else {
-          const result = addToScope(dirPath);
-          if (result.success) {
-            addMessage('system', `✓ ${result.message}`);
-          } else {
-            addMessage('error', result.message);
-          }
-        }
-        break;
-      }
-
-      case '/remove-dir': {
-        const dirPath = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
-        if (!dirPath) {
-          addMessage('system', 'Usage: /remove-dir <path>\n\nRemove a directory from the allowed scope.');
-        } else {
-          const result = removeFromScope(dirPath);
-          if (result.success) {
-            addMessage('system', `✓ ${result.message}`);
-          } else {
-            addMessage('error', result.message);
-          }
-        }
-        break;
-      }
-
-      case '/template':
-      case '/t': {
-        const subCmd = parts[1];
-        if (subCmd === 'list' || !subCmd) {
-          if (templates.length === 0) {
-            addMessage('system', 'No templates saved.\n\nUsage:\n  /template save <name> <prompt>\n  /template use <name>\n  /template delete <name>');
-          } else {
-            const list = templates.map((t, i) => 
-              `  ${i + 1}. ${t.name}: "${t.prompt.substring(0, 50)}${t.prompt.length > 50 ? '...' : ''}"`
-            ).join('\n');
-            addMessage('system', `Templates:\n${list}`);
-          }
-        } else if (subCmd === 'save' && parts[2]) {
-          const name = parts[2];
-          const prompt = parts.slice(3).join(' ').replace(/^["']|["']$/g, '');
-          if (!prompt) {
-            addMessage('error', 'Usage: /template save <name> "<prompt>"');
-          } else {
-            setTemplates(prev => {
-              const filtered = prev.filter(t => t.name !== name);
-              return [...filtered, { name, prompt, createdAt: new Date() }];
-            });
-            addMessage('system', `✓ Template saved: ${name}`);
-          }
-        } else if (subCmd === 'use' && parts[2]) {
-          const name = parts[2];
-          const template = templates.find(t => t.name === name);
-          if (template) {
-            setInput(template.prompt);
-            addMessage('system', `✓ Template loaded: ${name} (press Enter to send)`);
-          } else {
-            addMessage('error', `Template not found: ${name}`);
-          }
-        } else if (subCmd === 'delete' && parts[2]) {
-          const name = parts[2];
-          const found = templates.find(t => t.name === name);
-          if (found) {
-            setTemplates(prev => prev.filter(t => t.name !== name));
-            addMessage('system', `✓ Template deleted: ${name}`);
-          } else {
-            addMessage('error', `Template not found: ${name}`);
-          }
-        } else {
-          addMessage('system', 'Usage: /template [list|save <name> <prompt>|use <name>|delete <name>]');
-        }
-        break;
-      }
-
-      case '/cost':
-      case '/costs': {
-        const subCmd = parts[1];
-        if (subCmd === 'reset') {
-          storage.resetCosts();
-          addMessage('system', '✓ Cost tracking reset');
-        } else {
-          addMessage('system', storage.getCostSummary());
-        }
-        break;
-      }
-
-      case '/bookmark':
-      case '/bm': {
-        const subCmd = parts[1];
-        if (!subCmd || subCmd === 'list') {
-          // List bookmarks
-          if (bookmarks.length === 0) {
-            addMessage('system', 'No bookmarks. Use /bookmark "name" to create one.');
-          } else {
-            const list = bookmarks.map((b, i) => 
-              `  ${i + 1}. 🔖 ${b.name} (message #${b.messageIndex})`
-            ).join('\n');
-            addMessage('system', `Bookmarks:\n${list}\n\nUse /bookmark goto <number> to jump.`);
-          }
-        } else if (subCmd === 'goto' && parts[2]) {
-          const idx = parseInt(parts[2]) - 1;
-          if (idx >= 0 && idx < bookmarks.length) {
-            const bm = bookmarks[idx];
-            // Save current state for undo
-            saveUndoState();
-            // Restore to bookmark point
-            setMessages(messages.slice(0, bm.messageIndex + 1));
-            llmMessages.current = llmMessages.current.slice(0, bm.llmMessageIndex + 1);
-            setContextTokens(estimateContextTokens());
-            addMessage('system', `✓ Jumped to bookmark: ${bm.name}`);
-          } else {
-            addMessage('error', `Invalid bookmark number. Use /bookmark list to see available.`);
-          }
-        } else if (subCmd === 'delete' && parts[2]) {
-          const idx = parseInt(parts[2]) - 1;
-          if (idx >= 0 && idx < bookmarks.length) {
-            const removed = bookmarks[idx];
-            setBookmarks(prev => prev.filter((_, i) => i !== idx));
-            addMessage('system', `✓ Deleted bookmark: ${removed.name}`);
-          } else {
-            addMessage('error', 'Invalid bookmark number.');
-          }
-        } else {
-          // Create bookmark with given name
-          const name = parts.slice(1).join(' ').replace(/^["']|["']$/g, '');
-          const bm: Bookmark = {
-            id: `bm_${Date.now()}`,
-            name,
-            messageIndex: messages.length - 1,
-            llmMessageIndex: llmMessages.current.length - 1,
-            timestamp: new Date(),
-          };
-          setBookmarks(prev => [...prev, bm]);
-          addMessage('system', `🔖 Bookmark created: "${name}"`);
-        }
-        break;
-      }
-
-      case '/queue':
-      case '/q': {
-        // /q is now queue, use /exit to quit
-        if (command === '/q' && !parts[1]) {
-          // Just /q with no args shows queue
-          if (queuedMessages.length === 0) {
-            addMessage('system', 'No messages queued. Type while agent is processing to queue feedback.');
-          } else {
-            const list = queuedMessages.map((m, i) => `  ${i + 1}. ${m.substring(0, 60)}${m.length > 60 ? '...' : ''}`).join('\n');
-            addMessage('system', `📨 Queued messages (${queuedMessages.length}):\n${list}\n\nUse /queue clear to remove all.`);
-          }
-          break;
-        }
-        const subCmd = parts[1];
-        if (subCmd === 'clear') {
-          const count = queuedMessages.length;
-          setQueuedMessages([]);
-          addMessage('system', `✓ Cleared ${count} queued message${count !== 1 ? 's' : ''}`);
-        } else if (subCmd === 'show' || !subCmd) {
-          if (queuedMessages.length === 0) {
-            addMessage('system', 'No messages queued.');
-          } else {
-            const list = queuedMessages.map((m, i) => `  ${i + 1}. ${m}`).join('\n');
-            addMessage('system', `📨 Queued messages:\n${list}`);
-          }
-        } else {
-          addMessage('system', 'Usage: /queue [show|clear]\n\nTip: Type while agent is processing to queue follow-up messages.');
-        }
-        break;
-      }
-
-      case '/resume': {
-        // Resume previous session manually
-        const history = storage.getChatHistory(parseInt(parts[1]) || 20);
-        if (history.length === 0) {
-          addMessage('system', 'No previous messages to resume.');
-        } else {
-          for (const msg of history) {
-            if (msg.role === 'user' || msg.role === 'assistant') {
-              llmMessages.current.push({
-                role: msg.role,
-                content: msg.content,
-              });
-            }
-          }
-          addMessage('system', `✓ Loaded ${history.length} messages from previous session`);
-          setContextTokens(estimateContextTokens());
-        }
-        break;
-      }
-
       case '/exit':
       case '/quit':
+      case '/q':
         exit();
         break;
 
@@ -2213,18 +1643,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     const maxIterations = config.get('maxIterations');
     let completedNaturally = false;
 
-    // Check context limit and warn if approaching capacity
-    const currentContextTokens = estimateContextTokens();
-    const modelLimit = getContextLimit(effectiveModel || actualModel);
-    const contextPercentage = (currentContextTokens / modelLimit) * 100;
-    
-    if (contextPercentage > 90) {
-      addMessage('system', `🔴 Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
-   Consider: /summarize compact | /clear | shorter messages`);
-    } else if (contextPercentage > 80) {
-      addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity - consider /summarize compact soon`);
-    }
-
     for (let i = 0; i < maxIterations; i++) {
       try {
         // Update thinking state for LLM call
@@ -2251,7 +1669,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           });
         };
 
-        const response = await chat(provider, llmMessages.current, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
+        const response = await chat(provider, llmMessages.current, TOOLS, effectiveModel, onToken, onRetry);
 
         // Update token stats and cost
         if (response.usage) {
@@ -2262,11 +1680,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             outputTokens: s.outputTokens + response.usage!.outputTokens,
             cost: s.cost + usageCost,
           }));
-          // Persist cost to storage
-          storage.recordCost(usageCost, actualProvider, sessionRef.current?.id);
         }
 
-        // Handle tool calls with parallel execution support
+        // Handle tool calls
         if (response.toolCalls?.length) {
           llmMessages.current.push({
             role: 'assistant',
@@ -2274,199 +1690,102 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             toolCalls: response.toolCalls,
           });
 
-          // ============================================================
-          // Phase 1: Pre-check all tools, categorize into blocked vs executable
-          // ============================================================
-          interface ToolPreCheck {
-            toolCall: ToolCall;
-            args: Record<string, unknown>;
-            preview: string;
-            risk: ReturnType<typeof assessToolRisk>;
-            riskDisplay: string;
-            blocked: boolean;
-            blockReason?: string;
-            blockContent?: string;
-          }
-          
-          const preChecks: ToolPreCheck[] = [];
-          const executableTools: ToolCall[] = [];
-          
           for (const toolCall of response.toolCalls) {
             const args = toolCall.arguments as Record<string, unknown>;
             const toolPreview = String(args.command || args.path || '...');
+
+            // Assess risk
             const risk = assessToolRisk(toolCall);
             const riskConfig = RISK_CONFIG[risk.level];
             const riskDisplay = risk.level !== 'none' ? ` [${riskConfig.bar}]` : '';
-            
-            const preCheck: ToolPreCheck = {
-              toolCall,
-              args,
-              preview: toolPreview,
-              risk,
-              riskDisplay,
-              blocked: false,
-            };
-            
-            // Check blocking conditions
-            if (mode === 'plan' && toolCall.name !== 'think') {
-              preCheck.blocked = true;
-              preCheck.blockReason = 'plan mode';
-              preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
-              addMessage('tool', `📋 ${toolCall.name}: ${toolPreview}${riskDisplay} (plan mode - not executed)`);
-            } else if (confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
-              preCheck.blocked = true;
-              preCheck.blockReason = 'confirmation required';
-              preCheck.blockContent = `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`;
-              const riskIcon = risk.level === 'critical' ? '🛑' : '⚠️';
-              addMessage('tool', `${riskIcon} ${toolCall.name}: ${toolPreview}${riskDisplay}\n  → Requires confirmation (use /confirm off to disable)`);
-            } else {
-              // Check pre-tool hooks
-              const preHookResult = await hooks.checkHooksAllow('pre-tool', {
-                tool: toolCall.name,
-                toolArgs: args,
-              });
-              if (!preHookResult.allowed) {
-                preCheck.blocked = true;
-                preCheck.blockReason = 'blocked by hook';
-                preCheck.blockContent = `[Blocked by hook: ${preHookResult.reason}]`;
-                addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-                addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
-              } else {
-                // Tool can be executed
-                executableTools.push(toolCall);
-                addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-              }
-            }
-            
-            preChecks.push(preCheck);
-            
-            // Add blocked tool results to LLM messages
-            if (preCheck.blocked) {
-              llmMessages.current.push({
-                role: 'tool',
-                content: preCheck.blockContent!,
-                toolCallId: toolCall.id,
-              });
-            }
-          }
-          
-          // ============================================================
-          // Phase 2: Execute tools (parallel when beneficial)
-          // ============================================================
-          if (executableTools.length > 0) {
-            const parallelStats = getParallelizationStats(executableTools);
-            const useParallel = parallelStats.maxParallel > 1 && executableTools.length > 1;
-            
-            if (useParallel) {
-              // Show parallelization info
+
+            // Special handling for think tool
+            if (toolCall.name === 'think') {
+              const thought = String(args.thought || '');
               setThinkingState({
-                status: `Executing ${executableTools.length} tools in parallel...`,
-                detail: `${parallelStats.stages} stages, up to ${parallelStats.maxParallel}x speedup`,
+                status: 'Reasoning...',
+                detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
+                thinking: thought,
                 iteration: i + 1,
                 maxIterations,
               });
-              
-              // Execute in parallel using dependency-aware staging
-              const results = await executeParallel(
-                executableTools,
-                async (call) => {
-                  const result = await executeTool(call, process.cwd());
-                  return result.result;
-                },
-                (completed, total, current) => {
-                  setThinkingState({
-                    status: `Executing tools... (${completed + 1}/${total})`,
-                    detail: current.name,
-                    iteration: i + 1,
-                    maxIterations,
-                  });
-                }
-              );
-              
-              // Process results sequentially for UI and LLM messages
-              for (const result of results) {
-                const toolCall = result.toolCall;
-                const args = toolCall.arguments as Record<string, unknown>;
-                
-                // Execute post-tool hooks
-                hooks.executeHooks('post-tool', {
-                  tool: toolCall.name,
-                  toolArgs: args,
-                  toolResult: result.result,
-                }).catch(() => {});
-                
-                // Display result
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  addMessage('tool', thought);
-                } else if (result.error) {
-                  addMessage('tool', `Error: ${result.error}`);
-                } else {
-                  const preview = result.result.split('\n').slice(0, 3).join('\n');
-                  addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
-                }
-                
-                llmMessages.current.push({
-                  role: 'tool',
-                  content: result.error ? `Error: ${result.error}` : result.result,
-                  toolCallId: toolCall.id,
-                });
-              }
             } else {
-              // Sequential execution (single tool or dependencies prevent parallelization)
-              for (const toolCall of executableTools) {
-                const args = toolCall.arguments as Record<string, unknown>;
-                const toolPreview = String(args.command || args.path || '...');
-                
-                // Special handling for think tool UI
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  setThinkingState({
-                    status: 'Reasoning...',
-                    detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
-                    thinking: thought,
-                    iteration: i + 1,
-                    maxIterations,
-                  });
-                } else {
-                  setThinkingState({
-                    status: `Executing ${toolCall.name}...`,
-                    detail: toolPreview.substring(0, 60),
-                    thinking: undefined,
-                    iteration: i + 1,
-                    maxIterations,
-                  });
-                }
-                
-                const result = await executeTool(toolCall, process.cwd());
-                
-                // Execute post-tool hooks
-                hooks.executeHooks('post-tool', {
-                  tool: toolCall.name,
-                  toolArgs: args,
-                  toolResult: result.result,
-                }).catch(() => {});
-                
-                // Display result
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  addMessage('tool', thought);
-                } else {
-                  const preview = result.result.split('\n').slice(0, 3).join('\n');
-                  addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
-                }
-                
-                llmMessages.current.push({
-                  role: 'tool',
-                  content: result.result,
-                  toolCallId: toolCall.id,
-                });
-              }
+              setThinkingState({
+                status: `Executing ${toolCall.name}...`,
+                detail: toolPreview.substring(0, 60),
+                thinking: undefined,
+                iteration: i + 1,
+                maxIterations,
+              });
             }
+
+            // In plan mode, don't execute tools (except think)
+            if (mode === 'plan' && toolCall.name !== 'think') {
+              addMessage('tool', `📋 ${toolCall.name}: ${toolPreview}${riskDisplay} (plan mode - not executed)`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: '[Plan mode: Tool not executed. Describe what this would do.]',
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
+            // Check if confirmation is required for risky operations
+            if (confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
+              // Show warning and skip execution
+              const riskIcon = risk.level === 'critical' ? '🛑' : '⚠️';
+              addMessage('tool', `${riskIcon} ${toolCall.name}: ${toolPreview}${riskDisplay}\n  → Requires confirmation (use /confirm off to disable)`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`,
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
+            addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+
+            // Execute pre-tool hooks
+            const preHookResult = await hooks.checkHooksAllow('pre-tool', {
+              tool: toolCall.name,
+              toolArgs: args,
+            });
+            if (!preHookResult.allowed) {
+              addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: `[Blocked by hook: ${preHookResult.reason}]`,
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
+            const result = await executeTool(toolCall, process.cwd());
+
+            // Execute post-tool hooks
+            hooks.executeHooks('post-tool', {
+              tool: toolCall.name,
+              toolArgs: args,
+              toolResult: result.result,
+            }).catch(() => {});
+
+            // For think tool, show the actual thought content
+            if (toolCall.name === 'think') {
+              const thought = String(args.thought || '');
+              addMessage('tool', thought);
+            } else {
+              const preview = result.result.split('\n').slice(0, 3).join('\n');
+              addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+            }
+
+            llmMessages.current.push({
+              role: 'tool',
+              content: result.result,
+              toolCallId: toolCall.id,
+            });
           }
           continue;
         }
-
 
         // Final response - move streaming content to message history
         setThinkingState(null);
@@ -2488,38 +1807,18 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         setThinkingState(null);
         setStreamingResponse('');
         addMessage('error', formatError(error));
-        completedNaturally = true; // Error counts as "done" - don't show iteration warning
         break;
       }
     }
 
-    // Only show warning if we actually hit the iteration limit (not errors or natural completion)
+    // Only show warning if we hit the limit without completing naturally
     if (!completedNaturally) {
-      addMessage('system', `⚠️ Reached ${maxIterations} iterations limit. Task may be incomplete. Adjust with /set maxIterations <number>.`);
+      addMessage('system', `⚠️ Reached ${maxIterations} iterations limit. Task may be incomplete. Adjust with /config.`);
     }
 
     // Update context tokens after agent run
     setContextTokens(estimateContextTokens());
-
-    // Process any queued messages (human-in-the-loop feedback)
-    if (queuedMessages.length > 0) {
-      const queued = [...queuedMessages];
-      setQueuedMessages([]); // Clear the queue
-      
-      // Combine queued messages into a single follow-up
-      const followUp = queued.length === 1 
-        ? queued[0]
-        : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
-      
-      addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
-      
-      // Recursively run agent with follow-up
-      // Use setTimeout to avoid stack overflow and allow UI to update
-      setTimeout(() => {
-        runAgent(followUp);
-      }, 100);
-    }
-  }, [provider, model, addMessage, mode, estimateContextTokens, queuedMessages]);
+  }, [provider, model, addMessage, mode, estimateContextTokens]);
 
   // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
@@ -2592,19 +1891,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       return;
     }
 
-    // In hybrid mode, check for complex operations
-    if (mode === 'hybrid') {
-      const complexity = detectComplexity(trimmed);
-      if (complexity.isComplex) {
-        setPendingComplexPrompt({ prompt: trimmed, complexity });
-        setModalMode('complexity-warning');
-        return;
-      }
-    }
-
-    // Save state for undo before modifying conversation
-    saveUndoState();
-
     // Parse file references from input
     const { text: cleanText, files } = parseFileReferences(trimmed, process.cwd());
 
@@ -2642,7 +1928,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       setThinkingState(null);
       setStreamingResponse('');
     }
-  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model, saveUndoState]);
+  }, [isProcessing, handleCommand, runAgent, addMessage, provider, model]);
 
   // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {
@@ -2734,76 +2020,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         />
       )}
 
-      {/* Modal: Session Resume */}
-      {modalMode === 'session-resume' && previousSession && (
-        <SessionResumePrompt
-          session={previousSession}
-          onResume={() => {
-            // Load chat history into context
-            const history = storage.getChatHistory(20);
-            if (history.length > 0) {
-              for (const msg of history) {
-                if (msg.role === 'user' || msg.role === 'assistant') {
-                  llmMessages.current.push({
-                    role: msg.role,
-                    content: msg.content,
-                  });
-                }
-              }
-              addMessage('system', `✓ Resumed session with ${history.length} messages loaded`);
-              setContextTokens(estimateContextTokens());
-            }
-            setModalMode('none');
-            setPreviousSession(null);
-          }}
-          onNew={() => {
-            addMessage('system', '✓ Starting fresh session');
-            setModalMode('none');
-            setPreviousSession(null);
-          }}
-        />
-      )}
-
-      {/* Modal: Complexity Warning */}
-      {modalMode === 'complexity-warning' && pendingComplexPrompt && (
-        <ComplexityWarning
-          reason={pendingComplexPrompt.complexity.reason || 'Complex operation detected'}
-          onProceed={async () => {
-            setModalMode('none');
-            const prompt = pendingComplexPrompt.prompt;
-            setPendingComplexPrompt(null);
-            
-            // Proceed with execution
-            saveUndoState();
-            addMessage('user', typeof prompt === 'string' ? prompt : JSON.stringify(prompt));
-            setIsProcessing(true);
-            try {
-              await runAgent(prompt);
-            } finally {
-              setIsProcessing(false);
-            }
-          }}
-          onPlan={() => {
-            setModalMode('none');
-            const prompt = pendingComplexPrompt.prompt;
-            setPendingComplexPrompt(null);
-            
-            // Switch to plan mode and proceed
-            setMode('plan');
-            addMessage('system', '📋 Switched to Plan mode - I\'ll describe what I would do without executing.');
-            saveUndoState();
-            addMessage('user', typeof prompt === 'string' ? prompt : JSON.stringify(prompt));
-            setIsProcessing(true);
-            runAgent(prompt).finally(() => setIsProcessing(false));
-          }}
-          onCancel={() => {
-            setModalMode('none');
-            setPendingComplexPrompt(null);
-            addMessage('system', 'Operation cancelled.');
-          }}
-        />
-      )}
-
       {/* Chat Input */}
       <ChatInput
         value={input}
@@ -2811,13 +2027,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         onSubmit={handleSubmit}
         onEscape={exit}
         onCycleMode={cycleMode}
-        disabled={isModalActive}
-        isProcessing={isProcessing}
-        queuedCount={queuedMessages.length}
-        onQueueMessage={(msg) => {
-          setQueuedMessages(prev => [...prev, msg]);
-          addMessage('system', `📨 Queued: "${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}"`);
-        }}
+        disabled={isModalActive || isProcessing}
       />
 
       {/* Status Bar */}
@@ -2837,17 +2047,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 // ============================================================================
 
 function App() {
-  const [resetKey, setResetKey] = React.useState(0);
-  
-  const handleReset = React.useCallback(() => {
-    setResetKey(k => k + 1);
-  }, []);
-
-  return (
-    <ErrorBoundary onReset={handleReset}>
-      <TerminalChat key={resetKey} />
-    </ErrorBoundary>
-  );
+  return <TerminalChat />;
 }
 
 
@@ -2876,10 +2076,7 @@ function printBanner(): void {
   console.log();
 }
 
-export async function startInkCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
-  // Set module-level agterm state
-  moduleAgtermEnabled = options.agtermEnabled ?? false;
-
+export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
   // Print banner BEFORE Ink starts - it stays fixed at the top
   printBanner();
 

@@ -11,6 +11,7 @@ import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
 import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
+import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 
 /**
  * Available tools for the agent
@@ -179,10 +180,11 @@ export const TOOLS: Tool[] = [
  * Includes agterm tools when agtermEnabled is true
  */
 export function getTools(agtermEnabled: boolean = false): Tool[] {
+  const pluginTools = getPluginTools();
   if (agtermEnabled) {
-    return [...TOOLS, ...getAgtermTools()];
+    return [...TOOLS, ...getAgtermTools(), ...pluginTools];
   }
-  return TOOLS;
+  return [...TOOLS, ...pluginTools];
 }
 
 /**
@@ -206,6 +208,11 @@ export async function executeTool(
   // Handle agterm tools
   if (isAgtermTool(name)) {
     return executeAgtermTool(toolCall, cwd);
+  }
+
+  // Handle plugin tools
+  if (isPluginTool(name)) {
+    return executePluginTool(toolCall, cwd);
   }
 
   try {
