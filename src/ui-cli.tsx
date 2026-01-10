@@ -24,7 +24,8 @@ import { assessToolRisk, detectComplexity } from './risk.js';
 import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from './files.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent } from './types.js';
+import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, RiskLevel, MessageContent, ToolCall } from './types.js';
+import { requiresConfirmation } from './risk.js';
 
 // ============================================================================
 // Types
@@ -339,6 +340,42 @@ function UpgradePrompt({
   );
 }
 
+function ToolConfirmation({
+  toolCall,
+  riskLevel,
+  reason,
+  onConfirm,
+  onDeny
+}: {
+  toolCall: ToolCall;
+  riskLevel: RiskLevel;
+  reason: string;
+  onConfirm: () => void;
+  onDeny: () => void;
+}) {
+  useInput((input, key) => {
+    if (input === 'y' || input === 'Y') onConfirm();
+    else if (input === 'n' || input === 'N' || key.escape) onDeny();
+  });
+
+  const args = toolCall.arguments as Record<string, unknown>;
+  const preview = String(args.command || args.path || args.operation || '...');
+  const riskColor = riskLevel === 'critical' ? 'red' : 'yellow';
+  const riskIcon = riskLevel === 'critical' ? '⚠️' : '⚡';
+
+  return (
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor={riskColor} paddingX={1}>
+      <Text color={riskColor} bold>{riskIcon} {riskLevel.toUpperCase()} RISK OPERATION</Text>
+      <Text> </Text>
+      <Text>Tool: <Text color="cyan">{toolCall.name}</Text></Text>
+      <Text>Command: <Text dimColor>{preview.substring(0, 60)}</Text></Text>
+      <Text>Reason: <Text dimColor>{reason}</Text></Text>
+      <Text> </Text>
+      <Text>Execute this operation? <Text color="cyan">(y/N)</Text></Text>
+    </Box>
+  );
+}
+
 // ============================================================================
 // Input Components
 // ============================================================================
@@ -463,9 +500,11 @@ function TerminalChat() {
   const [model, setModel] = useState<string | undefined>(config.get('defaultModel'));
   const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
+  const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm'>('none');
+  const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: ToolCall; resolve: (approved: boolean) => void } | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
@@ -548,6 +587,7 @@ function TerminalChat() {
   /export [file.md]        - Export conversation to markdown
   /edit                    - Edit and resend last message
   /undo                    - Remove last exchange
+  /confirm [on|off]        - Toggle risky op confirmation
   /status                  - Show status
   /config                  - Show config
   /upgrade                 - Check for updates
@@ -749,6 +789,18 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
       case '/setup':
       case '/loop':
         addMessage('system', 'This feature requires legacy CLI. Run: calliope --legacy');
+        break;
+
+      case '/confirm':
+        if (parts[1] === 'on') {
+          setConfirmMode(true);
+          addMessage('system', '✓ Confirmation mode ON - will ask before risky operations');
+        } else if (parts[1] === 'off') {
+          setConfirmMode(false);
+          addMessage('system', '⚠️ Confirmation mode OFF - risky operations will auto-execute');
+        } else {
+          addMessage('system', `Confirm mode: ${confirmMode ? 'ON' : 'OFF'}\nUsage: /confirm [on|off]`);
+        }
         break;
 
       case '/upgrade':
@@ -1036,6 +1088,19 @@ Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work`);
               llmMessages.current.push({
                 role: 'tool',
                 content: '[Plan mode: Tool not executed. Describe what this would do.]',
+                toolCallId: toolCall.id,
+              });
+              continue;
+            }
+
+            // Check if confirmation is required for risky operations
+            if (confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
+              // Show warning and skip execution
+              const riskIcon = risk.level === 'critical' ? '🛑' : '⚠️';
+              addMessage('tool', `${riskIcon} ${toolCall.name}: ${toolPreview}${riskDisplay}\n  → Requires confirmation (use /confirm off to disable)`);
+              llmMessages.current.push({
+                role: 'tool',
+                content: `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`,
                 toolCallId: toolCall.id,
               });
               continue;
