@@ -1644,6 +1644,18 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     const maxIterations = config.get('maxIterations');
     let completedNaturally = false;
 
+    // Check context limit and warn if approaching capacity
+    const currentContextTokens = estimateContextTokens();
+    const modelLimit = getContextLimit(effectiveModel || actualModel);
+    const contextPercentage = (currentContextTokens / modelLimit) * 100;
+    
+    if (contextPercentage > 90) {
+      addMessage('system', `🔴 Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
+   Consider: /summarize compact | /clear | shorter messages`);
+    } else if (contextPercentage > 80) {
+      addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity - consider /summarize compact soon`);
+    }
+
     for (let i = 0; i < maxIterations; i++) {
       try {
         // Update thinking state for LLM call
