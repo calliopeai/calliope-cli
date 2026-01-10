@@ -1769,8 +1769,14 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
               toolResult: result.result,
             }).catch(() => {});
 
-            const preview = result.result.split('\n').slice(0, 3).join('\n');
-            addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+            // For think tool, show the actual thought content
+            if (toolCall.name === 'think') {
+              const thought = String(args.thought || '');
+              addMessage('tool', thought);
+            } else {
+              const preview = result.result.split('\n').slice(0, 3).join('\n');
+              addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+            }
 
             llmMessages.current.push({
               role: 'tool',
