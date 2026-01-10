@@ -341,36 +341,84 @@ async function chatAnthropic(
     input_schema: t.parameters,
   }));
 
-  // Use streaming if callback provided and no tools (streaming tool use is complex)
-  if (onToken && anthropicTools.length === 0) {
+  // Use streaming if callback provided - handles both text and tool calls
+  if (onToken) {
     let content = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    const toolCalls: ToolCall[] = [];
+    let currentToolId = '';
+    let currentToolName = '';
+    let currentToolInput = '';
+    let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
-    const stream = await client.messages.stream({
-      model,
-      max_tokens: MAX_TOKENS,
-      system: systemMessage ? getTextContent(systemMessage.content) : '',
-      messages: anthropicMessages,
-    });
+    try {
+      const stream = await client.messages.stream({
+        model,
+        max_tokens: MAX_TOKENS,
+        system: systemMessage ? getTextContent(systemMessage.content) : '',
+        messages: anthropicMessages,
+        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      });
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        const text = event.delta.text;
-        content += text;
-        onToken(text);
-      } else if (event.type === 'message_delta' && event.usage) {
-        outputTokens = event.usage.output_tokens;
-      } else if (event.type === 'message_start' && event.message.usage) {
-        inputTokens = event.message.usage.input_tokens;
+      for await (const event of stream) {
+        if (event.type === 'content_block_start') {
+          if (event.content_block.type === 'tool_use') {
+            currentToolId = event.content_block.id;
+            currentToolName = event.content_block.name;
+            currentToolInput = '';
+          }
+        } else if (event.type === 'content_block_delta') {
+          if (event.delta.type === 'text_delta') {
+            const text = event.delta.text;
+            content += text;
+            onToken(text);
+          } else if (event.delta.type === 'input_json_delta') {
+            currentToolInput += event.delta.partial_json;
+          }
+        } else if (event.type === 'content_block_stop') {
+          if (currentToolId && currentToolName) {
+            try {
+              toolCalls.push({
+                id: currentToolId,
+                name: currentToolName,
+                arguments: JSON.parse(currentToolInput || '{}'),
+              });
+            } catch {
+              toolCalls.push({
+                id: currentToolId,
+                name: currentToolName,
+                arguments: {},
+              });
+            }
+            currentToolId = '';
+            currentToolName = '';
+            currentToolInput = '';
+          }
+        } else if (event.type === 'message_delta') {
+          if (event.usage) {
+            outputTokens = event.usage.output_tokens;
+          }
+          if (event.delta.stop_reason === 'tool_use') {
+            finishReason = 'tool_use';
+          } else if (event.delta.stop_reason === 'max_tokens') {
+            finishReason = 'length';
+          }
+        } else if (event.type === 'message_start' && event.message.usage) {
+          inputTokens = event.message.usage.input_tokens;
+        }
       }
-    }
 
-    return {
-      content,
-      finishReason: 'stop',
-      usage: { inputTokens, outputTokens },
-    };
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+        usage: { inputTokens, outputTokens },
+      };
+    } catch (streamError) {
+      // Fall back to non-streaming on error
+      console.error('Anthropic streaming failed, falling back:', streamError);
+    }
   }
 
   // Non-streaming request
@@ -509,29 +557,76 @@ async function chatOpenAI(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
-  // Use streaming if callback provided and no tools
-  if (onToken && openaiTools.length === 0) {
+  // Use streaming if callback provided
+  // Stream text content while collecting tool calls
+  if (onToken) {
     let content = '';
+    let toolCallDeltas: Record<number, { id: string; name: string; arguments: string }> = {};
+    let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
-    const stream = await client.chat.completions.create({
-      model,
-      messages: openaiMessages,
-      max_tokens: MAX_TOKENS,
-      stream: true,
-    });
+    try {
+      const stream = await client.chat.completions.create({
+        model,
+        messages: openaiMessages,
+        tools: openaiTools.length > 0 ? openaiTools : undefined,
+        max_tokens: MAX_TOKENS,
+        stream: true,
+      });
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        content += delta;
-        onToken(delta);
+      for await (const chunk of stream) {
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+
+        // Handle text content
+        const textDelta = choice.delta?.content;
+        if (textDelta) {
+          content += textDelta;
+          onToken(textDelta);
+        }
+
+        // Handle tool calls (collect deltas)
+        const toolCallDelta = choice.delta?.tool_calls;
+        if (toolCallDelta) {
+          for (const tc of toolCallDelta) {
+            if (!toolCallDeltas[tc.index]) {
+              toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
+            }
+            if (tc.id) toolCallDeltas[tc.index].id = tc.id;
+            if (tc.function?.name) toolCallDeltas[tc.index].name = tc.function.name;
+            if (tc.function?.arguments) toolCallDeltas[tc.index].arguments += tc.function.arguments;
+          }
+        }
+
+        // Track finish reason
+        if (choice.finish_reason === 'tool_calls') {
+          finishReason = 'tool_use';
+        } else if (choice.finish_reason === 'length') {
+          finishReason = 'length';
+        }
       }
-    }
 
-    return {
-      content,
-      finishReason: 'stop',
-    };
+      // Convert tool call deltas to tool calls
+      const toolCalls = Object.values(toolCallDeltas)
+        .filter(tc => tc.id && tc.name)
+        .map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: JSON.parse(tc.arguments || '{}'),
+        }));
+
+      if (toolCalls.length > 0) {
+        finishReason = 'tool_use';
+      }
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+      };
+    } catch (streamError) {
+      // Fall back to non-streaming on error
+      console.error('Streaming failed, falling back to non-streaming:', streamError);
+    }
   }
 
   // Non-streaming request
@@ -601,29 +696,76 @@ async function chatOpenAICompatible(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
-  // Use streaming if callback provided and no tools
-  if (onToken && openaiTools.length === 0) {
+  // Use streaming if callback provided
+  // Stream text content while collecting tool calls
+  if (onToken) {
     let content = '';
+    let toolCallDeltas: Record<number, { id: string; name: string; arguments: string }> = {};
+    let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
-    const stream = await client.chat.completions.create({
-      model,
-      messages: openaiMessages,
-      max_tokens: MAX_TOKENS,
-      stream: true,
-    });
+    try {
+      const stream = await client.chat.completions.create({
+        model,
+        messages: openaiMessages,
+        tools: openaiTools.length > 0 ? openaiTools : undefined,
+        max_tokens: MAX_TOKENS,
+        stream: true,
+      });
 
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        content += delta;
-        onToken(delta);
+      for await (const chunk of stream) {
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+
+        // Handle text content
+        const textDelta = choice.delta?.content;
+        if (textDelta) {
+          content += textDelta;
+          onToken(textDelta);
+        }
+
+        // Handle tool calls (collect deltas)
+        const toolCallDelta = choice.delta?.tool_calls;
+        if (toolCallDelta) {
+          for (const tc of toolCallDelta) {
+            if (!toolCallDeltas[tc.index]) {
+              toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
+            }
+            if (tc.id) toolCallDeltas[tc.index].id = tc.id;
+            if (tc.function?.name) toolCallDeltas[tc.index].name = tc.function.name;
+            if (tc.function?.arguments) toolCallDeltas[tc.index].arguments += tc.function.arguments;
+          }
+        }
+
+        // Track finish reason
+        if (choice.finish_reason === 'tool_calls') {
+          finishReason = 'tool_use';
+        } else if (choice.finish_reason === 'length') {
+          finishReason = 'length';
+        }
       }
-    }
 
-    return {
-      content,
-      finishReason: 'stop',
-    };
+      // Convert tool call deltas to tool calls
+      const toolCalls = Object.values(toolCallDeltas)
+        .filter(tc => tc.id && tc.name)
+        .map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          arguments: JSON.parse(tc.arguments || '{}'),
+        }));
+
+      if (toolCalls.length > 0) {
+        finishReason = 'tool_use';
+      }
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+      };
+    } catch (streamError) {
+      // Fall back to non-streaming on error
+      console.error('Streaming failed, falling back to non-streaming:', streamError);
+    }
   }
 
   // Non-streaming request
