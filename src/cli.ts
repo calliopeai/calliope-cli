@@ -19,7 +19,10 @@ import * as summarization from './summarization.js';
 import * as themes from './themes.js';
 import * as branching from './branching.js';
 import * as fuzzySearch from './fuzzy-search.js';
-import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
+import type { Message, LLMProvider, AgentPersona, ToolCall, Mode } from './types.js';
+import { MODE_CONFIG } from './types.js';
+import * as storage from './storage.js';
+import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from './scope.js';
 
 // ANSI colors
 const c = {
@@ -59,6 +62,8 @@ const COMMANDS = [
   '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop',
   '/setup', '/config', '/upgrade', '/exit', '/quit', '/q',
   '/memory', '/hooks', '/route', '/summarize', '/theme', '/branch', '/find', '/search',
+  '/mode', '/work', '/plan', '/debug', '/set', '/confirm',
+  '/scope', '/add-dir', '/remove-dir', '/cost', '/costs', '/session', '/context',
 ];
 
 // CLI Options
@@ -82,6 +87,10 @@ interface CLIState {
   loopCompletionPromise?: string;
   autoRoute: boolean;
   currentBranch: string;
+  mode: Mode;
+  confirmMode: boolean;
+  debugEnabled: boolean;
+  sessionCost: number;
 }
 
 /**
@@ -102,6 +111,10 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     loopMaxIterations: 50,
     autoRoute: false,
     currentBranch: 'main',
+    mode: 'hybrid',
+    confirmMode: true,
+    debugEnabled: process.env.CALLIOPE_DEBUG === '1',
+    sessionCost: 0,
   };
 
   // Add system message with memory context
@@ -511,6 +524,145 @@ async function handleCommand(input: string, state: CLIState, rl: readline.Interf
       await handleUpgrade(rl);
       break;
 
+    case '/mode':
+      if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
+        state.mode = parts[1] as Mode;
+        const cfg = MODE_CONFIG[state.mode];
+        console.log(color(`Mode: ${cfg.icon} ${cfg.label} - ${cfg.description}`, 'green'));
+      } else {
+        const cfg = MODE_CONFIG[state.mode];
+        console.log(`Current: ${cfg.icon} ${cfg.label}`);
+        console.log('Options: plan, hybrid, work');
+      }
+      console.log();
+      break;
+
+    case '/work':
+      state.mode = 'work';
+      console.log(color(`Mode: ${MODE_CONFIG['work'].icon} ${MODE_CONFIG['work'].label}`, 'green'));
+      console.log();
+      break;
+
+    case '/plan':
+      state.mode = 'plan';
+      console.log(color(`Mode: ${MODE_CONFIG['plan'].icon} ${MODE_CONFIG['plan'].label}`, 'green'));
+      console.log();
+      break;
+
+    case '/debug':
+      if (parts[1] === 'on') {
+        state.debugEnabled = true;
+        console.log(color('Debug logging ON', 'green'));
+      } else if (parts[1] === 'off') {
+        state.debugEnabled = false;
+        console.log(color('Debug logging OFF', 'yellow'));
+      } else {
+        console.log(`Debug: ${state.debugEnabled ? 'ON' : 'OFF'}`);
+        console.log(`Mode: ${state.mode}`);
+        console.log(`Confirm: ${state.confirmMode ? 'ON' : 'OFF'}`);
+        console.log(`Messages: ${state.messages.length}`);
+        console.log(`Loop: ${state.loopActive ? 'active' : 'inactive'}`);
+        console.log('\nUse /debug on|off to toggle.');
+      }
+      console.log();
+      break;
+
+    case '/set':
+      if (parts[1] === 'maxIterations' && parts[2]) {
+        const val = parseInt(parts[2]);
+        if (!isNaN(val) && val > 0) {
+          state.loopMaxIterations = val;
+          console.log(color(`maxIterations set to ${val}`, 'green'));
+        }
+      } else {
+        console.log('Usage: /set maxIterations <number>');
+      }
+      console.log();
+      break;
+
+    case '/confirm':
+      if (parts[1] === 'on') {
+        state.confirmMode = true;
+        console.log(color('Confirmation mode ON', 'green'));
+      } else if (parts[1] === 'off') {
+        state.confirmMode = false;
+        console.log(color('Confirmation mode OFF', 'yellow'));
+      } else {
+        console.log(`Confirm mode: ${state.confirmMode ? 'ON' : 'OFF'}`);
+        console.log('Use /confirm on|off to toggle.');
+      }
+      console.log();
+      break;
+
+    case '/scope':
+    case '/dirs':
+      if (parts[1] === 'details') {
+        console.log(color('Scope Details:', 'cyan'));
+        console.log(getScopeDetails());
+      } else if (parts[1] === 'reset') {
+        resetScope();
+        console.log(color('Scope reset to defaults', 'green'));
+      } else {
+        console.log(getScopeSummary());
+      }
+      console.log();
+      break;
+
+    case '/add-dir':
+      if (parts[1]) {
+        addToScope(parts[1]);
+        console.log(color(`Added to scope: ${parts[1]}`, 'green'));
+      } else {
+        console.log('Usage: /add-dir <path>');
+      }
+      console.log();
+      break;
+
+    case '/remove-dir':
+      if (parts[1]) {
+        removeFromScope(parts[1]);
+        console.log(color(`Removed from scope: ${parts[1]}`, 'green'));
+      } else {
+        console.log('Usage: /remove-dir <path>');
+      }
+      console.log();
+      break;
+
+    case '/cost':
+    case '/costs':
+      if (parts[1] === 'reset') {
+        state.sessionCost = 0;
+        storage.resetCosts();
+        console.log(color('Costs reset', 'green'));
+      } else {
+        console.log(color('Cost Tracking:', 'cyan'));
+        console.log(`  Session: $${state.sessionCost.toFixed(4)}`);
+        console.log(storage.getCostSummary());
+      }
+      console.log();
+      break;
+
+    case '/session':
+      console.log(color('Session Info:', 'cyan'));
+      console.log(`  Messages: ${state.messages.length}`);
+      console.log(`  Provider: ${selectProvider(state.provider)}`);
+      console.log(`  Model: ${state.model || DEFAULT_MODELS[selectProvider(state.provider)]}`);
+      console.log(`  Mode: ${MODE_CONFIG[state.mode].icon} ${state.mode}`);
+      console.log(`  Cost: $${state.sessionCost.toFixed(4)}`);
+      console.log();
+      break;
+
+    case '/context':
+      const memCtx = memory.buildMemoryContext(state.cwd);
+      if (memCtx) {
+        console.log(color('Context:', 'cyan'));
+        console.log(memCtx.substring(0, 500) + (memCtx.length > 500 ? '...' : ''));
+      } else {
+        console.log('No context loaded. Use /memory init to create CALLIOPE.md');
+      }
+      console.log();
+      break;
+
     case '/exit':
     case '/quit':
     case '/q':
@@ -614,10 +766,24 @@ function printHelp(): void {
   console.log('  /clear             Clear conversation');
   console.log('  /status            Show current status');
   console.log();
+  console.log(color('Mode & Settings:', 'bold'));
+  console.log('  /mode [plan|hybrid|work]  Switch modes');
+  console.log('  /work              Quick switch to work mode');
+  console.log('  /plan              Quick switch to plan mode');
+  console.log('  /set <key> <val>   Change settings (maxIterations)');
+  console.log('  /confirm [on|off]  Toggle confirmation for risky ops');
+  console.log('  /debug [on|off]    Show state / toggle debug logging');
+  console.log();
   console.log(color('Memory & Context:', 'bold'));
   console.log('  /memory [init|show|add|global]  Project memory');
+  console.log('  /context           Show loaded context');
   console.log('  /summarize [context|compact]    Summarize conversation');
   console.log('  /search <query>    Search conversation');
+  console.log();
+  console.log(color('Scope & Security:', 'bold'));
+  console.log('  /scope [details|reset]  Show/manage file access scope');
+  console.log('  /add-dir <path>    Add directory to scope');
+  console.log('  /remove-dir <path> Remove directory from scope');
   console.log();
   console.log(color('Navigation:', 'bold'));
   console.log('  /find <pattern>    Fuzzy file search');
@@ -633,7 +799,9 @@ function printHelp(): void {
   console.log('    --completion-promise "text"');
   console.log('  /cancel-loop       Stop active loop');
   console.log();
-  console.log(color('Config:', 'bold'));
+  console.log(color('Info & Config:', 'bold'));
+  console.log('  /session           Show session info');
+  console.log('  /cost [reset]      Show cost tracking');
   console.log('  /setup             Reconfigure');
   console.log('  /config            Show config path');
   console.log('  /upgrade           Check for and install updates');

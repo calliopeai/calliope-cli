@@ -40,6 +40,15 @@ import { getAgentStatusReport } from './agterm/index.js';
 // Module-level state for agterm mode
 let moduleAgtermEnabled = false;
 
+// Debug logging for flow control issues
+let debugEnabled = process.env.CALLIOPE_DEBUG === '1';
+const debugLog = (label: string, ...args: unknown[]) => {
+  if (debugEnabled) {
+    const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+    console.error(`[${timestamp}] ${label}:`, ...args);
+  }
+};
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -273,6 +282,26 @@ function ProcessingIndicator({ label }: { label: string }) {
     <Box marginY={1}>
       <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
       <Text dimColor> {label}</Text>
+    </Box>
+  );
+}
+
+// Minimal indicator shown during streaming to show we're still receiving
+function StreamingIndicator() {
+  const [frame, setFrame] = useState(0);
+  const pulseFrames = ['·', '•', '●', '•'];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setFrame(f => (f + 1) % pulseFrames.length);
+    }, 200);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <Box>
+      <Text color="green">{pulseFrames[frame]}</Text>
+      <Text dimColor> receiving...</Text>
     </Box>
   );
 }
@@ -600,6 +629,45 @@ function ToolConfirmation({
   );
 }
 
+// Keybindings modal component
+function KeybindingsModal({ onClose }: { onClose: () => void }) {
+  useInput((input, key) => {
+    if (key.escape || key.return || input === 'q') onClose();
+  });
+
+  return (
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1}>
+      <Text color="cyan" bold>⌨️  Keyboard Shortcuts</Text>
+      <Text> </Text>
+      <Text bold color="yellow">General:</Text>
+      <Text>  Enter          Submit message</Text>
+      <Text>  Alt/Ctrl+Enter Insert newline (multiline)</Text>
+      <Text>  Shift+Tab      Cycle modes (plan/hybrid/work)</Text>
+      <Text>  Esc            Cancel operation / show hint</Text>
+      <Text>  Ctrl+C         Exit</Text>
+      <Text>  ↑/↓            Navigate input history</Text>
+      <Text>  Tab            Auto-complete commands/paths</Text>
+      <Text>  Ctrl+U         Clear input line</Text>
+      <Text> </Text>
+      <Text bold color="yellow">During Processing (queue mode):</Text>
+      <Text>  Enter          Queue message for later</Text>
+      <Text>  Shift+Enter    Send directly (interrupt)</Text>
+      <Text>  ↑/↓            Edit queued messages</Text>
+      <Text>  Ctrl+D         Delete queued message</Text>
+      <Text> </Text>
+      <Text bold color="yellow">Quick Commands:</Text>
+      <Text>  /keys          This help</Text>
+      <Text>  /work          Switch to work mode</Text>
+      <Text>  /plan          Switch to plan mode</Text>
+      <Text>  /flush         Force-process queue</Text>
+      <Text>  /unstick       Reset stuck state</Text>
+      <Text>  /debug on/off  Toggle debug mode</Text>
+      <Text> </Text>
+      <Text dimColor>Press any key to close...</Text>
+    </Box>
+  );
+}
+
 // ============================================================================
 // Slash Commands (for tab completion)
 // ============================================================================
@@ -646,6 +714,15 @@ const SLASH_COMMANDS = [
   '/loop',
   '/cancel-loop',
   '/exit',
+  '/keys',
+  '/?',
+  '/queue',
+  '/flush',
+  '/debug',
+  '/unstick',
+  '/work',
+  '/plan',
+  '/resume',
 ];
 
 // Commands that take a path argument (for file tab completion)
@@ -728,7 +805,12 @@ function ChatInput({
   disabled,
   isProcessing,
   queuedCount,
+  queuedMessages,
+  editingQueueIndex,
   onQueueMessage,
+  onEditQueuedMessage,
+  onSetEditingQueueIndex,
+  onDirectSend,
   cwd,
   suggestions,
   onSuggestionsChange,
@@ -742,7 +824,12 @@ function ChatInput({
   disabled: boolean;
   isProcessing?: boolean;
   queuedCount?: number;
+  queuedMessages?: string[];
+  editingQueueIndex?: number | null;
   onQueueMessage?: (msg: string) => void;
+  onEditQueuedMessage?: (index: number, msg: string) => void;
+  onSetEditingQueueIndex?: (index: number | null) => void;
+  onDirectSend?: (msg: string) => void;
   cwd?: string;
   suggestions?: string[];
   onSuggestionsChange?: (suggestions: string[]) => void;
@@ -775,14 +862,77 @@ function ChatInput({
       }
       if (key.ctrl && input === 'u') {
         onChange('');
+        onSetEditingQueueIndex?.(null); // Clear editing state
         return;
       }
-      // Enter queues the message
-      if (key.return && value.trim() && onQueueMessage) {
-        onQueueMessage(value.trim());
+
+      // Up/Down arrows to navigate queued messages for editing
+      if (key.upArrow && queuedMessages && queuedMessages.length > 0) {
+        if (editingQueueIndex === null || editingQueueIndex === undefined) {
+          // Start editing the last queued message
+          const idx = queuedMessages.length - 1;
+          onSetEditingQueueIndex?.(idx);
+          onChange(queuedMessages[idx]);
+        } else if (editingQueueIndex > 0) {
+          // Move to previous message
+          const idx = editingQueueIndex - 1;
+          onSetEditingQueueIndex?.(idx);
+          onChange(queuedMessages[idx]);
+        }
+        return;
+      }
+
+      if (key.downArrow && queuedMessages && editingQueueIndex !== null && editingQueueIndex !== undefined) {
+        if (editingQueueIndex < queuedMessages.length - 1) {
+          // Move to next message
+          const idx = editingQueueIndex + 1;
+          onSetEditingQueueIndex?.(idx);
+          onChange(queuedMessages[idx]);
+        } else {
+          // At the end, clear to new input
+          onSetEditingQueueIndex?.(null);
+          onChange('');
+        }
+        return;
+      }
+
+      // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
+      if (key.return && (key.meta || key.ctrl)) {
+        onChange(value + '\n');
+        return;
+      }
+
+      // Shift+Enter sends directly (interrupts current operation)
+      if (key.return && key.shift && value.trim() && onDirectSend) {
+        onDirectSend(value.trim());
+        onSetEditingQueueIndex?.(null);
         onChange('');
         return;
       }
+
+      // Enter queues or updates the message
+      if (key.return && value.trim()) {
+        if (editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
+          // Update existing queued message
+          onEditQueuedMessage(editingQueueIndex, value.trim());
+          onSetEditingQueueIndex?.(null);
+          onChange('');
+        } else if (onQueueMessage) {
+          // Add new queued message
+          onQueueMessage(value.trim());
+          onChange('');
+        }
+        return;
+      }
+
+      // Ctrl+D to delete currently editing queued message
+      if (key.ctrl && input === 'd' && editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
+        onEditQueuedMessage(editingQueueIndex, ''); // Empty string signals deletion
+        onSetEditingQueueIndex?.(null);
+        onChange('');
+        return;
+      }
+
       // Regular input
       if (input && !key.ctrl && !key.meta && !key.tab) {
         onChange(value + input);
@@ -793,6 +943,12 @@ function ChatInput({
     // Shift+Tab to cycle mode
     if (key.shift && key.tab) {
       onCycleMode();
+      return;
+    }
+
+    // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
+    if (key.return && (key.meta || key.ctrl)) {
+      onChange(value + '\n');
       return;
     }
 
@@ -895,7 +1051,10 @@ function ChatInput({
 
   // Determine prompt style based on state
   const promptColor = disabled ? 'gray' : isProcessing ? 'yellow' : 'cyan';
-  const promptText = isProcessing ? 'queue>' : 'calliope>';
+  const isEditing = editingQueueIndex !== null && editingQueueIndex !== undefined;
+  const promptText = isProcessing
+    ? (isEditing ? `edit[${editingQueueIndex + 1}]>` : 'queue>')
+    : 'calliope>';
 
   return (
     <Box flexDirection="column">
@@ -947,6 +1106,24 @@ function getContextLimit(model: string): number {
     }
   }
   return CONTEXT_LIMITS.default;
+}
+
+function warnIfContextLimitApproaching(used: number, limit: number): void {
+  const percentage = used / limit;
+  if (percentage > 0.8 && percentage <= 0.9) {
+    console.log('\x1b[33m⚠️  Context at ' + Math.round(percentage * 100) + '% capacity (' + 
+                Math.round(used/1000) + 'K/' + Math.round(limit/1000) + 'K tokens)\x1b[0m');
+    console.log('\x1b[2m   Consider: /summarize compact | /clear | shorter messages\x1b[0m\n');
+  } else if (percentage > 0.9) {
+    console.log('\x1b[31m🚨 Context at ' + Math.round(percentage * 100) + '% capacity! (' + 
+                Math.round(used/1000) + 'K/' + Math.round(limit/1000) + 'K tokens)\x1b[0m');
+    console.log('\x1b[2m   Action required: /summarize compact | /clear\x1b[0m\n');
+  }
+}
+
+function checkAndWarnContextLimit(model: string, tokens: number): void {
+  const limit = getContextLimit(model);
+  warnIfContextLimitApproaching(tokens, limit);
 }
 
 function StatusBar({
@@ -1069,7 +1246,7 @@ function TerminalChat() {
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys'>('none');
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
   const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: ToolCall; resolve: (approved: boolean) => void } | null>(null);
@@ -1088,6 +1265,7 @@ function TerminalChat() {
   // Message queue for human-in-the-loop feedback during processing
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [queueInput, setQueueInput] = useState('');
+  const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
 
   // Undo/Redo history - stores snapshots of conversation state
   interface ConversationSnapshot {
@@ -1232,6 +1410,19 @@ function TerminalChat() {
     }]);
   }, []);
 
+  // Handler to edit or delete a queued message
+  const handleEditQueuedMessage = useCallback((index: number, newMsg: string) => {
+    if (newMsg === '') {
+      // Delete the message
+      setQueuedMessages(prev => prev.filter((_, i) => i !== index));
+      addMessage('system', `🗑️ Deleted queued message #${index + 1}`);
+    } else {
+      // Update the message
+      setQueuedMessages(prev => prev.map((msg, i) => i === index ? newMsg : msg));
+      addMessage('system', `✏️ Updated queued message #${index + 1}`);
+    }
+  }, [addMessage]);
+
   // Handle slash commands
   const handleCommand = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.split(/\s+/);
@@ -1281,12 +1472,19 @@ function TerminalChat() {
   /bookmark [name]         - Create bookmark at current point
   /bookmark list           - List all bookmarks
   /bookmark goto <n>       - Jump to bookmark
-  /queue [show|clear]      - Manage queued messages
+  /queue [show|clear|flush] - Manage queued messages
+  /flush                   - Force-process queued msgs (unstick)
+  /debug [on|off]          - Show state / toggle debug logging
+  /unstick                 - Emergency reset of processing state
+  /work                    - Quick switch to work mode
+  /plan                    - Quick switch to plan mode
+  /keys or /?              - Show keyboard shortcuts
   /resume [n]              - Resume previous session (load n messages)
   /exit                    - Exit
 
 File references: @filename, ./path, /absolute/path
 Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work
+Queue: ↑/↓ edit, Ctrl+D delete, Shift+Enter send directly
 Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (spawn_agent, check_agent tools available)' : ''}`);
         break;
 
@@ -2406,9 +2604,124 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             const list = queuedMessages.map((m, i) => `  ${i + 1}. ${m}`).join('\n');
             addMessage('system', `📨 Queued messages:\n${list}`);
           }
+        } else if (subCmd === 'flush') {
+          // Force-process queued messages even if stuck
+          if (queuedMessages.length === 0) {
+            addMessage('system', 'No messages to flush.');
+          } else {
+            const queued = [...queuedMessages];
+            setQueuedMessages([]);
+            setIsProcessing(false); // Force reset processing state
+            setThinkingState(null);
+            setStreamingResponse('');
+            addMessage('system', `🔄 Flushing ${queued.length} queued message(s)...`);
+            const followUp = queued.length === 1
+              ? queued[0]
+              : `[Multiple follow-up messages:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
+            setTimeout(() => {
+              setIsProcessing(true);
+              runAgent(followUp).finally(() => {
+                setIsProcessing(false);
+                setThinkingState(null);
+                setStreamingResponse('');
+              });
+            }, 50);
+          }
         } else {
-          addMessage('system', 'Usage: /queue [show|clear]\n\nTip: Type while agent is processing to queue follow-up messages.');
+          addMessage('system', 'Usage: /queue [show|clear|flush]\n\nTip: Type while agent is processing to queue follow-up messages.');
         }
+        break;
+      }
+
+      case '/flush': {
+        // Shortcut for /queue flush - force-process queued messages
+        if (queuedMessages.length === 0) {
+          addMessage('system', 'No messages to flush. Use /debug to see current state.');
+        } else {
+          const queued = [...queuedMessages];
+          setQueuedMessages([]);
+          setIsProcessing(false); // Force reset processing state
+          setThinkingState(null);
+          setStreamingResponse('');
+          addMessage('system', `🔄 Flushing ${queued.length} queued message(s)...`);
+          const followUp = queued.length === 1
+            ? queued[0]
+            : `[Multiple follow-up messages:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
+          setTimeout(() => {
+            setIsProcessing(true);
+            runAgent(followUp).finally(() => {
+              setIsProcessing(false);
+              setThinkingState(null);
+              setStreamingResponse('');
+            });
+          }, 50);
+        }
+        break;
+      }
+
+      case '/debug': {
+        const subCmd = parts[1];
+        if (subCmd === 'on') {
+          debugEnabled = true;
+          addMessage('system', '🔍 Debug logging ON (output to stderr). Use /debug off to disable.');
+        } else if (subCmd === 'off') {
+          debugEnabled = false;
+          addMessage('system', '🔍 Debug logging OFF');
+        } else {
+          // Show internal state for debugging stuck issues
+          const debugInfo = [
+            `isProcessing: ${isProcessing}`,
+            `queuedMessages: ${queuedMessages.length}`,
+            `modalMode: ${modalMode}`,
+            `confirmMode: ${confirmMode}`,
+            `loopActive: ${loopActive}`,
+            `thinkingState: ${thinkingState ? JSON.stringify(thinkingState) : 'null'}`,
+            `streamingResponse length: ${streamingResponse.length}`,
+            `llmMessages count: ${llmMessages.current.length}`,
+            `mode: ${mode}`,
+            `debugEnabled: ${debugEnabled}`,
+          ];
+          addMessage('system', `🔍 Debug State:\n${debugInfo.join('\n')}\n\nUse /debug on|off to toggle logging.`);
+        }
+        break;
+      }
+
+      case '/unstick': {
+        // Emergency reset of processing state
+        setIsProcessing(false);
+        setThinkingState(null);
+        setStreamingResponse('');
+        setLoopActive(false);
+        setModalMode('none');
+        setPendingComplexPrompt(null);
+        // Also reset to hybrid mode if stuck in plan mode
+        if (mode === 'plan') {
+          setMode('hybrid');
+          addMessage('system', '🔧 Reset processing state + switched from plan to hybrid mode.');
+        } else {
+          addMessage('system', '🔧 Reset processing state. You can now submit new messages.');
+        }
+        break;
+      }
+
+      case '/keys':
+      case '/?': {
+        // Show keybindings modal
+        setModalMode('keys');
+        break;
+      }
+
+      case '/work': {
+        // Quick shortcut to enter work mode
+        setMode('work');
+        addMessage('system', `Mode: ${MODE_CONFIG['work'].icon} ${MODE_CONFIG['work'].label} - ${MODE_CONFIG['work'].description}`);
+        break;
+      }
+
+      case '/plan': {
+        // Quick shortcut to enter plan mode
+        setMode('plan');
+        addMessage('system', `Mode: ${MODE_CONFIG['plan'].icon} ${MODE_CONFIG['plan'].label} - ${MODE_CONFIG['plan'].description}`);
         break;
       }
 
@@ -2442,8 +2755,51 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     }
   }, [actualProvider, actualModel, persona, stats, addMessage, exit]);
 
+  // Validate and repair message history to ensure tool_use always has tool_result
+  const validateAndRepairMessages = useCallback(() => {
+    const messages = llmMessages.current;
+    let repaired = false;
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+        // Check that each tool_use has a corresponding tool_result
+        for (const toolCall of msg.toolCalls) {
+          const hasResult = messages.slice(i + 1).some(
+            m => m.role === 'tool' && m.toolCallId === toolCall.id
+          );
+          if (!hasResult) {
+            // Add a placeholder tool_result for the missing tool call
+            debugLog('repair', 'Adding missing tool_result for', toolCall.id);
+            // Find the right position to insert (right after this assistant message or after existing tool results)
+            let insertPos = i + 1;
+            while (insertPos < messages.length && messages[insertPos].role === 'tool') {
+              insertPos++;
+            }
+            messages.splice(insertPos, 0, {
+              role: 'tool',
+              content: '[Error: Tool execution was interrupted. Please retry.]',
+              toolCallId: toolCall.id,
+            });
+            repaired = true;
+          }
+        }
+      }
+    }
+
+    if (repaired) {
+      addMessage('system', '🔧 Repaired corrupted message history (missing tool results).');
+    }
+    return repaired;
+  }, [addMessage]);
+
   // Run agent with user prompt
   const runAgent = useCallback(async (content: MessageContent) => {
+    debugLog('runAgent', 'ENTER', typeof content === 'string' ? content.substring(0, 50) : '[complex]');
+
+    // Validate message history before adding new content
+    validateAndRepairMessages();
+
     llmMessages.current.push({ role: 'user', content });
     setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
     setStreamingResponse('');
@@ -2502,7 +2858,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           });
         };
 
+        debugLog('chat', 'WAITING for LLM response', `iteration=${i + 1}`);
         const response = await chat(provider, llmMessages.current, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
+        debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
 
         // Update token stats and cost
         if (response.usage) {
@@ -2618,6 +2976,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
               });
               
               // Execute in parallel using dependency-aware staging
+              debugLog('tools', 'PARALLEL exec start', `count=${executableTools.length}`);
               const results = await executeParallel(
                 executableTools,
                 async (call) => {
@@ -2634,6 +2993,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                 }
               );
               
+              debugLog('tools', 'PARALLEL exec done', `results=${results.length}`);
               // Process results sequentially for UI and LLM messages
               for (const result of results) {
                 const toolCall = result.toolCall;
@@ -2665,6 +3025,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
               }
             } else {
               // Sequential execution (single tool or dependencies prevent parallelization)
+              debugLog('tools', 'SEQUENTIAL exec start', `count=${executableTools.length}`);
               for (const toolCall of executableTools) {
                 const args = toolCall.arguments as Record<string, unknown>;
                 const toolPreview = String(args.command || args.path || '...');
@@ -2689,8 +3050,10 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                   });
                 }
                 
+                debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
                 const result = await executeTool(toolCall, process.cwd());
-                
+                debugLog('tools', 'DONE', toolCall.name);
+
                 // Execute post-tool hooks
                 hooks.executeHooks('post-tool', {
                   tool: toolCall.name,
@@ -2725,6 +3088,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         addMessage('assistant', response.content);
         setStreamingResponse('');
         setContextTokens(estimateContextTokens());
+        checkAndWarnContextLimit(actualModel, estimateContextTokens());
 
         // Auto-continue if response was truncated due to length
         if (response.finishReason === 'length') {
@@ -2740,7 +3104,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         setStreamingResponse('');
         addMessage('error', formatError(error));
         completedNaturally = true; // Error counts as "done" - don't show iteration warning
-        break;
+
+        // On error, clear queued messages to prevent infinite retry loop
+        if (queuedMessages.length > 0) {
+          addMessage('system', `⚠️ Cleared ${queuedMessages.length} queued message(s) due to error. Use /clear to reset conversation.`);
+          setQueuedMessages([]);
+        }
+        return; // Exit early on error - don't process queued messages
       }
     }
 
@@ -2753,23 +3123,34 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     setContextTokens(estimateContextTokens());
 
     // Process any queued messages (human-in-the-loop feedback)
+    debugLog('runAgent', 'EXIT loop', `queued=${queuedMessages.length}`);
     if (queuedMessages.length > 0) {
       const queued = [...queuedMessages];
       setQueuedMessages([]); // Clear the queue
-      
+
       // Combine queued messages into a single follow-up
-      const followUp = queued.length === 1 
+      const followUp = queued.length === 1
         ? queued[0]
         : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
-      
+
       addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
-      
+
       // Recursively run agent with follow-up
       // Use setTimeout to avoid stack overflow and allow UI to update
+      // Note: handleSubmit's finally will set isProcessing=false, so we need to re-enable it
+      debugLog('runAgent', 'SCHEDULING recursive call for queued messages');
       setTimeout(() => {
-        runAgent(followUp);
+        debugLog('runAgent', 'RECURSIVE call starting');
+        setIsProcessing(true);
+        runAgent(followUp).finally(() => {
+          setIsProcessing(false);
+          setThinkingState(null);
+          setStreamingResponse('');
+          setEditingQueueIndex(null);
+        });
       }, 100);
     }
+    debugLog('runAgent', 'RETURN');
   }, [provider, model, addMessage, mode, estimateContextTokens, queuedMessages]);
 
   // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
@@ -2945,6 +3326,48 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     });
   }, []);
 
+  // Handle Escape key - cancel operation if processing, otherwise show hint
+  const handleEscape = useCallback(() => {
+    if (isProcessing) {
+      // Cancel current operation
+      setIsProcessing(false);
+      setThinkingState(null);
+      setStreamingResponse('');
+      setLoopActive(false);
+      setEditingQueueIndex(null);
+      addMessage('system', '⏹ Operation cancelled. Use /exit to quit.');
+    } else if (modalMode !== 'none') {
+      // Close any open modal
+      setModalMode('none');
+      setPendingComplexPrompt(null);
+    } else {
+      // Not processing - show hint instead of exiting
+      addMessage('system', '💡 Use /exit to quit, or Ctrl+C.');
+    }
+  }, [isProcessing, modalMode, addMessage]);
+
+  // Handle direct send (Shift+Enter) - interrupts current operation and sends immediately
+  const handleDirectSend = useCallback((msg: string) => {
+    // Stop current processing
+    setIsProcessing(false);
+    setThinkingState(null);
+    setStreamingResponse('');
+    setEditingQueueIndex(null);
+
+    // Show what happened
+    addMessage('system', '⚡ Direct send - interrupting current operation');
+    addMessage('user', msg);
+
+    // Start new agent run with this message
+    setIsProcessing(true);
+    runAgent(msg).finally(() => {
+      setIsProcessing(false);
+      setThinkingState(null);
+      setStreamingResponse('');
+      setEditingQueueIndex(null);
+    });
+  }, [addMessage, runAgent]);
+
   // Render
   return (
     <Box flexDirection="column" width={width}>
@@ -2966,7 +3389,16 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
       {/* Thinking Display / Processing Indicator */}
       {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
-      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Processing..." />}
+      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
+      {/* Show minimal indicator during streaming so user knows it's still working */}
+      {isProcessing && streamingResponse && <StreamingIndicator />}
+
+      {/* Debug overlay when debug mode is enabled */}
+      {debugEnabled && (
+        <Box marginY={0}>
+          <Text dimColor>[dbg] proc={isProcessing ? 'Y' : 'N'} think={thinkingState ? 'Y' : 'N'} stream={streamingResponse.length} mode={mode} queue={queuedMessages.length}</Text>
+        </Box>
+      )}
 
       {/* Modal: Model Selector */}
       {modalMode === 'model' && availableModels.length > 0 && (
@@ -3057,20 +3489,30 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         />
       )}
 
+      {/* Modal: Keybindings */}
+      {modalMode === 'keys' && (
+        <KeybindingsModal onClose={() => setModalMode('none')} />
+      )}
+
       {/* Chat Input */}
       <ChatInput
         value={input}
         onChange={handleInputChange}
         onSubmit={handleSubmit}
-        onEscape={exit}
+        onEscape={handleEscape}
         onCycleMode={cycleMode}
         disabled={isModalActive}
         isProcessing={isProcessing}
         queuedCount={queuedMessages.length}
+        queuedMessages={queuedMessages}
+        editingQueueIndex={editingQueueIndex}
         onQueueMessage={(msg) => {
           setQueuedMessages(prev => [...prev, msg]);
           addMessage('system', `📨 Queued: "${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}"`);
         }}
+        onEditQueuedMessage={handleEditQueuedMessage}
+        onSetEditingQueueIndex={setEditingQueueIndex}
+        onDirectSend={handleDirectSend}
         cwd={process.cwd()}
         suggestions={suggestions}
         onSuggestionsChange={setSuggestions}
