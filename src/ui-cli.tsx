@@ -522,11 +522,13 @@ function UpgradePrompt({
 
 function ComplexityWarning({
   reason,
+  prompt,
   onProceed,
   onPlan,
   onCancel,
 }: {
   reason: string;
+  prompt?: string;
   onProceed: () => void;
   onPlan: () => void;
   onCancel: () => void;
@@ -537,11 +539,80 @@ function ComplexityWarning({
     else if (key.escape || input === 'c' || input === 'C') onCancel();
   });
 
+  // Analyze the prompt for operation preview
+  const analysis = React.useMemo(() => {
+    if (!prompt) return null;
+
+    const lower = prompt.toLowerCase();
+    const cwd = process.cwd();
+
+    // Parse file references
+    const fileRefs = parseFileReferences(prompt, cwd);
+
+    // Detect operation types
+    const operations: string[] = [];
+    if (lower.includes('delete') || lower.includes('remove') || lower.includes('rm ')) {
+      operations.push('Delete files');
+    }
+    if (lower.includes('create') || lower.includes('add') || lower.includes('new ')) {
+      operations.push('Create files');
+    }
+    if (lower.includes('modify') || lower.includes('change') || lower.includes('update') || lower.includes('edit')) {
+      operations.push('Modify files');
+    }
+    if (lower.includes('refactor') || lower.includes('restructure') || lower.includes('reorganize')) {
+      operations.push('Refactor code');
+    }
+    if (lower.includes('install') || lower.includes('npm') || lower.includes('yarn') || lower.includes('pip')) {
+      operations.push('Install packages');
+    }
+    if (lower.includes('git ') || lower.includes('commit') || lower.includes('push') || lower.includes('merge')) {
+      operations.push('Git operations');
+    }
+    if (lower.includes('test') || lower.includes('build') || lower.includes('compile')) {
+      operations.push('Build/Test');
+    }
+
+    // Estimate risk level based on keywords
+    let riskLevel: 'low' | 'medium' | 'high' = 'medium';
+    if (lower.includes('delete') || lower.includes('remove') || lower.includes('force') || lower.includes('--hard')) {
+      riskLevel = 'high';
+    } else if (lower.includes('read') || lower.includes('show') || lower.includes('list') || lower.includes('find')) {
+      riskLevel = 'low';
+    }
+
+    return {
+      files: fileRefs.files,
+      operations,
+      riskLevel,
+    };
+  }, [prompt]);
+
+  const riskColors = { low: 'green', medium: 'yellow', high: 'red' } as const;
+
   return (
     <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="yellow" bold>🔍 Complex Operation Detected</Text>
+      <Text color="yellow" bold>🔍 Operation Preview</Text>
       <Text> </Text>
       <Text dimColor>{reason}</Text>
+
+      {analysis && (
+        <>
+          <Text> </Text>
+          {analysis.operations.length > 0 && (
+            <Text>Operations: <Text color="cyan">{analysis.operations.join(', ')}</Text></Text>
+          )}
+          {analysis.files.length > 0 && (
+            <Text>Files referenced: <Text color="cyan">{analysis.files.length}</Text>
+              {analysis.files.length <= 3 && (
+                <Text dimColor> ({analysis.files.map(f => f.split('/').pop()).join(', ')})</Text>
+              )}
+            </Text>
+          )}
+          <Text>Risk level: <Text color={riskColors[analysis.riskLevel]}>{analysis.riskLevel.toUpperCase()}</Text></Text>
+        </>
+      )}
+
       <Text> </Text>
       <Text>This operation may affect multiple files or require careful planning.</Text>
       <Text> </Text>
@@ -815,6 +886,11 @@ function ChatInput({
   suggestions,
   onSuggestionsChange,
   onNavigateHistory,
+  // Smart suggestion context
+  currentMode,
+  contextPercentage,
+  recentCommands,
+  hasGitRepo,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -834,6 +910,11 @@ function ChatInput({
   suggestions?: string[];
   onSuggestionsChange?: (suggestions: string[]) => void;
   onNavigateHistory?: (direction: 'up' | 'down') => void;
+  // Smart suggestion context
+  currentMode?: Mode;
+  contextPercentage?: number;
+  recentCommands?: string[];
+  hasGitRepo?: boolean;
 }) {
   const workingDir = cwd || process.cwd();
   // Handle ALL keyboard input here - single source of input handling
@@ -1002,10 +1083,21 @@ function ChatInput({
         return;
       }
 
-      // Slash command completion
+      // Slash command completion with smart suggestions
       if (value.startsWith('/')) {
+        // Use smart suggestions if context is available
+        const smartMatches = getSmartCommandSuggestions({
+          input: value,
+          hasGitRepo: hasGitRepo ?? false,
+          contextPercentage: contextPercentage ?? 0,
+          currentMode: currentMode ?? 'hybrid',
+          recentCommands: recentCommands ?? [],
+          isProcessing: isProcessing ?? false,
+        });
+
+        // Fall back to basic matching if smart suggestions didn't find anything
         const partial = value.toLowerCase();
-        const matches = SLASH_COMMANDS.filter(cmdName =>
+        const matches = smartMatches.length > 0 ? smartMatches : SLASH_COMMANDS.filter(cmdName =>
           cmdName.startsWith(partial) && cmdName !== partial
         );
 
@@ -1108,22 +1200,192 @@ function getContextLimit(model: string): number {
   return CONTEXT_LIMITS.default;
 }
 
-function warnIfContextLimitApproaching(used: number, limit: number): void {
-  const percentage = used / limit;
-  if (percentage > 0.8 && percentage <= 0.9) {
-    console.log('\x1b[33m⚠️  Context at ' + Math.round(percentage * 100) + '% capacity (' + 
-                Math.round(used/1000) + 'K/' + Math.round(limit/1000) + 'K tokens)\x1b[0m');
-    console.log('\x1b[2m   Consider: /summarize compact | /clear | shorter messages\x1b[0m\n');
-  } else if (percentage > 0.9) {
-    console.log('\x1b[31m🚨 Context at ' + Math.round(percentage * 100) + '% capacity! (' + 
-                Math.round(used/1000) + 'K/' + Math.round(limit/1000) + 'K tokens)\x1b[0m');
-    console.log('\x1b[2m   Action required: /summarize compact | /clear\x1b[0m\n');
+// ============================================================================
+// Smart Context Management
+// ============================================================================
+
+type ContextLevel = 'healthy' | 'caution' | 'warning' | 'critical' | 'emergency';
+
+interface ContextState {
+  lastLevel: ContextLevel;
+  warningCounts: Record<ContextLevel, number>;
+  lastWarningTime: number;
+}
+
+// Module-level state for context tracking (persists across renders)
+const contextState: ContextState = {
+  lastLevel: 'healthy',
+  warningCounts: { healthy: 0, caution: 0, warning: 0, critical: 0, emergency: 0 },
+  lastWarningTime: 0,
+};
+
+function getContextLevel(percentage: number): ContextLevel {
+  if (percentage >= 98) return 'emergency';
+  if (percentage >= 95) return 'critical';
+  if (percentage >= 85) return 'warning';
+  if (percentage >= 70) return 'caution';
+  return 'healthy';
+}
+
+function getContextLevelIndex(level: ContextLevel): number {
+  const order: ContextLevel[] = ['healthy', 'caution', 'warning', 'critical', 'emergency'];
+  return order.indexOf(level);
+}
+
+function shouldShowContextWarning(level: ContextLevel): boolean {
+  if (level === 'healthy') return false;
+
+  const now = Date.now();
+  const timeSinceLastWarning = now - contextState.lastWarningTime;
+  const minInterval = level === 'emergency' ? 30000 : 60000; // 30s for emergency, 60s otherwise
+
+  // Always warn on level increase
+  if (getContextLevelIndex(level) > getContextLevelIndex(contextState.lastLevel)) {
+    return true;
+  }
+
+  // Warn again if enough time has passed and we're at critical/emergency
+  if ((level === 'critical' || level === 'emergency') && timeSinceLastWarning > minInterval) {
+    return true;
+  }
+
+  return false;
+}
+
+function checkAndWarnContextLimit(
+  model: string,
+  tokens: number,
+  addMessage?: (type: 'user' | 'assistant' | 'system' | 'error', content: string) => void
+): void {
+  const limit = getContextLimit(model);
+  const percentage = (tokens / limit) * 100;
+  const level = getContextLevel(percentage);
+  const used = Math.round(tokens / 1000);
+  const limitK = Math.round(limit / 1000);
+
+  if (!shouldShowContextWarning(level)) return;
+
+  // Update state
+  contextState.lastLevel = level;
+  contextState.warningCounts[level]++;
+  contextState.lastWarningTime = Date.now();
+
+  // Generate warning message based on level
+  let message: string;
+  switch (level) {
+    case 'emergency':
+      message = `\x1b[31m\x1b[1m🚨 EMERGENCY: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
+\x1b[31m   Responses WILL be truncated. Take action NOW:\x1b[0m
+\x1b[2m   /summarize compact - Auto-compress (recommended)
+   /clear - Fresh start
+   /branch new "save" - Save and branch\x1b[0m`;
+      break;
+    case 'critical':
+      message = `\x1b[31m🔴 CRITICAL: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
+\x1b[2m   Approaching limits. Action recommended:
+   /summarize compact | /clear | shorter messages\x1b[0m`;
+      break;
+    case 'warning':
+      message = `\x1b[33m⚠️  WARNING: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
+\x1b[2m   Consider: /summarize compact | /clear\x1b[0m`;
+      break;
+    case 'caution':
+      message = `\x1b[36m💡 Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
+\x1b[2m   Monitor usage. /context summary for details\x1b[0m`;
+      break;
+    default:
+      return;
+  }
+
+  console.log(message + '\n');
+
+  // Also add to UI messages if callback provided (for critical+)
+  if (addMessage && (level === 'critical' || level === 'emergency')) {
+    const uiMessage = level === 'emergency'
+      ? `🚨 EMERGENCY: Context at ${Math.round(percentage)}% - responses will be truncated! Use /summarize compact NOW`
+      : `🔴 Context at ${Math.round(percentage)}% - consider /summarize compact`;
+    addMessage('system', uiMessage);
   }
 }
 
-function checkAndWarnContextLimit(model: string, tokens: number): void {
-  const limit = getContextLimit(model);
-  warnIfContextLimitApproaching(tokens, limit);
+function resetContextWarnings(): void {
+  contextState.lastLevel = 'healthy';
+  contextState.warningCounts = { healthy: 0, caution: 0, warning: 0, critical: 0, emergency: 0 };
+  contextState.lastWarningTime = 0;
+}
+
+// ============================================================================
+// Smart Command Suggestions
+// ============================================================================
+
+interface CommandSuggestionContext {
+  input: string;
+  hasGitRepo: boolean;
+  contextPercentage: number;
+  currentMode: Mode;
+  recentCommands: string[];
+  isProcessing: boolean;
+}
+
+function getSmartCommandSuggestions(ctx: CommandSuggestionContext): string[] {
+  const { input, hasGitRepo, contextPercentage, currentMode, recentCommands } = ctx;
+
+  if (!input.startsWith('/')) return [];
+
+  const suggestions: string[] = [];
+  const inputLower = input.toLowerCase();
+
+  // All available commands for matching
+  const allCommands = [
+    '/help', '/clear', '/exit', '/quit',
+    '/mode', '/work', '/plan',
+    '/provider', '/model', '/models', '/config',
+    '/scope', '/add-dir', '/remove-dir', '/find',
+    '/summarize', '/context', '/cost', '/session',
+    '/debug', '/keys', '/unstick', '/flush',
+    '/branch', '/branches', '/switch',
+    '/save', '/load', '/sessions',
+    '/git', '/run', '/set', '/confirm',
+  ];
+
+  // Context-aware prioritization
+  const prioritized: string[] = [];
+
+  // High context? Suggest compaction commands first
+  if (contextPercentage > 70) {
+    prioritized.push('/summarize compact', '/clear', '/branch new');
+  }
+
+  // Mode-specific suggestions
+  if (currentMode === 'plan') {
+    prioritized.push('/mode hybrid', '/work');
+  } else if (currentMode === 'work') {
+    prioritized.push('/mode hybrid', '/plan');
+  }
+
+  // Git repo? Suggest git commands
+  if (hasGitRepo) {
+    prioritized.push('/git status', '/git diff', '/git add', '/git commit');
+  }
+
+  // Add recent commands (deduplicated)
+  for (const cmd of recentCommands.slice(-5)) {
+    if (cmd.startsWith('/') && !prioritized.includes(cmd)) {
+      prioritized.push(cmd);
+    }
+  }
+
+  // Filter by what user is typing
+  const matchingPrioritized = prioritized.filter(cmd =>
+    cmd.toLowerCase().startsWith(inputLower)
+  );
+  const matchingAll = allCommands.filter(cmd =>
+    cmd.toLowerCase().startsWith(inputLower) && !matchingPrioritized.includes(cmd)
+  );
+
+  suggestions.push(...matchingPrioritized, ...matchingAll);
+
+  return suggestions.slice(0, 6);
 }
 
 function StatusBar({
@@ -1190,6 +1452,19 @@ function TerminalChat() {
   const [inputHistory, setInputHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const [savedInput, setSavedInput] = useState(''); // Save current input when navigating
+
+  // Smart suggestions context
+  const [hasGitRepo] = useState(() => {
+    try {
+      return fs.existsSync('.git') || fs.existsSync('../.git');
+    } catch {
+      return false;
+    }
+  });
+  const recentCommands = React.useMemo(
+    () => inputHistory.filter(cmd => cmd.startsWith('/')).slice(-10),
+    [inputHistory]
+  );
 
   // Clear suggestions when input changes significantly
   const handleInputChange = useCallback((newValue: string) => {
@@ -1562,6 +1837,7 @@ Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (sp
         setMessages([]);
         llmMessages.current = [{ role: 'system', content: getSystemPrompt(persona) }];
         setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
+        resetContextWarnings(); // Reset context warning state
         break;
 
       case '/copy': {
@@ -3088,7 +3364,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         addMessage('assistant', response.content);
         setStreamingResponse('');
         setContextTokens(estimateContextTokens());
-        checkAndWarnContextLimit(actualModel, estimateContextTokens());
+        checkAndWarnContextLimit(actualModel, estimateContextTokens(), addMessage);
 
         // Auto-continue if response was truncated due to length
         if (response.finishReason === 'length') {
@@ -3102,7 +3378,27 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       } catch (error) {
         setThinkingState(null);
         setStreamingResponse('');
-        addMessage('error', formatError(error));
+
+        // Format error with provider context for better suggestions
+        const errorMsg = formatError(error, { provider: actualProvider });
+        addMessage('error', errorMsg);
+
+        // Classify error to provide additional recovery suggestions
+        const classified = classifyError(error);
+        const availableProviders = getAvailableProviders();
+        const otherProviders = availableProviders.filter(p => p !== actualProvider);
+
+        // Suggest alternatives based on error type
+        if (classified.category === 'rate_limit' || classified.category === 'server') {
+          if (otherProviders.length > 0) {
+            addMessage('system', `💡 Try switching providers: /provider ${otherProviders[0]} or /models to see alternatives`);
+          }
+        } else if (classified.category === 'timeout' || classified.category === 'network') {
+          addMessage('system', `💡 Network issue detected. Check connection and try again, or use /provider to switch.`);
+        } else if (classified.category === 'auth') {
+          addMessage('system', `💡 Run 'calliope --setup' to reconfigure API keys.`);
+        }
+
         completedNaturally = true; // Error counts as "done" - don't show iteration warning
 
         // On error, clear queued messages to prevent infinite retry loop
@@ -3453,6 +3749,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {modalMode === 'complexity-warning' && pendingComplexPrompt && (
         <ComplexityWarning
           reason={pendingComplexPrompt.complexity.reason || 'Complex operation detected'}
+          prompt={typeof pendingComplexPrompt.prompt === 'string' ? pendingComplexPrompt.prompt : undefined}
           onProceed={async () => {
             setModalMode('none');
             const prompt = pendingComplexPrompt.prompt;
@@ -3517,6 +3814,11 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         suggestions={suggestions}
         onSuggestionsChange={setSuggestions}
         onNavigateHistory={navigateHistory}
+        // Smart suggestions context
+        currentMode={mode}
+        contextPercentage={Math.round((contextTokens / getContextLimit(actualModel)) * 100)}
+        recentCommands={recentCommands}
+        hasGitRepo={hasGitRepo}
       />
 
       {/* Status Bar */}
