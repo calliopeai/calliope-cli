@@ -18,6 +18,10 @@ Multi-model AI agent CLI with autonomous loops, project memory, and advanced too
 ## Installation
 
 ```bash
+# Quick install
+curl -fsSL https://calliope.ai/install.sh | bash
+
+# Or via npm
 npm install -g @calliopelabs/cli
 ```
 
