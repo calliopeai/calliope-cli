@@ -1668,6 +1668,16 @@ function TerminalChat() {
 
       // Execute session start hooks
       hooks.executeHooks('session-start', {}).catch(() => {});
+
+      // Load templates from storage
+      const savedTemplates = storage.getTemplates();
+      if (savedTemplates.length > 0) {
+        setTemplates(savedTemplates.map(t => ({
+          name: t.name,
+          prompt: t.prompt,
+          createdAt: new Date(t.createdAt),
+        })));
+      }
     }
   }, [memoryLoaded]);
 
@@ -2606,8 +2616,22 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             }
             addMessage('system', output);
           }
+        } else if (subCommand === 'work' && parts[2]) {
+          const id = parts[2];
+          const todos = [...storage.getSessionTodos(), ...storage.getGlobalTodos()];
+          const todo = todos.find(t => t.id.endsWith(id) || t.id === id);
+          if (todo) {
+            storage.setActiveTodo(todo.id);
+            storage.updateTodo(todo.id, { status: 'in_progress' });
+            addMessage('system', `✓ Working on: ${todo.content}\n\nTip: I'll help you complete this task. Describe what you need.`);
+          } else {
+            addMessage('error', `TODO #${id} not found`);
+          }
+        } else if (subCommand === 'clear') {
+          storage.setActiveTodo(null);
+          addMessage('system', '✓ Active TODO cleared');
         } else {
-          addMessage('system', 'Usage: /todo [add <task>|done <id>|list]');
+          addMessage('system', 'Usage: /todo [add <task>|done <id>|work <id>|clear|list]');
         }
         break;
       }
@@ -2635,8 +2659,26 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           } else {
             addMessage('error', `Plan #${parts[2]} not found`);
           }
+        } else if (subCommand === 'rerun' && parts[2]) {
+          const plans = storage.getPlans();
+          const plan = plans.find(p => p.id.endsWith(parts[2]) || p.id === parts[2]);
+          if (plan) {
+            // Reset plan status and activate
+            plan.status = 'in_progress';
+            plan.phases.forEach(ph => ph.status = 'pending');
+            storage.savePlan(plan);
+            storage.setActivePlan(plan);
+
+            // Generate prompt for re-execution
+            const phaseList = plan.phases.map(ph => `- ${ph.name}`).join('\n');
+            const prompt = `Please help me execute this plan:\n\n**${plan.title}**\n\nPhases:\n${phaseList}\n\nStart with the first phase.`;
+            setInput(prompt);
+            addMessage('system', `✓ Plan loaded: ${plan.title}\nPress Enter to start execution.`);
+          } else {
+            addMessage('error', `Plan #${parts[2]} not found`);
+          }
         } else {
-          addMessage('system', 'Usage: /plans [list|view <id>]');
+          addMessage('system', 'Usage: /plans [list|view <id>|rerun <id>]');
         }
         break;
       }
@@ -2761,6 +2803,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           if (!prompt) {
             addMessage('error', 'Usage: /template save <name> "<prompt>"');
           } else {
+            storage.saveTemplate(name, prompt);
             setTemplates(prev => {
               const filtered = prev.filter(t => t.name !== name);
               return [...filtered, { name, prompt, createdAt: new Date() }];
@@ -2780,6 +2823,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           const name = parts[2];
           const found = templates.find(t => t.name === name);
           if (found) {
+            storage.deleteTemplate(name);
             setTemplates(prev => prev.filter(t => t.name !== name));
             addMessage('system', `✓ Template deleted: ${name}`);
           } else {

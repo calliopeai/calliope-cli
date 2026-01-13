@@ -65,36 +65,6 @@ Switch between 12+ providers on the fly:
 - GitHub Models: Via Azure
 - DeepSeek: R1, V3
 
-### 🤖 AGTerm: Multi-Agent Orchestration
-
-Launch multiple specialized AI agents that work together on complex tasks:
-
-```bash
-# Enable AGTerm mode
-/agterm on
-
-# Create specialized agents
-"Create a backend agent to handle API development and a frontend agent for React UI"
-
-# Agents collaborate automatically with intelligent message routing
-# Human-in-the-loop queue for important decisions
-```
-
-**AGTerm Features:**
-- 🤖 **Multiple specialized agents** - Each with unique personas and skills
-- 🔄 **Intelligent message routing** - Agents communicate contextually
-- 👤 **Human-in-the-loop** - Review and approve agent decisions
-- 📊 **Status dashboard** - Monitor all agents at once with `/agterm status`
-- 🎯 **Task delegation** - Agents can request help from specialists
-- 🧵 **Parallel execution** - Multiple agents work simultaneously
-
-**Commands:**
-```bash
-/agterm on|off         # Toggle multi-agent mode
-/agterm status         # Show agent status dashboard
-/agterm create         # Create a new specialized agent
-```
-
 ### 🔒 Scope Management
 
 Control which directories your AI can access for enhanced security:
@@ -230,14 +200,14 @@ Parallel:   Read file1, file2, file3 → all at once!
 - Shows parallel execution progress
 ```
 
-### ⚡ Autonomous Loops (Ralph Mode)
+### ⚡ Autonomous Loops
 
 Enable continuous execution for complex multi-step tasks:
 
 ```bash
-/ralph on              # Enable autonomous loops
-/ralph off             # Disable
-/ralph 10              # Set max iterations
+/loop on               # Enable autonomous loops
+/loop off              # Disable
+/loop 10               # Set max iterations
 
 # The AI will:
 # 1. Plan the approach
@@ -424,17 +394,18 @@ Live response rendering for immediate feedback:
 
 ### Core Commands
 ```bash
-/help                  # Show all commands
-/exit                  # Exit Calliope
-/clear                 # Clear conversation
-/status                # Show current status
+/help, /h              # Show all commands
+/exit, /quit, /q       # Exit Calliope
+/clear, /c             # Clear conversation
+/status, /s            # Show current status
 /config                # Show configuration
+/debug [on|off]        # Toggle debug mode
 ```
 
 ### Model & Provider
 ```bash
-/provider [name]       # Switch AI provider
-/model [name]          # Set model (interactive if no name)
+/provider, /p [name]   # Switch AI provider
+/model, /m [name]      # Set model (interactive if no name)
 /models                # Browse available models
 /persona [name]        # Switch persona (calliope/professional/minimal)
 ```
@@ -442,16 +413,9 @@ Live response rendering for immediate feedback:
 ### Modes & Settings
 ```bash
 /mode [plan|hybrid|work]  # Switch operating mode
-/ralph [on|off|N]      # Toggle/configure autonomous mode
+/loop [on|off|N]       # Toggle/configure autonomous mode
 /confirm [on|off]      # Toggle risky operation confirmation
 /theme [name]          # Switch theme
-```
-
-### AGTerm (Multi-Agent)
-```bash
-/agterm on|off         # Toggle multi-agent mode
-/agterm status         # Show agent status dashboard
-/agterm create         # Create specialized agent
 ```
 
 ### Scope Management
@@ -504,8 +468,8 @@ Live response rendering for immediate feedback:
 
 ### Tasks & Planning
 ```bash
-/todo [add|done|list]  # Manage TODOs
-/plans [list|view]     # View plan history
+/todo [add|done|work|clear|list]  # Manage TODOs
+/plans [list|view|rerun]          # View and rerun plans
 ```
 
 ### Utility
@@ -514,6 +478,8 @@ Live response rendering for immediate feedback:
 /copy                  # Copy last response
 /export [file.md]      # Export conversation to file
 /upgrade               # Check for updates
+/set <key> <value>     # Set runtime config (e.g., maxIterations)
+/context               # Show loaded project context
 ```
 
 ## Environment Variables
@@ -636,7 +602,6 @@ Images are automatically detected and sent for vision-capable models.
 4. Work from project directories, not system directories
 5. Regular `/summarize` to manage context
 6. Use bookmarks for important moments
-7. Enable AGTerm for complex multi-faceted tasks
 
 ## Development
 
@@ -693,11 +658,6 @@ npm run dev
 **Docker not available for sandbox**
 - Install Docker for safer code execution
 - Without Docker, code runs locally (less safe)
-
-**AGTerm agents not responding**
-- Check `/agterm status` for agent states
-- Use `/agterm create` to add more agents
-- Restart with `/agterm off` then `/agterm on`
 
 ## Contributing
 

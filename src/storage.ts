@@ -747,3 +747,103 @@ export function resetCosts(): void {
     fs.unlinkSync(filePath);
   }
 }
+
+// ============================================================================
+// Template Management
+// ============================================================================
+
+export interface PromptTemplate {
+  name: string;
+  prompt: string;
+  createdAt: string;
+}
+
+/**
+ * Get templates file path
+ */
+function getTemplatesFilePath(): string {
+  return path.join(paths.templates, 'prompts.json');
+}
+
+/**
+ * Load all templates
+ */
+export function getTemplates(): PromptTemplate[] {
+  const filePath = getTemplatesFilePath();
+  return readJSON<PromptTemplate[]>(filePath, []);
+}
+
+/**
+ * Save a template
+ */
+export function saveTemplate(name: string, prompt: string): PromptTemplate {
+  initStorage();
+  const templates = getTemplates();
+
+  // Remove existing template with same name
+  const filtered = templates.filter(t => t.name !== name);
+
+  const template: PromptTemplate = {
+    name,
+    prompt,
+    createdAt: new Date().toISOString(),
+  };
+
+  filtered.push(template);
+  writeJSON(getTemplatesFilePath(), filtered);
+  return template;
+}
+
+/**
+ * Delete a template
+ */
+export function deleteTemplate(name: string): boolean {
+  const templates = getTemplates();
+  const filtered = templates.filter(t => t.name !== name);
+
+  if (filtered.length === templates.length) return false;
+
+  writeJSON(getTemplatesFilePath(), filtered);
+  return true;
+}
+
+// ============================================================================
+// Active TODO Tracking
+// ============================================================================
+
+/**
+ * Get active TODO file path
+ */
+function getActiveTodoFilePath(): string {
+  return path.join(paths.currentSession, 'active-todo.json');
+}
+
+/**
+ * Set the active TODO
+ */
+export function setActiveTodo(todoId: string | null): void {
+  const filePath = getActiveTodoFilePath();
+  if (todoId) {
+    writeJSON(filePath, { todoId, setAt: new Date().toISOString() });
+  } else if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+  }
+}
+
+/**
+ * Get the active TODO
+ */
+export function getActiveTodo(): Todo | null {
+  const filePath = getActiveTodoFilePath();
+  const data = readJSON<{ todoId: string }>(filePath, null as unknown as { todoId: string });
+
+  if (!data?.todoId) return null;
+
+  // Find in session todos first, then global
+  const sessionTodos = getSessionTodos();
+  const globalTodos = getGlobalTodos();
+
+  return sessionTodos.find(t => t.id === data.todoId)
+    || globalTodos.find(t => t.id === data.todoId)
+    || null;
+}
