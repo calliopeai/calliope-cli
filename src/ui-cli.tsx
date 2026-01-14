@@ -926,9 +926,25 @@ function ChatInput({
     }
   };
 
+  // CRITICAL FIX: Use a ref to track the current value
+  // This prevents stale closure issues when typing rapidly before React re-renders
+  const valueRef = React.useRef(value);
+
+  // Sync ref when prop changes (from external sources like history navigation)
+  React.useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  // Helper to update value - updates ref IMMEDIATELY, then notifies parent
+  const updateValue = (newValue: string) => {
+    valueRef.current = newValue;  // Update ref synchronously
+    onChange(newValue);           // Then notify parent (may batch)
+  };
+
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
-    logDebug(`useInput: input="${input}" key=${JSON.stringify(key)} value="${value}" disabled=${disabled}`);
+    const currentValue = valueRef.current;
+    logDebug(`useInput: input="${input}" key=${JSON.stringify(key)} value="${currentValue}" disabled=${disabled}`);
 
     // ESC to exit (always works)
     if (key.escape) {
@@ -954,11 +970,11 @@ function ChatInput({
     if (isProcessing) {
       // Allow typing
       if (key.backspace || key.delete) {
-        onChange(value.slice(0, -1));
+        updateValue(currentValue.slice(0, -1));
         return;
       }
       if (key.ctrl && input === 'u') {
-        onChange('');
+        updateValue('');
         onSetEditingQueueIndex?.(null); // Clear editing state
         return;
       }
@@ -969,12 +985,12 @@ function ChatInput({
           // Start editing the last queued message
           const idx = queuedMessages.length - 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         } else if (editingQueueIndex > 0) {
           // Move to previous message
           const idx = editingQueueIndex - 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         }
         return;
       }
@@ -984,40 +1000,40 @@ function ChatInput({
           // Move to next message
           const idx = editingQueueIndex + 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         } else {
           // At the end, clear to new input
           onSetEditingQueueIndex?.(null);
-          onChange('');
+          updateValue('');
         }
         return;
       }
 
       // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
       if (key.return && (key.meta || key.ctrl)) {
-        onChange(value + '\n');
+        updateValue(currentValue + '\n');
         return;
       }
 
       // Shift+Enter sends directly (interrupts current operation)
-      if (key.return && key.shift && value.trim() && onDirectSend) {
-        onDirectSend(value.trim());
+      if (key.return && key.shift && currentValue.trim() && onDirectSend) {
+        onDirectSend(currentValue.trim());
         onSetEditingQueueIndex?.(null);
-        onChange('');
+        updateValue('');
         return;
       }
 
       // Enter queues or updates the message
-      if (key.return && value.trim()) {
+      if (key.return && currentValue.trim()) {
         if (editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
           // Update existing queued message
-          onEditQueuedMessage(editingQueueIndex, value.trim());
+          onEditQueuedMessage(editingQueueIndex, currentValue.trim());
           onSetEditingQueueIndex?.(null);
-          onChange('');
+          updateValue('');
         } else if (onQueueMessage) {
           // Add new queued message
-          onQueueMessage(value.trim());
-          onChange('');
+          onQueueMessage(currentValue.trim());
+          updateValue('');
         }
         return;
       }
@@ -1026,13 +1042,13 @@ function ChatInput({
       if (key.ctrl && input === 'd' && editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
         onEditQueuedMessage(editingQueueIndex, ''); // Empty string signals deletion
         onSetEditingQueueIndex?.(null);
-        onChange('');
+        updateValue('');
         return;
       }
 
       // Regular input
       if (input && !key.ctrl && !key.meta && !key.tab) {
-        onChange(value + input);
+        updateValue(currentValue + input);
       }
       return;
     }
@@ -1045,34 +1061,34 @@ function ChatInput({
 
     // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
     if (key.return && (key.meta || key.ctrl)) {
-      onChange(value + '\n');
+      updateValue(currentValue + '\n');
       return;
     }
 
     // Enter to submit
     if (key.return) {
-      if (value.trim()) {
-        onSubmit(value);
+      if (currentValue.trim()) {
+        onSubmit(currentValue);
       }
       return;
     }
 
     // Backspace/Delete
     if (key.backspace || key.delete) {
-      onChange(value.slice(0, -1));
+      updateValue(currentValue.slice(0, -1));
       return;
     }
 
     // Ctrl+U to clear line
     if (key.ctrl && input === 'u') {
-      onChange('');
+      updateValue('');
       return;
     }
 
     // Tab completion for slash commands and paths
     if (key.tab && !key.shift) {
       // Check if we're completing a path after a path command
-      const parts = value.split(/\s+/);
+      const parts = currentValue.split(/\s+/);
       const cmd = parts[0]?.toLowerCase();
 
       if (PATH_COMMANDS.includes(cmd) && parts.length >= 1) {
@@ -1081,7 +1097,7 @@ function ChatInput({
         const completions = getPathCompletions(pathPart, workingDir);
 
         if (completions.length === 1) {
-          onChange(`${cmd} ${completions[0]}`);
+          updateValue(`${cmd} ${completions[0]}`);
           onSuggestionsChange?.([]);
         } else if (completions.length > 1) {
           // Find common prefix
@@ -1092,7 +1108,7 @@ function ChatInput({
             }
           }
           if (commonPrefix.length > pathPart.length) {
-            onChange(`${cmd} ${commonPrefix}`);
+            updateValue(`${cmd} ${commonPrefix}`);
           }
           onSuggestionsChange?.(completions);
         }
@@ -1100,10 +1116,10 @@ function ChatInput({
       }
 
       // Slash command completion with smart suggestions
-      if (value.startsWith('/')) {
+      if (currentValue.startsWith('/')) {
         // Use smart suggestions if context is available
         const smartMatches = getSmartCommandSuggestions({
-          input: value,
+          input: currentValue,
           hasGitRepo: hasGitRepo ?? false,
           contextPercentage: contextPercentage ?? 0,
           currentMode: currentMode ?? 'hybrid',
@@ -1112,13 +1128,13 @@ function ChatInput({
         });
 
         // Fall back to basic matching if smart suggestions didn't find anything
-        const partial = value.toLowerCase();
+        const partial = currentValue.toLowerCase();
         const matches = smartMatches.length > 0 ? smartMatches : SLASH_COMMANDS.filter(cmdName =>
           cmdName.startsWith(partial) && cmdName !== partial
         );
 
         if (matches.length === 1) {
-          onChange(matches[0] + ' ');
+          updateValue(matches[0] + ' ');
           onSuggestionsChange?.([]);
         } else if (matches.length > 1) {
           let commonPrefix = matches[0];
@@ -1127,8 +1143,8 @@ function ChatInput({
               commonPrefix = commonPrefix.slice(0, -1);
             }
           }
-          if (commonPrefix.length > value.length) {
-            onChange(commonPrefix);
+          if (commonPrefix.length > currentValue.length) {
+            updateValue(commonPrefix);
           }
           onSuggestionsChange?.(matches);
         }
@@ -1154,9 +1170,9 @@ function ChatInput({
 
     // Regular character input - append to value
     if (input) {
-      const newValue = value + input;
-      logDebug(`  -> regular input: "${value}" + "${input}" = "${newValue}"`);
-      onChange(newValue);
+      const newValue = currentValue + input;
+      logDebug(`  -> regular input: "${currentValue}" + "${input}" = "${newValue}"`);
+      updateValue(newValue);
     }
   }, {isActive: !disabled});
 
