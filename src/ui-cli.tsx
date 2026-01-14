@@ -990,14 +990,6 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
-  // DEBUG: Log to file to understand input flow
-  const debugInput = process.env.CALLIOPE_INPUT_DEBUG === '1';
-  const logDebug = (msg: string) => {
-    if (debugInput) {
-      fs.appendFileSync('/tmp/calliope-input.log', `${new Date().toISOString()} ${msg}\n`);
-    }
-  };
-
   // CRITICAL FIX: Use a ref to track the current value
   // This prevents stale closure issues when typing rapidly before React re-renders
   const valueRef = React.useRef(value);
@@ -1016,25 +1008,21 @@ function ChatInput({
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
     const currentValue = valueRef.current;
-    logDebug(`useInput: input="${input}" key=${JSON.stringify(key)} value="${currentValue}" disabled=${disabled}`);
-
+    
     // ESC to exit (always works)
     if (key.escape) {
-      logDebug('  -> escape');
       onEscape();
       return;
     }
 
     // Ctrl+C to exit (always works)
     if (key.ctrl && input === 'c') {
-      logDebug('  -> ctrl+c');
       onEscape();
       return;
     }
 
     // When fully disabled (modal), ignore all input
     if (disabled) {
-      logDebug('  -> disabled, ignoring');
       return;
     }
 
@@ -1236,14 +1224,12 @@ function ChatInput({
 
     // Ignore other control keys, meta, and navigation
     if (key.ctrl || key.meta || key.leftArrow || key.rightArrow || key.tab) {
-      logDebug(`  -> ignoring control/meta/nav key`);
       return;
     }
 
     // Regular character input - append to value
     if (input) {
       const newValue = currentValue + input;
-      logDebug(`  -> regular input: "${currentValue}" + "${input}" = "${newValue}"`);
       updateValue(newValue);
     }
   }, {isActive: !disabled});
