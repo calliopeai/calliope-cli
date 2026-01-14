@@ -997,6 +997,14 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
+  // Debug logging (set CALLIOPE_DEBUG=1 to enable)
+  const debug = process.env.CALLIOPE_DEBUG === '1';
+  const log = (msg: string) => {
+    if (debug) {
+      fs.appendFileSync('/tmp/calliope-debug.log', `${new Date().toISOString()} [input] ${msg}\n`);
+    }
+  };
+
   // CRITICAL FIX: Use a ref to track the current value
   // This prevents stale closure issues when typing rapidly before React re-renders
   const valueRef = React.useRef(value);
@@ -1015,9 +1023,11 @@ function ChatInput({
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
     const currentValue = valueRef.current;
-    
+    log(`key: "${input}" ${JSON.stringify(key)} val="${currentValue}" disabled=${disabled}`);
+
     // ESC to exit (always works)
     if (key.escape) {
+      log('-> escape');
       onEscape();
       return;
     }
@@ -1237,6 +1247,7 @@ function ChatInput({
     // Regular character input - append to value
     if (input) {
       const newValue = currentValue + input;
+      log(`-> char "${input}": "${currentValue}" -> "${newValue}"`);
       updateValue(newValue);
     }
   }, {isActive: !disabled});
