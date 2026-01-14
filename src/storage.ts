@@ -388,6 +388,24 @@ export function listSessions(limit = 10): Session[] {
   }
 }
 
+/**
+ * Delete a session by ID
+ */
+export function deleteSession(sessionId: string): boolean {
+  initStorage();
+
+  try {
+    const sessionDir = path.join(paths.sessions, sessionId);
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 // ============================================================================
 // Chat History
 // ============================================================================

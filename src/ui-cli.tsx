@@ -495,6 +495,77 @@ function ModelSelector({
   );
 }
 
+interface SessionInfo {
+  id: string;
+  projectName: string;
+  lastAccessedAt: string;
+  messageCount: number;
+  projectPath: string;
+}
+
+function SessionSelector({
+  sessions,
+  onSelect,
+  onDelete,
+  onCancel
+}: {
+  sessions: SessionInfo[];
+  onSelect: (session: SessionInfo) => void;
+  onDelete: (session: SessionInfo) => void;
+  onCancel: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const pageSize = 8;
+  const start = Math.max(0, Math.min(index - Math.floor(pageSize / 2), sessions.length - pageSize));
+  const visible = sessions.slice(start, start + pageSize);
+
+  useInput((input, key) => {
+    if (key.upArrow) setIndex(i => Math.max(0, i - 1));
+    else if (key.downArrow) setIndex(i => Math.min(sessions.length - 1, i + 1));
+    else if (key.return && sessions.length > 0) onSelect(sessions[index]);
+    else if ((key.backspace || key.delete) && sessions.length > 0) onDelete(sessions[index]);
+    else if (key.escape || input === 'q') onCancel();
+  });
+
+  const formatTimeAgo = (dateStr: string) => {
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    const minutes = Math.floor(diff / (1000 * 60));
+    return `${minutes}m ago`;
+  };
+
+  if (sessions.length === 0) {
+    return (
+      <Box flexDirection="column" marginY={1}>
+        <Text dimColor>No sessions found. Press Esc to close.</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" marginY={1}>
+      <Text color="yellow">Sessions (↑/↓ navigate, Enter load, Del delete, Esc cancel):</Text>
+      {visible.map((session, i) => {
+        const globalIndex = start + i;
+        const isSelected = globalIndex === index;
+        const timeAgo = formatTimeAgo(session.lastAccessedAt);
+        const name = session.projectName.length > 30 ? session.projectName.slice(0, 27) + '...' : session.projectName;
+        return (
+          <Text key={session.id} color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+            {isSelected ? '❯ ' : '  '}{name} <Text dimColor>({timeAgo}, {session.messageCount} msgs)</Text>
+          </Text>
+        );
+      })}
+      {sessions.length > pageSize && (
+        <Text dimColor>  ({index + 1}/{sessions.length})</Text>
+      )}
+    </Box>
+  );
+}
+
 function UpgradePrompt({
   currentVersion,
   latestVersion,
@@ -755,6 +826,7 @@ const SLASH_COMMANDS = [
   '/todo',
   '/plans',
   '/session',
+  '/sessions',
   '/history',
   '/context',
   '/summarize',
@@ -1557,11 +1629,12 @@ function TerminalChat() {
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions'>('none');
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
   const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: ToolCall; resolve: (approved: boolean) => void } | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableSessions, setAvailableSessions] = useState<{ id: string; projectName: string; lastAccessedAt: string; messageCount: number; projectPath: string }[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   // Stats
@@ -1735,6 +1808,10 @@ function TerminalChat() {
       type,
       content
     }]);
+    // Persist user and assistant messages to storage for session history
+    if (type === 'user' || type === 'assistant') {
+      storage.addChatMessage({ role: type, content });
+    }
   }, []);
 
   // Handler to edit or delete a queued message
@@ -2592,15 +2669,14 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         break;
 
       case '/session':
-        if (parts[1] === 'list') {
-          const sessions = storage.listSessions(5);
+      case '/sessions':
+        if (parts[1] === 'list' || !parts[1]) {
+          const sessions = storage.listSessions(20);
           if (sessions.length === 0) {
             addMessage('system', 'No previous sessions found.');
           } else {
-            const list = sessions.map(s =>
-              `${s.projectName} (${new Date(s.lastAccessedAt).toLocaleDateString()}) - ${s.messageCount} msgs`
-            ).join('\n');
-            addMessage('system', `Recent sessions:\n${list}`);
+            setAvailableSessions(sessions);
+            setModalMode('sessions');
           }
         } else if (parts[1] === 'info') {
           const session = sessionRef.current;
@@ -2610,7 +2686,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             addMessage('system', 'No active session.');
           }
         } else {
-          addMessage('system', 'Usage: /session [list|info]');
+          addMessage('system', 'Usage: /session [list|info] or just /sessions');
         }
         break;
 
@@ -3796,6 +3872,30 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         <ModelSelector
           models={availableModels}
           onSelect={handleModelSelect}
+          onCancel={handleModalCancel}
+        />
+      )}
+
+      {/* Modal: Session Selector */}
+      {modalMode === 'sessions' && (
+        <SessionSelector
+          sessions={availableSessions}
+          onSelect={(session) => {
+            // Load history from selected session
+            addMessage('system', `Loading session: ${session.projectName}...`);
+            // Note: We can't easily switch sessions, but we can show the path
+            addMessage('system', `Session path: ${session.projectPath}\nTo load this session, run calliope from that directory.`);
+            setModalMode('none');
+          }}
+          onDelete={(session) => {
+            if (storage.deleteSession(session.id)) {
+              addMessage('system', `🗑️ Deleted session: ${session.projectName}`);
+              // Refresh the list
+              setAvailableSessions(prev => prev.filter(s => s.id !== session.id));
+            } else {
+              addMessage('error', `Failed to delete session: ${session.projectName}`);
+            }
+          }}
           onCancel={handleModalCancel}
         />
       )}
