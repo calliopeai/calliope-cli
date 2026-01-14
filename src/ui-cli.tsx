@@ -1197,7 +1197,8 @@ function ChatInput({
       {/* Queue indicator */}
       {(queuedCount ?? 0) > 0 && (
         <Box>
-          <Text color="yellow">📨 {queuedCount} message{queuedCount! > 1 ? 's' : ''} queued (will be sent after current task)</Text>
+          <Text color="yellow">📨 {queuedCount} queued</Text>
+          <Text dimColor> | Shift+Enter to send now</Text>
         </Box>
       )}
       <Box>
@@ -1574,8 +1575,14 @@ function TerminalChat() {
 
   // Message queue for human-in-the-loop feedback during processing
   const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
+  const queuedMessagesRef = useRef<string[]>([]); // Ref to avoid stale closure in runAgent
   const [queueInput, setQueueInput] = useState('');
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    queuedMessagesRef.current = queuedMessages;
+  }, [queuedMessages]);
 
   // Undo/Redo history - stores snapshots of conversation state
   interface ConversationSnapshot {
@@ -3498,10 +3505,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     setContextTokens(estimateContextTokens());
 
     // Process any queued messages (human-in-the-loop feedback)
-    debugLog('runAgent', 'EXIT loop', `queued=${queuedMessages.length}`);
-    if (queuedMessages.length > 0) {
-      const queued = [...queuedMessages];
+    // CRITICAL: Use ref to get current value, not stale closure
+    const currentQueued = queuedMessagesRef.current;
+    debugLog('runAgent', 'EXIT loop', `queued=${currentQueued.length}`);
+    if (currentQueued.length > 0) {
+      const queued = [...currentQueued];
       setQueuedMessages([]); // Clear the queue
+      queuedMessagesRef.current = []; // Also clear ref immediately
 
       // Combine queued messages into a single follow-up
       const followUp = queued.length === 1
@@ -3526,7 +3536,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       }, 100);
     }
     debugLog('runAgent', 'RETURN');
-  }, [provider, model, addMessage, mode, estimateContextTokens, queuedMessages]);
+  }, [provider, model, addMessage, mode, estimateContextTokens]); // Note: queuedMessages accessed via ref
 
   // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
