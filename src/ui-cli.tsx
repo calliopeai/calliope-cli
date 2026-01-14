@@ -515,9 +515,16 @@ function SessionSelector({
   onCancel: () => void;
 }) {
   const [index, setIndex] = useState(0);
-  const pageSize = 8;
-  const start = Math.max(0, Math.min(index - Math.floor(pageSize / 2), sessions.length - pageSize));
-  const visible = sessions.slice(start, start + pageSize);
+  const pageSize = 5;
+
+  // Keep selection visible - scroll window to follow selection
+  const start = Math.max(0, Math.min(index - pageSize + 1, sessions.length - pageSize));
+  const end = Math.min(start + pageSize, sessions.length);
+  const visible = sessions.slice(start, end);
+
+  const hasMore = sessions.length > pageSize;
+  const hasAbove = start > 0;
+  const hasBelow = end < sessions.length;
 
   useInput((input, key) => {
     if (key.upArrow) setIndex(i => Math.max(0, i - 1));
@@ -547,7 +554,8 @@ function SessionSelector({
 
   return (
     <Box flexDirection="column" marginY={1}>
-      <Text color="yellow">Sessions (↑/↓ navigate, Enter load, Del delete, Esc cancel):</Text>
+      <Text color="yellow">Sessions (↑/↓, Enter load, Del delete, Esc cancel):</Text>
+      {hasMore && hasAbove && <Text dimColor>  ↑ more</Text>}
       {visible.map((session, i) => {
         const globalIndex = start + i;
         const isSelected = globalIndex === index;
@@ -559,9 +567,8 @@ function SessionSelector({
           </Text>
         );
       })}
-      {sessions.length > pageSize && (
-        <Text dimColor>  ({index + 1}/{sessions.length})</Text>
-      )}
+      {hasMore && hasBelow && <Text dimColor>  ↓ more</Text>}
+      {hasMore && <Text dimColor>  {index + 1}/{sessions.length}</Text>}
     </Box>
   );
 }
