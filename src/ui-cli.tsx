@@ -922,7 +922,6 @@ function ChatInput({
   const debugInput = process.env.CALLIOPE_INPUT_DEBUG === '1';
   const logDebug = (msg: string) => {
     if (debugInput) {
-      const fs = require('fs');
       fs.appendFileSync('/tmp/calliope-input.log', `${new Date().toISOString()} ${msg}\n`);
     }
   };
