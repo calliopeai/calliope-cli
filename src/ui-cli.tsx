@@ -3221,7 +3221,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         };
 
         debugLog('chat', 'WAITING for LLM response', `iteration=${i + 1}`);
-        const response = await chat(provider, llmMessages.current, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
+        // Validate message history to prevent orphaned tool_result errors
+        const validatedMessages = summarization.validateMessageHistory(llmMessages.current);
+        if (validatedMessages.length !== llmMessages.current.length) {
+          debugLog('chat', 'CLEANED orphaned tool results', `removed=${llmMessages.current.length - validatedMessages.length}`);
+          llmMessages.current = validatedMessages;
+        }
+        const response = await chat(provider, validatedMessages, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
         debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
 
         // Update token stats and cost
