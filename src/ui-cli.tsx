@@ -14,6 +14,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
 import * as fs from 'fs';
+import * as path from 'path';
 import * as config from './config.js';
 import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
@@ -804,8 +805,7 @@ const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find'];
  */
 function getPathCompletions(partial: string, cwd: string): string[] {
   try {
-    const fs = require('fs');
-    const path = require('path');
+    // fs and path are imported at the top of the file
 
     // Handle empty or relative paths
     let searchDir: string;
