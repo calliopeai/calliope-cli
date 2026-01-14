@@ -918,19 +918,23 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
-  // Use a ref to track the ACTUAL current value - updated immediately on every change
-  // This prevents stale closure issues when keystrokes come faster than React re-renders
+  // Track the actual current value in a ref - this is the source of truth
+  // We also track what we last sent to onChange to detect external changes
   const valueRef = React.useRef(value);
+  const lastSentValue = React.useRef(value);
 
-  // Sync ref when prop changes (e.g., from history navigation or external updates)
-  React.useEffect(() => {
+  // Sync ref ONLY when prop changes from external source (history navigation, etc.)
+  // NOT when it's just React catching up to our own updates
+  if (value !== lastSentValue.current) {
     valueRef.current = value;
-  }, [value]);
+    lastSentValue.current = value;
+  }
 
   // Helper that updates ref immediately AND notifies parent
   const updateValue = React.useCallback((newValue: string) => {
-    valueRef.current = newValue;  // Update ref FIRST (synchronous)
-    onChange(newValue);            // Then notify parent (may batch)
+    valueRef.current = newValue;      // Update source of truth FIRST
+    lastSentValue.current = newValue; // Track what we're sending
+    onChange(newValue);                // Then notify parent
   }, [onChange]);
 
   // Handle ALL keyboard input here - single source of input handling
