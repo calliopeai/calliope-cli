@@ -917,6 +917,12 @@ function ChatInput({
   hasGitRepo?: boolean;
 }) {
   const workingDir = cwd || process.cwd();
+
+  // Use a ref to always have the current value - prevents stale closure issues
+  // when keystrokes come in rapid succession before React can re-render
+  const valueRef = React.useRef(value);
+  valueRef.current = value;
+
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
     // ESC to exit (always works)
@@ -936,9 +942,10 @@ function ChatInput({
 
     // When processing, queue messages instead of submitting directly
     if (isProcessing) {
+      const currentValue = valueRef.current;
       // Allow typing
       if (key.backspace || key.delete) {
-        onChange(value.slice(0, -1));
+        onChange(currentValue.slice(0, -1));
         return;
       }
       if (key.ctrl && input === 'u') {
@@ -979,28 +986,28 @@ function ChatInput({
 
       // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
       if (key.return && (key.meta || key.ctrl)) {
-        onChange(value + '\n');
+        onChange(currentValue + '\n');
         return;
       }
 
       // Shift+Enter sends directly (interrupts current operation)
-      if (key.return && key.shift && value.trim() && onDirectSend) {
-        onDirectSend(value.trim());
+      if (key.return && key.shift && currentValue.trim() && onDirectSend) {
+        onDirectSend(currentValue.trim());
         onSetEditingQueueIndex?.(null);
         onChange('');
         return;
       }
 
       // Enter queues or updates the message
-      if (key.return && value.trim()) {
+      if (key.return && currentValue.trim()) {
         if (editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
           // Update existing queued message
-          onEditQueuedMessage(editingQueueIndex, value.trim());
+          onEditQueuedMessage(editingQueueIndex, currentValue.trim());
           onSetEditingQueueIndex?.(null);
           onChange('');
         } else if (onQueueMessage) {
           // Add new queued message
-          onQueueMessage(value.trim());
+          onQueueMessage(currentValue.trim());
           onChange('');
         }
         return;
@@ -1016,7 +1023,7 @@ function ChatInput({
 
       // Regular input
       if (input && !key.ctrl && !key.meta && !key.tab) {
-        onChange(value + input);
+        onChange(currentValue + input);
       }
       return;
     }
@@ -1027,23 +1034,26 @@ function ChatInput({
       return;
     }
 
+    // Use ref for current value to avoid stale closures
+    const currentValue = valueRef.current;
+
     // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
     if (key.return && (key.meta || key.ctrl)) {
-      onChange(value + '\n');
+      onChange(currentValue + '\n');
       return;
     }
 
     // Enter to submit
     if (key.return) {
-      if (value.trim()) {
-        onSubmit(value);
+      if (currentValue.trim()) {
+        onSubmit(currentValue);
       }
       return;
     }
 
     // Backspace/Delete
     if (key.backspace || key.delete) {
-      onChange(value.slice(0, -1));
+      onChange(currentValue.slice(0, -1));
       return;
     }
 
@@ -1056,7 +1066,7 @@ function ChatInput({
     // Tab completion for slash commands and paths
     if (key.tab && !key.shift) {
       // Check if we're completing a path after a path command
-      const parts = value.split(/\s+/);
+      const parts = currentValue.split(/\s+/);
       const cmd = parts[0]?.toLowerCase();
 
       if (PATH_COMMANDS.includes(cmd) && parts.length >= 1) {
@@ -1084,10 +1094,10 @@ function ChatInput({
       }
 
       // Slash command completion with smart suggestions
-      if (value.startsWith('/')) {
+      if (currentValue.startsWith('/')) {
         // Use smart suggestions if context is available
         const smartMatches = getSmartCommandSuggestions({
-          input: value,
+          input: currentValue,
           hasGitRepo: hasGitRepo ?? false,
           contextPercentage: contextPercentage ?? 0,
           currentMode: currentMode ?? 'hybrid',
@@ -1096,7 +1106,7 @@ function ChatInput({
         });
 
         // Fall back to basic matching if smart suggestions didn't find anything
-        const partial = value.toLowerCase();
+        const partial = currentValue.toLowerCase();
         const matches = smartMatches.length > 0 ? smartMatches : SLASH_COMMANDS.filter(cmdName =>
           cmdName.startsWith(partial) && cmdName !== partial
         );
@@ -1111,7 +1121,7 @@ function ChatInput({
               commonPrefix = commonPrefix.slice(0, -1);
             }
           }
-          if (commonPrefix.length > value.length) {
+          if (commonPrefix.length > currentValue.length) {
             onChange(commonPrefix);
           }
           onSuggestionsChange?.(matches);
@@ -1137,7 +1147,7 @@ function ChatInput({
 
     // Regular character input - append to value
     if (input) {
-      onChange(value + input);
+      onChange(currentValue + input);
     }
   });
 
