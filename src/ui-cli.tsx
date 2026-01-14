@@ -918,24 +918,28 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
-  // Track the actual current value in a ref - this is the source of truth
-  // We also track what we last sent to onChange to detect external changes
-  const valueRef = React.useRef(value);
-  const lastSentValue = React.useRef(value);
+  // INTERNAL state - this is the source of truth for input value
+  // Using internal state avoids all closure/batching issues with parent updates
+  const [localValue, setLocalValue] = useState(value);
 
-  // Sync ref ONLY when prop changes from external source (history navigation, etc.)
-  // NOT when it's just React catching up to our own updates
-  if (value !== lastSentValue.current) {
-    valueRef.current = value;
-    lastSentValue.current = value;
-  }
+  // Track previous prop to detect external changes (history navigation)
+  const prevValueRef = React.useRef(value);
 
-  // Helper that updates ref immediately AND notifies parent
-  const updateValue = React.useCallback((newValue: string) => {
-    valueRef.current = newValue;      // Update source of truth FIRST
-    lastSentValue.current = newValue; // Track what we're sending
-    onChange(newValue);                // Then notify parent
-  }, [onChange]);
+  // Sync from parent prop ONLY when it changes externally
+  React.useEffect(() => {
+    if (value !== prevValueRef.current) {
+      setLocalValue(value);
+      prevValueRef.current = value;
+    }
+  }, [value]);
+
+  // Notify parent of changes (debounced to reduce re-renders)
+  React.useEffect(() => {
+    if (localValue !== value) {
+      onChange(localValue);
+      prevValueRef.current = localValue;
+    }
+  }, [localValue, onChange, value]);
 
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
@@ -956,14 +960,13 @@ function ChatInput({
 
     // When processing, queue messages instead of submitting directly
     if (isProcessing) {
-      const currentValue = valueRef.current;
-      // Allow typing
+      // Allow typing - use functional updates to always get latest value
       if (key.backspace || key.delete) {
-        updateValue(currentValue.slice(0, -1));
+        setLocalValue(prev => prev.slice(0, -1));
         return;
       }
       if (key.ctrl && input === 'u') {
-        updateValue('');
+        setLocalValue('');
         onSetEditingQueueIndex?.(null); // Clear editing state
         return;
       }
@@ -974,12 +977,12 @@ function ChatInput({
           // Start editing the last queued message
           const idx = queuedMessages.length - 1;
           onSetEditingQueueIndex?.(idx);
-          updateValue(queuedMessages[idx]);
+          setLocalValue(queuedMessages[idx]);
         } else if (editingQueueIndex > 0) {
           // Move to previous message
           const idx = editingQueueIndex - 1;
           onSetEditingQueueIndex?.(idx);
-          updateValue(queuedMessages[idx]);
+          setLocalValue(queuedMessages[idx]);
         }
         return;
       }
@@ -989,41 +992,48 @@ function ChatInput({
           // Move to next message
           const idx = editingQueueIndex + 1;
           onSetEditingQueueIndex?.(idx);
-          updateValue(queuedMessages[idx]);
+          setLocalValue(queuedMessages[idx]);
         } else {
           // At the end, clear to new input
           onSetEditingQueueIndex?.(null);
-          updateValue('');
+          setLocalValue('');
         }
         return;
       }
 
       // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
       if (key.return && (key.meta || key.ctrl)) {
-        updateValue(currentValue + '\n');
+        setLocalValue(prev => prev + '\n');
         return;
       }
 
       // Shift+Enter sends directly (interrupts current operation)
-      if (key.return && key.shift && currentValue.trim() && onDirectSend) {
-        onDirectSend(currentValue.trim());
-        onSetEditingQueueIndex?.(null);
-        updateValue('');
+      if (key.return && key.shift) {
+        setLocalValue(prev => {
+          if (prev.trim() && onDirectSend) {
+            onDirectSend(prev.trim());
+            onSetEditingQueueIndex?.(null);
+          }
+          return '';
+        });
         return;
       }
 
       // Enter queues or updates the message
-      if (key.return && currentValue.trim()) {
-        if (editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
-          // Update existing queued message
-          onEditQueuedMessage(editingQueueIndex, currentValue.trim());
-          onSetEditingQueueIndex?.(null);
-          updateValue('');
-        } else if (onQueueMessage) {
-          // Add new queued message
-          onQueueMessage(currentValue.trim());
-          updateValue('');
-        }
+      if (key.return) {
+        setLocalValue(prev => {
+          if (prev.trim()) {
+            if (editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
+              // Update existing queued message
+              onEditQueuedMessage(editingQueueIndex, prev.trim());
+              onSetEditingQueueIndex?.(null);
+            } else if (onQueueMessage) {
+              // Add new queued message
+              onQueueMessage(prev.trim());
+            }
+          }
+          return '';
+        });
         return;
       }
 
@@ -1031,13 +1041,13 @@ function ChatInput({
       if (key.ctrl && input === 'd' && editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
         onEditQueuedMessage(editingQueueIndex, ''); // Empty string signals deletion
         onSetEditingQueueIndex?.(null);
-        updateValue('');
+        setLocalValue('');
         return;
       }
 
-      // Regular input
+      // Regular input - functional update ensures we always have latest value
       if (input && !key.ctrl && !key.meta && !key.tab) {
-        updateValue(currentValue + input);
+        setLocalValue(prev => prev + input);
       }
       return;
     }
@@ -1048,39 +1058,40 @@ function ChatInput({
       return;
     }
 
-    // Use ref for current value to avoid stale closures
-    const currentValue = valueRef.current;
-
     // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
     if (key.return && (key.meta || key.ctrl)) {
-      updateValue(currentValue + '\n');
+      setLocalValue(prev => prev + '\n');
       return;
     }
 
-    // Enter to submit
+    // Enter to submit - use functional update to get current value
     if (key.return) {
-      if (currentValue.trim()) {
-        onSubmit(currentValue);
-      }
+      setLocalValue(prev => {
+        if (prev.trim()) {
+          onSubmit(prev);
+        }
+        return '';  // Clear after submit
+      });
       return;
     }
 
-    // Backspace/Delete
+    // Backspace/Delete - functional update for rapid deletion
     if (key.backspace || key.delete) {
-      updateValue(currentValue.slice(0, -1));
+      setLocalValue(prev => prev.slice(0, -1));
       return;
     }
 
     // Ctrl+U to clear line
     if (key.ctrl && input === 'u') {
-      updateValue('');
+      setLocalValue('');
       return;
     }
 
     // Tab completion for slash commands and paths
+    // Note: Tab completion is a one-time operation, so using localValue is fine
     if (key.tab && !key.shift) {
       // Check if we're completing a path after a path command
-      const parts = currentValue.split(/\s+/);
+      const parts = localValue.split(/\s+/);
       const cmd = parts[0]?.toLowerCase();
 
       if (PATH_COMMANDS.includes(cmd) && parts.length >= 1) {
@@ -1089,7 +1100,7 @@ function ChatInput({
         const completions = getPathCompletions(pathPart, workingDir);
 
         if (completions.length === 1) {
-          updateValue(`${cmd} ${completions[0]}`);
+          setLocalValue(`${cmd} ${completions[0]}`);
           onSuggestionsChange?.([]);
         } else if (completions.length > 1) {
           // Find common prefix
@@ -1100,7 +1111,7 @@ function ChatInput({
             }
           }
           if (commonPrefix.length > pathPart.length) {
-            updateValue(`${cmd} ${commonPrefix}`);
+            setLocalValue(`${cmd} ${commonPrefix}`);
           }
           onSuggestionsChange?.(completions);
         }
@@ -1108,10 +1119,10 @@ function ChatInput({
       }
 
       // Slash command completion with smart suggestions
-      if (currentValue.startsWith('/')) {
+      if (localValue.startsWith('/')) {
         // Use smart suggestions if context is available
         const smartMatches = getSmartCommandSuggestions({
-          input: currentValue,
+          input: localValue,
           hasGitRepo: hasGitRepo ?? false,
           contextPercentage: contextPercentage ?? 0,
           currentMode: currentMode ?? 'hybrid',
@@ -1120,13 +1131,13 @@ function ChatInput({
         });
 
         // Fall back to basic matching if smart suggestions didn't find anything
-        const partial = currentValue.toLowerCase();
+        const partial = localValue.toLowerCase();
         const matches = smartMatches.length > 0 ? smartMatches : SLASH_COMMANDS.filter(cmdName =>
           cmdName.startsWith(partial) && cmdName !== partial
         );
 
         if (matches.length === 1) {
-          updateValue(matches[0] + ' ');
+          setLocalValue(matches[0] + ' ');
           onSuggestionsChange?.([]);
         } else if (matches.length > 1) {
           let commonPrefix = matches[0];
@@ -1135,8 +1146,8 @@ function ChatInput({
               commonPrefix = commonPrefix.slice(0, -1);
             }
           }
-          if (commonPrefix.length > currentValue.length) {
-            updateValue(commonPrefix);
+          if (commonPrefix.length > localValue.length) {
+            setLocalValue(commonPrefix);
           }
           onSuggestionsChange?.(matches);
         }
@@ -1159,9 +1170,9 @@ function ChatInput({
       return;
     }
 
-    // Regular character input - append to value
+    // Regular character input - MUST use functional update for rapid typing
     if (input) {
-      updateValue(currentValue + input);
+      setLocalValue(prev => prev + input);
     }
   });
 
@@ -1191,7 +1202,7 @@ function ChatInput({
       )}
       <Box>
         <Text color={promptColor}>{promptText} </Text>
-        <Text>{value}</Text>
+        <Text>{localValue}</Text>
         <Text color={promptColor}>▌</Text>
       </Box>
     </Box>
