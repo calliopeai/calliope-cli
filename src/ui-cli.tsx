@@ -918,10 +918,20 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
-  // Use a ref to always have the current value - prevents stale closure issues
-  // when keystrokes come in rapid succession before React can re-render
+  // Use a ref to track the ACTUAL current value - updated immediately on every change
+  // This prevents stale closure issues when keystrokes come faster than React re-renders
   const valueRef = React.useRef(value);
-  valueRef.current = value;
+
+  // Sync ref when prop changes (e.g., from history navigation or external updates)
+  React.useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  // Helper that updates ref immediately AND notifies parent
+  const updateValue = React.useCallback((newValue: string) => {
+    valueRef.current = newValue;  // Update ref FIRST (synchronous)
+    onChange(newValue);            // Then notify parent (may batch)
+  }, [onChange]);
 
   // Handle ALL keyboard input here - single source of input handling
   useInput((input, key) => {
@@ -945,11 +955,11 @@ function ChatInput({
       const currentValue = valueRef.current;
       // Allow typing
       if (key.backspace || key.delete) {
-        onChange(currentValue.slice(0, -1));
+        updateValue(currentValue.slice(0, -1));
         return;
       }
       if (key.ctrl && input === 'u') {
-        onChange('');
+        updateValue('');
         onSetEditingQueueIndex?.(null); // Clear editing state
         return;
       }
@@ -960,12 +970,12 @@ function ChatInput({
           // Start editing the last queued message
           const idx = queuedMessages.length - 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         } else if (editingQueueIndex > 0) {
           // Move to previous message
           const idx = editingQueueIndex - 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         }
         return;
       }
@@ -975,18 +985,18 @@ function ChatInput({
           // Move to next message
           const idx = editingQueueIndex + 1;
           onSetEditingQueueIndex?.(idx);
-          onChange(queuedMessages[idx]);
+          updateValue(queuedMessages[idx]);
         } else {
           // At the end, clear to new input
           onSetEditingQueueIndex?.(null);
-          onChange('');
+          updateValue('');
         }
         return;
       }
 
       // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
       if (key.return && (key.meta || key.ctrl)) {
-        onChange(currentValue + '\n');
+        updateValue(currentValue + '\n');
         return;
       }
 
@@ -994,7 +1004,7 @@ function ChatInput({
       if (key.return && key.shift && currentValue.trim() && onDirectSend) {
         onDirectSend(currentValue.trim());
         onSetEditingQueueIndex?.(null);
-        onChange('');
+        updateValue('');
         return;
       }
 
@@ -1004,11 +1014,11 @@ function ChatInput({
           // Update existing queued message
           onEditQueuedMessage(editingQueueIndex, currentValue.trim());
           onSetEditingQueueIndex?.(null);
-          onChange('');
+          updateValue('');
         } else if (onQueueMessage) {
           // Add new queued message
           onQueueMessage(currentValue.trim());
-          onChange('');
+          updateValue('');
         }
         return;
       }
@@ -1017,13 +1027,13 @@ function ChatInput({
       if (key.ctrl && input === 'd' && editingQueueIndex !== null && editingQueueIndex !== undefined && onEditQueuedMessage) {
         onEditQueuedMessage(editingQueueIndex, ''); // Empty string signals deletion
         onSetEditingQueueIndex?.(null);
-        onChange('');
+        updateValue('');
         return;
       }
 
       // Regular input
       if (input && !key.ctrl && !key.meta && !key.tab) {
-        onChange(currentValue + input);
+        updateValue(currentValue + input);
       }
       return;
     }
@@ -1039,7 +1049,7 @@ function ChatInput({
 
     // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
     if (key.return && (key.meta || key.ctrl)) {
-      onChange(currentValue + '\n');
+      updateValue(currentValue + '\n');
       return;
     }
 
@@ -1053,13 +1063,13 @@ function ChatInput({
 
     // Backspace/Delete
     if (key.backspace || key.delete) {
-      onChange(currentValue.slice(0, -1));
+      updateValue(currentValue.slice(0, -1));
       return;
     }
 
     // Ctrl+U to clear line
     if (key.ctrl && input === 'u') {
-      onChange('');
+      updateValue('');
       return;
     }
 
@@ -1075,7 +1085,7 @@ function ChatInput({
         const completions = getPathCompletions(pathPart, workingDir);
 
         if (completions.length === 1) {
-          onChange(`${cmd} ${completions[0]}`);
+          updateValue(`${cmd} ${completions[0]}`);
           onSuggestionsChange?.([]);
         } else if (completions.length > 1) {
           // Find common prefix
@@ -1086,7 +1096,7 @@ function ChatInput({
             }
           }
           if (commonPrefix.length > pathPart.length) {
-            onChange(`${cmd} ${commonPrefix}`);
+            updateValue(`${cmd} ${commonPrefix}`);
           }
           onSuggestionsChange?.(completions);
         }
@@ -1112,7 +1122,7 @@ function ChatInput({
         );
 
         if (matches.length === 1) {
-          onChange(matches[0] + ' ');
+          updateValue(matches[0] + ' ');
           onSuggestionsChange?.([]);
         } else if (matches.length > 1) {
           let commonPrefix = matches[0];
@@ -1122,7 +1132,7 @@ function ChatInput({
             }
           }
           if (commonPrefix.length > currentValue.length) {
-            onChange(commonPrefix);
+            updateValue(commonPrefix);
           }
           onSuggestionsChange?.(matches);
         }
@@ -1147,7 +1157,7 @@ function ChatInput({
 
     // Regular character input - append to value
     if (input) {
-      onChange(currentValue + input);
+      updateValue(currentValue + input);
     }
   });
 
