@@ -8,7 +8,7 @@
 
 import { runSetup } from './setup.js';
 import * as config from './config.js';
-import { getVersion, checkForUpdates } from './version-check.js';
+import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
 
 // Handle CLI flags
 const args = process.argv.slice(2);
@@ -38,6 +38,40 @@ async function main(): Promise<void> {
     console.log(`calliope v${getVersion()}`);
     await checkForUpdates();
     process.exit(0);
+  }
+
+  // Handle --upgrade
+  if (args.includes('--upgrade') || args.includes('-u')) {
+    const current = getVersion();
+    console.log(`Current version: v${current}`);
+    console.log('Checking for updates...');
+
+    const latest = await getLatestVersion();
+    if (!latest) {
+      console.log('Could not check for updates.');
+      process.exit(1);
+    }
+
+    const [cMaj, cMin, cPat] = current.split('.').map(Number);
+    const [lMaj, lMin, lPat] = latest.split('.').map(Number);
+    const hasUpdate = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
+
+    if (!hasUpdate) {
+      console.log(`\x1b[32m✓\x1b[0m Already on latest version (v${current})`);
+      process.exit(0);
+    }
+
+    console.log(`\x1b[33m→\x1b[0m New version available: v${latest}`);
+    console.log('Upgrading...');
+
+    const success = await performUpgrade();
+    if (success) {
+      console.log(`\x1b[32m✓\x1b[0m Upgraded to v${latest}`);
+      process.exit(0);
+    } else {
+      console.log('\x1b[31m✗\x1b[0m Upgrade failed. Try: npm install -g @calliopelabs/cli@latest');
+      process.exit(1);
+    }
   }
 
   // Handle --setup (force reconfigure)
@@ -138,6 +172,7 @@ ${bold('USAGE')}
 ${bold('OPTIONS')}
   -h, --help        Show this help message
   -v, --version     Show version
+  -u, --upgrade     Upgrade to latest version
   --setup           Run setup wizard (reconfigure)
   --config          Show config file path and status
   --reset           Reset all configuration
