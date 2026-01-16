@@ -328,9 +328,11 @@ async function chatAnthropic(
       };
     }
 
+    const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
     return {
       role: m.role as 'user' | 'assistant',
-      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      // Anthropic requires non-empty content for all non-final messages
+      content: content || '(continued)',
     };
   });
 
