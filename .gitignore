@@ -21,6 +21,7 @@ npm-debug.log*
 # Environment
 .env
 .env.local
+cli.env
 
 # Test coverage
 coverage/
