@@ -386,8 +386,12 @@ async function getMistralModels(): Promise<ModelInfo[]> {
  * Get Ollama models
  */
 async function getOllamaModels(): Promise<ModelInfo[]> {
-  const baseUrl = config.getBaseUrl('ollama') || 'http://localhost:11434';
-  
+  let baseUrl = config.getBaseUrl('ollama') || 'http://localhost:11434';
+  // Strip /v1 suffix if present (native Ollama API doesn't use it)
+  if (baseUrl.endsWith('/v1')) {
+    baseUrl = baseUrl.slice(0, -3);
+  }
+
   try {
     const response = await fetch(`${baseUrl}/api/tags`);
     if (!response.ok) {
@@ -409,7 +413,11 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
  * Get LiteLLM models
  */
 async function getLiteLLMModels(): Promise<ModelInfo[]> {
-  const baseUrl = config.getBaseUrl('litellm') || 'http://localhost:4000';
+  let baseUrl = config.getBaseUrl('litellm') || 'http://localhost:4000';
+  // Strip /v1 suffix if present to avoid double /v1
+  if (baseUrl.endsWith('/v1')) {
+    baseUrl = baseUrl.slice(0, -3);
+  }
 
   try {
     const response = await fetch(`${baseUrl}/v1/models`);

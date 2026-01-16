@@ -679,10 +679,14 @@ async function chatOpenAICompatible(
   let baseURL: string;
 
   if (provider === 'ollama') {
-    baseURL = config.getBaseUrl('ollama') || 'http://localhost:11434/v1';
+    const ollamaBase = config.getBaseUrl('ollama') || 'http://localhost:11434';
+    // Append /v1 for OpenAI-compatible endpoint, unless already present
+    baseURL = ollamaBase.endsWith('/v1') ? ollamaBase : `${ollamaBase}/v1`;
     apiKey = 'ollama'; // Ollama doesn't require a real API key
   } else if (provider === 'litellm') {
-    baseURL = config.getBaseUrl('litellm') || 'http://localhost:4000/v1';
+    const litellmBase = config.getBaseUrl('litellm') || 'http://localhost:4000';
+    // Append /v1 for OpenAI-compatible endpoint, unless already present
+    baseURL = litellmBase.endsWith('/v1') ? litellmBase : `${litellmBase}/v1`;
     apiKey = config.getApiKey('litellm') || 'litellm'; // LiteLLM may or may not require key
   } else {
     apiKey = config.getApiKey(provider);
