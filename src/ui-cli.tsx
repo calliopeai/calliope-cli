@@ -4009,10 +4009,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
   // Render
   return (
     <Box flexDirection="column" width={width}>
-      {/* Message History */}
-      <MessageHistory messages={messages} />
-
-      {/* Streaming Response */}
+      {/* Streaming Response - at top for easy reading */}
       {streamingResponse && (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
@@ -4031,6 +4028,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           <Text color="cyan">▌</Text>
         </Box>
       )}
+
+      {/* Message History - tool calls and conversation scroll here */}
+      <MessageHistory messages={messages} />
 
       {/* Thinking Display / Processing Indicator */}
       {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
