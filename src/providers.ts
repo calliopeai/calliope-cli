@@ -76,6 +76,161 @@ function toOpenAIContent(content: MessageContent): string | OpenAI.Chat.Completi
 // Constants
 const MAX_TOKENS = 8192;
 
+// Debug logging helper
+const DEBUG = process.env.CALLIOPE_DEBUG === '1';
+function debugLog(message: string, ...args: unknown[]): void {
+  if (DEBUG) console.log(`[DEBUG] ${message}`, ...args);
+}
+
+// ============================================================================
+// OpenAI Responses API Types (for o3, o4-mini, gpt-5, etc.)
+// ============================================================================
+
+/** Input message types for Responses API */
+type ResponsesInputItem =
+  | { role: 'developer' | 'user' | 'assistant'; content: string | ResponsesContentPart[] }
+  | { type: 'function_call'; call_id: string; name: string; arguments: string }
+  | { type: 'function_call_output'; call_id: string; output: string };
+
+type ResponsesContentPart =
+  | { type: 'input_text'; text: string }
+  | { type: 'input_image'; image_url: { url: string } };
+
+/** Tool definition for Responses API */
+interface ResponsesTool {
+  type: 'function';
+  name: string;
+  description?: string;
+  parameters: Record<string, unknown>;
+  strict: boolean;
+}
+
+/** Streaming event types from Responses API */
+interface ResponsesTextDeltaEvent {
+  type: 'response.output_text.delta';
+  delta: string;
+}
+
+interface ResponsesFunctionCallDoneEvent {
+  type: 'response.function_call_arguments.done';
+  call_id: string;
+  name: string;
+  arguments: string;
+}
+
+interface ResponsesCompletedEvent {
+  type: 'response.completed';
+  response: {
+    status: 'completed' | 'incomplete' | 'failed';
+    usage?: { input_tokens: number; output_tokens: number };
+  };
+}
+
+type ResponsesStreamEvent =
+  | ResponsesTextDeltaEvent
+  | ResponsesFunctionCallDoneEvent
+  | ResponsesCompletedEvent
+  | { type: string }; // Other events we don't handle
+
+/** Output item types from non-streaming response */
+interface ResponsesFunctionCallOutput {
+  type: 'function_call';
+  call_id: string;
+  id?: string;
+  name: string;
+  arguments: string | Record<string, unknown>;
+}
+
+interface ResponsesTextOutput {
+  type: 'text';
+  text: string;
+}
+
+type ResponsesOutputItem = ResponsesFunctionCallOutput | ResponsesTextOutput | { type: string };
+
+/** Full response structure */
+interface ResponsesAPIResponse {
+  output_text: string;
+  output: ResponsesOutputItem[];
+  status: 'completed' | 'incomplete' | 'failed';
+  usage?: { input_tokens: number; output_tokens: number };
+}
+
+// ============================================================================
+// LLM Response Validation
+// ============================================================================
+
+/** Maximum allowed content length (1MB) to prevent memory issues */
+const MAX_CONTENT_LENGTH = 1024 * 1024;
+
+/**
+ * Validate and sanitize LLM response
+ */
+function validateLLMResponse(response: LLMResponse): LLMResponse {
+  // Ensure content is a string
+  if (response.content === null || response.content === undefined) {
+    response.content = '';
+  } else if (typeof response.content !== 'string') {
+    response.content = String(response.content);
+  }
+
+  // Truncate if too long to prevent memory issues
+  if (response.content.length > MAX_CONTENT_LENGTH) {
+    debugLog('Response content truncated from', response.content.length, 'to', MAX_CONTENT_LENGTH);
+    response.content = response.content.slice(0, MAX_CONTENT_LENGTH) + '\n... [truncated]';
+  }
+
+  // Validate tool calls if present
+  if (response.toolCalls) {
+    response.toolCalls = response.toolCalls.filter(call => {
+      if (!call.id || typeof call.id !== 'string') {
+        debugLog('Invalid tool call: missing or invalid id', call);
+        return false;
+      }
+      if (!call.name || typeof call.name !== 'string') {
+        debugLog('Invalid tool call: missing or invalid name', call);
+        return false;
+      }
+      if (call.arguments === null || call.arguments === undefined) {
+        call.arguments = {};
+      }
+      return true;
+    });
+
+    if (response.toolCalls.length === 0) {
+      response.toolCalls = undefined;
+    }
+  }
+
+  // Ensure valid finish reason
+  if (!['stop', 'tool_use', 'length', 'error'].includes(response.finishReason)) {
+    response.finishReason = 'stop';
+  }
+
+  return response;
+}
+
+// ============================================================================
+
+/**
+ * Models that require the Responses API instead of Chat Completions
+ * These are OpenAI's newer reasoning models that only work with /v1/responses
+ */
+const RESPONSES_API_MODELS = [
+  'o3',
+  'o3-mini',
+  'o3-pro',
+  'o4-mini',
+  'gpt-5',
+];
+
+/**
+ * Check if a model requires the Responses API
+ */
+function requiresResponsesAPI(model: string): boolean {
+  return RESPONSES_API_MODELS.some(m => model.startsWith(m));
+}
+
 // API base URLs for OpenAI-compatible providers
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
@@ -242,13 +397,17 @@ export async function chat(
   const actualModel = model || DEFAULT_MODELS[actualProvider];
 
   const doChat = async (): Promise<LLMResponse> => {
+    let response: LLMResponse;
     switch (actualProvider) {
       case 'anthropic':
-        return chatAnthropic(messages, tools, actualModel, onToken);
+        response = await chatAnthropic(messages, tools, actualModel, onToken);
+        break;
       case 'google':
-        return chatGoogle(messages, tools, actualModel);
+        response = await chatGoogle(messages, tools, actualModel);
+        break;
       case 'openai':
-        return chatOpenAI(messages, tools, actualModel, onToken);
+        response = await chatOpenAI(messages, tools, actualModel, onToken);
+        break;
       case 'openrouter':
       case 'together':
       case 'groq':
@@ -258,10 +417,13 @@ export async function chat(
       case 'huggingface':
       case 'ollama':
       case 'litellm':
-        return chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        break;
       default:
         throw new Error(`Provider ${actualProvider} not implemented`);
     }
+    // Validate and sanitize response before returning
+    return validateLLMResponse(response);
   };
 
   // Wrap with retry logic
@@ -544,6 +706,238 @@ async function chatGoogle(
 }
 
 /**
+ * Convert messages to Responses API input format
+ */
+function toResponsesInput(messages: Message[]): ResponsesInputItem[] {
+  const input: ResponsesInputItem[] = [];
+
+  for (const m of messages) {
+    if (m.role === 'system') {
+      // System messages become developer messages in Responses API
+      input.push({
+        role: 'developer' as const,
+        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      });
+    } else if (m.role === 'tool') {
+      // Tool results become function_call_output items
+      input.push({
+        type: 'function_call_output' as const,
+        call_id: m.toolCallId || '',
+        output: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+      });
+    } else if (m.role === 'assistant') {
+      // Assistant messages with tool calls
+      if (m.toolCalls && m.toolCalls.length > 0) {
+        // First add any text content as a message
+        const textContent = typeof m.content === 'string' ? m.content :
+          (Array.isArray(m.content) ? m.content.filter(b => b.type === 'text').map(b => (b as TextContent).text).join('\n') : '');
+        if (textContent) {
+          input.push({
+            role: 'assistant' as const,
+            content: textContent,
+          });
+        }
+        // Then add each tool call as a function_call item
+        for (const tc of m.toolCalls) {
+          input.push({
+            type: 'function_call' as const,
+            call_id: tc.id,
+            name: tc.name,
+            arguments: JSON.stringify(tc.arguments),
+          });
+        }
+      } else {
+        input.push({
+          role: 'assistant' as const,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        });
+      }
+    } else if (m.role === 'user') {
+      // Handle multi-modal content for user messages
+      if (Array.isArray(m.content)) {
+        const parts: ResponsesContentPart[] = [];
+        for (const block of m.content) {
+          if (block.type === 'text') {
+            parts.push({ type: 'input_text', text: block.text });
+          } else if (block.type === 'image') {
+            parts.push({
+              type: 'input_image',
+              image_url: { url: `data:${block.mediaType};base64,${block.data}` },
+            });
+          }
+        }
+        input.push({ role: 'user' as const, content: parts });
+      } else {
+        input.push({
+          role: 'user' as const,
+          content: m.content,
+        });
+      }
+    }
+  }
+
+  return input;
+}
+
+/**
+ * Convert tools to Responses API format
+ */
+function toResponsesTools(tools: Tool[]): ResponsesTool[] {
+  return tools.map(t => ({
+    type: 'function' as const,
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    strict: false,
+  }));
+}
+
+/**
+ * Type guard for text delta events
+ */
+function isTextDeltaEvent(event: ResponsesStreamEvent): event is ResponsesTextDeltaEvent {
+  return event.type === 'response.output_text.delta';
+}
+
+/**
+ * Type guard for function call done events
+ */
+function isFunctionCallDoneEvent(event: ResponsesStreamEvent): event is ResponsesFunctionCallDoneEvent {
+  return event.type === 'response.function_call_arguments.done';
+}
+
+/**
+ * Type guard for completed events
+ */
+function isCompletedEvent(event: ResponsesStreamEvent): event is ResponsesCompletedEvent {
+  return event.type === 'response.completed';
+}
+
+/**
+ * Type guard for function call output items
+ */
+function isFunctionCallOutput(item: ResponsesOutputItem): item is ResponsesFunctionCallOutput {
+  return item.type === 'function_call';
+}
+
+/**
+ * Chat with OpenAI using the Responses API (for o3, o4-mini, etc.)
+ */
+async function chatOpenAIResponses(
+  messages: Message[],
+  tools: Tool[],
+  model: string,
+  onToken?: StreamCallback
+): Promise<LLMResponse> {
+  const apiKey = config.getApiKey('openai');
+  if (!apiKey) throw new Error('OpenAI API key not configured');
+
+  const client = new OpenAI({ apiKey });
+  const responsesInput = toResponsesInput(messages);
+  const responsesTools = toResponsesTools(tools);
+
+  // Use streaming if callback provided
+  if (onToken) {
+    let content = '';
+    const toolCalls: ToolCall[] = [];
+    let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    try {
+      // Note: OpenAI SDK types don't fully match Responses API yet
+      // We use our own type definitions and cast through unknown for SDK interop
+      const streamParams = {
+        model,
+        input: responsesInput,
+        tools: responsesTools.length > 0 ? responsesTools : undefined,
+        max_output_tokens: MAX_TOKENS,
+      } as unknown;
+      const stream = client.responses.stream(streamParams as Parameters<typeof client.responses.stream>[0]);
+
+      for await (const event of stream) {
+        const typedEvent = event as ResponsesStreamEvent;
+        if (isTextDeltaEvent(typedEvent)) {
+          content += typedEvent.delta;
+          onToken(typedEvent.delta);
+        } else if (isFunctionCallDoneEvent(typedEvent)) {
+          toolCalls.push({
+            id: typedEvent.call_id || `call_${Date.now()}`,
+            name: typedEvent.name,
+            arguments: JSON.parse(typedEvent.arguments || '{}'),
+          });
+          finishReason = 'tool_use';
+        } else if (isCompletedEvent(typedEvent)) {
+          const response = typedEvent.response;
+          if (response?.usage) {
+            inputTokens = response.usage.input_tokens || 0;
+            outputTokens = response.usage.output_tokens || 0;
+          }
+          if (response?.status === 'incomplete') {
+            finishReason = 'length';
+          }
+        }
+      }
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+        usage: { inputTokens, outputTokens },
+      };
+    } catch (streamError) {
+      debugLog('Responses API streaming failed, falling back to non-streaming:', streamError);
+    }
+  }
+
+  // Non-streaming request
+  const createParams = {
+    model,
+    input: responsesInput,
+    tools: responsesTools.length > 0 ? responsesTools : undefined,
+    max_output_tokens: MAX_TOKENS,
+  } as unknown;
+  const response = await client.responses.create(
+    createParams as Parameters<typeof client.responses.create>[0]
+  ) as unknown as ResponsesAPIResponse;
+
+  // Extract content and tool calls from response
+  let content = response.output_text || '';
+  const toolCalls: ToolCall[] = [];
+
+  // Process output items for tool calls
+  for (const item of response.output) {
+    if (isFunctionCallOutput(item)) {
+      toolCalls.push({
+        id: item.call_id || item.id || `call_${Date.now()}`,
+        name: item.name,
+        arguments: typeof item.arguments === 'string'
+          ? JSON.parse(item.arguments)
+          : item.arguments as Record<string, unknown>,
+      });
+    }
+  }
+
+  // Determine finish reason
+  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+  if (toolCalls.length > 0) {
+    finishReason = 'tool_use';
+  } else if (response.status === 'incomplete') {
+    finishReason = 'length';
+  }
+
+  return {
+    content,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    finishReason,
+    usage: response.usage ? {
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    } : undefined,
+  };
+}
+
+/**
  * Chat with OpenAI
  */
 async function chatOpenAI(
@@ -552,6 +946,11 @@ async function chatOpenAI(
   model: string,
   onToken?: StreamCallback
 ): Promise<LLMResponse> {
+  // Route to Responses API for models that require it (o3, o4-mini, etc.)
+  if (requiresResponsesAPI(model)) {
+    return chatOpenAIResponses(messages, tools, model, onToken);
+  }
+
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 

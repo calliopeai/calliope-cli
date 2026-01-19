@@ -9,6 +9,20 @@ import * as path from 'path';
 import * as os from 'os';
 
 // ============================================================================
+// Date Utilities
+// ============================================================================
+
+/**
+ * Get today's date as YYYY-MM-DD string (safe alternative to split('T')[0])
+ */
+function getTodayString(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -276,7 +290,7 @@ function writeTodos(filePath: string, todos: Todo[]): void {
  */
 function getSessionDir(projectPath: string): string {
   const projectName = path.basename(projectPath) || 'unnamed';
-  const date = new Date().toISOString().split('T')[0];
+  const date = getTodayString();
   return path.join(paths.sessions, `${date}_${projectName}`);
 }
 
@@ -713,7 +727,7 @@ export function getCosts(): CostRecord {
 export function recordCost(cost: number, provider: string, sessionId?: string): void {
   initStorage();
   const costs = getCosts();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayString();
 
   costs.totalCost += cost;
   costs.costByProvider[provider] = (costs.costByProvider[provider] || 0) + cost;
@@ -732,7 +746,7 @@ export function recordCost(cost: number, provider: string, sessionId?: string): 
  */
 export function getCostSummary(): string {
   const costs = getCosts();
-  const today = new Date().toISOString().split('T')[0];
+  const today = getTodayString();
   const todayCost = costs.costByDay[today] || 0;
 
   const lines = [

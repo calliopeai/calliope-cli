@@ -9,6 +9,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
 
+// Debug logging helper
+const DEBUG = process.env.CALLIOPE_DEBUG === '1';
+function debugLog(message: string, ...args: unknown[]): void {
+  if (DEBUG) console.log(`[DEBUG:hooks] ${message}`, ...args);
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -262,8 +268,10 @@ export async function executeHooks(
     }
 
     if (hook.async) {
-      // Fire and forget
-      runHookCommand(hook, fullContext).catch(() => {});
+      // Fire and forget with debug logging
+      runHookCommand(hook, fullContext).catch((err) => {
+        debugLog(`Async hook '${hook.id}' failed:`, err instanceof Error ? err.message : err);
+      });
       results.push({ success: true });
     } else {
       const result = await runHookCommand(hook, fullContext);

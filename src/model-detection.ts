@@ -22,6 +22,85 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   huggingface: 'https://api-inference.huggingface.co/v1',
 };
 
+/**
+ * Models that are incompatible with chat-based CLI (per provider)
+ */
+const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
+  openai: [
+    /^text-embedding/,      // Embedding models
+    /^whisper/,             // Speech-to-text
+    /^tts-/,                // Text-to-speech
+    /^dall-e/,              // Image generation
+    /^davinci/,             // Legacy completions
+    /^babbage/,             // Legacy completions
+    /^curie/,               // Legacy completions
+    /^ada/,                 // Legacy (but not ada in other contexts)
+    /^text-davinci/,        // Legacy
+    /^text-curie/,          // Legacy
+    /^text-babbage/,        // Legacy
+    /^text-ada/,            // Legacy
+    /^code-/,               // Legacy code models
+    /moderation/,           // Moderation models
+    /-search-/,             // Search models
+    /-similarity-/,         // Similarity models
+    /-edit-/,               // Edit models
+    /^chatgpt-4o-latest/,   // Internal/unstable aliases
+  ],
+  google: [
+    /^embedding/,           // Embedding models
+    /^text-embedding/,      // Text embedding
+    /^aqa/,                 // Attributed QA (not chat)
+    /embedding$/,           // Any model ending in embedding
+  ],
+  groq: [
+    /^whisper/,             // Speech-to-text
+    /^distil-whisper/,      // Distilled whisper
+  ],
+  mistral: [
+    /^mistral-embed/,       // Embedding model
+  ],
+  together: [
+    // Already filtered by type in getTogetherModels
+  ],
+  openrouter: [
+    // Will filter by type field instead
+  ],
+  ollama: [
+    /embed/i,               // Embedding models (nomic-embed, etc.)
+    /^all-minilm/,          // Sentence transformers
+    /^bge-/,                // BGE embedding models
+  ],
+  litellm: [
+    /embed/i,               // Embedding models
+    /whisper/i,             // Speech models
+    /dall-e/i,              // Image models
+    /tts/i,                 // Text-to-speech
+  ],
+  ai21: [
+    /embed/i,               // Embedding models
+  ],
+  huggingface: [
+    /embed/i,               // Embedding models
+    /whisper/i,             // Speech models
+    /stable-diffusion/i,    // Image models
+    /flux/i,                // Image models
+  ],
+  fireworks: [
+    /embed/i,               // Embedding models
+    /whisper/i,             // Speech models
+    /stable-diffusion/i,    // Image models
+    /flux/i,                // Image models
+  ],
+};
+
+/**
+ * Check if a model is compatible with chat-based CLI
+ */
+function isCompatibleModel(modelId: string, provider: string): boolean {
+  const patterns = INCOMPATIBLE_MODEL_PATTERNS[provider] || [];
+  return !patterns.some(pattern => pattern.test(modelId));
+}
+
 // Model cache to avoid repeated API calls
 const modelCache = new Map<LLMProvider, { models: ModelInfo[]; timestamp: number }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
@@ -249,7 +328,10 @@ async function getGoogleModels(): Promise<ModelInfo[]> {
     const data = await response.json() as { models: Array<{ name: string; displayName?: string; description?: string; inputTokenLimit?: number }> };
 
     return data.models
-      .filter(model => model.name.includes('gemini'))
+      .filter(model => {
+        const modelId = model.name.replace('models/', '');
+        return model.name.includes('gemini') && isCompatibleModel(modelId, 'google');
+      })
       .map(model => ({
         id: model.name.replace('models/', ''),
         name: model.displayName || model.name.replace('models/', ''),
@@ -279,9 +361,18 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
 
   const client = new OpenAI({ apiKey });
   const response = await client.models.list();
-  
+
+  // Filter for chat-compatible models (GPT and reasoning models)
   return response.data
-    .filter(model => model.id.includes('gpt') || model.id.includes('o1'))
+    .filter(model =>
+      isCompatibleModel(model.id, 'openai') && (
+        model.id.includes('gpt') ||
+        model.id.startsWith('o1') ||
+        model.id.startsWith('o3') ||
+        model.id.startsWith('o4') ||
+        model.id.startsWith('gpt-5')
+      )
+    )
     .map(model => ({
       id: model.id,
       name: model.id,
@@ -309,17 +400,51 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
     throw new Error(`OpenRouter API error: ${response.status}`);
   }
 
-  const data = await response.json() as { data: Array<{ id: string; name: string; description?: string; context_length?: number; pricing?: { prompt?: string; completion?: string } }> };
-  return data.data.map((model) => ({
-    id: model.id,
-    name: model.name,
-    description: model.description,
-    contextLength: model.context_length,
-    pricing: {
-      input: parseFloat(model.pricing?.prompt || '0') * 1000000, // Convert to per 1M tokens
-      output: parseFloat(model.pricing?.completion || '0') * 1000000
-    }
-  }));
+  const data = await response.json() as {
+    data: Array<{
+      id: string;
+      name: string;
+      description?: string;
+      context_length?: number;
+      architecture?: { modality?: string; input_modalities?: string[]; output_modalities?: string[] };
+      pricing?: { prompt?: string; completion?: string };
+    }>
+  };
+
+  // Filter for text generation models (exclude image-only, embedding, etc.)
+  return data.data
+    .filter(model => {
+      // Check if model supports text output
+      const outputModalities = model.architecture?.output_modalities || [];
+      const inputModalities = model.architecture?.input_modalities || [];
+      const modality = model.architecture?.modality || '';
+
+      // Include if it has text output capability or no architecture info (assume text)
+      if (outputModalities.length > 0) {
+        return outputModalities.includes('text');
+      }
+      // Exclude known non-text modalities
+      if (modality === 'image' || modality === 'audio' || modality === 'embedding') {
+        return false;
+      }
+      // Exclude by name patterns
+      if (model.id.includes('embed') || model.id.includes('whisper') ||
+          model.id.includes('dall-e') || model.id.includes('stable-diffusion') ||
+          model.id.includes('flux') || model.id.includes('imagen')) {
+        return false;
+      }
+      return true;
+    })
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      description: model.description,
+      contextLength: model.context_length,
+      pricing: {
+        input: parseFloat(model.pricing?.prompt || '0') * 1000000, // Convert to per 1M tokens
+        output: parseFloat(model.pricing?.completion || '0') * 1000000
+      }
+    }));
 }
 
 /**
@@ -329,17 +454,39 @@ async function getTogetherModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('together');
   if (!apiKey) throw new Error('Together API key not configured');
 
-  const client = new OpenAI({ 
-    apiKey, 
-    baseURL: 'https://api.together.xyz/v1' 
+  // Together's API returns a raw array, not wrapped in { data: [...] } like OpenAI
+  const response = await fetch('https://api.together.xyz/v1/models', {
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+    }
   });
-  
-  const response = await client.models.list();
-  return response.data.map(model => ({
-    id: model.id,
-    name: model.id,
-    description: getTogetherModelDescription(model.id),
-  }));
+
+  if (!response.ok) {
+    throw new Error(`Together API error: ${response.status}`);
+  }
+
+  const models = await response.json() as Array<{
+    id: string;
+    display_name?: string;
+    type?: string;
+    context_length?: number;
+    pricing?: { input?: number; output?: number };
+  }>;
+
+  // Filter for chat models and sort by display name
+  return models
+    .filter(model => model.type === 'chat' || model.type === 'language')
+    .map(model => ({
+      id: model.id,
+      name: model.display_name || model.id,
+      description: getTogetherModelDescription(model.id),
+      contextLength: model.context_length,
+      pricing: model.pricing ? {
+        input: model.pricing.input,
+        output: model.pricing.output,
+      } : undefined,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /**
@@ -349,17 +496,19 @@ async function getGroqModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('groq');
   if (!apiKey) throw new Error('Groq API key not configured');
 
-  const client = new OpenAI({ 
-    apiKey, 
-    baseURL: 'https://api.groq.com/openai/v1' 
+  const client = new OpenAI({
+    apiKey,
+    baseURL: 'https://api.groq.com/openai/v1'
   });
-  
+
   const response = await client.models.list();
-  return response.data.map(model => ({
-    id: model.id,
-    name: model.id,
-    description: 'High-speed inference model',
-  }));
+  return response.data
+    .filter(model => isCompatibleModel(model.id, 'groq'))
+    .map(model => ({
+      id: model.id,
+      name: model.id,
+      description: 'High-speed inference model',
+    }));
 }
 
 /**
@@ -369,17 +518,19 @@ async function getMistralModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('mistral');
   if (!apiKey) throw new Error('Mistral API key not configured');
 
-  const client = new OpenAI({ 
-    apiKey, 
-    baseURL: 'https://api.mistral.ai/v1' 
+  const client = new OpenAI({
+    apiKey,
+    baseURL: 'https://api.mistral.ai/v1'
   });
-  
+
   const response = await client.models.list();
-  return response.data.map(model => ({
-    id: model.id,
-    name: model.id,
-    description: getMistralModelDescription(model.id),
-  }));
+  return response.data
+    .filter(model => isCompatibleModel(model.id, 'mistral'))
+    .map(model => ({
+      id: model.id,
+      name: model.id,
+      description: getMistralModelDescription(model.id),
+    }));
 }
 
 /**
@@ -397,13 +548,15 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
     if (!response.ok) {
       throw new Error(`Ollama API error: ${response.status}`);
     }
-    
+
     const data = await response.json() as { models: Array<{ name: string; size: number }> };
-    return data.models.map((model) => ({
-      id: model.name,
-      name: model.name,
-      description: `Size: ${formatSize(model.size)}`,
-    }));
+    return data.models
+      .filter(model => isCompatibleModel(model.name, 'ollama'))
+      .map((model) => ({
+        id: model.name,
+        name: model.name,
+        description: `Size: ${formatSize(model.size)}`,
+      }));
   } catch (error) {
     throw new Error(`Failed to connect to Ollama at ${baseUrl}`);
   }
@@ -426,11 +579,13 @@ async function getLiteLLMModels(): Promise<ModelInfo[]> {
     }
 
     const data = await response.json() as { data: Array<{ id: string }> };
-    return data.data.map((model) => ({
-      id: model.id,
-      name: model.id,
-      description: 'Proxied via LiteLLM',
-    }));
+    return data.data
+      .filter(model => isCompatibleModel(model.id, 'litellm'))
+      .map((model) => ({
+        id: model.id,
+        name: model.id,
+        description: 'Proxied via LiteLLM',
+      }));
   } catch (error) {
     throw new Error(`Failed to connect to LiteLLM at ${baseUrl}`);
   }
@@ -448,22 +603,29 @@ async function getOpenAICompatibleModels(provider: LLMProvider): Promise<ModelIn
 
   const client = new OpenAI({ apiKey, baseURL });
   const response = await client.models.list();
-  
-  return response.data.map(model => ({
-    id: model.id,
-    name: model.id,
-  }));
+
+  return response.data
+    .filter(model => isCompatibleModel(model.id, provider))
+    .map(model => ({
+      id: model.id,
+      name: model.id,
+    }));
 }
 
 /**
  * Helper functions for model descriptions
  */
 function getOpenAIModelDescription(modelId: string): string {
+  if (modelId.startsWith('gpt-5')) return 'Most capable reasoning model';
+  if (modelId.startsWith('o4-mini')) return 'Fast reasoning model with tool use';
+  if (modelId.startsWith('o3-pro')) return 'Extended reasoning for hard problems';
+  if (modelId.startsWith('o3-mini')) return 'Efficient reasoning model';
+  if (modelId.startsWith('o3')) return 'Advanced reasoning model';
+  if (modelId.startsWith('o1')) return 'Reasoning model for complex problems';
   if (modelId.includes('gpt-4o')) return 'Flagship model for complex, multi-step tasks';
   if (modelId.includes('gpt-4-turbo')) return 'Previous generation multimodal model';
   if (modelId.includes('gpt-4')) return 'High-intelligence model for complex tasks';
   if (modelId.includes('gpt-3.5-turbo')) return 'Fast, inexpensive model for simple tasks';
-  if (modelId.includes('o1')) return 'Reasoning model for complex problems';
   return 'OpenAI language model';
 }
 
@@ -497,4 +659,68 @@ export function clearModelCache(provider?: LLMProvider): void {
   } else {
     modelCache.clear();
   }
+}
+
+/**
+ * Pre-warm model cache for configured providers
+ * Runs in background, doesn't block startup
+ */
+export async function preWarmModelCache(): Promise<void> {
+  const configuredProviders = config.getConfiguredProviders();
+
+  // Fetch models for all configured providers in parallel
+  await Promise.allSettled(
+    configuredProviders.map(provider => getAvailableModels(provider))
+  );
+}
+
+/**
+ * Get model info from cache by ID
+ */
+export function getModelInfo(provider: LLMProvider, modelId: string): ModelInfo | undefined {
+  const cached = modelCache.get(provider);
+  if (!cached) return undefined;
+  return cached.models.find(m => m.id === modelId || m.id.includes(modelId) || modelId.includes(m.id));
+}
+
+/**
+ * Default context limits by model family (fallback when API doesn't provide it)
+ */
+const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
+  'claude': 200000,
+  'gpt-4o': 128000,
+  'gpt-4-turbo': 128000,
+  'gpt-4': 8192,
+  'gpt-5': 200000,
+  'o1': 200000,
+  'o3': 200000,
+  'o4': 200000,
+  'gemini-2': 1000000,
+  'gemini-1.5': 1000000,
+  'llama-3.3': 128000,
+  'llama-3.1': 128000,
+  'mistral-large': 128000,
+  'mixtral': 32000,
+};
+
+/**
+ * Get context limit for a model - uses cached model info first, falls back to defaults
+ */
+export function getModelContextLimit(provider: LLMProvider, modelId: string): number {
+  // First check cached model info from API
+  const modelInfo = getModelInfo(provider, modelId);
+  if (modelInfo?.contextLength) {
+    return modelInfo.contextLength;
+  }
+
+  // Fall back to defaults based on model family
+  const lowerModel = modelId.toLowerCase();
+  for (const [key, limit] of Object.entries(DEFAULT_CONTEXT_LIMITS)) {
+    if (lowerModel.includes(key.toLowerCase())) {
+      return limit;
+    }
+  }
+
+  // Ultimate fallback
+  return 32000;
 }

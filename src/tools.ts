@@ -191,8 +191,27 @@ export function getTools(agtermEnabled: boolean = false): Tool[] {
  * Validate path is within allowed directory (prevent path traversal)
  */
 function validatePath(filePath: string, cwd: string): string {
-  // Use scope manager for path validation
-  return scopeValidatePath(filePath, cwd);
+  // Primary validation via scope manager
+  const validated = scopeValidatePath(filePath, cwd);
+
+  // Secondary validation: ensure path doesn't escape allowed directories
+  const resolved = path.resolve(cwd, validated);
+  const normalizedCwd = path.resolve(cwd);
+
+  // Check for path traversal attempts
+  if (validated.includes('..')) {
+    // Ensure the resolved path is still within cwd or an allowed scope
+    if (!resolved.startsWith(normalizedCwd) && !resolved.startsWith('/tmp')) {
+      throw new Error(`Path traversal detected: ${filePath} resolves outside allowed scope`);
+    }
+  }
+
+  // Check for null bytes (path injection attack)
+  if (validated.includes('\0')) {
+    throw new Error(`Invalid path: contains null bytes`);
+  }
+
+  return validated;
 }
 
 /**
@@ -262,34 +281,43 @@ export async function executeTool(
       }
 
       case 'execute_code': {
-        const language = String(args.language || '');
-        const code = String(args.code || '');
-        if (!['python', 'node', 'bash'].includes(language)) {
+        if (typeof args.language !== 'string' || !['python', 'node', 'bash'].includes(args.language)) {
           return { toolCallId: id, result: 'Error: language must be python, node, or bash', isError: true };
         }
-        result = await executeCode(language as 'python' | 'node' | 'bash', code, cwd, timeout);
+        if (typeof args.code !== 'string') {
+          return { toolCallId: id, result: 'Error: code must be a string', isError: true };
+        }
+        result = await executeCode(args.language as 'python' | 'node' | 'bash', args.code, cwd, timeout);
         break;
       }
 
       case 'web_search': {
-        const query = String(args.query || '');
-        const numResults = Math.min(10, Math.max(1, Number(args.num_results) || 5));
-        result = await webSearch(query, numResults);
+        if (typeof args.query !== 'string' || args.query.trim().length === 0) {
+          return { toolCallId: id, result: 'Error: query must be a non-empty string', isError: true };
+        }
+        const numResults = typeof args.num_results === 'number'
+          ? Math.min(10, Math.max(1, args.num_results))
+          : 5;
+        result = await webSearch(args.query, numResults);
         break;
       }
 
       case 'git': {
-        const operation = String(args.operation || '');
-        const gitArgs = String(args.args || '');
-        result = await executeGit(operation, gitArgs, cwd);
+        if (typeof args.operation !== 'string') {
+          return { toolCallId: id, result: 'Error: operation must be a string', isError: true };
+        }
+        const gitArgs = typeof args.args === 'string' ? args.args : '';
+        result = await executeGit(args.operation, gitArgs, cwd);
         break;
       }
 
       case 'mermaid': {
-        const diagramType = String(args.type || 'flowchart');
-        const content = String(args.content || '');
-        const title = args.title ? String(args.title) : undefined;
-        result = generateMermaidDiagram(diagramType, content, title);
+        const diagramType = typeof args.type === 'string' ? args.type : 'flowchart';
+        if (typeof args.content !== 'string') {
+          return { toolCallId: id, result: 'Error: content must be a string', isError: true };
+        }
+        const title = typeof args.title === 'string' ? args.title : undefined;
+        result = generateMermaidDiagram(diagramType, args.content, title);
         break;
       }
 

@@ -191,13 +191,26 @@ function hasDependency(current: ToolCall, previous: ToolCall): boolean {
 // Parallel Execution
 // ============================================================================
 
+/** Default timeout for parallel stage execution (5 minutes) */
+const DEFAULT_STAGE_TIMEOUT_MS = 5 * 60 * 1000;
+
 /**
- * Execute tools in parallel stages
+ * Create a timeout promise that rejects after specified ms
+ */
+function createTimeout<T>(ms: number, message: string): Promise<T> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error(message)), ms);
+  });
+}
+
+/**
+ * Execute tools in parallel stages with timeout protection
  */
 export async function executeParallel(
   toolCalls: ToolCall[],
   executor: (call: ToolCall) => Promise<string>,
-  onProgress?: (completed: number, total: number, current: ToolCall) => void
+  onProgress?: (completed: number, total: number, current: ToolCall) => void,
+  stageTimeoutMs: number = DEFAULT_STAGE_TIMEOUT_MS
 ): Promise<ToolResult[]> {
   const plan = analyzeDependencies(toolCalls);
   const results: ToolResult[] = [];
@@ -230,8 +243,26 @@ export async function executeParallel(
       }
     });
 
-    const stageResults = await Promise.all(stagePromises);
-    results.push(...stageResults);
+    // Execute with timeout protection
+    try {
+      const stageResults = await Promise.race([
+        Promise.all(stagePromises),
+        createTimeout<ToolResult[]>(stageTimeoutMs, `Stage execution timed out after ${stageTimeoutMs}ms`),
+      ]);
+      results.push(...stageResults);
+    } catch (error) {
+      // On timeout, mark remaining tools as timed out
+      for (const call of stage) {
+        if (!results.some(r => r.toolCall.id === call.id)) {
+          results.push({
+            toolCall: call,
+            result: '',
+            duration: stageTimeoutMs,
+            error: `Execution timed out after ${stageTimeoutMs}ms`,
+          });
+        }
+      }
+    }
   }
 
   return results;

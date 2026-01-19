@@ -7,8 +7,9 @@
 
 import Conf from 'conf';
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
-export type AgentPersona = 'calliope' | 'professional' | 'minimal';
+// Re-export types from canonical source
+export type { LLMProvider, AgentPersona } from './types.js';
+import type { LLMProvider, AgentPersona } from './types.js';
 
 export interface Profile {
   provider: LLMProvider;
@@ -112,18 +113,77 @@ export function get<K extends keyof CalliopeConfig>(key: K): CalliopeConfig[K] {
 }
 
 /**
- * Set a config value
+ * Set a config value with validation
  */
 export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfig[K]): void {
+  // Validate API keys are non-empty strings when set
+  if (key.toString().endsWith('ApiKey') && value !== undefined) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`API key for ${key} must be a non-empty string`);
+    }
+  }
+
+  // Validate URLs are proper format
+  if (key.toString().endsWith('BaseUrl') && value !== undefined) {
+    if (typeof value !== 'string') {
+      throw new Error(`Base URL for ${key} must be a string`);
+    }
+    try {
+      new URL(value);
+    } catch {
+      throw new Error(`Base URL for ${key} must be a valid URL`);
+    }
+  }
+
+  // Validate numeric bounds
+  if (key === 'maxIterations' && typeof value === 'number') {
+    if (value < 1 || value > 1000) {
+      throw new Error('maxIterations must be between 1 and 1000');
+    }
+  }
+
   config.set(key, value);
 }
 
 /**
- * Set multiple config values
+ * Set multiple config values with validation
  */
 export function setMultiple(values: Partial<CalliopeConfig>): void {
+  // Validate all values first before setting any
+  for (const [key, value] of Object.entries(values)) {
+    const typedKey = key as keyof CalliopeConfig;
+    // Will throw if validation fails
+    validateConfigValue(typedKey, value);
+  }
+  // All validations passed, now set values
   for (const [key, value] of Object.entries(values)) {
     config.set(key as keyof CalliopeConfig, value);
+  }
+}
+
+/**
+ * Validate a single config value without setting it
+ */
+function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
+  if (key.toString().endsWith('ApiKey') && value !== undefined) {
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      throw new Error(`API key for ${key} must be a non-empty string`);
+    }
+  }
+  if (key.toString().endsWith('BaseUrl') && value !== undefined && value !== null) {
+    if (typeof value !== 'string') {
+      throw new Error(`Base URL for ${key} must be a string`);
+    }
+    try {
+      new URL(value);
+    } catch {
+      throw new Error(`Base URL for ${key} must be a valid URL`);
+    }
+  }
+  if (key === 'maxIterations' && typeof value === 'number') {
+    if (value < 1 || value > 1000) {
+      throw new Error('maxIterations must be between 1 and 1000');
+    }
   }
 }
 

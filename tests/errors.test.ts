@@ -297,3 +297,39 @@ describe('withRetry', () => {
       expect(result).toContain('Auto-retry');
     });
   });
+
+  describe('OpenAI Responses API errors', () => {
+    it('should classify Responses API required errors', () => {
+      const result = classifyError(new Error('This model is only supported in v1/responses and not in v1/chat/completions'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.message).toContain('Responses API');
+      expect(result.suggestion).toContain('o3/o4-mini');
+    });
+  });
+
+  describe('billing errors', () => {
+    it('should classify insufficient quota', () => {
+      const result = classifyError(new Error('insufficient_quota'));
+      expect(result.category).toBe('auth');
+      expect(result.message).toContain('Billing');
+    });
+
+    it('should classify exceeded quota', () => {
+      const result = classifyError(new Error('You exceeded your current quota'));
+      expect(result.category).toBe('auth');
+    });
+  });
+
+  describe('capability errors', () => {
+    it('should classify vision not supported', () => {
+      const result = classifyError(new Error('This model does not support vision'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.message).toContain('Vision');
+    });
+
+    it('should classify tool use not supported', () => {
+      const result = classifyError(new Error('Tool use is not supported by this model'));
+      expect(result.category).toBe('invalid_request');
+      expect(result.message).toContain('Tool');
+    });
+  });

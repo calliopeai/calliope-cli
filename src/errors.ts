@@ -61,12 +61,27 @@ export function classifyError(error: unknown): ClassifiedError {
     };
   }
 
-  // Rate limiting
+  // Billing/quota exhausted (check before rate limit - these require payment, not waiting)
+  if (
+    lowerMessage.includes('billing') ||
+    lowerMessage.includes('insufficient_quota') ||
+    lowerMessage.includes('exceeded your current quota') ||
+    lowerMessage.includes('payment required')
+  ) {
+    return {
+      category: 'auth',
+      message: 'Billing or quota issue',
+      suggestion: 'Check your billing at the provider dashboard, or switch to another provider with /provider.',
+      retryable: false,
+    };
+  }
+
+  // Rate limiting (temporary, can retry)
   if (
     lowerMessage.includes('rate limit') ||
     lowerMessage.includes('too many requests') ||
     lowerMessage.includes('429') ||
-    lowerMessage.includes('quota')
+    lowerMessage.includes('quota exceeded')  // Generic rate limit (not billing)
   ) {
     // Try to extract retry-after from error
     const retryMatch = message.match(/retry.?after[:\s]+(\d+)/i);
@@ -220,6 +235,45 @@ export function classifyError(error: unknown): ClassifiedError {
       category: 'invalid_request',
       message: 'Model not available',
       suggestion: 'Use /models to see available models, or /provider to switch providers.',
+      retryable: false,
+    };
+  }
+
+  // OpenAI Responses API specific errors
+  if (
+    lowerMessage.includes('only supported in v1/responses') ||
+    lowerMessage.includes('not in v1/chat/completions')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Model requires Responses API',
+      suggestion: 'This model (o3/o4-mini) should auto-route to Responses API. Update calliope: npm update -g calliope-cli',
+      retryable: false,
+    };
+  }
+
+  // Vision/image capability errors
+  if (
+    lowerMessage.includes('vision') ||
+    lowerMessage.includes('image') && (lowerMessage.includes('not supported') || lowerMessage.includes('cannot'))
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Vision not supported',
+      suggestion: 'This model does not support images. Try anthropic (Claude), openai (GPT-4o), or google (Gemini).',
+      retryable: false,
+    };
+  }
+
+  // Tool/function calling errors
+  if (
+    lowerMessage.includes('tool') && (lowerMessage.includes('not supported') || lowerMessage.includes('invalid')) ||
+    lowerMessage.includes('function calling')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: 'Tool use not supported',
+      suggestion: 'This model may not support tools. Try a more capable model with /model.',
       retryable: false,
     };
   }
@@ -389,6 +443,14 @@ export function getProviderSuggestion(provider: string, error: unknown): string 
         return 'Get your API key at https://aistudio.google.com/apikey';
       case 'openrouter':
         return 'Get your API key at https://openrouter.ai/keys';
+      case 'together':
+        return 'Get your API key at https://api.together.xyz/settings/api-keys';
+      case 'groq':
+        return 'Get your API key at https://console.groq.com/keys';
+      case 'mistral':
+        return 'Get your API key at https://console.mistral.ai/api-keys/';
+      case 'fireworks':
+        return 'Get your API key at https://fireworks.ai/api-keys';
       default:
         return null;
     }
@@ -396,6 +458,15 @@ export function getProviderSuggestion(provider: string, error: unknown): string 
 
   if (classified.category === 'rate_limit') {
     return `Try switching to another provider with /provider`;
+  }
+
+  if (classified.category === 'server') {
+    const statusPages: Record<string, string> = {
+      anthropic: 'Check status at https://status.anthropic.com/',
+      openai: 'Check status at https://status.openai.com/',
+      google: 'Check status at https://status.cloud.google.com/',
+    };
+    return statusPages[provider] || null;
   }
 
   return null;

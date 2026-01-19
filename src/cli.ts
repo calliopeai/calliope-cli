@@ -24,6 +24,12 @@ import { MODE_CONFIG } from './types.js';
 import * as storage from './storage.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from './scope.js';
 
+// Debug logging helper
+const DEBUG = process.env.CALLIOPE_DEBUG === '1';
+function debugLog(message: string, ...args: unknown[]): void {
+  if (DEBUG) console.log(`[DEBUG:cli] ${message}`, ...args);
+}
+
 // ANSI colors
 const c = {
   reset: '\x1b[0m',
@@ -130,7 +136,9 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   });
 
   // Execute session start hooks
-  hooks.executeHooks('session-start', {}).catch(() => {});
+  hooks.executeHooks('session-start', {}).catch((err) => {
+    debugLog('session-start hook failed:', err instanceof Error ? err.message : err);
+  });
 
   // Setup readline
   const rl = readline.createInterface({
@@ -882,7 +890,9 @@ async function runAgent(prompt: string, state: CLIState): Promise<string> {
             tool: toolCall.name,
             toolArgs: toolCall.arguments as Record<string, unknown>,
             toolResult: result.result,
-          }).catch(() => {});
+          }).catch((err) => {
+            debugLog(`post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
+          });
 
           state.messages.push({
             role: 'tool',

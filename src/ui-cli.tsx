@@ -20,7 +20,7 @@ import { chat, getAvailableProviders, selectProvider } from './providers.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG, supportsVision, calculateCost } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
-import { getAvailableModels, type ModelInfo } from './model-detection.js';
+import { getAvailableModels, getModelContextLimit, preWarmModelCache, type ModelInfo } from './model-detection.js';
 import { assessToolRisk, detectComplexity } from './risk.js';
 import { formatError, classifyError } from './errors.js';
 import * as storage from './storage.js';
@@ -82,6 +82,51 @@ interface ErrorBoundaryState {
   errorInfo: string;
 }
 
+/**
+ * Log error to persistent file for debugging
+ */
+function logErrorToFile(error: Error | null, componentStack: string): void {
+  try {
+    const errorLogPath = path.join(
+      process.env.HOME || process.env.USERPROFILE || '/tmp',
+      '.calliope-cli',
+      'errors.log'
+    );
+    const errorLogDir = path.dirname(errorLogPath);
+
+    // Ensure directory exists
+    if (!fs.existsSync(errorLogDir)) {
+      fs.mkdirSync(errorLogDir, { recursive: true });
+    }
+
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      error: error?.message || 'Unknown error',
+      stack: error?.stack || '',
+      componentStack,
+      nodeVersion: process.version,
+      platform: process.platform,
+    };
+
+    const logLine = JSON.stringify(logEntry) + '\n';
+
+    // Append to log file (create if doesn't exist)
+    fs.appendFileSync(errorLogPath, logLine, 'utf-8');
+
+    // Rotate log if too large (> 1MB)
+    const stats = fs.statSync(errorLogPath);
+    if (stats.size > 1024 * 1024) {
+      const backupPath = errorLogPath + '.old';
+      if (fs.existsSync(backupPath)) {
+        fs.unlinkSync(backupPath);
+      }
+      fs.renameSync(errorLogPath, backupPath);
+    }
+  } catch {
+    // Silently fail if we can't write to log file
+  }
+}
+
 class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
@@ -96,10 +141,13 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     // Log error details
     const info = errorInfo.componentStack || '';
     this.setState({ errorInfo: info });
-    
-    // Could also log to file or external service
+
+    // Log to console
     console.error('Calliope Error:', error);
     console.error('Component Stack:', info);
+
+    // Log to persistent file for debugging
+    logErrorToFile(error, info);
   }
 
   handleRetry = (): void => {
@@ -328,9 +376,16 @@ function MessageItem({ msg }: { msg: UIMessage }) {
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
           <Text> </Text>
-          {lines.map((line, i) => (
-            <Text key={i}><Text color="blue">│</Text> {line}</Text>
-          ))}
+          {lines.map((line, i, arr) => {
+            // Add extra spacing for paragraph breaks (empty lines between content)
+            const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
+            return (
+              <Box key={i} flexDirection="column">
+                <Text><Text color="blue">│</Text> {line}</Text>
+                {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
+              </Box>
+            );
+          })}
         </Box>
       );
     }
@@ -1286,31 +1341,10 @@ function ChatInput({
   );
 }
 
-// Context window limits by model (approximate)
-const CONTEXT_LIMITS: Record<string, number> = {
-  'claude-sonnet-4': 200000,
-  'claude-opus-4': 200000,
-  'claude-3': 200000,
-  'gpt-4o': 128000,
-  'gpt-4-turbo': 128000,
-  'gpt-4': 8192,
-  'gemini-2': 1000000,
-  'gemini-1.5-pro': 1000000,
-  'gemini-1.5-flash': 1000000,
-  'llama-3.3': 128000,
-  'llama-3.1': 128000,
-  'mistral-large': 128000,
-  'default': 32000,
-};
-
-function getContextLimit(model: string): number {
-  for (const [key, limit] of Object.entries(CONTEXT_LIMITS)) {
-    if (model.toLowerCase().includes(key.toLowerCase())) {
-      return limit;
-    }
-  }
-  return CONTEXT_LIMITS.default;
-}
+// Context limit lookup - uses model-detection module which checks:
+// 1. Cached model info from API (with actual contextLength)
+// 2. Falls back to defaults based on model family
+// See getModelContextLimit() in model-detection.ts
 
 // ============================================================================
 // Smart Context Management
@@ -1365,11 +1399,12 @@ function shouldShowContextWarning(level: ContextLevel): boolean {
 }
 
 function checkAndWarnContextLimit(
+  provider: LLMProvider,
   model: string,
   tokens: number,
   addMessage?: (type: 'user' | 'assistant' | 'system' | 'error', content: string) => void
 ): void {
-  const limit = getContextLimit(model);
+  const limit = getModelContextLimit(provider, model);
   const percentage = (tokens / limit) * 100;
   const level = getContextLevel(percentage);
   const used = Math.round(tokens / 1000);
@@ -1518,8 +1553,8 @@ function StatusBar({
   const displayModel = model.length > 25 ? model.slice(0, 22) + '...' : model;
   const modeConfig = MODE_CONFIG[mode];
 
-  // Context usage indicator
-  const contextLimit = getContextLimit(model);
+  // Context usage indicator - uses model's actual context length from API
+  const contextLimit = getModelContextLimit(provider as LLMProvider, model);
   const contextPct = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
   const contextColor = contextPct > 80 ? 'red' : contextPct > 50 ? 'yellow' : 'green';
 
@@ -1786,7 +1821,9 @@ function TerminalChat() {
       setMemoryLoaded(true);
 
       // Execute session start hooks
-      hooks.executeHooks('session-start', {}).catch(() => {});
+      hooks.executeHooks('session-start', {}).catch((err) => {
+        debugLog('hooks', 'session-start hook failed:', err instanceof Error ? err.message : err);
+      });
 
       // Load templates from storage
       const savedTemplates = storage.getTemplates();
@@ -1797,6 +1834,11 @@ function TerminalChat() {
           createdAt: new Date(t.createdAt),
         })));
       }
+
+      // Pre-warm model cache in background for faster model switching
+      preWarmModelCache().catch((err) => {
+        debugLog('cache', 'model cache pre-warm failed:', err instanceof Error ? err.message : err);
+      });
     }
   }, [memoryLoaded]);
 
@@ -2853,12 +2895,32 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           } else {
             addMessage('system', 'No history to load.');
           }
-        } else if (subCommand === 'summary') {
+        } else if (subCommand === 'summary' || !subCommand) {
+          // Enhanced context summary with model limits
           const msgCount = llmMessages.current.length;
-          const estTokens = llmMessages.current.reduce((sum, m) => sum + (m.content?.length || 0) / 4, 0);
-          addMessage('system', `Context: ${msgCount} messages (~${Math.round(estTokens)} tokens)`);
+          const estTokens = estimateContextTokens();
+          const modelLimit = getModelContextLimit(actualProvider, actualModel);
+          const percentage = Math.round((estTokens / modelLimit) * 100);
+          const formatK = (n: number) => n >= 1000 ? `${Math.round(n / 1000)}K` : String(n);
+
+          let status = '🟢 Healthy';
+          if (percentage > 90) status = '🔴 Critical';
+          else if (percentage > 80) status = '🟡 Warning';
+          else if (percentage > 60) status = '🟠 Caution';
+
+          addMessage('system', `**Context Status: ${status}**
+
+**Usage:** ${formatK(estTokens)} / ${formatK(modelLimit)} tokens (${percentage}%)
+**Messages:** ${msgCount}
+**Provider:** ${actualProvider}
+**Model:** ${actualModel}
+
+**Commands:**
+  /summarize compact - Auto-compress context
+  /context load [n]  - Load n messages from history
+  /clear             - Start fresh`);
         } else {
-          addMessage('system', 'Usage: /context [load [n]|summary]');
+          addMessage('system', 'Usage: /context [load [n]|summary]\n\nShow context status or load history.');
         }
         break;
       }
@@ -3263,18 +3325,56 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     let completedNaturally = false;
 
     // Check context limit and warn if approaching capacity
-    const currentContextTokens = estimateContextTokens();
-    const modelLimit = getContextLimit(effectiveModel || actualModel);
-    const contextPercentage = (currentContextTokens / modelLimit) * 100;
-    
-    if (contextPercentage > 90) {
-      addMessage('system', `🔴 Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
+    // Uses model's actual context length from API when available
+    let currentContextTokens = estimateContextTokens();
+    const modelLimit = getModelContextLimit(actualProvider, effectiveModel || actualModel);
+    let contextPercentage = (currentContextTokens / modelLimit) * 100;
+
+    // Auto-compact if we're over 95% capacity to prevent API errors
+    if (contextPercentage > 95) {
+      addMessage('system', `🔄 Context at ${Math.round(contextPercentage)}% - auto-compacting to prevent errors...`);
+      const result = summarization.summarizeConversation(llmMessages.current, {
+        maxTokens: Math.floor(modelLimit * 0.7), // Target 70% of limit after compaction
+        preserveRecent: 15,
+      });
+      if (result.summarizedCount > 0) {
+        llmMessages.current = result.messages;
+        currentContextTokens = estimateContextTokens();
+        contextPercentage = (currentContextTokens / modelLimit) * 100;
+        setContextTokens(currentContextTokens);
+        addMessage('system', `✓ Compacted ${result.summarizedCount} messages. Now at ${Math.round(contextPercentage)}% (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K)`);
+      } else {
+        // If compaction didn't help enough, warn user
+        if (contextPercentage > 98) {
+          addMessage('error', `🚨 Context at ${Math.round(contextPercentage)}% - cannot proceed safely. Please use /clear or reduce message size.`);
+          setIsProcessing(false);
+          return;
+        }
+      }
+    } else if (contextPercentage > 85) {
+      addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
    Consider: /summarize compact | /clear | shorter messages`);
-    } else if (contextPercentage > 80) {
-      addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity - consider /summarize compact soon`);
     }
 
     for (let i = 0; i < maxIterations; i++) {
+      // Safety check at start of each iteration - context may have grown from tool results
+      if (i > 0) {
+        const iterContextTokens = estimateContextTokens();
+        const iterContextPercentage = (iterContextTokens / modelLimit) * 100;
+        if (iterContextPercentage > 95) {
+          addMessage('system', `🔄 Context grew to ${Math.round(iterContextPercentage)}% - auto-compacting...`);
+          const result = summarization.summarizeConversation(llmMessages.current, {
+            maxTokens: Math.floor(modelLimit * 0.7),
+            preserveRecent: 15,
+          });
+          if (result.summarizedCount > 0) {
+            llmMessages.current = result.messages;
+            setContextTokens(estimateContextTokens());
+            addMessage('system', `✓ Compacted ${result.summarizedCount} messages during iteration ${i + 1}`);
+          }
+        }
+      }
+
       try {
         // Update thinking state for LLM call
         setThinkingState({
@@ -3452,8 +3552,10 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                   tool: toolCall.name,
                   toolArgs: args,
                   toolResult: result.result,
-                }).catch(() => {});
-                
+                }).catch((err) => {
+                  debugLog('hooks', `post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
+                });
+
                 // Display result
                 if (toolCall.name === 'think') {
                   const thought = String(args.thought || '');
@@ -3507,8 +3609,10 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                   tool: toolCall.name,
                   toolArgs: args,
                   toolResult: result.result,
-                }).catch(() => {});
-                
+                }).catch((err) => {
+                  debugLog('hooks', `post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
+                });
+
                 // Display result
                 if (toolCall.name === 'think') {
                   const thought = String(args.thought || '');
@@ -3517,7 +3621,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                   const preview = result.result.split('\n').slice(0, 3).join('\n');
                   addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
                 }
-                
+
                 llmMessages.current.push({
                   role: 'tool',
                   content: result.result,
@@ -3536,7 +3640,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         addMessage('assistant', response.content);
         setStreamingResponse('');
         setContextTokens(estimateContextTokens());
-        checkAndWarnContextLimit(actualModel, estimateContextTokens(), addMessage);
+        checkAndWarnContextLimit(actualProvider, actualModel, estimateContextTokens(), addMessage);
 
         // Auto-continue if response was truncated due to length
         if (response.finishReason === 'length') {
@@ -3850,9 +3954,16 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
           <Text> </Text>
-          {streamingResponse.split('\n').map((line, i) => (
-            <Text key={i}><Text color="blue">│</Text> {line}</Text>
-          ))}
+          {streamingResponse.split('\n').map((line, i, arr) => {
+            // Add extra spacing for paragraph breaks (empty lines between content)
+            const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
+            return (
+              <Box key={i} flexDirection="column">
+                <Text><Text color="blue">│</Text> {line}</Text>
+                {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
+              </Box>
+            );
+          })}
           <Text color="blue">│</Text>
           <Text color="cyan">▌</Text>
         </Box>
@@ -4015,7 +4126,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         onNavigateHistory={navigateHistory}
         // Smart suggestions context
         currentMode={mode}
-        contextPercentage={Math.round((contextTokens / getContextLimit(actualModel)) * 100)}
+        contextPercentage={Math.round((contextTokens / getModelContextLimit(actualProvider, actualModel)) * 100)}
         recentCommands={recentCommands}
         hasGitRepo={hasGitRepo}
       />
