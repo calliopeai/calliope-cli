@@ -335,17 +335,42 @@ function ProcessingIndicator({ label }: { label: string }) {
   );
 }
 
-// Minimal indicator shown during streaming to show we're still receiving
-function StreamingIndicator() {
+// Activity state for showing what's currently happening
+interface ActivityState {
+  action: string;      // e.g., "Reading", "Writing", "Running"
+  target?: string;     // e.g., file path or command preview
+  startTime: number;   // for elapsed time display
+}
+
+// Indicator shown during streaming to show current activity
+function StreamingIndicator({ activity }: { activity?: ActivityState }) {
   const [frame, setFrame] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const pulseFrames = ['·', '•', '●', '•'];
 
   useEffect(() => {
     const timer = setInterval(() => {
       setFrame(f => (f + 1) % pulseFrames.length);
+      if (activity) {
+        setElapsed(Math.floor((Date.now() - activity.startTime) / 1000));
+      }
     }, 200);
     return () => clearInterval(timer);
-  }, []);
+  }, [activity]);
+
+  if (activity) {
+    const elapsedStr = elapsed > 0 ? ` (${elapsed}s)` : '';
+    return (
+      <Box flexDirection="column">
+        <Box>
+          <Text color="cyan">{pulseFrames[frame]}</Text>
+          <Text> {activity.action}</Text>
+          {activity.target && <Text dimColor> {activity.target}</Text>}
+          <Text dimColor>{elapsedStr}</Text>
+        </Box>
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -1594,6 +1619,7 @@ function TerminalChat() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
   const [streamingResponse, setStreamingResponse] = useState<string>('');
+  const [activityState, setActivityState] = useState<ActivityState | null>(null);
 
   // Input history for up/down arrow navigation
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -3383,6 +3409,11 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           iteration: i + 1,
           maxIterations,
         });
+        setActivityState({
+          action: i === 0 ? 'Analyzing request' : 'Processing',
+          target: `iteration ${i + 1}`,
+          startTime: Date.now(),
+        });
 
         // Streaming callback for final response
         const onToken = (token: string) => {
@@ -3522,7 +3553,12 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                 iteration: i + 1,
                 maxIterations,
               });
-              
+              setActivityState({
+                action: `Executing ${executableTools.length} tools`,
+                target: 'in parallel',
+                startTime: Date.now(),
+              });
+
               // Execute in parallel using dependency-aware staging
               debugLog('tools', 'PARALLEL exec start', `count=${executableTools.length}`);
               const results = await executeParallel(
@@ -3532,6 +3568,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                   return result.result;
                 },
                 (completed, total, current) => {
+                  const args = current.arguments as Record<string, unknown>;
+                  const target = (args.path as string) || (args.command as string)?.substring(0, 30) || current.name;
+                  setActivityState({
+                    action: `Running ${current.name}`,
+                    target: target,
+                    startTime: Date.now(),
+                  });
                   setThinkingState({
                     status: `Executing tools... (${completed + 1}/${total})`,
                     detail: current.name,
@@ -3578,8 +3621,26 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
               debugLog('tools', 'SEQUENTIAL exec start', `count=${executableTools.length}`);
               for (const toolCall of executableTools) {
                 const args = toolCall.arguments as Record<string, unknown>;
-                const toolPreview = String(args.command || args.path || '...');
-                
+                const toolPreview = String(args.command || args.path || args.content?.toString().substring(0, 30) || '...');
+
+                // Set activity state for streaming indicator
+                const actionMap: Record<string, string> = {
+                  read_file: 'Reading',
+                  write_file: 'Writing',
+                  edit_file: 'Editing',
+                  bash: 'Running',
+                  search: 'Searching',
+                  glob: 'Finding',
+                  think: 'Thinking',
+                };
+                const action = actionMap[toolCall.name] || `Executing ${toolCall.name}`;
+                const target = toolCall.name === 'bash'
+                  ? (args.command as string)?.substring(0, 40) + ((args.command as string)?.length > 40 ? '...' : '')
+                  : toolCall.name === 'think'
+                  ? undefined
+                  : (args.path as string) || (args.pattern as string);
+                setActivityState({ action, target, startTime: Date.now() });
+
                 // Special handling for think tool UI
                 if (toolCall.name === 'think') {
                   const thought = String(args.thought || '');
@@ -3599,7 +3660,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
                     maxIterations,
                   });
                 }
-                
+
                 debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
                 const result = await executeTool(toolCall, process.cwd());
                 debugLog('tools', 'DONE', toolCall.name);
@@ -3653,6 +3714,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
       } catch (error) {
         setThinkingState(null);
+        setActivityState(null);
         setStreamingResponse('');
 
         // Format error with provider context for better suggestions
@@ -3720,6 +3782,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         runAgent(followUp).finally(() => {
           setIsProcessing(false);
           setThinkingState(null);
+          setActivityState(null);
           setStreamingResponse('');
           setEditingQueueIndex(null);
         });
@@ -3972,13 +4035,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {/* Thinking Display / Processing Indicator */}
       {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
       {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
-      {/* Show minimal indicator during streaming so user knows it's still working */}
-      {isProcessing && streamingResponse && <StreamingIndicator />}
+      {/* Show activity indicator during streaming so user knows what's happening */}
+      {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
 
       {/* Debug overlay when debug mode is enabled */}
       {debugEnabled && (
         <Box marginY={0}>
-          <Text dimColor>[dbg] proc={isProcessing ? 'Y' : 'N'} think={thinkingState ? 'Y' : 'N'} stream={streamingResponse.length} mode={mode} queue={queuedMessages.length}</Text>
+          <Text dimColor>[dbg] proc={isProcessing ? 'Y' : 'N'} think={thinkingState ? 'Y' : 'N'} stream={streamingResponse.length} mode={mode} queue={queuedMessages.length} activity={activityState?.action || 'none'}</Text>
         </Box>
       )}
 

@@ -9,6 +9,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import * as config from './config.js';
 import { withRetry, classifyError, type RetryOptions } from './errors.js';
+import { getModelContextLimit } from './model-detection.js';
 import type { Message, Tool, LLMResponse, ToolCall, LLMProvider, MessageContent, TextContent, ImageContent } from './types.js';
 import { DEFAULT_MODELS } from './types.js';
 
@@ -75,11 +76,71 @@ function toOpenAIContent(content: MessageContent): string | OpenAI.Chat.Completi
 
 // Constants
 const MAX_TOKENS = 8192;
+const MIN_OUTPUT_TOKENS = 1024; // Minimum output tokens to request
+const CONTEXT_BUFFER = 500; // Safety buffer for token estimation errors
 
 // Debug logging helper
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
 function debugLog(message: string, ...args: unknown[]): void {
   if (DEBUG) console.log(`[DEBUG] ${message}`, ...args);
+}
+
+/**
+ * Estimate tokens from messages (rough approximation: ~4 chars per token)
+ */
+function estimateInputTokens(messages: Message[], tools: Tool[]): number {
+  let totalChars = 0;
+
+  for (const msg of messages) {
+    if (typeof msg.content === 'string') {
+      totalChars += msg.content.length;
+    } else if (Array.isArray(msg.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'text') {
+          totalChars += (block as TextContent).text.length;
+        } else if (block.type === 'image') {
+          // Images are roughly 85 tokens per tile (assuming ~750 tokens average)
+          totalChars += 3000;
+        }
+      }
+    }
+    // Add overhead for tool calls in assistant messages
+    if (msg.toolCalls) {
+      totalChars += JSON.stringify(msg.toolCalls).length;
+    }
+  }
+
+  // Add tool definitions overhead
+  if (tools.length > 0) {
+    totalChars += JSON.stringify(tools).length;
+  }
+
+  // Rough estimate: 4 characters per token, plus 20% overhead for message structure
+  return Math.ceil((totalChars / 4) * 1.2);
+}
+
+/**
+ * Calculate dynamic max_tokens based on available context space
+ */
+function calculateMaxTokens(
+  provider: LLMProvider,
+  model: string,
+  messages: Message[],
+  tools: Tool[]
+): number {
+  const contextLimit = getModelContextLimit(provider, model);
+  const estimatedInput = estimateInputTokens(messages, tools);
+  const available = contextLimit - estimatedInput - CONTEXT_BUFFER;
+
+  debugLog(`Context calculation: limit=${contextLimit}, input≈${estimatedInput}, available=${available}`);
+
+  // Ensure we have at least MIN_OUTPUT_TOKENS, up to MAX_TOKENS
+  if (available < MIN_OUTPUT_TOKENS) {
+    debugLog(`WARNING: Very limited output space (${available}), using minimum ${MIN_OUTPUT_TOKENS}`);
+    return MIN_OUTPUT_TOKENS;
+  }
+
+  return Math.min(MAX_TOKENS, available);
 }
 
 // ============================================================================
@@ -505,6 +566,10 @@ async function chatAnthropic(
     input_schema: t.parameters,
   }));
 
+  // Calculate dynamic max_tokens based on available context space
+  const dynamicMaxTokens = calculateMaxTokens('anthropic', model, messages, tools);
+  debugLog(`Anthropic request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+
   // Use streaming if callback provided - handles both text and tool calls
   if (onToken) {
     let content = '';
@@ -519,7 +584,7 @@ async function chatAnthropic(
     try {
       const stream = await client.messages.stream({
         model,
-        max_tokens: MAX_TOKENS,
+        max_tokens: dynamicMaxTokens,
         system: systemMessage ? getTextContent(systemMessage.content) : '',
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
@@ -588,7 +653,7 @@ async function chatAnthropic(
   // Non-streaming request
   const response = await client.messages.create({
     model,
-    max_tokens: MAX_TOKENS,
+    max_tokens: dynamicMaxTokens,
     system: systemMessage ? getTextContent(systemMessage.content) : '',
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
@@ -836,6 +901,10 @@ async function chatOpenAIResponses(
   const responsesInput = toResponsesInput(messages);
   const responsesTools = toResponsesTools(tools);
 
+  // Calculate dynamic max_tokens based on available context space
+  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools);
+  debugLog(`OpenAI Responses API request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+
   // Use streaming if callback provided
   if (onToken) {
     let content = '';
@@ -851,7 +920,7 @@ async function chatOpenAIResponses(
         model,
         input: responsesInput,
         tools: responsesTools.length > 0 ? responsesTools : undefined,
-        max_output_tokens: MAX_TOKENS,
+        max_output_tokens: dynamicMaxTokens,
       } as unknown;
       const stream = client.responses.stream(streamParams as Parameters<typeof client.responses.stream>[0]);
 
@@ -895,7 +964,7 @@ async function chatOpenAIResponses(
     model,
     input: responsesInput,
     tools: responsesTools.length > 0 ? responsesTools : undefined,
-    max_output_tokens: MAX_TOKENS,
+    max_output_tokens: dynamicMaxTokens,
   } as unknown;
   const response = await client.responses.create(
     createParams as Parameters<typeof client.responses.create>[0]
@@ -958,6 +1027,10 @@ async function chatOpenAI(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
+  // Calculate dynamic max_tokens based on available context space
+  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools);
+  debugLog(`OpenAI request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+
   // Use streaming if callback provided
   // Stream text content while collecting tool calls
   if (onToken) {
@@ -970,7 +1043,7 @@ async function chatOpenAI(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        max_tokens: MAX_TOKENS,
+        max_tokens: dynamicMaxTokens,
         stream: true,
       });
 
@@ -1035,7 +1108,7 @@ async function chatOpenAI(
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: MAX_TOKENS,
+    max_tokens: dynamicMaxTokens,
   });
 
   if (!response.choices || response.choices.length === 0) {
@@ -1101,6 +1174,10 @@ async function chatOpenAICompatible(
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
+  // Calculate dynamic max_tokens based on available context space
+  const dynamicMaxTokens = calculateMaxTokens(provider, model, messages, tools);
+  debugLog(`${provider} request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+
   // Use streaming if callback provided
   // Stream text content while collecting tool calls
   if (onToken) {
@@ -1113,7 +1190,7 @@ async function chatOpenAICompatible(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        max_tokens: MAX_TOKENS,
+        max_tokens: dynamicMaxTokens,
         stream: true,
       });
 
@@ -1178,7 +1255,7 @@ async function chatOpenAICompatible(
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: MAX_TOKENS,
+    max_tokens: dynamicMaxTokens,
   });
 
   if (!response.choices || response.choices.length === 0) {
