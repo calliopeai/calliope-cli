@@ -4116,7 +4116,14 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
   // Render
   return (
     <Box flexDirection="column" width={width}>
-      {/* Streaming Response - at top for easy reading */}
+      {/* Message History - tool calls scroll here at top */}
+      <MessageHistory messages={messages} />
+
+      {/* Thinking Display / Processing Indicator */}
+      {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
+      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
+
+      {/* Streaming Response - at bottom for always-visible reading */}
       {streamingResponse && (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
@@ -4135,13 +4142,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           <Text color="cyan">▌</Text>
         </Box>
       )}
-
-      {/* Message History - tool calls and conversation scroll here */}
-      <MessageHistory messages={messages} />
-
-      {/* Thinking Display / Processing Indicator */}
-      {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
-      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
       {/* Show activity indicator during streaming so user knows what's happening */}
       {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
 
