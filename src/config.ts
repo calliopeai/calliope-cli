@@ -53,6 +53,11 @@ export interface CalliopeConfig {
   // Update settings
   autoUpgrade: boolean;  // Prompt to upgrade on startup if update available
 
+  // Display settings
+  collapseTools: boolean;      // Auto-collapse tool output
+  collapseThinking: boolean;   // Auto-collapse think blocks
+  toolDisplayLimit: number;    // Show last N tools expanded, rest collapsed (0 = all expanded)
+
   // Profiles
   profiles?: Record<string, Profile>;
   activeProfile?: string;
@@ -66,6 +71,9 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   fancyOutput: true,
   autoSaveHistory: true,
   autoUpgrade: true,
+  collapseTools: false,
+  collapseThinking: false,
+  toolDisplayLimit: 0,  // 0 = show all expanded
 };
 
 // Create config store
@@ -95,6 +103,9 @@ const config = new Conf<CalliopeConfig>({
     autoSaveHistory: { type: 'boolean' },
     workspaceRoot: { type: 'string' },
     autoUpgrade: { type: 'boolean' },
+    collapseTools: { type: 'boolean' },
+    collapseThinking: { type: 'boolean' },
+    toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
   },
 });
 

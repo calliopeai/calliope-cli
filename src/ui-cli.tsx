@@ -384,7 +384,22 @@ function StreamingIndicator({ activity }: { activity?: ActivityState }) {
 // Message Components
 // ============================================================================
 
-function MessageItem({ msg }: { msg: UIMessage }) {
+interface CollapseSettings {
+  collapseTools: boolean;
+  collapseThinking: boolean;
+  toolDisplayLimit: number;
+  toolIndex?: number;      // Position in tool list (for toolDisplayLimit)
+  totalTools?: number;     // Total tools in current batch
+}
+
+function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSettings }) {
+  // Determine if this tool should be collapsed
+  const shouldCollapseThisTool = collapse?.collapseTools &&
+    collapse.toolDisplayLimit > 0 &&
+    collapse.toolIndex !== undefined &&
+    collapse.totalTools !== undefined &&
+    (collapse.totalTools - collapse.toolIndex) > collapse.toolDisplayLimit;
+
   switch (msg.type) {
     case 'user':
       return (
@@ -417,6 +432,25 @@ function MessageItem({ msg }: { msg: UIMessage }) {
 
     case 'tool': {
       const isToolCall = msg.content.startsWith('⚡');
+      const isThinkTool = msg.content.includes('💭') || msg.content.startsWith('Perfect!') || msg.content.startsWith('Let me');
+
+      // Check if this is a think tool that should be collapsed
+      if (collapse?.collapseThinking && isThinkTool && !isToolCall) {
+        const preview = msg.content.substring(0, 50).replace(/\n/g, ' ');
+        return (
+          <Text dimColor>╰─ 💭 <Text italic>{preview}...</Text></Text>
+        );
+      }
+
+      // Check if this tool should be collapsed (based on toolDisplayLimit)
+      if (shouldCollapseThisTool || (collapse?.collapseTools && !isToolCall)) {
+        // Show collapsed single-line version
+        const firstLine = msg.content.split('\n')[0].substring(0, 60);
+        return (
+          <Text dimColor>╰─ ▸ {firstLine}{msg.content.length > 60 ? '...' : ''}</Text>
+        );
+      }
+
       if (isToolCall) {
         const match = msg.content.match(/^⚡ (\w+): (.*)$/);
         if (match) {
@@ -518,13 +552,34 @@ function MessageItem({ msg }: { msg: UIMessage }) {
 }
 
 function MessageHistory({ messages }: { messages: UIMessage[] }) {
+  // Read collapse settings from config
+  const collapseSettings: CollapseSettings = {
+    collapseTools: config.get('collapseTools') ?? false,
+    collapseThinking: config.get('collapseThinking') ?? false,
+    toolDisplayLimit: config.get('toolDisplayLimit') ?? 0,
+  };
+
+  // Count tool messages for toolDisplayLimit calculation
+  const toolMessages = messages.filter(m => m.type === 'tool');
+  const totalTools = toolMessages.length;
+
+  // Track tool index
+  let toolIndex = 0;
+
   return (
     <Static items={messages}>
-      {(msg) => (
-        <Box key={msg.id}>
-          <MessageItem msg={msg} />
-        </Box>
-      )}
+      {(msg) => {
+        // For tool messages, pass index for collapse calculation
+        const msgCollapseSettings = msg.type === 'tool'
+          ? { ...collapseSettings, toolIndex: toolIndex++, totalTools }
+          : collapseSettings;
+
+        return (
+          <Box key={msg.id}>
+            <MessageItem msg={msg} collapse={msgCollapseSettings} />
+          </Box>
+        );
+      }}
     </Static>
   );
 }
@@ -937,6 +992,7 @@ const SLASH_COMMANDS = [
   '/status', '/s',
   '/config',
   '/set',
+  '/collapse',
   '/scope',
   '/add-dir',
   '/remove-dir',
@@ -1938,6 +1994,7 @@ function TerminalChat() {
   /search <query>          - Search conversation
   /status                  - Show status
   /config                  - Show config
+  /collapse [tools|all|off] - Collapse/expand tool output
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
   /scope [details|reset]   - Show/manage file access scope
@@ -2228,6 +2285,56 @@ Available keys:
       case '/setup':
         addMessage('system', 'Run `calliope --setup` to reconfigure.');
         break;
+
+      case '/collapse': {
+        // /collapse [tools|thinking|all|off] [limit N]
+        const subCmd = parts[1];
+        const currentTools = config.get('collapseTools');
+        const currentThinking = config.get('collapseThinking');
+        const currentLimit = config.get('toolDisplayLimit');
+
+        if (!subCmd) {
+          addMessage('system', `Collapse settings:
+  collapseTools: ${currentTools}
+  collapseThinking: ${currentThinking}
+  toolDisplayLimit: ${currentLimit} (0 = all expanded)
+
+Usage:
+  /collapse tools      - Toggle tool output collapsing
+  /collapse thinking   - Toggle thinking block collapsing
+  /collapse all        - Collapse both tools and thinking
+  /collapse off        - Expand everything
+  /collapse limit <N>  - Show last N tools expanded (0 = all)`);
+          break;
+        }
+
+        if (subCmd === 'tools') {
+          config.set('collapseTools', !currentTools);
+          addMessage('system', `✓ collapseTools set to ${!currentTools}`);
+        } else if (subCmd === 'thinking') {
+          config.set('collapseThinking', !currentThinking);
+          addMessage('system', `✓ collapseThinking set to ${!currentThinking}`);
+        } else if (subCmd === 'all') {
+          config.set('collapseTools', true);
+          config.set('collapseThinking', true);
+          addMessage('system', '✓ Collapsing tools and thinking');
+        } else if (subCmd === 'off') {
+          config.set('collapseTools', false);
+          config.set('collapseThinking', false);
+          addMessage('system', '✓ Expanding all output');
+        } else if (subCmd === 'limit') {
+          const limit = parseInt(parts[2], 10);
+          if (isNaN(limit) || limit < 0 || limit > 100) {
+            addMessage('error', 'Limit must be 0-100');
+            break;
+          }
+          config.set('toolDisplayLimit', limit);
+          addMessage('system', `✓ toolDisplayLimit set to ${limit}`);
+        } else {
+          addMessage('error', 'Unknown collapse option. Use: tools, thinking, all, off, or limit <N>');
+        }
+        break;
+      }
 
       case '/loop': {
         // Parse /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
