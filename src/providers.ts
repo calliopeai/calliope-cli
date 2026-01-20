@@ -77,7 +77,8 @@ function toOpenAIContent(content: MessageContent): string | OpenAI.Chat.Completi
 // Constants
 const MAX_TOKENS = 8192;
 const MIN_OUTPUT_TOKENS = 1024; // Minimum output tokens to request
-const CONTEXT_BUFFER = 500; // Safety buffer for token estimation errors
+const CONTEXT_BUFFER_PERCENT = 0.05; // 5% of context as safety buffer
+const CONTEXT_BUFFER_MIN = 2000; // Minimum 2k buffer
 
 // Debug logging helper
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
@@ -86,12 +87,16 @@ function debugLog(message: string, ...args: unknown[]): void {
 }
 
 /**
- * Estimate tokens from messages (rough approximation: ~4 chars per token)
+ * Estimate tokens from messages (conservative: ~3 chars per token)
+ * Uses conservative estimation to avoid context overflow
  */
 function estimateInputTokens(messages: Message[], tools: Tool[]): number {
   let totalChars = 0;
 
   for (const msg of messages) {
+    // Add per-message overhead (role, structure, etc.)
+    totalChars += 50;
+
     if (typeof msg.content === 'string') {
       totalChars += msg.content.length;
     } else if (Array.isArray(msg.content)) {
@@ -115,8 +120,9 @@ function estimateInputTokens(messages: Message[], tools: Tool[]): number {
     totalChars += JSON.stringify(tools).length;
   }
 
-  // Rough estimate: 4 characters per token, plus 20% overhead for message structure
-  return Math.ceil((totalChars / 4) * 1.2);
+  // Conservative estimate: 3 characters per token (accounts for subword tokens)
+  // Plus 25% overhead for message structure, system prompt, and formatting
+  return Math.ceil((totalChars / 3) * 1.25);
 }
 
 /**
@@ -130,9 +136,11 @@ function calculateMaxTokens(
 ): number {
   const contextLimit = getModelContextLimit(provider, model);
   const estimatedInput = estimateInputTokens(messages, tools);
-  const available = contextLimit - estimatedInput - CONTEXT_BUFFER;
+  // Use percentage-based buffer with minimum floor
+  const buffer = Math.max(CONTEXT_BUFFER_MIN, Math.ceil(contextLimit * CONTEXT_BUFFER_PERCENT));
+  const available = contextLimit - estimatedInput - buffer;
 
-  debugLog(`Context calculation: limit=${contextLimit}, input≈${estimatedInput}, available=${available}`);
+  debugLog(`Context calculation: limit=${contextLimit}, input≈${estimatedInput}, buffer=${buffer}, available=${available}`);
 
   // Ensure we have at least MIN_OUTPUT_TOKENS, up to MAX_TOKENS
   if (available < MIN_OUTPUT_TOKENS) {
