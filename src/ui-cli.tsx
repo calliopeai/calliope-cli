@@ -283,7 +283,7 @@ function ThinkingDisplay({ state }: { state: ThinkingState }) {
   }, []);
 
   return (
-    <Box flexDirection="column" marginY={1}>
+    <Box flexDirection="column">
       {/* Main status line */}
       <Box>
         <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
@@ -302,7 +302,7 @@ function ThinkingDisplay({ state }: { state: ThinkingState }) {
 
       {/* Thinking output (from think tool) */}
       {state.thinking && (
-        <Box flexDirection="column" marginLeft={2} marginTop={1}>
+        <Box flexDirection="column" marginLeft={2}>
           <Text color="magenta">💭 Thinking:</Text>
           {state.thinking.split('\n').slice(0, 5).map((line, i) => (
             <Text key={i} dimColor>   {line.substring(0, 80)}</Text>
@@ -328,7 +328,7 @@ function ProcessingIndicator({ label }: { label: string }) {
   }, []);
 
   return (
-    <Box marginY={1}>
+    <Box>
       <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
       <Text dimColor> {label}</Text>
     </Box>
@@ -987,6 +987,7 @@ const SLASH_COMMANDS = [
   '/config',
   '/set',
   '/layout',
+  '/density',
   '/collapse',
   '/scope',
   '/add-dir',
@@ -1758,6 +1759,7 @@ function TerminalChat() {
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
   const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split'>(() => config.get('layout') || 'response-bottom');
+  const [density, setDensity] = useState<'normal' | 'compact'>(() => config.get('density') || 'normal');
   const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>(() => ({
     collapseTools: config.get('collapseTools') ?? false,
     collapseThinking: config.get('collapseThinking') ?? false,
@@ -2010,6 +2012,7 @@ function TerminalChat() {
   /status                  - Show status
   /config                  - Show config
   /layout [name]           - Switch UI layout (classic/split/etc)
+  /density [normal|compact] - Set display density
   /collapse [tools|all|off] - Collapse/expand tool output
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
@@ -2328,6 +2331,33 @@ Usage: /layout <name>`);
         config.set('layout', layoutArg);
         setLayout(layoutArg);
         addMessage('system', `✓ Layout set to: ${layoutArg}`);
+        break;
+      }
+
+      case '/density': {
+        // /density [normal|compact]
+        const densityArg = parts[1] as 'normal' | 'compact' | undefined;
+
+        if (!densityArg) {
+          addMessage('system', `Current density: ${density}
+
+Available densities:
+  normal  - Standard spacing
+  compact - Reduced whitespace for more info
+
+Usage: /density <normal|compact>`);
+          break;
+        }
+
+        const validDensities = ['normal', 'compact'];
+        if (!validDensities.includes(densityArg)) {
+          addMessage('error', `Invalid density. Choose: normal, compact`);
+          break;
+        }
+
+        config.set('density', densityArg);
+        setDensity(densityArg);
+        addMessage('system', `✓ Density set to: ${densityArg}`);
         break;
       }
 
@@ -4164,19 +4194,11 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
   // Streaming response component (reused across layouts)
   const StreamingResponseBox = streamingResponse ? (
-    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+    <Box flexDirection="column">
       <Text color="cyan">✧ Calliope:</Text>
-      <Text> </Text>
-      {streamingResponse.split('\n').map((line, i, arr) => {
-        const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
-        return (
-          <Box key={i} flexDirection="column">
-            <Text><Text color="blue">│</Text> {line}</Text>
-            {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
-          </Box>
-        );
-      })}
-      <Text color="blue">│</Text>
+      {streamingResponse.split('\n').map((line, i) => (
+        <Text key={i}><Text color="blue">│</Text> {line}</Text>
+      ))}
       <Text color="cyan">▌</Text>
     </Box>
   ) : null;
