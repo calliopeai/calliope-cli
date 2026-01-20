@@ -1237,8 +1237,8 @@ function ChatInput({
         return;
       }
 
-      // Backspace - support key.backspace, Ctrl+H, and raw chars
-      const isBackspace = key.backspace || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
+      // Backspace - support multiple variants including Mac delete key
+      const isBackspace = key.backspace || key.delete || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
       if (isBackspace) {
         if (cursor > 0) {
           const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
@@ -1246,12 +1246,6 @@ function ChatInput({
         } else if (currentValue.length > 0) {
           updateValue(currentValue.slice(0, -1), currentValue.length - 1);
         }
-        return;
-      }
-      // Delete key deletes character at cursor
-      if (key.delete && cursor < currentValue.length) {
-        const newValue = currentValue.slice(0, cursor) + currentValue.slice(cursor + 1);
-        updateValue(newValue, cursor);
         return;
       }
       if (key.ctrl && input === 'u') {
@@ -1394,8 +1388,13 @@ function ChatInput({
     }
 
     // Backspace deletes character before cursor (or from end if cursor is 0 but there's text)
-    // Support both key.backspace and Ctrl+H (ASCII backspace) and raw backspace char
-    const isBackspace = key.backspace || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
+    // Support multiple backspace variants:
+    // - key.backspace (Ink's detection)
+    // - key.delete (Mac delete key is often detected as this)
+    // - Ctrl+H (ASCII backspace control code)
+    // - \x7f DEL char (Mac delete key raw)
+    // - \b BS char (traditional backspace)
+    const isBackspace = key.backspace || key.delete || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
     if (isBackspace) {
       if (cursor > 0) {
         const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
@@ -1404,12 +1403,6 @@ function ChatInput({
         // Fallback: delete from end if cursor is somehow at 0
         updateValue(currentValue.slice(0, -1), currentValue.length - 1);
       }
-      return;
-    }
-    // Delete key deletes character at cursor
-    if (key.delete && cursor < currentValue.length) {
-      const newValue = currentValue.slice(0, cursor) + currentValue.slice(cursor + 1);
-      updateValue(newValue, cursor);
       return;
     }
 

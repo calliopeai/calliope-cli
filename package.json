@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "0.8.18",
+  "version": "0.8.19",
   "description": "Calliope - Multi-model AI agent CLI with autonomous loops, project memory, and advanced tooling",
   "keywords": [
     "ai",
