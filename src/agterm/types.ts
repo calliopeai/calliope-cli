@@ -7,7 +7,7 @@
 /**
  * Agent types that can be spawned as sub-agents
  */
-export type SubAgentType = 'claude' | 'gemini' | 'codex';
+export type SubAgentType = 'calliope' | 'claude' | 'gemini' | 'codex';
 
 /**
  * Task status
@@ -116,6 +116,11 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
  * Agent CLI command mappings
  */
 export const AGENT_CLI_MAP: Record<SubAgentType, { command: string; args: string[]; envVar: string }> = {
+  calliope: {
+    command: 'calliope',
+    args: ['-g'],  // god mode for autonomous execution
+    envVar: 'ANTHROPIC_API_KEY'  // calliope uses anthropic by default
+  },
   claude: {
     command: 'claude',
     args: ['--print'],

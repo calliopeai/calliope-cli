@@ -23,6 +23,7 @@ function buildSpawnAgentDescription(): string {
 Available agents: ${agentList}
 
 Agent descriptions:
+- calliope: Calliope CLI (self) - Full-featured agent with all tools, runs in god mode
 - claude: Claude Code CLI - Best for complex coding, file operations, analysis
 - gemini: Gemini CLI - Good for research, explanation, creative tasks
 - codex: Codex CLI - Specialized for code generation and completion
@@ -52,8 +53,8 @@ export function getAgtermTools(): Tool[] {
           },
           agent: {
             type: 'string',
-            description: 'Which agent CLI to use: claude, gemini, or codex',
-            enum: ['claude', 'gemini', 'codex'],
+            description: 'Which agent CLI to use: calliope (self), claude, gemini, or codex',
+            enum: ['calliope', 'claude', 'gemini', 'codex'],
           },
           background: {
             type: 'string', // Using string to be compatible with boolean parsing

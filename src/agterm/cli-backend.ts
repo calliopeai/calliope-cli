@@ -53,8 +53,8 @@ export async function* executeAgent(
     timestamp: new Date(),
   };
 
-  // Build final args - Claude takes prompt as argument, others via stdin
-  const finalArgs = task.agent === 'claude'
+  // Build final args - calliope and claude take prompt as argument, others via stdin
+  const finalArgs = (task.agent === 'claude' || task.agent === 'calliope')
     ? [...args, task.prompt]
     : args;
 
@@ -71,8 +71,8 @@ export async function* executeAgent(
     output: '',
   });
 
-  // For non-claude agents, write prompt to stdin
-  if (task.agent !== 'claude' && proc.stdin) {
+  // For agents that don't accept prompt as argument, write to stdin
+  if (task.agent !== 'claude' && task.agent !== 'calliope' && proc.stdin) {
     proc.stdin.write(task.prompt + '\n');
     proc.stdin.end();
   }
