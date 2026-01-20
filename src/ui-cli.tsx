@@ -551,13 +551,7 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
   }
 }
 
-function MessageHistory({ messages }: { messages: UIMessage[] }) {
-  // Read collapse settings from config
-  const collapseSettings: CollapseSettings = {
-    collapseTools: config.get('collapseTools') ?? false,
-    collapseThinking: config.get('collapseThinking') ?? false,
-    toolDisplayLimit: config.get('toolDisplayLimit') ?? 0,
-  };
+function MessageHistory({ messages, collapseSettings }: { messages: UIMessage[]; collapseSettings: CollapseSettings }) {
 
   // Count tool messages for toolDisplayLimit calculation
   const toolMessages = messages.filter(m => m.type === 'tool');
@@ -1762,6 +1756,12 @@ function TerminalChat() {
   const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
+  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split'>(config.get('layout') || 'response-bottom');
+  const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>({
+    collapseTools: config.get('collapseTools') ?? false,
+    collapseThinking: config.get('collapseThinking') ?? false,
+    toolDisplayLimit: config.get('toolDisplayLimit') ?? 0,
+  });
 
   // Modal state
   const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions'>('none');
@@ -2304,10 +2304,9 @@ Available keys:
       case '/layout': {
         // /layout [classic|response-top|response-bottom|split]
         const layoutArg = parts[1] as 'classic' | 'response-top' | 'response-bottom' | 'split' | undefined;
-        const currentLayout = config.get('layout') || 'response-bottom';
 
         if (!layoutArg) {
-          addMessage('system', `Current layout: ${currentLayout}
+          addMessage('system', `Current layout: ${layout}
 
 Available layouts:
   classic        - Everything in chronological order
@@ -2326,6 +2325,7 @@ Usage: /layout <name>`);
         }
 
         config.set('layout', layoutArg);
+        setLayout(layoutArg);
         addMessage('system', `✓ Layout set to: ${layoutArg}`);
         break;
       }
@@ -2333,15 +2333,12 @@ Usage: /layout <name>`);
       case '/collapse': {
         // /collapse [tools|thinking|all|off] [limit N]
         const subCmd = parts[1];
-        const currentTools = config.get('collapseTools');
-        const currentThinking = config.get('collapseThinking');
-        const currentLimit = config.get('toolDisplayLimit');
 
         if (!subCmd) {
           addMessage('system', `Collapse settings:
-  collapseTools: ${currentTools}
-  collapseThinking: ${currentThinking}
-  toolDisplayLimit: ${currentLimit} (0 = all expanded)
+  collapseTools: ${collapseSettings.collapseTools}
+  collapseThinking: ${collapseSettings.collapseThinking}
+  toolDisplayLimit: ${collapseSettings.toolDisplayLimit} (0 = all expanded)
 
 Usage:
   /collapse tools      - Toggle tool output collapsing
@@ -2353,18 +2350,24 @@ Usage:
         }
 
         if (subCmd === 'tools') {
-          config.set('collapseTools', !currentTools);
-          addMessage('system', `✓ collapseTools set to ${!currentTools}`);
+          const newVal = !collapseSettings.collapseTools;
+          config.set('collapseTools', newVal);
+          setCollapseSettings(prev => ({ ...prev, collapseTools: newVal }));
+          addMessage('system', `✓ collapseTools set to ${newVal}`);
         } else if (subCmd === 'thinking') {
-          config.set('collapseThinking', !currentThinking);
-          addMessage('system', `✓ collapseThinking set to ${!currentThinking}`);
+          const newVal = !collapseSettings.collapseThinking;
+          config.set('collapseThinking', newVal);
+          setCollapseSettings(prev => ({ ...prev, collapseThinking: newVal }));
+          addMessage('system', `✓ collapseThinking set to ${newVal}`);
         } else if (subCmd === 'all') {
           config.set('collapseTools', true);
           config.set('collapseThinking', true);
+          setCollapseSettings(prev => ({ ...prev, collapseTools: true, collapseThinking: true }));
           addMessage('system', '✓ Collapsing tools and thinking');
         } else if (subCmd === 'off') {
           config.set('collapseTools', false);
           config.set('collapseThinking', false);
+          setCollapseSettings(prev => ({ ...prev, collapseTools: false, collapseThinking: false }));
           addMessage('system', '✓ Expanding all output');
         } else if (subCmd === 'limit') {
           const limit = parseInt(parts[2], 10);
@@ -2373,6 +2376,7 @@ Usage:
             break;
           }
           config.set('toolDisplayLimit', limit);
+          setCollapseSettings(prev => ({ ...prev, toolDisplayLimit: limit }));
           addMessage('system', `✓ toolDisplayLimit set to ${limit}`);
         } else {
           addMessage('error', 'Unknown collapse option. Use: tools, thinking, all, off, or limit <N>');
@@ -4157,9 +4161,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     });
   }, [addMessage, runAgent]);
 
-  // Get layout preference
-  const layout = config.get('layout') || 'response-bottom';
-
   // Streaming response component (reused across layouts)
   const StreamingResponseBox = streamingResponse ? (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
@@ -4197,7 +4198,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           {/* Left: Tools/History */}
           <Box flexDirection="column" width="50%">
             <Text color="yellow" dimColor>─ Tools ─</Text>
-            <MessageHistory messages={messages} />
+            <MessageHistory messages={messages} collapseSettings={collapseSettings} />
             {ProcessingBox}
           </Box>
           {/* Right: Response */}
@@ -4211,7 +4212,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {/* Classic layout: chronological */}
       {layout === 'classic' && (
         <>
-          <MessageHistory messages={messages} />
+          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
           {ProcessingBox}
           {StreamingResponseBox}
         </>
@@ -4221,7 +4222,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {layout === 'response-top' && (
         <>
           {StreamingResponseBox}
-          <MessageHistory messages={messages} />
+          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
           {ProcessingBox}
         </>
       )}
@@ -4229,7 +4230,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       {/* Response-bottom layout (default) */}
       {layout === 'response-bottom' && (
         <>
-          <MessageHistory messages={messages} />
+          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
           {ProcessingBox}
           {StreamingResponseBox}
         </>
