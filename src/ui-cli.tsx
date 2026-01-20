@@ -936,7 +936,7 @@ function KeybindingsModal({ onClose }: { onClose: () => void }) {
       <Text> </Text>
       <Text bold color="yellow">During Processing (queue mode):</Text>
       <Text>  Enter          Queue message for later</Text>
-      <Text>  Shift+Enter    Send directly (interrupt)</Text>
+      <Text>  !message       Send directly (interrupt agent)</Text>
       <Text>  ↑/↓            Edit queued messages</Text>
       <Text>  Ctrl+D         Delete queued message</Text>
       <Text> </Text>
@@ -1230,11 +1230,24 @@ function ChatInput({
       }
 
       // Shift+Enter sends directly (interrupts current operation)
+      // Note: Many terminals don't distinguish Shift+Enter from Enter
+      // Use ! prefix as reliable alternative: "!message" sends immediately
       if (key.return && key.shift && currentValue.trim() && onDirectSend) {
         onDirectSend(currentValue.trim());
         onSetEditingQueueIndex?.(null);
         updateValue('');
         return;
+      }
+
+      // ! prefix sends directly: "!fix this now" interrupts and sends
+      if (key.return && currentValue.trim().startsWith('!') && onDirectSend) {
+        const msg = currentValue.trim().slice(1).trim(); // Remove ! prefix
+        if (msg) {
+          onDirectSend(msg);
+          onSetEditingQueueIndex?.(null);
+          updateValue('');
+          return;
+        }
       }
 
       // Enter queues or updates the message
@@ -1411,7 +1424,7 @@ function ChatInput({
       {(queuedCount ?? 0) > 0 && (
         <Box>
           <Text color="yellow">📨 {queuedCount} queued</Text>
-          <Text dimColor> | Shift+Enter to send now</Text>
+          <Text dimColor> | !msg to send now</Text>
         </Box>
       )}
       <Box>
@@ -2019,7 +2032,7 @@ function TerminalChat() {
 
 File references: @filename, ./path, /absolute/path
 Modes: 📋 Plan | 🔄 Hybrid | 🔧 Work
-Queue: ↑/↓ edit, Ctrl+D delete, Shift+Enter send directly
+Queue: ↑/↓ edit, Ctrl+D delete, !msg to send directly
 Auto-route: ${autoRoute ? 'ON' : 'OFF'}${moduleAgtermEnabled ? '\nAGTerm: ON (spawn_agent, check_agent tools available)' : ''}`);
         break;
 
