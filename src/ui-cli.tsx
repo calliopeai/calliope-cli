@@ -1166,19 +1166,29 @@ function ChatInput({
     ? (msg: string) => fs.appendFile('/tmp/calliope-debug.log', `${new Date().toISOString()} [input] ${msg}\n`, () => {})
     : () => {};
 
-  // CRITICAL FIX: Use a ref to track the current value
+  // CRITICAL FIX: Use refs to track the current value and cursor position
   // This prevents stale closure issues when typing rapidly before React re-renders
   const valueRef = React.useRef(value);
+  const cursorRef = React.useRef(value.length); // Cursor position (0 = start, length = end)
 
-  // Sync ref when prop changes (from external sources like history navigation)
+  // Sync refs when prop changes (from external sources like history navigation)
   React.useEffect(() => {
     valueRef.current = value;
+    cursorRef.current = value.length; // Move cursor to end on external change
   }, [value]);
 
   // Helper to update value - updates ref IMMEDIATELY, then notifies parent
-  const updateValue = (newValue: string) => {
+  const updateValue = (newValue: string, newCursor?: number) => {
     valueRef.current = newValue;  // Update ref synchronously
+    cursorRef.current = newCursor ?? newValue.length; // Default cursor to end
     onChange(newValue);           // Then notify parent (may batch)
+  };
+
+  // Force re-render for cursor position changes (cursor is visual only)
+  const [, forceRender] = React.useState(0);
+  const updateCursor = (pos: number) => {
+    cursorRef.current = Math.max(0, Math.min(pos, valueRef.current.length));
+    forceRender(n => n + 1);
   };
 
   // Handle ALL keyboard input here - single source of input handling
@@ -1206,14 +1216,42 @@ function ChatInput({
 
     // When processing, queue messages instead of submitting directly
     if (isProcessing) {
-      // Allow typing
-      if (key.backspace || key.delete) {
-        updateValue(currentValue.slice(0, -1));
+      const cursor = cursorRef.current;
+
+      // Left/right arrow for cursor movement
+      if (key.leftArrow) {
+        updateCursor(cursor - 1);
+        return;
+      }
+      if (key.rightArrow) {
+        updateCursor(cursor + 1);
+        return;
+      }
+
+      // Backspace deletes character before cursor
+      if (key.backspace && cursor > 0) {
+        const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
+        updateValue(newValue, cursor - 1);
+        return;
+      }
+      // Delete key deletes character at cursor
+      if (key.delete && cursor < currentValue.length) {
+        const newValue = currentValue.slice(0, cursor) + currentValue.slice(cursor + 1);
+        updateValue(newValue, cursor);
         return;
       }
       if (key.ctrl && input === 'u') {
         updateValue('');
         onSetEditingQueueIndex?.(null); // Clear editing state
+        return;
+      }
+      // Ctrl+A to go to start, Ctrl+E to go to end
+      if (key.ctrl && input === 'a') {
+        updateCursor(0);
+        return;
+      }
+      if (key.ctrl && input === 'e') {
+        updateCursor(currentValue.length);
         return;
       }
 
@@ -1297,9 +1335,11 @@ function ChatInput({
         return;
       }
 
-      // Regular input
+      // Regular input - insert at cursor position
       if (input && !key.ctrl && !key.meta && !key.tab) {
-        updateValue(currentValue + input);
+        const cursor = cursorRef.current;
+        const newValue = currentValue.slice(0, cursor) + input + currentValue.slice(cursor);
+        updateValue(newValue, cursor + input.length);
       }
       return;
     }
@@ -1324,15 +1364,42 @@ function ChatInput({
       return;
     }
 
-    // Backspace/Delete
-    if (key.backspace || key.delete) {
-      updateValue(currentValue.slice(0, -1));
+    // Cursor movement with arrow keys
+    const cursor = cursorRef.current;
+    if (key.leftArrow) {
+      updateCursor(cursor - 1);
+      return;
+    }
+    if (key.rightArrow) {
+      updateCursor(cursor + 1);
+      return;
+    }
+
+    // Backspace deletes character before cursor
+    if (key.backspace && cursor > 0) {
+      const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
+      updateValue(newValue, cursor - 1);
+      return;
+    }
+    // Delete key deletes character at cursor
+    if (key.delete && cursor < currentValue.length) {
+      const newValue = currentValue.slice(0, cursor) + currentValue.slice(cursor + 1);
+      updateValue(newValue, cursor);
       return;
     }
 
     // Ctrl+U to clear line
     if (key.ctrl && input === 'u') {
       updateValue('');
+      return;
+    }
+    // Ctrl+A to go to start, Ctrl+E to go to end
+    if (key.ctrl && input === 'a') {
+      updateCursor(0);
+      return;
+    }
+    if (key.ctrl && input === 'e') {
+      updateCursor(currentValue.length);
       return;
     }
 
@@ -1413,16 +1480,17 @@ function ChatInput({
       return;
     }
 
-    // Ignore other control keys, meta, and navigation
-    if (key.ctrl || key.meta || key.leftArrow || key.rightArrow || key.tab) {
+    // Ignore other control keys, meta, and tab
+    if (key.ctrl || key.meta || key.tab) {
       return;
     }
 
-    // Regular character input - append to value
+    // Regular character input - insert at cursor position
     if (input) {
-      const newValue = currentValue + input;
-      log(`-> char "${input}": "${currentValue}" -> "${newValue}"`);
-      updateValue(newValue);
+      const cursorPos = cursorRef.current;
+      const newValue = currentValue.slice(0, cursorPos) + input + currentValue.slice(cursorPos);
+      log(`-> char "${input}": "${currentValue}" -> "${newValue}" cursor=${cursorPos}`);
+      updateValue(newValue, cursorPos + input.length);
     }
   }, {isActive: !disabled});
 
@@ -1453,8 +1521,9 @@ function ChatInput({
       )}
       <Box>
         <Text color={promptColor}>{promptText} </Text>
-        <Text>{value}</Text>
+        <Text>{value.slice(0, cursorRef.current)}</Text>
         <Text color={promptColor}>▌</Text>
+        <Text>{value.slice(cursorRef.current)}</Text>
       </Box>
     </Box>
   );
