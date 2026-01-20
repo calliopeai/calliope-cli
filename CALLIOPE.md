@@ -4,7 +4,7 @@
 
 Calliope CLI is a multi-model AI agent command-line interface that provides autonomous loops, project memory, and advanced tooling. The project enables users to interact with various LLM providers (Claude, Gemini, GPT, and more) from a single elegant interface.
 
-**Current Version:** 0.7.23  
+**Current Version:** 0.8.14  
 **Organization:** Calliope Labs Inc  
 **Repository:** https://github.com/calliopeai/calliope-cli  
 
@@ -91,12 +91,28 @@ Three distinct interaction modes:
 
 ## Recent Development
 
-### Version 0.7.23 Features
-- Interactive session history navigation
-- Debug logging system (CALLIOPE_DEBUG=1)
-- Upgrade system with auto-update prompts
-- Enhanced session selector with scrolling
-- Cost tracking and management
+### Version 0.8.14 (Current)
+- **Pre-request summarization** - Summarizes BEFORE sending if context >= 80%
+- Async debug logging to fix input lag
+- Collapsed consecutive blank lines in responses
+
+### Version 0.8.13
+- **Auto-summarization** - Automatically summarizes context at 85% capacity
+- More conservative token estimation (2.5 chars/token, 35% overhead)
+- 8% context buffer (was 5%) to prevent overflow errors
+
+### Version 0.8.12
+- **Enhanced inline diffs** - Claude Code-style diffs with line numbers
+- Context-aware diff display (normal: 3 lines, compact: 1 line)
+- Summary line showing "Added N lines", "Modified N lines", etc.
+
+### Version 0.8.11
+- Self-spawning sub-agents (`calliope --agterm`)
+- Display density setting (`/density compact`)
+- Reduced whitespace in tool output
+- Input lag fixes (lazy useState initializers)
+- Conservative token estimation (5% buffer)
+- `!msg` prefix for direct send
 
 ### Key Capabilities
 1. **Autonomous Loops:** Self-directed task execution with completion promises

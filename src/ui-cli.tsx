@@ -16,7 +16,7 @@ import { render, Box, Text, useInput, useApp, useStdout, Static } from 'ink';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as config from './config.js';
-import { chat, getAvailableProviders, selectProvider } from './providers.js';
+import { chat, getAvailableProviders, selectProvider, needsSummarization, estimateContextUsage } from './providers.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG, RISK_CONFIG, supportsVision, calculateCost } from './types.js';
 import { getVersion, getLatestVersion, performUpgrade } from './version-check.js';
@@ -411,21 +411,21 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
     case 'assistant': {
       // Render markdown with syntax highlighting
       const rendered = renderMarkdown(msg.content);
-      const lines = rendered.split('\n');
+      // Collapse consecutive blank lines to single blank line
+      const lines = rendered.split('\n').reduce((acc: string[], line, i, arr) => {
+        // Skip if this is a blank line following another blank line
+        if (line === '' && acc.length > 0 && acc[acc.length - 1] === '') {
+          return acc;
+        }
+        acc.push(line);
+        return acc;
+      }, []);
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ Calliope:</Text>
-          <Text> </Text>
-          {lines.map((line, i, arr) => {
-            // Add extra spacing for paragraph breaks (empty lines between content)
-            const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
-            return (
-              <Box key={i} flexDirection="column">
-                <Text><Text color="blue">│</Text> {line}</Text>
-                {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
-              </Box>
-            );
-          })}
+          {lines.map((line, i) => (
+            <Text key={i}><Text color="blue">│</Text> {line}</Text>
+          ))}
         </Box>
       );
     }
@@ -474,8 +474,12 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
         const filePath = isNewFile
           ? header.replace('DIFF:NEW_FILE:', '')
           : header.replace('DIFF:', '');
-        const diffLines = lines.slice(1, 12);
-        const hasMore = lines.length > 12;
+
+        // Find summary line (starts with ⎿)
+        const summaryLine = lines.find(l => l.startsWith('⎿'));
+        const diffStartIdx = summaryLine ? lines.indexOf(summaryLine) + 1 : 1;
+        const diffLines = lines.slice(diffStartIdx, diffStartIdx + 12);
+        const hasMore = lines.length > diffStartIdx + 12;
 
         return (
           <Box flexDirection="column">
@@ -483,15 +487,42 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
               <Text dimColor>├──</Text>
               <Text color="yellow"> {isNewFile ? '(new file)' : '(modified)'}</Text>
             </Text>
+            {summaryLine && (
+              <Text><Text dimColor>│</Text>  <Text dimColor>{summaryLine}</Text></Text>
+            )}
             {diffLines.map((line, i) => {
+              // Check for line number format: "  123 +  content" or "  123 -  content"
+              const lineNumMatch = line.match(/^(\s*\d+)\s*([+-])\s{2}(.*)$/);
+              if (lineNumMatch) {
+                const [, lineNum, prefix, content] = lineNumMatch;
+                const color = prefix === '+' ? 'green' : 'red';
+                return (
+                  <Text key={i}>
+                    <Text dimColor>│</Text>
+                    <Text dimColor>  {lineNum}</Text>
+                    <Text color={color as 'green' | 'red'}> {prefix}</Text>
+                    <Text color={color as 'green' | 'red'}>  {content.substring(0, 70)}</Text>
+                  </Text>
+                );
+              }
+              // Context line with line number: "  123    content"
+              const contextMatch = line.match(/^(\s*\d+)\s{4}(.*)$/);
+              if (contextMatch) {
+                const [, lineNum, content] = contextMatch;
+                return (
+                  <Text key={i}>
+                    <Text dimColor>│  {lineNum}    {content.substring(0, 70)}</Text>
+                  </Text>
+                );
+              }
+              // Fallback for old format or other lines
               let color: string | undefined;
-              if (line.startsWith('+ ')) color = 'green';
-              else if (line.startsWith('- ')) color = 'red';
-              else if (line.startsWith('@@')) color = 'cyan';
+              if (line.includes(' + ') || line.startsWith('+ ')) color = 'green';
+              else if (line.includes(' - ') || line.startsWith('- ')) color = 'red';
               return (
                 <Text key={i}>
                   <Text dimColor>│</Text>
-                  <Text color={color as 'green' | 'red' | 'cyan' | undefined}>  {line.substring(0, 80)}</Text>
+                  <Text color={color as 'green' | 'red' | undefined}>  {line.substring(0, 80)}</Text>
                 </Text>
               );
             })}
@@ -1129,13 +1160,11 @@ function ChatInput({
 }) {
   const workingDir = cwd || process.cwd();
 
-  // Debug logging (set CALLIOPE_DEBUG=1 to enable)
+  // Debug logging (set CALLIOPE_DEBUG=1 to enable) - use async to avoid input lag
   const debug = process.env.CALLIOPE_DEBUG === '1';
-  const log = (msg: string) => {
-    if (debug) {
-      fs.appendFileSync('/tmp/calliope-debug.log', `${new Date().toISOString()} [input] ${msg}\n`);
-    }
-  };
+  const log = debug
+    ? (msg: string) => fs.appendFile('/tmp/calliope-debug.log', `${new Date().toISOString()} [input] ${msg}\n`, () => {})
+    : () => {};
 
   // CRITICAL FIX: Use a ref to track the current value
   // This prevents stale closure issues when typing rapidly before React re-renders
@@ -3619,12 +3648,27 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
         debugLog('chat', 'WAITING for LLM response', `iteration=${i + 1}`);
         // Validate message history to prevent orphaned tool_result errors
-        const validatedMessages = summarization.validateMessageHistory(llmMessages.current);
+        let validatedMessages = summarization.validateMessageHistory(llmMessages.current);
         if (validatedMessages.length !== llmMessages.current.length) {
           debugLog('chat', 'CLEANED orphaned tool results', `removed=${llmMessages.current.length - validatedMessages.length}`);
           llmMessages.current = validatedMessages;
         }
-        const response = await chat(provider, validatedMessages, getTools(moduleAgtermEnabled), effectiveModel, onToken, onRetry);
+
+        // Pre-request summarization check - summarize BEFORE sending if context is too large
+        const tools = getTools(moduleAgtermEnabled);
+        const contextCheck = estimateContextUsage(provider, effectiveModel || DEFAULT_MODELS[provider], validatedMessages, tools);
+        debugLog('chat', 'CONTEXT CHECK', `estimated=${contextCheck.estimated}, limit=${contextCheck.limit}, percent=${contextCheck.percent}%`);
+        if (contextCheck.needsSummarization) {
+          debugLog('chat', 'PRE-REQUEST SUMMARIZING', `estimated=${contextCheck.estimated} >= 80% of ${contextCheck.limit}`);
+          const result = summarization.summarizeConversation(validatedMessages, { maxTokens: Math.floor(contextCheck.limit * 0.6) });
+          if (result.summarizedCount > 0) {
+            llmMessages.current = result.messages;
+            validatedMessages = result.messages;
+            debugLog('chat', 'PRE-SUMMARIZED', `removed=${result.summarizedCount} messages, reduced from ${result.originalTokens} to ${result.reducedTokens}`);
+          }
+        }
+
+        const response = await chat(provider, validatedMessages, tools, effectiveModel, onToken, onRetry);
         debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
 
         // Update token stats and cost
@@ -3638,6 +3682,16 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           }));
           // Persist cost to storage
           storage.recordCost(usageCost, actualProvider, sessionRef.current?.id);
+
+          // Auto-summarize if context is getting too full (85% threshold)
+          if (needsSummarization(provider, model || DEFAULT_MODELS[provider], response.usage.inputTokens)) {
+            debugLog('chat', 'AUTO-SUMMARIZING', `inputTokens=${response.usage.inputTokens}`);
+            const result = summarization.summarizeConversation(llmMessages.current, { maxTokens: 100000 });
+            if (result.summarizedCount > 0) {
+              llmMessages.current = result.messages;
+              debugLog('chat', 'SUMMARIZED', `removed=${result.summarizedCount} messages`);
+            }
+          }
         }
 
         // Handle tool calls with parallel execution support

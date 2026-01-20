@@ -12,6 +12,7 @@ import * as sandbox from './sandbox.js';
 import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
+import config from './config.js';
 
 /**
  * Available tools for the agent
@@ -410,45 +411,64 @@ function generateDiff(oldContent: string, newContent: string, maxLines = 20): st
   const diff: string[] = [];
   const maxIdx = Math.max(oldLines.length, newLines.length);
 
-  let changesFound = 0;
+  // Track statistics
+  let additions = 0;
+  let deletions = 0;
+  let changesShown = 0;
   let contextLines = 0;
-  const contextWindow = 2;
+  // Use density setting: compact = 1 context line, normal = 3
+  const density = config.get('density') || 'normal';
+  const contextWindow = density === 'compact' ? 1 : 3;
+
+  // Compute line number width
+  const lineNumWidth = Math.max(4, maxIdx.toString().length);
+  const padNum = (n: number | string) => String(n).padStart(lineNumWidth, ' ');
 
   for (let i = 0; i < maxIdx; i++) {
     const oldLine = oldLines[i];
     const newLine = newLines[i];
+    const lineNum = i + 1;
 
     if (oldLine === newLine) {
       // Same line - show as context if near a change
       if (contextLines > 0) {
-        diff.push(`  ${newLine || ''}`);
+        diff.push(`${padNum(lineNum)}    ${newLine || ''}`);
         contextLines--;
       }
     } else {
       // Change detected
-      changesFound++;
-      if (changesFound > maxLines) {
+      changesShown++;
+      if (changesShown > maxLines) {
         diff.push('  ... (more changes truncated)');
         break;
       }
 
-      // Add line number marker on first change in region
+      // Add separator for new change region
       if (contextLines === 0 && diff.length > 0) {
-        diff.push(`@@ line ${i + 1} @@`);
+        diff.push('');
       }
 
       if (oldLine !== undefined && i < oldLines.length) {
-        diff.push(`- ${oldLine}`);
+        diff.push(`${padNum(lineNum)} -  ${oldLine}`);
+        deletions++;
       }
       if (newLine !== undefined && i < newLines.length) {
-        diff.push(`+ ${newLine}`);
+        diff.push(`${padNum(lineNum)} +  ${newLine}`);
+        additions++;
       }
 
       contextLines = contextWindow;
     }
   }
 
-  return diff.join('\n');
+  // Add summary header
+  const summary = additions > 0 && deletions > 0
+    ? `Modified ${additions + deletions} lines`
+    : additions > 0
+      ? `Added ${additions} line${additions !== 1 ? 's' : ''}`
+      : `Removed ${deletions} line${deletions !== 1 ? 's' : ''}`;
+
+  return `⎿  ${summary}\n${diff.join('\n')}`;
 }
 
 /**
@@ -482,10 +502,13 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
 
   // Generate diff output
   if (isNewFile) {
-    const lines = content.split('\n').slice(0, 10);
-    const preview = lines.map(l => `+ ${l}`).join('\n');
-    const more = content.split('\n').length > 10 ? '\n  ... (new file truncated)' : '';
-    return `DIFF:NEW_FILE:${absPath}\n${preview}${more}`;
+    const allLines = content.split('\n');
+    const lines = allLines.slice(0, 10);
+    const lineNumWidth = Math.max(4, allLines.length.toString().length);
+    const padNum = (n: number) => String(n).padStart(lineNumWidth, ' ');
+    const preview = lines.map((l, i) => `${padNum(i + 1)} +  ${l}`).join('\n');
+    const more = allLines.length > 10 ? '\n  ... (new file truncated)' : '';
+    return `DIFF:NEW_FILE:${absPath}\n⎿  Added ${allLines.length} lines\n${preview}${more}`;
   } else {
     const diff = generateDiff(oldContent, content);
     if (diff.trim()) {

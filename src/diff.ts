@@ -388,3 +388,100 @@ export function clearChanges(): void {
 export function getChange(id: string): PendingChange | undefined {
   return pendingChanges.find(c => c.id === id);
 }
+
+// ============================================================================
+// Claude Code-style Inline Diff Formatting
+// ============================================================================
+
+export interface InlineDiffOptions {
+  contextLines: number;  // Number of context lines to show (1-5)
+  maxLineWidth: number;  // Max width for line content
+  showLineNumbers: boolean;
+}
+
+const DEFAULT_INLINE_OPTIONS: InlineDiffOptions = {
+  contextLines: 2,
+  maxLineWidth: 80,
+  showLineNumbers: true,
+};
+
+/**
+ * Format a diff for inline display (Claude Code style)
+ * Returns lines ready for display with line numbers
+ */
+export function formatInlineDiff(
+  diff: FileDiff,
+  options: Partial<InlineDiffOptions> = {}
+): { header: string; summary: string; lines: Array<{ prefix: string; lineNum: string; content: string; type: 'context' | 'add' | 'remove' }> } {
+  const opts = { ...DEFAULT_INLINE_OPTIONS, ...options };
+
+  // Compute summary
+  const summary = formatChangeSummary(diff.additions, diff.deletions);
+
+  // Get the max line number width for padding
+  const maxLineNum = Math.max(
+    ...diff.lines.filter(l => l.newLineNum).map(l => l.newLineNum!),
+    ...diff.lines.filter(l => l.oldLineNum).map(l => l.oldLineNum!),
+    1
+  );
+  const lineNumWidth = Math.max(4, maxLineNum.toString().length);
+
+  // Group changes with context
+  const chunks = groupDiffChunks(
+    diff.lines.filter(l => l.type !== 'header'),
+    opts.contextLines
+  );
+
+  // Format lines
+  const formattedLines: Array<{ prefix: string; lineNum: string; content: string; type: 'context' | 'add' | 'remove' }> = [];
+
+  for (const chunk of chunks) {
+    for (const line of chunk) {
+      const lineNum = line.type === 'remove'
+        ? (line.oldLineNum?.toString() || '').padStart(lineNumWidth)
+        : (line.newLineNum?.toString() || '').padStart(lineNumWidth);
+
+      const prefix = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
+      const content = line.content.substring(0, opts.maxLineWidth);
+
+      formattedLines.push({
+        prefix,
+        lineNum,
+        content,
+        type: line.type === 'header' ? 'context' : line.type,
+      });
+    }
+  }
+
+  return {
+    header: diff.path,
+    summary,
+    lines: formattedLines,
+  };
+}
+
+/**
+ * Format change summary string
+ */
+export function formatChangeSummary(additions: number, deletions: number): string {
+  if (additions === 0 && deletions === 0) {
+    return 'No changes';
+  }
+
+  const parts: string[] = [];
+
+  if (additions > 0 && deletions > 0) {
+    return `Modified ${additions + deletions} lines`;
+  } else if (additions > 0) {
+    return `Added ${additions} line${additions !== 1 ? 's' : ''}`;
+  } else {
+    return `Removed ${deletions} line${deletions !== 1 ? 's' : ''}`;
+  }
+}
+
+/**
+ * Create diff from old and new content (convenience function)
+ */
+export function createDiff(oldContent: string, newContent: string, path: string): FileDiff {
+  return generateDiff(oldContent, newContent, path);
+}

@@ -77,8 +77,8 @@ function toOpenAIContent(content: MessageContent): string | OpenAI.Chat.Completi
 // Constants
 const MAX_TOKENS = 8192;
 const MIN_OUTPUT_TOKENS = 1024; // Minimum output tokens to request
-const CONTEXT_BUFFER_PERCENT = 0.05; // 5% of context as safety buffer
-const CONTEXT_BUFFER_MIN = 2000; // Minimum 2k buffer
+const CONTEXT_BUFFER_PERCENT = 0.08; // 8% of context as safety buffer
+const CONTEXT_BUFFER_MIN = 5000; // Minimum 5k buffer
 
 // Debug logging helper
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
@@ -120,9 +120,9 @@ function estimateInputTokens(messages: Message[], tools: Tool[]): number {
     totalChars += JSON.stringify(tools).length;
   }
 
-  // Conservative estimate: 3 characters per token (accounts for subword tokens)
-  // Plus 25% overhead for message structure, system prompt, and formatting
-  return Math.ceil((totalChars / 3) * 1.25);
+  // Very conservative estimate: 2.5 characters per token
+  // Plus 35% overhead for message structure, system prompt, and formatting
+  return Math.ceil((totalChars / 2.5) * 1.35);
 }
 
 /**
@@ -149,6 +149,59 @@ function calculateMaxTokens(
   }
 
   return Math.min(MAX_TOKENS, available);
+}
+
+/**
+ * Check if context needs summarization based on actual token usage
+ * Call this with the input_tokens from the last API response
+ */
+export function needsSummarization(
+  provider: LLMProvider,
+  model: string,
+  actualInputTokens: number
+): boolean {
+  const contextLimit = getModelContextLimit(provider, model);
+  const threshold = contextLimit * 0.85; // Trigger summarization at 85% full
+  return actualInputTokens >= threshold;
+}
+
+/**
+ * Get context health info
+ */
+export function getContextHealth(
+  provider: LLMProvider,
+  model: string,
+  actualInputTokens: number
+): { limit: number; used: number; percent: number; needsSummarization: boolean } {
+  const limit = getModelContextLimit(provider, model);
+  const percent = Math.round((actualInputTokens / limit) * 100);
+  return {
+    limit,
+    used: actualInputTokens,
+    percent,
+    needsSummarization: actualInputTokens >= limit * 0.85,
+  };
+}
+
+/**
+ * Estimate context usage before making a request (for pre-request summarization)
+ * Uses conservative estimation since we don't have actual token counts yet
+ */
+export function estimateContextUsage(
+  provider: LLMProvider,
+  model: string,
+  messages: Message[],
+  tools: Tool[]
+): { estimated: number; limit: number; percent: number; needsSummarization: boolean } {
+  const estimated = estimateInputTokens(messages, tools);
+  const limit = getModelContextLimit(provider, model);
+  const percent = Math.round((estimated / limit) * 100);
+  return {
+    estimated,
+    limit,
+    percent,
+    needsSummarization: estimated >= limit * 0.80, // More aggressive threshold for estimates
+  };
 }
 
 // ============================================================================
