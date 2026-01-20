@@ -481,14 +481,18 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
         const diffLines = lines.slice(diffStartIdx, diffStartIdx + 12);
         const hasMore = lines.length > diffStartIdx + 12;
 
+        // Claude Code style diff display
+        const action = isNewFile ? 'Write' : 'Update';
         return (
           <Box flexDirection="column">
             <Text>
-              <Text dimColor>├──</Text>
-              <Text color="yellow"> {isNewFile ? '(new file)' : '(modified)'}</Text>
+              <Text color="cyan">{action}</Text>
+              <Text dimColor>(</Text>
+              <Text>{filePath}</Text>
+              <Text dimColor>)</Text>
             </Text>
             {summaryLine && (
-              <Text><Text dimColor>│</Text>  <Text dimColor>{summaryLine}</Text></Text>
+              <Text>  <Text dimColor>{summaryLine}</Text></Text>
             )}
             {diffLines.map((line, i) => {
               // Check for line number format: "  123 +  content" or "  123 -  content"
@@ -498,8 +502,7 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
                 const color = prefix === '+' ? 'green' : 'red';
                 return (
                   <Text key={i}>
-                    <Text dimColor>│</Text>
-                    <Text dimColor>  {lineNum}</Text>
+                    <Text dimColor>      {lineNum}</Text>
                     <Text color={color as 'green' | 'red'}> {prefix}</Text>
                     <Text color={color as 'green' | 'red'}>  {content.substring(0, 70)}</Text>
                   </Text>
@@ -511,7 +514,7 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
                 const [, lineNum, content] = contextMatch;
                 return (
                   <Text key={i}>
-                    <Text dimColor>│  {lineNum}    {content.substring(0, 70)}</Text>
+                    <Text dimColor>      {lineNum}    {content.substring(0, 70)}</Text>
                   </Text>
                 );
               }
@@ -521,13 +524,11 @@ function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSet
               else if (line.includes(' - ') || line.startsWith('- ')) color = 'red';
               return (
                 <Text key={i}>
-                  <Text dimColor>│</Text>
-                  <Text color={color as 'green' | 'red' | undefined}>  {line.substring(0, 80)}</Text>
+                  <Text color={color as 'green' | 'red' | undefined}>      {line.substring(0, 80)}</Text>
                 </Text>
               );
             })}
-            {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>...</Text></Text>}
-            <Text><Text dimColor>╰─</Text> <Text color="green">✓</Text> <Text dimColor>{filePath}</Text></Text>
+            {hasMore && <Text dimColor>      ...</Text>}
           </Box>
         );
       }
