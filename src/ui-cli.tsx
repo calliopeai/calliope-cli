@@ -1170,17 +1170,23 @@ function ChatInput({
   // This prevents stale closure issues when typing rapidly before React re-renders
   const valueRef = React.useRef(value);
   const cursorRef = React.useRef(value.length); // Cursor position (0 = start, length = end)
+  const internalChangeRef = React.useRef(false); // Track if change was from typing
 
   // Sync refs when prop changes (from external sources like history navigation)
   React.useEffect(() => {
-    valueRef.current = value;
-    cursorRef.current = value.length; // Move cursor to end on external change
+    // Only reset cursor if change was external (not from our own typing)
+    if (!internalChangeRef.current) {
+      valueRef.current = value;
+      cursorRef.current = value.length; // Move cursor to end on external change
+    }
+    internalChangeRef.current = false;
   }, [value]);
 
   // Helper to update value - updates ref IMMEDIATELY, then notifies parent
   const updateValue = (newValue: string, newCursor?: number) => {
     valueRef.current = newValue;  // Update ref synchronously
     cursorRef.current = newCursor ?? newValue.length; // Default cursor to end
+    internalChangeRef.current = true; // Mark as internal change
     onChange(newValue);           // Then notify parent (may batch)
   };
 
