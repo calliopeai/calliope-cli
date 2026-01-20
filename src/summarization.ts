@@ -357,34 +357,59 @@ export class ConversationSummarizer {
 // ============================================================================
 
 /**
- * Validate and clean message history to ensure tool_result messages
- * have corresponding tool_use in the previous message.
- * This prevents API errors from orphaned tool results.
+ * Validate and clean message history to ensure:
+ * 1. Every tool_result has a corresponding tool_use in the previous assistant message
+ * 2. Every tool_use has corresponding tool_result(s) immediately following
+ * This prevents API errors from orphaned tool calls or results.
  */
 export function validateMessageHistory(messages: LLMMessage[]): LLMMessage[] {
+  // First pass: collect all tool_result IDs in the conversation
+  const toolResultIds = new Set<string>();
+  for (const msg of messages) {
+    if (msg.role === 'tool') {
+      const toolCallId = (msg as { toolCallId?: string }).toolCallId;
+      if (toolCallId) {
+        toolResultIds.add(toolCallId);
+      }
+    }
+  }
+
+  // Second pass: build cleaned array, ensuring tool_use/tool_result pairs are complete
   const cleaned: LLMMessage[] = [];
-  const validToolIds = new Set<string>();
+  const pendingToolIds = new Set<string>();
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
 
-    if (msg.role === 'assistant' && msg.toolCalls) {
-      // Track valid tool IDs from this assistant message
-      validToolIds.clear();
-      for (const tool of msg.toolCalls) {
-        validToolIds.add(tool.id);
-      }
-      cleaned.push(msg);
-    } else if (msg.role === 'tool') {
-      // Only include tool results with valid tool IDs
-      const toolCallId = (msg as { toolCallId?: string }).toolCallId;
-      if (toolCallId && validToolIds.has(toolCallId)) {
+    if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
+      // Check if ALL tool calls have corresponding results somewhere after
+      const allHaveResults = msg.toolCalls.every(tool => toolResultIds.has(tool.id));
+
+      if (allHaveResults) {
+        // Track these tool IDs as valid for upcoming tool results
+        pendingToolIds.clear();
+        for (const tool of msg.toolCalls) {
+          pendingToolIds.add(tool.id);
+        }
         cleaned.push(msg);
+      } else {
+        // This assistant message has orphaned tool_use - strip the toolCalls but keep content
+        if (msg.content && typeof msg.content === 'string' && msg.content.trim()) {
+          cleaned.push({ role: 'assistant', content: msg.content });
+        }
+        pendingToolIds.clear();
+      }
+    } else if (msg.role === 'tool') {
+      // Only include tool results with valid pending tool IDs
+      const toolCallId = (msg as { toolCallId?: string }).toolCallId;
+      if (toolCallId && pendingToolIds.has(toolCallId)) {
+        cleaned.push(msg);
+        pendingToolIds.delete(toolCallId);
       }
       // Skip orphaned tool results silently
     } else {
-      // Non-tool messages clear the valid tool IDs
-      validToolIds.clear();
+      // Non-tool messages clear pending tool IDs
+      pendingToolIds.clear();
       cleaned.push(msg);
     }
   }
