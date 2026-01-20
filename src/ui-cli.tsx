@@ -992,6 +992,7 @@ const SLASH_COMMANDS = [
   '/status', '/s',
   '/config',
   '/set',
+  '/layout',
   '/collapse',
   '/scope',
   '/add-dir',
@@ -1994,6 +1995,7 @@ function TerminalChat() {
   /search <query>          - Search conversation
   /status                  - Show status
   /config                  - Show config
+  /layout [name]           - Switch UI layout (classic/split/etc)
   /collapse [tools|all|off] - Collapse/expand tool output
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
@@ -2285,6 +2287,35 @@ Available keys:
       case '/setup':
         addMessage('system', 'Run `calliope --setup` to reconfigure.');
         break;
+
+      case '/layout': {
+        // /layout [classic|response-top|response-bottom|split]
+        const layoutArg = parts[1] as 'classic' | 'response-top' | 'response-bottom' | 'split' | undefined;
+        const currentLayout = config.get('layout') || 'response-bottom';
+
+        if (!layoutArg) {
+          addMessage('system', `Current layout: ${currentLayout}
+
+Available layouts:
+  classic        - Everything in chronological order
+  response-top   - Calliope response at top, tools below
+  response-bottom - Tools at top, response at bottom (default)
+  split          - Side by side: tools left, response right
+
+Usage: /layout <name>`);
+          break;
+        }
+
+        const validLayouts = ['classic', 'response-top', 'response-bottom', 'split'];
+        if (!validLayouts.includes(layoutArg)) {
+          addMessage('error', `Invalid layout. Choose: ${validLayouts.join(', ')}`);
+          break;
+        }
+
+        config.set('layout', layoutArg);
+        addMessage('system', `✓ Layout set to: ${layoutArg}`);
+        break;
+      }
 
       case '/collapse': {
         // /collapse [tools|thinking|all|off] [limit N]
@@ -4113,37 +4144,83 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     });
   }, [addMessage, runAgent]);
 
-  // Render
-  return (
-    <Box flexDirection="column" width={width}>
-      {/* Message History - tool calls scroll here at top */}
-      <MessageHistory messages={messages} />
+  // Get layout preference
+  const layout = config.get('layout') || 'response-bottom';
 
-      {/* Thinking Display / Processing Indicator */}
+  // Streaming response component (reused across layouts)
+  const StreamingResponseBox = streamingResponse ? (
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Text color="cyan">✧ Calliope:</Text>
+      <Text> </Text>
+      {streamingResponse.split('\n').map((line, i, arr) => {
+        const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
+        return (
+          <Box key={i} flexDirection="column">
+            <Text><Text color="blue">│</Text> {line}</Text>
+            {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
+          </Box>
+        );
+      })}
+      <Text color="blue">│</Text>
+      <Text color="cyan">▌</Text>
+    </Box>
+  ) : null;
+
+  // Thinking/Processing indicator component
+  const ProcessingBox = (
+    <>
       {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
       {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
+      {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
+    </>
+  );
 
-      {/* Streaming Response - at bottom for always-visible reading */}
-      {streamingResponse && (
-        <Box flexDirection="column" marginTop={1} marginBottom={1}>
-          <Text color="cyan">✧ Calliope:</Text>
-          <Text> </Text>
-          {streamingResponse.split('\n').map((line, i, arr) => {
-            // Add extra spacing for paragraph breaks (empty lines between content)
-            const isParagraphBreak = line === '' && i > 0 && i < arr.length - 1;
-            return (
-              <Box key={i} flexDirection="column">
-                <Text><Text color="blue">│</Text> {line}</Text>
-                {isParagraphBreak && <Text><Text color="blue">│</Text></Text>}
-              </Box>
-            );
-          })}
-          <Text color="blue">│</Text>
-          <Text color="cyan">▌</Text>
+  // Render based on layout
+  return (
+    <Box flexDirection="column" width={width}>
+      {/* Split layout: side by side */}
+      {layout === 'split' && (
+        <Box flexDirection="row" width={width}>
+          {/* Left: Tools/History */}
+          <Box flexDirection="column" width="50%">
+            <Text color="yellow" dimColor>─ Tools ─</Text>
+            <MessageHistory messages={messages} />
+            {ProcessingBox}
+          </Box>
+          {/* Right: Response */}
+          <Box flexDirection="column" width="50%" borderStyle="single" borderLeft borderColor="gray">
+            <Text color="cyan" dimColor>─ Response ─</Text>
+            {StreamingResponseBox}
+          </Box>
         </Box>
       )}
-      {/* Show activity indicator during streaming so user knows what's happening */}
-      {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
+
+      {/* Classic layout: chronological */}
+      {layout === 'classic' && (
+        <>
+          <MessageHistory messages={messages} />
+          {ProcessingBox}
+          {StreamingResponseBox}
+        </>
+      )}
+
+      {/* Response-top layout */}
+      {layout === 'response-top' && (
+        <>
+          {StreamingResponseBox}
+          <MessageHistory messages={messages} />
+          {ProcessingBox}
+        </>
+      )}
+
+      {/* Response-bottom layout (default) */}
+      {layout === 'response-bottom' && (
+        <>
+          <MessageHistory messages={messages} />
+          {ProcessingBox}
+          {StreamingResponseBox}
+        </>
+      )}
 
       {/* Debug overlay when debug mode is enabled */}
       {debugEnabled && (

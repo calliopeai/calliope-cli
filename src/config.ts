@@ -57,6 +57,7 @@ export interface CalliopeConfig {
   collapseTools: boolean;      // Auto-collapse tool output
   collapseThinking: boolean;   // Auto-collapse think blocks
   toolDisplayLimit: number;    // Show last N tools expanded, rest collapsed (0 = all expanded)
+  layout: 'classic' | 'response-top' | 'response-bottom' | 'split';  // UI layout preference
 
   // Profiles
   profiles?: Record<string, Profile>;
@@ -74,6 +75,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   collapseTools: false,
   collapseThinking: false,
   toolDisplayLimit: 0,  // 0 = show all expanded
+  layout: 'response-bottom',  // Default: tools scroll up, response at bottom
 };
 
 // Create config store
@@ -106,6 +108,7 @@ const config = new Conf<CalliopeConfig>({
     collapseTools: { type: 'boolean' },
     collapseThinking: { type: 'boolean' },
     toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
+    layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split'] },
   },
 });
 
