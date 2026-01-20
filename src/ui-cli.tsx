@@ -1222,7 +1222,10 @@ function ChatInput({
 
     // When processing, queue messages instead of submitting directly
     if (isProcessing) {
-      const cursor = cursorRef.current;
+      // Ensure cursor is valid
+      let cursor = cursorRef.current;
+      if (cursor > currentValue.length) cursor = currentValue.length;
+      if (cursor < 0) cursor = 0;
 
       // Left/right arrow for cursor movement
       if (key.leftArrow) {
@@ -1234,10 +1237,15 @@ function ChatInput({
         return;
       }
 
-      // Backspace deletes character before cursor
-      if (key.backspace && cursor > 0) {
-        const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
-        updateValue(newValue, cursor - 1);
+      // Backspace - support key.backspace, Ctrl+H, and raw chars
+      const isBackspace = key.backspace || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
+      if (isBackspace) {
+        if (cursor > 0) {
+          const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
+          updateValue(newValue, cursor - 1);
+        } else if (currentValue.length > 0) {
+          updateValue(currentValue.slice(0, -1), currentValue.length - 1);
+        }
         return;
       }
       // Delete key deletes character at cursor
@@ -1371,7 +1379,11 @@ function ChatInput({
     }
 
     // Cursor movement with arrow keys
-    const cursor = cursorRef.current;
+    // Ensure cursor is valid (might be out of sync)
+    let cursor = cursorRef.current;
+    if (cursor > currentValue.length) cursor = currentValue.length;
+    if (cursor < 0) cursor = 0;
+
     if (key.leftArrow) {
       updateCursor(cursor - 1);
       return;
@@ -1381,10 +1393,17 @@ function ChatInput({
       return;
     }
 
-    // Backspace deletes character before cursor
-    if (key.backspace && cursor > 0) {
-      const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
-      updateValue(newValue, cursor - 1);
+    // Backspace deletes character before cursor (or from end if cursor is 0 but there's text)
+    // Support both key.backspace and Ctrl+H (ASCII backspace) and raw backspace char
+    const isBackspace = key.backspace || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
+    if (isBackspace) {
+      if (cursor > 0) {
+        const newValue = currentValue.slice(0, cursor - 1) + currentValue.slice(cursor);
+        updateValue(newValue, cursor - 1);
+      } else if (currentValue.length > 0) {
+        // Fallback: delete from end if cursor is somehow at 0
+        updateValue(currentValue.slice(0, -1), currentValue.length - 1);
+      }
       return;
     }
     // Delete key deletes character at cursor
