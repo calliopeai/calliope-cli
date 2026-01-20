@@ -1751,17 +1751,18 @@ function TerminalChat() {
   }, [inputHistory]);
 
   // Config state
-  const [provider, setProvider] = useState<LLMProvider>(config.get('defaultProvider'));
-  const [model, setModel] = useState<string | undefined>(config.get('defaultModel'));
-  const [persona, setPersona] = useState<AgentPersona>(config.get('persona'));
+  // Use lazy initializers to avoid calling config.get() on every render
+  const [provider, setProvider] = useState<LLMProvider>(() => config.get('defaultProvider'));
+  const [model, setModel] = useState<string | undefined>(() => config.get('defaultModel'));
+  const [persona, setPersona] = useState<AgentPersona>(() => config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
-  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split'>(config.get('layout') || 'response-bottom');
-  const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>({
+  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split'>(() => config.get('layout') || 'response-bottom');
+  const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>(() => ({
     collapseTools: config.get('collapseTools') ?? false,
     collapseThinking: config.get('collapseThinking') ?? false,
     toolDisplayLimit: config.get('toolDisplayLimit') ?? 0,
-  });
+  }));
 
   // Modal state
   const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions'>('none');
