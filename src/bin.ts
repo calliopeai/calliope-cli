@@ -6,10 +6,44 @@
  * Run `calliope` to start an interactive session.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
 import { runSetup } from './setup.js';
 import * as config from './config.js';
 import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
 import { colors } from './styles.js';
+
+// Load .env / cli.env files (dotenv-style, no dependency)
+function loadEnvFile(filePath: string): void {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const content = fs.readFileSync(filePath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      // Strip optional "export " prefix
+      const assignment = trimmed.replace(/^export\s+/, '');
+      const eqIndex = assignment.indexOf('=');
+      if (eqIndex === -1) continue;
+      const key = assignment.slice(0, eqIndex).trim();
+      let value = assignment.slice(eqIndex + 1).trim();
+      // Strip surrounding quotes
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      // Don't overwrite existing env vars
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Silently ignore unreadable env files
+  }
+}
+
+// Check for env files in cwd and home directory (cwd takes priority)
+loadEnvFile(path.join(process.cwd(), '.env'));
+loadEnvFile(path.join(process.cwd(), 'cli.env'));
 
 // Handle CLI flags
 const args = process.argv.slice(2);
