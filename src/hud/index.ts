@@ -7,7 +7,7 @@
 // Types
 export type {
   BoxChars, Skin, PaletteColors, SemanticColorKey, Palette, HUDConfig,
-  SkinIcons, SkinSplash, SkinFrame, SkinAnimations,
+  SkinIcons, SkinSplash, SkinFrame, SkinAnimations, SkinTransition,
 } from './types.js';
 
 // Data

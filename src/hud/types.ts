@@ -108,6 +108,23 @@ export interface SkinSplash {
   entryAnimation?: 'none' | 'typewriter' | 'fade-in' | 'scan-lines' | 'drop-in';
   /** Animation speed in ms per frame/line */
   animationSpeed?: number;
+  /** Full-screen transition effect when switching to this theme */
+  transition?: SkinTransition;
+}
+
+export interface SkinTransition {
+  /** Named transition effect */
+  effect: 'none' | 'fade-in' | 'fade' | 'scan-lines' | 'drop-in' | 'digital-rain'
+    | 'matrix-rain' | 'warp-speed' | 'glitch' | 'terminal-boot'
+    | 'pixel-dissolve' | 'sparkle' | 'rainbow-wave' | 'static-noise';
+  /** Duration in ms (default 1500) */
+  duration?: number;
+  /** Primary color for the transition (hex) */
+  color?: string;
+  /** Secondary color for dual-tone effects (hex) */
+  colorSecondary?: string;
+  /** Characters used in the effect (e.g. katakana for matrix, stars for sparkle) */
+  chars?: string;
 }
 
 export interface SkinFrame {

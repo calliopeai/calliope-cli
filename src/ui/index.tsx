@@ -23,7 +23,7 @@ import * as summarization from '../summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
 import { getCurrentSkin, getCurrentPalette, paletteColorize, applySkin, applyPalette } from '../hud.js';
-import { renderColoredBanner, renderSplashAnimation, colorFg } from '../terminal-image.js';
+import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
 import { HUDFrame } from './frame.js';
 import { getCurrentCompanion, applyCompanion } from '../companions.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
@@ -996,6 +996,11 @@ export async function printBanner(): Promise<void> {
 
   const dim = '\x1b[2m';
   const reset = '\x1b[0m';
+
+  // Run theme transition on startup if configured
+  if (skin.splash?.transition && skin.splash.transition.effect !== 'none') {
+    await renderTransition(skin.splash.transition);
+  }
 
   if (skin.banner.style === 'none') {
     // No banner

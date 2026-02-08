@@ -27,8 +27,8 @@ import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../sma
 import type { SmartRoutingConfig } from '../smart-router.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
-import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg } from '../terminal-image.js';
-import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
+import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
+import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/index.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent, ToolCall } from '../types.js';
@@ -1090,6 +1090,11 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         output += '\nUse: /pack <name>';
         ctx.addMessage('system', output);
       } else {
+        // Run theme transition animation before applying
+        const targetPack = getThemePack(subCmd);
+        if (targetPack?.skin.splash?.transition) {
+          await renderTransition(targetPack.skin.splash.transition);
+        }
         const success = applyThemePack(subCmd, getCompanionMode());
         if (success) {
           const pack = getCurrentPack()!;

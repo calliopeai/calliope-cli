@@ -52,6 +52,33 @@ export const CLEAN_PACK: ThemePack = {
       wordDiff: false,
       header: 'action',
     },
+    icons: {
+      shell: '▸',
+      read_file: '◦',
+      write_file: '◆',
+      list_files: '○',
+      think: '·',
+      execute_code: '▹',
+      web_search: '◇',
+      git: '◈',
+      spawn_agent: '+',
+    },
+    frame: {
+      enabled: false,
+      style: 'none',
+    },
+    splash: {
+      coloredArt: [],
+      entryAnimation: 'none',
+      animationSpeed: 0,
+      transition: {
+        effect: 'none',
+      },
+    },
+    animations: {
+      ambient: 'none',
+      thinkingSpinner: ['·', '··', '···', '··'],
+    },
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'default',
