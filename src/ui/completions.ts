@@ -84,6 +84,7 @@ export const SLASH_COMMANDS = [
   '/restore',
   '/approve',
   '/sandbox',
+  '/banner',
 ];
 
 // Commands that take a path argument (for file tab completion)

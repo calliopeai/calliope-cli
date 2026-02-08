@@ -27,6 +27,7 @@ import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../sma
 import type { SmartRoutingConfig } from '../smart-router.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
+import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg } from '../terminal-image.js';
 import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
@@ -182,6 +183,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /collapse [tools|all|off]  - Tool output visibility
   /intensity [1-5]           - Immersion level
   /emoji [on|off]            - Toggle emoji
+  /banner                    - Show skin banner art
 
 --- Tools & Integration ---
   /mcp [add|remove|tools]    - MCP servers
@@ -433,9 +435,11 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     }
 
     case '/status':
-    case '/s':
-      ctx.addMessage('system', `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens`);
+    case '/s': {
+      const imgInfo = getTerminalImageInfo();
+      ctx.addMessage('system', `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`);
       break;
+    }
 
     case '/config':
       ctx.addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
@@ -1017,6 +1021,21 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           ctx.addMessage('error', `Companion not found: ${subCmd}. Available: ${listCompanions().map((c: { name: string }) => c.name).join(', ')}`);
         }
       }
+      break;
+    }
+
+    case '/banner': {
+      const bannerSkin = getCurrentSkin();
+      const bannerPalette = getCurrentPalette();
+      const bannerColor = bannerPalette.colors.primary;
+      const imgInfo = getTerminalImageInfo();
+      const rendered = renderSkinBanner(
+        bannerSkin.banner.art,
+        bannerColor,
+        bannerSkin.banner.tagline ?? undefined,
+        imgInfo.mode,
+      );
+      ctx.addMessage('system', `${rendered}\n\nSkin: ${bannerSkin.name} | Terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''}`);
       break;
     }
 
