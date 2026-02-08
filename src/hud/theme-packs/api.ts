@@ -9,7 +9,7 @@ import type { ThemePack, ThemeCategory } from './types.js';
 import { THEME_PACKS } from './index.js';
 import { SKINS } from '../skins.js';
 import { PALETTES } from '../palettes.js';
-import { applySkin, applyPalette } from '../api.js';
+import { applySkin, applyPalette, getCurrentSkin } from '../api.js';
 import { COMPANIONS, applyCompanion } from '../../companions.js';
 
 // ============================================================================
@@ -52,7 +52,6 @@ export function applyThemePack(
 export function setCompanionMode(mode: 'professional' | 'immersive'): boolean {
   if (!currentPack) {
     // Try to find a pack matching the current skin
-    const { getCurrentSkin } = require('../api.js');
     const skin = getCurrentSkin();
     const pack = Object.values(THEME_PACKS).find(p => p.skin.name === skin.name);
     if (!pack) return false;

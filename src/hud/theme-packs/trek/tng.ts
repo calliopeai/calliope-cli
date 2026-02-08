@@ -48,6 +48,42 @@ export const TNG_PACK: ThemePack = {
       wordDiff: false,
       header: 'action',
     },
+    icons: {
+      shell: '\u25B8',       // ▸
+      read_file: '\u25BA',   // ►
+      write_file: '\u25B6',  // ▶
+      list_files: '\u25A0',  // ■
+      think: '\u25C9',       // ◉
+      execute_code: '\u25B8',// ▸
+      web_search: '\u25C8',  // ◈
+      git: '\u25CF',         // ●
+      spawn_agent: '\u25C6', // ◆
+    },
+    frame: {
+      enabled: true,
+      style: 'full',
+      titleBar: {
+        enabled: true,
+        position: 'top',
+        content: 'custom',
+        customText: 'LCARS \u2502 USS ENTERPRISE NCC-1701-D',
+        alignment: 'left',
+      },
+    },
+    splash: {
+      coloredArt: [
+        { text: '  \u256D\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2578\u256D\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256E\u257A\u2501\u2501\u2501\u256E', color: '#CC9900' },
+        { text: '  \u2503 LCARS  \u2502  USS ENTERPRISE NCC-1701-D \u2502     \u2503', color: '#FFCC00' },
+        { text: '  \u2503 47988  \u2502  ALL SYSTEMS NOMINAL      \u2502     \u2503', color: '#CC6666' },
+        { text: '  \u2570\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2579\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256F\u2578\u2501\u2501\u2501\u256F', color: '#6688CC' },
+      ],
+      entryAnimation: 'scan-lines',
+      animationSpeed: 100,
+    },
+    animations: {
+      ambient: 'scan-line',
+      thinkingSpinner: ['\u25B8', '\u25B9', '\u25BA', '\u25B9', '\u25B8', '\u25C2', '\u25C3', '\u25C2'],
+    },
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'trek-tng',

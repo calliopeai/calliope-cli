@@ -46,6 +46,45 @@ export const MATRIX_PACK: ThemePack = {
       wordDiff: true,
       header: 'hunk',
     },
+    icons: {
+      shell: '\u25C8',       // ◈
+      read_file: '\u25C6',   // ◆
+      write_file: '\u25C7',  // ◇
+      list_files: '\u25A3',  // ▣
+      think: '\u25CE',       // ◎
+      execute_code: '\u25B8',// ▸
+      web_search: '\u25D0',  // ◐
+      git: '\u25C9',         // ◉
+      spawn_agent: '\u25CA', // ◊
+    },
+    frame: {
+      enabled: true,
+      style: 'sides',
+      titleBar: {
+        enabled: true,
+        position: 'top',
+        content: 'custom',
+        customText: '\u2503 THE MATRIX \u2503',
+        alignment: 'center',
+      },
+    },
+    splash: {
+      coloredArt: [
+        { text: '                                                  ', color: '#003300' },
+        { text: '  \u30DE\u30C8\u30EA\u30AF\u30B9  C A L L I O P E  \u30DE\u30C8\u30EA\u30AF\u30B9', color: '#00FF00' },
+        { text: '                                                  ', color: '#003300' },
+        { text: '         Wake up, Neo...                          ', color: '#00AA00' },
+        { text: '         The Matrix has you.                      ', color: '#008800' },
+        { text: '         Follow the white rabbit.                 ', color: '#006600' },
+        { text: '                                                  ', color: '#003300' },
+      ],
+      entryAnimation: 'typewriter',
+      animationSpeed: 40,
+    },
+    animations: {
+      ambient: 'digital-rain',
+      thinkingSpinner: ['\u30DE', '\u30C8', '\u30EA', '\u30AF', '\u30B9', '\u25C6', '\u25C7', '\u25C8'],
+    },
     density: 'compact',
     responsive: { compact: 60, wide: 120 },
     defaultPalette: 'neon',

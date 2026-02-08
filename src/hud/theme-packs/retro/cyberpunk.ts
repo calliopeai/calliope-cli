@@ -47,6 +47,43 @@ export const CYBERPUNK_PACK: ThemePack = {
       wordDiff: true,
       header: 'action',
     },
+    icons: {
+      shell: '\u2261',       // ≡
+      read_file: '\u2302',   // ⌂
+      write_file: '\u2310',  // ⌐
+      list_files: '\u2592',  // ▒
+      think: '\u2318',       // ⌘
+      execute_code: '\u25B7',// ▷
+      web_search: '\u2299',  // ⊙
+      git: '\u2388',         // ⎈
+      spawn_agent: '\u2316', // ⌖
+    },
+    frame: {
+      enabled: true,
+      style: 'full',
+      titleBar: {
+        enabled: true,
+        position: 'top',
+        content: 'custom',
+        customText: 'NEURAL INTERFACE // JACKED IN',
+        alignment: 'center',
+      },
+    },
+    splash: {
+      coloredArt: [
+        { text: '  \u250F\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2513', color: '#FF00FF' },
+        { text: '  \u2503  C.A.L.L.I.O.P.E              \u2503', color: '#00FFFF' },
+        { text: '  \u2503  NEURAL INTERFACE v0.9         \u2503', color: '#FF00FF' },
+        { text: '  \u2503  STATUS: ONLINE                \u2503', color: '#00FF00' },
+        { text: '  \u2517\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u251B', color: '#FF00FF' },
+      ],
+      entryAnimation: 'fade-in',
+      animationSpeed: 60,
+    },
+    animations: {
+      ambient: 'pulse-border',
+      processingSpinner: ['\u2588', '\u2593', '\u2592', '\u2591', '\u2592', '\u2593'],
+    },
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'neon',

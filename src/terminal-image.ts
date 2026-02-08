@@ -261,6 +261,139 @@ export function renderSkinBanner(
 }
 
 /**
+ * Render a skin's banner using coloredArt from splash config.
+ * Each line gets its own hex color. Falls back to single-color rendering.
+ *
+ * @param coloredArt - Array of {text, color} objects
+ * @param tagline - Optional tagline
+ * @param mode - Override image mode detection
+ */
+export function renderColoredBanner(
+  coloredArt: Array<{ text: string; color: string }>,
+  tagline?: string,
+  mode?: ImageMode,
+): string {
+  const m = mode ?? detectBestMode();
+  const lines: string[] = [];
+  const isUnicode = m !== 'ascii' && m !== 'none';
+
+  // Determine max width from art
+  const artWidths = coloredArt.map(line => stripAnsi(line.text).length);
+  const maxArtWidth = Math.max(...artWidths, 30);
+  const frameWidth = maxArtWidth + 4;
+
+  const h = isUnicode ? '\u2500' : '-';
+  const v = isUnicode ? '\u2502' : '|';
+  const tl = isUnicode ? '\u256D' : '+';
+  const tr = isUnicode ? '\u256E' : '+';
+  const bl = isUnicode ? '\u2570' : '+';
+  const br = isUnicode ? '\u256F' : '+';
+
+  // Use the first line's color for the frame, or white
+  const frameColor = coloredArt[0]?.color;
+  const applyFrame = (text: string) => frameColor ? colorFg(text, frameColor) : text;
+
+  // Top frame
+  lines.push(applyFrame(`${tl}${h.repeat(frameWidth)}${tr}`));
+  lines.push(applyFrame(`${v}${' '.repeat(frameWidth)}${v}`));
+
+  // Art lines with per-line color
+  for (const { text, color } of coloredArt) {
+    const visLen = stripAnsi(text).length;
+    const totalPad = frameWidth - visLen;
+    const padL = Math.floor(totalPad / 2);
+    const padR = totalPad - padL;
+    lines.push(applyFrame(v) + ' '.repeat(padL) + colorFg(text, color) + ' '.repeat(padR) + applyFrame(v));
+  }
+
+  lines.push(applyFrame(`${v}${' '.repeat(frameWidth)}${v}`));
+
+  if (tagline) {
+    const tagVisLen = tagline.length;
+    const totalPad = frameWidth - tagVisLen;
+    const padL = Math.floor(totalPad / 2);
+    const padR = totalPad - padL;
+    lines.push(applyFrame(v) + ' '.repeat(padL) + dim(tagline) + ' '.repeat(padR) + applyFrame(v));
+    lines.push(applyFrame(`${v}${' '.repeat(frameWidth)}${v}`));
+  }
+
+  lines.push(applyFrame(`${bl}${h.repeat(frameWidth)}${br}`));
+
+  return lines.join('\n');
+}
+
+/**
+ * Render a splash animation to stdout (pre-Ink, raw terminal output).
+ * Returns a promise that resolves when animation completes.
+ * Skippable by any keypress if process.stdin is available.
+ */
+export async function renderSplashAnimation(
+  art: string[],
+  animation: 'typewriter' | 'fade-in' | 'scan-lines' | 'drop-in',
+  speed: number = 50,
+  color?: string,
+): Promise<void> {
+  const applyColor = (text: string) => color ? colorFg(text, color) : text;
+
+  switch (animation) {
+    case 'scan-lines': {
+      // Reveal line by line from top
+      for (const line of art) {
+        console.log(applyColor(line));
+        await delay(speed);
+      }
+      break;
+    }
+
+    case 'typewriter': {
+      // Type each line character by character
+      for (const line of art) {
+        const colored = applyColor(line);
+        process.stdout.write(colored);
+        process.stdout.write('\n');
+        await delay(speed);
+      }
+      break;
+    }
+
+    case 'fade-in': {
+      // Show dim first, then bright
+      const dimCode = '\x1b[2m';
+      const resetCode = '\x1b[0m';
+
+      // First pass: dim
+      const dimLines: string[] = [];
+      for (const line of art) {
+        const dimLine = `${dimCode}${line}${resetCode}`;
+        dimLines.push(dimLine);
+        console.log(dimLine);
+      }
+      await delay(speed * 3);
+
+      // Move cursor up and overwrite with bright
+      process.stdout.write(`\x1b[${art.length}A`);
+      for (const line of art) {
+        console.log(applyColor(line));
+      }
+      break;
+    }
+
+    case 'drop-in': {
+      // Lines appear one at a time with a slight bounce effect
+      for (const line of art) {
+        console.log(applyColor(line));
+        await delay(speed);
+      }
+      break;
+    }
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
  * Get a human-readable label for an image mode.
  */
 export function getImageModeLabel(mode: ImageMode): string {

@@ -53,6 +53,52 @@ export const ZELDA_PACK: ThemePack = {
       wordDiff: false,
       header: 'action',
     },
+    icons: {
+      shell: '\u2694',       // ⚔
+      read_file: '\u{1F4DC}',// 📜
+      write_file: '\u270E',  // ✎
+      list_files: '\u{1F5FA}',// 🗺
+      think: '\u2728',       // ✨
+      execute_code: '\u25B6', // ▶
+      web_search: '\u{1F52E}',// 🔮
+      git: '\u{1F503}',      // 🔃
+      spawn_agent: '\u{1F9DD}',// 🧝
+    },
+    frame: {
+      enabled: true,
+      style: 'full',
+      titleBar: {
+        enabled: true,
+        position: 'top',
+        content: 'custom',
+        customText: '\u25B3 HYRULE TERMINAL \u25B3',
+        alignment: 'center',
+      },
+      cornerDecor: {
+        topLeft: '\u25B3',
+        topRight: '\u25B3',
+        bottomLeft: '\u25BD',
+        bottomRight: '\u25BD',
+      },
+    },
+    splash: {
+      coloredArt: [
+        { text: '  \u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557', color: '#FFD700' },
+        { text: '  \u2551              /\\                           \u2551', color: '#228B22' },
+        { text: '  \u2551             /  \\        C A L L I O P E   \u2551', color: '#228B22' },
+        { text: '  \u2551            /____\\                         \u2551', color: '#228B22' },
+        { text: '  \u2551           /\\    /\\     Hyrule Terminal    \u2551', color: '#FFD700' },
+        { text: '  \u2551          /  \\  /  \\    Power - Wisdom     \u2551', color: '#FFD700' },
+        { text: '  \u2551         /____\\/____\\   Courage            \u2551', color: '#FFD700' },
+        { text: '  \u2551                                           \u2551', color: '#228B22' },
+        { text: '  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D', color: '#FFD700' },
+      ],
+      entryAnimation: 'drop-in',
+      animationSpeed: 80,
+    },
+    animations: {
+      thinkingSpinner: ['\u2728', '\u2734', '\u2733', '\u2734', '\u2728', '\u2735', '\u2736', '\u2735'],
+    },
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'hyrule',

@@ -34,6 +34,15 @@ export const TOOL_ICONS: Record<string, string> = {
   cancel_agent: '🛑',
 };
 
+/** Get tool icon from active skin, falling back to default TOOL_ICONS */
+export function getToolIcon(toolName: string): string {
+  const skinIcons = getCurrentSkin().icons;
+  if (skinIcons?.[toolName]) {
+    return skinIcons[toolName]!;
+  }
+  return TOOL_ICONS[toolName] || '⚙️';
+}
+
 // ============================================================================
 // Components
 // ============================================================================
@@ -135,7 +144,7 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
         const match = msg.content.match(/^⚡ (\w+): (.*)$/);
         if (match) {
           const [, toolName, preview] = match;
-          const icon = TOOL_ICONS[toolName] || '⚙️';
+          const icon = getToolIcon(toolName);
           const immersionLabel = getToolLabel(toolName);
           return (
             <Box flexDirection="column">

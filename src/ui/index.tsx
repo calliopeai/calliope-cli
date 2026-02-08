@@ -23,6 +23,8 @@ import * as summarization from '../summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
 import { getCurrentSkin, getCurrentPalette, paletteColorize, applySkin, applyPalette } from '../hud.js';
+import { renderColoredBanner, renderSplashAnimation, colorFg } from '../terminal-image.js';
+import { HUDFrame } from './frame.js';
 import { getCurrentCompanion, applyCompanion } from '../companions.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
@@ -717,6 +719,7 @@ function TerminalChat() {
 
   // Render based on layout
   return (
+    <HUDFrame width={width}>
     <Box flexDirection="column" width={width}>
       {/* Split layout: side by side */}
       {layout === 'split' && (
@@ -962,6 +965,7 @@ function TerminalChat() {
         width={width}
       />
     </Box>
+    </HUDFrame>
   );
 }
 
@@ -985,7 +989,7 @@ function App() {
 
 
 // Print banner before Ink takes over (stays fixed at top)
-export function printBanner(): void {
+export async function printBanner(): Promise<void> {
   const provider = selectProvider(config.get('defaultProvider'));
   const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
   const skin = getCurrentSkin();
@@ -995,10 +999,34 @@ export function printBanner(): void {
 
   if (skin.banner.style === 'none') {
     // No banner
+  } else if (skin.splash?.coloredArt && skin.splash.coloredArt.length > 0) {
+    // Rich colored banner from splash config
+    console.log();
+    if (skin.splash.entryAnimation && skin.splash.entryAnimation !== 'none') {
+      // Animated splash
+      const coloredLines = skin.splash.coloredArt.map(l => colorFg(l.text, l.color));
+      await renderSplashAnimation(
+        coloredLines,
+        skin.splash.entryAnimation,
+        skin.splash.animationSpeed ?? 50,
+      );
+    } else {
+      // Static colored banner
+      const banner = renderColoredBanner(
+        skin.splash.coloredArt,
+        skin.banner.tagline,
+      );
+      console.log(banner);
+    }
+    console.log();
+    if (skin.banner.tagline && skin.splash.entryAnimation) {
+      console.log(`${dim}        ${skin.banner.tagline}${reset}`);
+      console.log();
+    }
   } else {
+    // Standard banner (existing behavior)
     console.log();
     for (const line of skin.banner.art) {
-      // If line already has ANSI escapes (self-colored art), print raw; otherwise colorize
       if (line.includes('\x1b[')) {
         console.log(line);
       } else {
@@ -1026,7 +1054,7 @@ export async function startInkCLI(options: { skipPermissions?: boolean; agtermEn
   moduleAgtermEnabled = options.agtermEnabled ?? false;
 
   // Print banner BEFORE Ink starts - it stays fixed at the top
-  printBanner();
+  await printBanner();
 
   const { waitUntilExit } = render(<App />, {
     patchConsole: true,  // Prevent console.log during session from mixing with Ink

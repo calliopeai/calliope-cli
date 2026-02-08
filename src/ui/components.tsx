@@ -24,6 +24,19 @@ export function getSkinSpinnerFrames(): string[] {
   return getSpinnerFrames();
 }
 
+const DEFAULT_PULSE = ['·', '•', '●', '•'];
+
+/** Get spinner frames for a specific state, falling back to skin default */
+export function getStateSpinner(state: 'thinking' | 'processing' | 'streaming'): string[] {
+  const skin = getCurrentSkin();
+  const anims = skin.animations;
+  if (state === 'thinking' && anims?.thinkingSpinner?.length) return anims.thinkingSpinner;
+  if (state === 'processing' && anims?.processingSpinner?.length) return anims.processingSpinner;
+  if (state === 'streaming' && anims?.streamingPulse?.length) return anims.streamingPulse;
+  // Streaming uses pulse pattern by default, others use skin spinner
+  return state === 'streaming' ? DEFAULT_PULSE : getSpinnerFrames();
+}
+
 // Fallback constants (used if skin not yet loaded)
 export const DEFAULT_SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
@@ -40,7 +53,7 @@ export function Separator() {
 
 export function ThinkingDisplay({ state }: { state: ThinkingState }) {
   const [frame, setFrame] = useState(0);
-  const spinFrames = getSkinSpinnerFrames();
+  const spinFrames = getStateSpinner('thinking');
   const [immersionPhrase] = useState(() => getThinkingPhrase());
   const primaryColor = getInkColor('primary');
   const accentColor = getInkColor('accent');
@@ -85,7 +98,7 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
 
 export function ProcessingIndicator({ label }: { label: string }) {
   const [frame, setFrame] = useState(0);
-  const spinFrames = getSkinSpinnerFrames();
+  const spinFrames = getStateSpinner('processing');
   const primaryColor = getInkColor('primary');
 
   useEffect(() => {
@@ -103,10 +116,26 @@ export function ProcessingIndicator({ label }: { label: string }) {
   );
 }
 
+/** Brief splash overlay shown when switching themes (auto-dismisses) */
+export function SplashOverlay({ art, color, onDone }: { art: string[]; color: string; onDone: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onDone, 1200);
+    return () => clearTimeout(timer);
+  }, [onDone]);
+
+  return (
+    <Box flexDirection="column" justifyContent="center" alignItems="center" marginY={1}>
+      {art.map((line, i) => (
+        <Text key={i} color={color}>{line}</Text>
+      ))}
+    </Box>
+  );
+}
+
 export function StreamingIndicator({ activity }: { activity?: ActivityState }) {
   const [frame, setFrame] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const pulseFrames = ['·', '•', '●', '•'];
+  const pulseFrames = getStateSpinner('streaming');
   const primaryColor = getInkColor('primary');
   const successColor = getInkColor('success');
 

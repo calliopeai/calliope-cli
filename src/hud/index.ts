@@ -5,7 +5,10 @@
  */
 
 // Types
-export type { BoxChars, Skin, PaletteColors, SemanticColorKey, Palette, HUDConfig } from './types.js';
+export type {
+  BoxChars, Skin, PaletteColors, SemanticColorKey, Palette, HUDConfig,
+  SkinIcons, SkinSplash, SkinFrame, SkinAnimations,
+} from './types.js';
 
 // Data
 export { SKINS, BOX_STYLES, SPINNER_SETS } from './skins.js';

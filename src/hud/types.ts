@@ -64,6 +64,84 @@ export interface Skin {
 
   defaultPalette?: string;
   defaultPersona?: string;
+
+  /** Per-skin tool icons (overrides default TOOL_ICONS) */
+  icons?: SkinIcons;
+
+  /** Splash/startup screen configuration */
+  splash?: SkinSplash;
+
+  /** HUD frame around entire UI */
+  frame?: SkinFrame;
+
+  /** Animation configuration */
+  animations?: SkinAnimations;
+}
+
+// ============================================================================
+// Rich HUD Types
+// ============================================================================
+
+export interface SkinIcons {
+  shell?: string;
+  read_file?: string;
+  write_file?: string;
+  list_files?: string;
+  think?: string;
+  execute_code?: string;
+  web_search?: string;
+  git?: string;
+  mermaid?: string;
+  spawn_agent?: string;
+  check_agent?: string;
+  list_agents?: string;
+  cancel_agent?: string;
+  [toolName: string]: string | undefined;
+}
+
+export interface SkinSplash {
+  /** Colored banner: array of {text, color} per line for multi-color banners */
+  coloredArt?: Array<{ text: string; color: string }>;
+  /** Duration in ms to display splash before auto-dismiss (0 = no auto-dismiss) */
+  duration?: number;
+  /** Animation style for splash entry */
+  entryAnimation?: 'none' | 'typewriter' | 'fade-in' | 'scan-lines' | 'drop-in';
+  /** Animation speed in ms per frame/line */
+  animationSpeed?: number;
+}
+
+export interface SkinFrame {
+  enabled: boolean;
+  style: 'full' | 'top-bottom' | 'sides' | 'none';
+  titleBar?: {
+    enabled: boolean;
+    position: 'top' | 'bottom';
+    content: 'skin-name' | 'companion-name' | 'custom';
+    customText?: string;
+    alignment: 'left' | 'center' | 'right';
+  };
+  /** Render status bar inside the bottom frame border */
+  statusBarIntegrated?: boolean;
+  /** Decorative strings for frame corners */
+  cornerDecor?: {
+    topLeft?: string;
+    topRight?: string;
+    bottomLeft?: string;
+    bottomRight?: string;
+  };
+}
+
+export interface SkinAnimations {
+  /** Ambient animation effect running in frame background */
+  ambient?: 'none' | 'scan-line' | 'pulse-border' | 'digital-rain';
+  /** Animation on theme switch */
+  transitionEffect?: 'none' | 'flash' | 'dissolve' | 'wipe';
+  /** Custom spinner for thinking state */
+  thinkingSpinner?: string[];
+  /** Custom spinner for processing state */
+  processingSpinner?: string[];
+  /** Custom pulse for streaming state */
+  streamingPulse?: string[];
 }
 
 export interface PaletteColors {
