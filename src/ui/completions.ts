@@ -77,6 +77,7 @@ export const SLASH_COMMANDS = [
   '/breaker', '/cb',
   '/smart',
   '/swarm',
+  '/council',
 ];
 
 // Commands that take a path argument (for file tab completion)

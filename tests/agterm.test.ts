@@ -63,9 +63,9 @@ describe('AGTerm Tools', () => {
   });
 
   describe('getAgtermTools', () => {
-    it('should return 7 tools', () => {
+    it('should return 10 tools', () => {
       const tools = getAgtermTools();
-      expect(tools.length).toBe(7);
+      expect(tools.length).toBe(10);
     });
 
     it('should have spawn_agent tool with correct parameters', () => {

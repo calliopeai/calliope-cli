@@ -10,6 +10,9 @@ import { swarmManager } from './swarm.js';
 import { getAvailableAgents, detectAgents } from './agent-detection.js';
 import type { SubAgentType, TaskPriority } from './types.js';
 import type { DecompositionStrategy, AggregationStrategy } from './swarm-types.js';
+import { councilManager } from './council.js';
+import type { CouncilMode } from './council-types.js';
+import { COUNCIL_TEMPLATES } from './council-types.js';
 
 /**
  * Build dynamic tool description with available agents
@@ -188,13 +191,74 @@ Aggregation:
         required: ['sessionId'],
       },
     },
+    {
+      name: 'start_council',
+      description: `Start an agent council where multiple agents deliberate on a shared goal.
+
+Modes:
+- competitive: All respond independently, cross-score, highest wins
+- collaborative: Sequential building (A → B improves A → C improves B)
+- consensus: Deliberate → vote → supermajority or repeat
+- overseer: Lead decomposes via swarm, reviews results, final call
+
+Templates: ${Object.keys(COUNCIL_TEMPLATES).join(', ')}
+Use a template name to auto-configure members and mode.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The topic for the council to deliberate on',
+          },
+          template: {
+            type: 'string',
+            description: 'Use a pre-built template (code-review, architecture, security-audit, brainstorm, debate)',
+            enum: Object.keys(COUNCIL_TEMPLATES),
+          },
+          mode: {
+            type: 'string',
+            description: 'Coordination mode (if not using template)',
+            enum: ['competitive', 'collaborative', 'consensus', 'overseer'],
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+    {
+      name: 'check_council',
+      description: 'Check the status of a council session. Shows deliberation progress and results.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'The council session ID',
+          },
+        },
+        required: ['sessionId'],
+      },
+    },
+    {
+      name: 'cancel_council',
+      description: 'Cancel a running council session.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'The council session ID to cancel',
+          },
+        },
+        required: ['sessionId'],
+      },
+    },
   ];
 }
 
 /**
  * AGTerm tool names for quick lookup
  */
-export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm'];
+export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm', 'start_council', 'check_council', 'cancel_council'];
 
 /**
  * Check if a tool name is an agterm tool
@@ -451,6 +515,93 @@ Use check_swarm("${session.id}") to monitor progress.`;
         result = cancelled
           ? `Swarm session ${sessionId} cancelled.`
           : `Swarm session not found: ${sessionId}`;
+        break;
+      }
+
+      case 'start_council': {
+        const prompt = String(args.prompt || '');
+        if (!prompt) {
+          return {
+            toolCallId: id,
+            result: 'Error: prompt is required',
+            isError: true,
+          };
+        }
+
+        const template = args.template as string | undefined;
+
+        try {
+          let session;
+          if (template && COUNCIL_TEMPLATES[template]) {
+            session = await councilManager.startFromTemplate(template, prompt, cwd);
+          } else {
+            const mode = (args.mode as CouncilMode) || 'competitive';
+            // Create default members based on mode
+            const { randomUUID: uuid } = await import('crypto');
+            const members = [
+              { id: uuid(), name: 'Agent A', agent: 'claude' as SubAgentType, weight: 1.0 },
+              { id: uuid(), name: 'Agent B', agent: 'claude' as SubAgentType, weight: 1.0 },
+              { id: uuid(), name: 'Agent C', agent: 'claude' as SubAgentType, weight: 1.0 },
+            ];
+            session = await councilManager.startCouncil(prompt, { mode, members }, cwd);
+          }
+
+          result = `Council started.
+Session ID: ${session.id}
+Mode: ${session.config.mode}
+Members: ${session.config.members.map(m => m.name).join(', ')}${template ? `\nTemplate: ${template}` : ''}
+Status: ${session.status}
+
+Use check_council("${session.id}") to monitor progress.`;
+        } catch (err) {
+          return {
+            toolCallId: id,
+            result: `Error starting council: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+        break;
+      }
+
+      case 'check_council': {
+        const sessionId = String(args.sessionId || '');
+        if (!sessionId) {
+          return {
+            toolCallId: id,
+            result: 'Error: sessionId is required',
+            isError: true,
+          };
+        }
+
+        const session = councilManager.getSession(sessionId);
+        if (!session) {
+          result = `Council session not found: ${sessionId}`;
+        } else {
+          result = councilManager.formatSessionStatus(session);
+          if (session.status === 'completed' && session.result) {
+            result += `\n\nResult:\n${session.result}`;
+          }
+          if (session.status === 'failed' && session.error) {
+            result += `\n\nError: ${session.error}`;
+          }
+        }
+        break;
+      }
+
+      case 'cancel_council': {
+        const sessionId = String(args.sessionId || '');
+        if (!sessionId) {
+          return {
+            toolCallId: id,
+            result: 'Error: sessionId is required',
+            isError: true,
+          };
+        }
+
+        const cancelledCouncil = await councilManager.cancelCouncil(sessionId);
+        result = cancelledCouncil
+          ? `Council session ${sessionId} cancelled.`
+          : `Council session not found: ${sessionId}`;
         break;
       }
 

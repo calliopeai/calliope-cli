@@ -18,8 +18,8 @@ import * as skills from '../skills.js';
 import * as modelRouter from '../model-router.js';
 import * as summarization from '../summarization.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
-import { getAgentStatusReport, swarmManager } from '../agterm/index.js';
-import type { DecompositionStrategy, AggregationStrategy } from '../agterm/index.js';
+import { getAgentStatusReport, swarmManager, councilManager, COUNCIL_TEMPLATES } from '../agterm/index.js';
+import type { DecompositionStrategy, AggregationStrategy, CouncilMode } from '../agterm/index.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
@@ -168,6 +168,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
   /swarm [start|status|list] - Swarm mode: parallel task decomposition
+  /council [start|status]    - Agent councils: multi-agent deliberation
   /scope [details|reset]   - Show/manage file access scope
   /add-dir <path>          - Add directory to allowed scope
   /remove-dir <path>       - Remove directory from scope
@@ -2015,6 +2016,129 @@ Usage:
 Options:
   --strategy parallel|sequential|map-reduce|pipeline
   --aggregation concatenate|merge-dedupe|summarize|structured
+
+Requires --agterm flag.`);
+      }
+      break;
+    }
+
+    // ================================================================
+    // Council Mode
+    // ================================================================
+
+    case '/council': {
+      const subCmd = parts[1];
+      if (!ctx.agtermEnabled) {
+        ctx.addMessage('system', 'AGTerm mode not enabled. Start with --agterm flag to use councils.');
+        break;
+      }
+
+      if (subCmd === 'templates') {
+        const templates = Object.values(COUNCIL_TEMPLATES);
+        let msg = 'Council Templates:\n';
+        for (const t of templates) {
+          msg += `\n  ${t.name} - ${t.description}`;
+          msg += `\n    Mode: ${t.mode}, Members: ${t.members.map(m => m.name).join(', ')}`;
+        }
+        ctx.addMessage('system', msg);
+      } else if (subCmd === 'start' || (subCmd && !['status', 'list', 'cancel', 'templates', 'help'].includes(subCmd))) {
+        const promptStart = subCmd === 'start' ? 2 : 1;
+        const prompt = parts.slice(promptStart).join(' ');
+        if (!prompt) {
+          ctx.addMessage('system', 'Usage: /council <topic> or /council start <topic> [--template name] [--mode competitive|collaborative|consensus|overseer]');
+          break;
+        }
+
+        // Parse flags
+        let cleanPrompt = prompt;
+        let template: string | undefined;
+        let mode: CouncilMode = 'competitive';
+
+        const templateMatch = prompt.match(/--template\s+(\S+)/);
+        if (templateMatch) {
+          template = templateMatch[1];
+          cleanPrompt = cleanPrompt.replace(templateMatch[0], '').trim();
+        }
+
+        const modeMatch = prompt.match(/--mode\s+(competitive|collaborative|consensus|overseer)/);
+        if (modeMatch) {
+          mode = modeMatch[1] as CouncilMode;
+          cleanPrompt = cleanPrompt.replace(modeMatch[0], '').trim();
+        }
+
+        try {
+          let session;
+          if (template) {
+            session = await councilManager.startFromTemplate(template, cleanPrompt);
+          } else {
+            const { randomUUID } = await import('crypto');
+            const members = [
+              { id: randomUUID(), name: 'Agent A', agent: 'claude' as const, weight: 1.0 },
+              { id: randomUUID(), name: 'Agent B', agent: 'claude' as const, weight: 1.0 },
+              { id: randomUUID(), name: 'Agent C', agent: 'claude' as const, weight: 1.0 },
+            ];
+            session = await councilManager.startCouncil(cleanPrompt, { mode, members });
+          }
+          ctx.addMessage('system', `\u2713 Council started: ${session.id.slice(0, 8)}\nMode: ${session.config.mode}\nMembers: ${session.config.members.map(m => m.name).join(', ')}\n\nUse /council status ${session.id.slice(0, 8)} to check progress.`);
+        } catch (err) {
+          ctx.addMessage('error', `Failed to start council: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else if (subCmd === 'status') {
+        const sessionId = parts[2];
+        if (sessionId) {
+          const session = councilManager.getAllSessions().find(s => s.id.startsWith(sessionId));
+          if (session) {
+            let msg = councilManager.formatSessionStatus(session);
+            if (session.status === 'completed' && session.result) {
+              msg += `\n\nResult:\n${session.result.slice(0, 500)}${(session.result.length > 500) ? '...' : ''}`;
+            }
+            ctx.addMessage('system', msg);
+          } else {
+            ctx.addMessage('system', `Council session not found: ${sessionId}`);
+          }
+        } else {
+          const sessions = councilManager.getAllSessions();
+          if (sessions.length === 0) {
+            ctx.addMessage('system', 'No council sessions.');
+          } else {
+            const lines = sessions.map(s => {
+              return `  ${s.id.slice(0, 8)} [${s.config.mode}] ${s.status} - ${s.prompt.slice(0, 50)}`;
+            });
+            ctx.addMessage('system', `Council Sessions:\n${lines.join('\n')}`);
+          }
+        }
+      } else if (subCmd === 'list') {
+        const sessions = councilManager.getAllSessions();
+        const stats = councilManager.getStats();
+        let msg = `Council Stats: ${stats.totalSessions} total, ${stats.activeSessions} active, ${stats.completedSessions} completed, ${stats.failedSessions} failed\n`;
+        if (sessions.length > 0) {
+          for (const s of sessions) {
+            msg += `\n  ${s.id.slice(0, 8)} [${s.config.mode}] ${s.status} - ${s.prompt.slice(0, 60)}`;
+          }
+        }
+        ctx.addMessage('system', msg);
+      } else if (subCmd === 'cancel' && parts[2]) {
+        const session = councilManager.getAllSessions().find(s => s.id.startsWith(parts[2]));
+        if (session) {
+          await councilManager.cancelCouncil(session.id);
+          ctx.addMessage('system', `\u2713 Council ${parts[2]} cancelled.`);
+        } else {
+          ctx.addMessage('system', `Council session not found: ${parts[2]}`);
+        }
+      } else {
+        ctx.addMessage('system', `Agent Councils: Multi-agent deliberation on shared goals.
+
+Usage:
+  /council <topic>                     Start with default competitive mode
+  /council start <topic> [options]     Start with explicit options
+  /council status [id]                 Show council session status
+  /council list                        List all council sessions
+  /council templates                   Show available templates
+  /council cancel <id>                 Cancel a running council
+
+Options:
+  --template code-review|architecture|security-audit|brainstorm|debate
+  --mode competitive|collaborative|consensus|overseer
 
 Requires --agterm flag.`);
       }

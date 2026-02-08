@@ -82,3 +82,24 @@ export {
   aggregateResults,
   buildAggregationPrompt,
 } from './aggregator.js';
+
+// Council
+export type {
+  CouncilSession,
+  CouncilConfig,
+  CouncilMember,
+  CouncilMode,
+  CouncilStatus,
+  CouncilTemplate,
+  DeliberationEntry,
+  Vote,
+  Score,
+  TieBreaker,
+} from './council-types.js';
+
+export {
+  DEFAULT_COUNCIL_CONFIG,
+  COUNCIL_TEMPLATES,
+} from './council-types.js';
+
+export { councilManager } from './council.js';
