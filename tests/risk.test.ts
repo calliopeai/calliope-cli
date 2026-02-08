@@ -261,4 +261,18 @@ describe('System Prompt Safety', () => {
       expect(prompt).toContain('[SAFETY');
     }
   });
+
+  it('should include grounding rules in system prompt', async () => {
+    const { getSystemPrompt } = await import('../src/types.js');
+    const prompt = getSystemPrompt('professional');
+    expect(prompt).toContain('[GROUNDING');
+    expect(prompt).toContain('clarifying question');
+    expect(prompt).toContain('[END GROUNDING]');
+  });
+
+  it('grounding should appear after safety in prompt', async () => {
+    const { getSystemPrompt } = await import('../src/types.js');
+    const prompt = getSystemPrompt('calliope');
+    expect(prompt.indexOf('[GROUNDING')).toBeGreaterThan(prompt.indexOf('[END SAFETY]'));
+  });
 });

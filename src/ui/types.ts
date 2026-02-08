@@ -39,6 +39,7 @@ export interface ActivityState {
   action: string;      // e.g., "Reading", "Writing", "Running"
   target?: string;     // e.g., file path or command preview
   startTime: number;   // for elapsed time display
+  detail?: string;     // e.g., last line of shell output for real-time streaming
 }
 
 export interface SessionInfo {

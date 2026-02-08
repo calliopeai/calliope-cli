@@ -327,7 +327,15 @@ export async function executeTool(
         return { toolCallId: id, result: `Unknown tool: ${name}`, isError: true };
     }
 
-    return { toolCallId: id, result };
+    // Generate human-friendly display summary for large results (#25)
+    const lines = result.split('\n');
+    let displayResult: string | undefined;
+    if (lines.length > 10) {
+      const preview = lines.slice(0, 5).join('\n');
+      displayResult = `${preview}\n... (${lines.length - 5} more lines)`;
+    }
+
+    return { toolCallId: id, result, displayResult };
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     return { toolCallId: id, result: `Error: ${msg}`, isError: true };

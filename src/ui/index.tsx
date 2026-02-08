@@ -67,7 +67,17 @@ const debugLog = (label: string, ...args: unknown[]) => {
 function TerminalChat() {
   const { exit } = useApp();
   const { stdout } = useStdout();
-  const width = stdout?.columns || 80;
+
+  // Reactive terminal width - re-renders on resize via SIGWINCH
+  const [width, setWidth] = useState(() => stdout?.columns || 80);
+  useEffect(() => {
+    const onResize = () => {
+      const cols = stdout?.columns || process.stdout.columns || 80;
+      setWidth(cols);
+    };
+    process.stdout.on('resize', onResize);
+    return () => { process.stdout.off('resize', onResize); };
+  }, [stdout]);
 
   // Core state
   const [input, setInput] = useState('');
@@ -217,6 +227,21 @@ function TerminalChat() {
   const llmMessages = useRef<LLMMessage[]>([
     { role: 'system', content: getSystemPrompt(persona) }
   ]);
+
+  // Keep system prompt in sync when persona changes (fixes #46 - persona lost on model fallback)
+  useEffect(() => {
+    const firstMsg = llmMessages.current[0];
+    if (firstMsg && firstMsg.role === 'system') {
+      // Preserve any appended memory context
+      const currentContent = typeof firstMsg.content === 'string' ? firstMsg.content : '';
+      const memoryIdx = currentContent.indexOf('\n\n--- Project Context ---\n');
+      const memoryPart = memoryIdx >= 0 ? currentContent.slice(memoryIdx) : '';
+      llmMessages.current[0] = {
+        role: 'system',
+        content: getSystemPrompt(persona) + memoryPart,
+      };
+    }
+  }, [persona]);
 
   // Estimate context tokens (conservative: ~2.5 chars per token + 1.35x overhead)
   const estimateContextTokens = useCallback(() => {
@@ -899,6 +924,7 @@ function TerminalChat() {
         contextTokens={contextTokens}
         breakerHealth={config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined}
         smartRouteActive={smartRouteActive}
+        width={width}
       />
     </Box>
   );

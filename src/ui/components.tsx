@@ -131,6 +131,7 @@ export function StreamingIndicator({ activity }: { activity?: ActivityState }) {
           {activity.target && <Text dimColor> {activity.target}</Text>}
           <Text dimColor>{elapsedStr}</Text>
         </Box>
+        {activity.detail && <Text dimColor>  {activity.detail}</Text>}
       </Box>
     );
   }

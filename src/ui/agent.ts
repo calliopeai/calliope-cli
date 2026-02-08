@@ -527,7 +527,16 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               }
 
               ctx.debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
-              const result = await executeTool(toolCall, process.cwd());
+              // Stream shell output in real-time (#15)
+              const shellStreamCallback = toolCall.name === 'shell' ? (chunk: string) => {
+                ctx.setActivityState({
+                  action: 'Running shell',
+                  target: (args.command as string)?.substring(0, 40),
+                  startTime: Date.now(),
+                  detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60),
+                });
+              } : undefined;
+              const result = await executeTool(toolCall, process.cwd(), 60000, shellStreamCallback);
               ctx.debugLog('tools', 'DONE', toolCall.name);
 
               // Execute post-tool hooks
@@ -539,13 +548,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                 ctx.debugLog('hooks', `post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
               });
 
-              // Display result
+              // Display result - use displayResult for UI, full result for LLM (#25)
               if (toolCall.name === 'think') {
                 const thought = String(args.thought || '');
                 ctx.addMessage('tool', thought);
               } else {
-                const preview = result.result.split('\n').slice(0, 3).join('\n');
-                ctx.addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+                const display = result.displayResult || result.result;
+                const preview = display.split('\n').slice(0, 5).join('\n');
+                ctx.addMessage('tool', preview + (display.split('\n').length > 5 ? '\n...' : ''));
               }
 
               ctx.llmMessages.current.push({

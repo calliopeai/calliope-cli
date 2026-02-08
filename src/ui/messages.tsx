@@ -5,7 +5,7 @@
  */
 
 import React from 'react';
-import { Box, Text, Static } from 'ink';
+import { Box, Text } from 'ink';
 import { renderMarkdown } from '../markdown.js';
 import { getToolLabel, getCurrentCompanion } from '../companions.js';
 import type { UIMessage, CollapseSettings } from './types.js';
@@ -237,8 +237,8 @@ export function MessageHistory({ messages, collapseSettings }: { messages: UIMes
   let toolIndex = 0;
 
   return (
-    <Static items={messages}>
-      {(msg) => {
+    <Box flexDirection="column">
+      {messages.map((msg) => {
         // For tool messages, pass index for collapse calculation
         const msgCollapseSettings = msg.type === 'tool'
           ? { ...collapseSettings, toolIndex: toolIndex++, totalTools }
@@ -249,7 +249,7 @@ export function MessageHistory({ messages, collapseSettings }: { messages: UIMes
             <MessageItem msg={msg} collapse={msgCollapseSettings} />
           </Box>
         );
-      }}
-    </Static>
+      })}
+    </Box>
   );
 }

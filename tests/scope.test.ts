@@ -172,3 +172,22 @@ describe('Scope Manager', () => {
     });
   });
 });
+
+// ============================================================================
+// ToolResult type (#25)
+// ============================================================================
+
+describe('ToolResult type', () => {
+  it('should support displayResult field', async () => {
+    const { ToolResult } = await import('../src/types.js') as { ToolResult: never };
+    // Type-level test: ensure displayResult is accepted
+    const result: import('../src/types.js').ToolResult = {
+      toolCallId: 'test',
+      result: 'line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10\nline11',
+      displayResult: 'line1\nline2\nline3\nline4\nline5\n... (6 more lines)',
+    };
+    expect(result.displayResult).toContain('more lines');
+    expect(result.result.split('\n').length).toBe(11);
+    expect(result.displayResult!.split('\n').length).toBeLessThan(result.result.split('\n').length);
+  });
+});

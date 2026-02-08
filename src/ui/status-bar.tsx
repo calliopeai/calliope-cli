@@ -26,6 +26,7 @@ export function StatusBar({
   contextTokens,
   breakerHealth,
   smartRouteActive,
+  width,
 }: {
   provider: string;
   model: string;
@@ -34,10 +35,14 @@ export function StatusBar({
   contextTokens: number;
   breakerHealth?: 'ok' | 'warning' | 'tripped';
   smartRouteActive?: boolean;
+  width?: number;
 }) {
+  const termWidth = width || process.stdout.columns || 80;
   const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
   const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
-  const displayModel = model.length > 25 ? model.slice(0, 22) + '...' : model;
+  // Adaptive model name truncation based on terminal width
+  const maxModelLen = termWidth < 80 ? 12 : termWidth < 120 ? 20 : 25;
+  const displayModel = model.length > maxModelLen ? model.slice(0, maxModelLen - 3) + '...' : model;
   const modeConfig = MODE_CONFIG[mode];
 
   // Context usage indicator - uses model's actual context length from API
@@ -52,23 +57,30 @@ export function StatusBar({
     ? <Text color="yellow">[!]</Text>
     : <Text color="green">[OK]</Text>;
 
+  // Compact mode for narrow terminals
+  const isNarrow = termWidth < 80;
+
   return (
     <Box flexDirection="column">
       <Separator />
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         {modeConfig.icon} {modeConfig.label}
         {' │ '}
         {provider}:{displayModel}
         {' │ '}
         <Text color={contextColor}>{formatTokens(contextTokens)}/{formatTokens(contextLimit)}</Text>
-        {' │ '}
-        {formatTokens(stats.inputTokens + stats.outputTokens)} used
+        {isNarrow ? null : <>
+          {' │ '}
+          {formatTokens(stats.inputTokens + stats.outputTokens)} used
+        </>}
         {' │ '}
         {formatCost(stats.cost)}
         {breakerHealth ? <>{' │ '}{healthIndicator}</> : null}
         {smartRouteActive ? <>{' │ '}<Text color="cyan">SMART</Text></> : null}
-        {' │ '}
-        <Text dimColor>{getMoodText()}</Text>
+        {isNarrow ? null : <>
+          {' │ '}
+          <Text dimColor>{getMoodText()}</Text>
+        </>}
       </Text>
     </Box>
   );

@@ -55,7 +55,8 @@ export interface ToolCall {
 
 export interface ToolResult {
   toolCallId: string;
-  result: string;
+  result: string;           // Full content sent to LLM
+  displayResult?: string;   // Human-friendly summary for terminal display (if different from result)
   isError?: boolean;
 }
 
@@ -203,6 +204,14 @@ const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overri
 - Always respect user's explicit instructions (read-only, no-write, etc.)
 - Do NOT create documentation files unless explicitly requested
 [END SAFETY]
+
+[GROUNDING - Prevent agent overreach]
+- If the user sends a short or ambiguous message, ask a brief clarifying question instead of speculating
+- Never read source files or run commands unless the user explicitly asks or the task requires it
+- Keep responses concise and focused on what was asked
+- Do NOT offer numbered option menus for simple inputs
+- If unsure what the user wants, respond with a brief question, not a multi-tool investigation
+[END GROUNDING]
 
 `;
 
