@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
+import * as nativeSandbox from './sandbox-native.js';
 import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
@@ -116,6 +117,29 @@ export const TOOLS: Tool[] = [
         },
       },
       required: ['question'],
+    },
+  },
+  {
+    name: 'create_plan',
+    description: 'Create a structured execution plan for a complex task. Use this when a task requires multiple steps. The plan will be shown to the user for approval before execution begins. Available in all modes including plan mode.',
+    parameters: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Brief title for the plan',
+        },
+        steps: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Ordered list of steps to execute',
+        },
+        reasoning: {
+          type: 'string',
+          description: 'Brief explanation of the approach',
+        },
+      },
+      required: ['title', 'steps'],
     },
   },
   {
@@ -320,6 +344,23 @@ export async function executeTool(
         break;
       }
 
+      case 'create_plan': {
+        if (typeof args.title !== 'string') {
+          return { toolCallId: id, result: 'Error: title must be a string', isError: true };
+        }
+        if (!Array.isArray(args.steps) || args.steps.length === 0) {
+          return { toolCallId: id, result: 'Error: steps must be a non-empty array of strings', isError: true };
+        }
+        const planTitle = args.title;
+        const planSteps = args.steps as string[];
+        const planReasoning = typeof args.reasoning === 'string' ? args.reasoning : undefined;
+        let planDisplay = `PLAN:${planTitle}\n`;
+        if (planReasoning) planDisplay += `Approach: ${planReasoning}\n`;
+        planDisplay += '\n' + planSteps.map((s: string, i: number) => `  ${i + 1}. [ ] ${s}`).join('\n');
+        result = planDisplay;
+        break;
+      }
+
       case 'execute_code': {
         if (typeof args.language !== 'string' || !['python', 'node', 'bash'].includes(args.language)) {
           return { toolCallId: id, result: 'Error: language must be python, node, or bash', isError: true };
@@ -405,6 +446,23 @@ const BLOCKED_COMMANDS = [
 ];
 
 /**
+ * Determine whether to use native sandboxing for shell commands based on config.
+ *
+ * sandboxMode values:
+ *  - 'auto':   use native sandbox when available, otherwise run unsandboxed
+ *  - 'native': require native sandbox (fail if unavailable)
+ *  - 'docker': defer to Docker sandbox (handled elsewhere)
+ *  - 'off':    no sandboxing
+ */
+function shouldUseNativeSandbox(): 'use' | 'skip' | 'require' {
+  const mode = config.get('sandboxMode') || 'auto';
+  if (mode === 'off' || mode === 'docker') return 'skip';
+  if (mode === 'native') return 'require';
+  // 'auto': use if available
+  return nativeSandbox.isNativeSandboxAvailable() ? 'use' : 'skip';
+}
+
+/**
  * Execute a shell command
  */
 async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
@@ -416,6 +474,29 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
     }
   }
 
+  // Check if native sandbox should be used
+  const sandboxDecision = shouldUseNativeSandbox();
+
+  if (sandboxDecision === 'require' && !nativeSandbox.isNativeSandboxAvailable()) {
+    return 'Error: Native sandbox required (sandboxMode=native) but not available on this platform.';
+  }
+
+  if (sandboxDecision === 'use' || sandboxDecision === 'require') {
+    const result = await nativeSandbox.executeInNativeSandbox(command, cwd, {
+      timeout,
+      networkEnabled: true,
+    });
+
+    // Shell tool output is transparent — same format as unsandboxed execution
+    let output = result.stdout + (result.stderr ? `\nstderr: ${result.stderr}` : '');
+
+    if (result.exitCode !== 0) {
+      return `Exit code ${result.exitCode}\n${output}`;
+    }
+    return output || '(no output)';
+  }
+
+  // Fallback: unsandboxed execution
   const MAX_OUTPUT_SIZE = 50000; // 50K chars max output
 
   return new Promise((resolve, reject) => {
@@ -695,7 +776,13 @@ function listFilesRecursive(dir: string, prefix: string, depth: number): string 
 }
 
 /**
- * Execute code in a sandboxed environment
+ * Execute code in a sandboxed environment.
+ *
+ * Sandbox selection order based on sandboxMode config:
+ *  - 'docker': Docker only (existing behaviour)
+ *  - 'native': native OS sandbox only
+ *  - 'auto':   Docker first, then native sandbox, then unsandboxed
+ *  - 'off':    no sandboxing
  */
 async function executeCode(
   language: 'python' | 'node' | 'bash',
@@ -703,35 +790,74 @@ async function executeCode(
   cwd: string,
   timeout: number
 ): Promise<string> {
-  // Map language names to sandbox language types
+  const mode = config.get('sandboxMode') || 'auto';
   const sandboxLang = language === 'node' ? 'node' : language;
 
-  // Try sandboxed execution first (using Docker if available)
-  const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
-    timeout,
-    mountWorkdir: true,
-    readOnly: true,  // Mount workdir read-only to prevent sandbox escape
-  });
+  // Determine execution strategy
+  const useDocker = mode === 'docker' || (mode === 'auto' && sandbox.isDockerAvailable());
+  const useNative = mode === 'native' || (mode === 'auto' && !sandbox.isDockerAvailable() && nativeSandbox.isNativeSandboxAvailable());
 
-  const sandboxIndicator = result.sandboxed ? '🔒 [sandboxed]' : '⚠️ [unsandboxed]';
-  const statusIndicator = result.success ? '✓' : '✗';
+  if (useDocker) {
+    // Docker sandbox path (existing behaviour)
+    const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
+      timeout,
+      mountWorkdir: true,
+      readOnly: true,
+    });
 
-  let output = `${sandboxIndicator} ${statusIndicator} [${language}]\n`;
-
-  if (result.stdout) {
-    output += `Output:\n${result.stdout}\n`;
+    const sandboxIndicator = result.sandboxed ? '[sandboxed:docker]' : '[unsandboxed]';
+    const statusIndicator = result.success ? 'ok' : 'err';
+    let output = `${sandboxIndicator} ${statusIndicator} [${language}]\n`;
+    if (result.stdout) output += `Output:\n${result.stdout}\n`;
+    if (result.stderr) output += `Errors:\n${result.stderr}\n`;
+    if (!result.success && !result.stdout && !result.stderr) output += `Exit code: ${result.exitCode}\n`;
+    output += `Duration: ${result.duration}ms`;
+    return output;
   }
 
-  if (result.stderr) {
-    output += `Errors:\n${result.stderr}\n`;
+  if (useNative) {
+    // Native OS sandbox path — write code to temp file and execute
+    const fs = await import('fs');
+    const os = await import('os');
+    const pathMod = await import('path');
+    const tempDir = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'calliope-native-'));
+    const ext = language === 'python' ? 'py' : language === 'node' ? 'js' : 'sh';
+    const codePath = pathMod.join(tempDir, `code.${ext}`);
+    fs.writeFileSync(codePath, code);
+
+    const cmd = language === 'python' ? `python3 "${codePath}"`
+      : language === 'node' ? `node "${codePath}"`
+      : `bash "${codePath}"`;
+
+    const startTime = Date.now();
+    const result = await nativeSandbox.executeInNativeSandbox(cmd, cwd, {
+      timeout,
+      readOnlyPaths: [tempDir],
+    });
+
+    // Cleanup temp
+    try { fs.rmSync(tempDir, { recursive: true }); } catch { /* ignore */ }
+
+    const duration = Date.now() - startTime;
+    const sandboxIndicator = result.sandboxed ? `[sandboxed:${result.backend}]` : '[unsandboxed]';
+    const statusIndicator = result.exitCode === 0 ? 'ok' : 'err';
+    let output = `${sandboxIndicator} ${statusIndicator} [${language}]\n`;
+    if (result.stdout) output += `Output:\n${result.stdout}\n`;
+    if (result.stderr) output += `Errors:\n${result.stderr}\n`;
+    if (result.exitCode !== 0 && !result.stdout && !result.stderr) output += `Exit code: ${result.exitCode}\n`;
+    output += `Duration: ${duration}ms`;
+    return output;
   }
 
-  if (!result.success && !result.stdout && !result.stderr) {
-    output += `Exit code: ${result.exitCode}\n`;
-  }
+  // Unsandboxed fallback (mode === 'off' or nothing available)
+  const result = await sandbox.executeUnsafe(sandboxLang as sandbox.Language, code, timeout);
 
+  const statusIndicator = result.success ? 'ok' : 'err';
+  let output = `[unsandboxed] ${statusIndicator} [${language}]\n`;
+  if (result.stdout) output += `Output:\n${result.stdout}\n`;
+  if (result.stderr) output += `Errors:\n${result.stderr}\n`;
+  if (!result.success && !result.stdout && !result.stderr) output += `Exit code: ${result.exitCode}\n`;
   output += `Duration: ${result.duration}ms`;
-
   return output;
 }
 

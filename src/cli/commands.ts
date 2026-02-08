@@ -25,6 +25,8 @@ import { color } from '../styles.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
+import { isDockerAvailable } from '../sandbox.js';
+import { getSandboxStatus } from '../sandbox-native.js';
 import type { CLIState } from './types.js';
 
 // Forward declaration — injected by index.ts to avoid circular imports
@@ -626,6 +628,62 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
       console.log();
       break;
 
+    case '/sandbox':
+      {
+        const sandboxArg = parts[1];
+        const validModes = ['auto', 'native', 'docker', 'off'];
+        if (sandboxArg && validModes.includes(sandboxArg)) {
+          config.set('sandboxMode', sandboxArg as 'auto' | 'native' | 'docker' | 'off');
+          console.log(color(`Sandbox mode set to: ${sandboxArg}`, 'green'));
+        } else if (sandboxArg && !validModes.includes(sandboxArg)) {
+          console.log(color(`Invalid sandbox mode: ${sandboxArg}`, 'red'));
+          console.log(`Available modes: ${validModes.join(', ')}`);
+        } else {
+          // Show sandbox status
+          const currentMode = config.get('sandboxMode') || 'auto';
+          const nativeStatus = getSandboxStatus();
+          const dockerReady = isDockerAvailable();
+
+          console.log(color('Sandbox Configuration', 'bold'));
+          console.log(`  Mode:     ${color(currentMode, 'cyan')}`);
+          console.log();
+          console.log(color('  Backends:', 'bold'));
+          console.log(`  Docker:   ${dockerReady ? color('available', 'green') : color('not available', 'dim')}`);
+          console.log(`  Native:   ${nativeStatus.available ? color('available', 'green') : color('not available', 'dim')}`);
+          if (nativeStatus.available) {
+            console.log(`            ${nativeStatus.description}`);
+          }
+          console.log(`  Platform: ${nativeStatus.platform}`);
+          console.log();
+
+          // Show effective behaviour
+          let effective: string;
+          switch (currentMode) {
+            case 'auto':
+              if (nativeStatus.available) effective = `native (${nativeStatus.backend}) for shell commands`;
+              else effective = 'unsandboxed (no native backend available)';
+              if (dockerReady) effective += ', Docker for code execution';
+              break;
+            case 'native':
+              effective = nativeStatus.available ? `${nativeStatus.backend}` : 'ERROR: native not available';
+              break;
+            case 'docker':
+              effective = dockerReady ? 'Docker' : 'ERROR: Docker not available';
+              break;
+            case 'off':
+              effective = 'all sandboxing disabled';
+              break;
+            default:
+              effective = 'unknown';
+          }
+          console.log(`  Effective: ${effective}`);
+          console.log();
+          console.log(color('  /sandbox <auto|native|docker|off>', 'dim'));
+        }
+      }
+      console.log();
+      break;
+
     case '/exit':
     case '/quit':
       console.log();
@@ -738,6 +796,7 @@ function printHelp(): void {
   console.log('  /scope [details|reset]  Show/manage file access scope');
   console.log('  /add-dir <path>    Add directory to scope');
   console.log('  /remove-dir <path> Remove directory from scope');
+  console.log('  /sandbox [mode]    Sandbox status or set mode (auto|native|docker|off)');
   console.log();
   console.log(color('Navigation:', 'bold'));
   console.log('  /find <pattern>    Fuzzy file search');

@@ -82,6 +82,8 @@ export const SLASH_COMMANDS = [
   '/untrust',
   '/checkpoint', '/cp',
   '/restore',
+  '/approve',
+  '/sandbox',
 ];
 
 // Commands that take a path argument (for file tab completion)

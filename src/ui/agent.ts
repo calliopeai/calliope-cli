@@ -361,7 +361,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           };
 
           // Check blocking conditions
-          if (ctx.mode === 'plan' && toolCall.name !== 'think' && toolCall.name !== 'ask_question') {
+          if (ctx.mode === 'plan' && toolCall.name !== 'think' && toolCall.name !== 'ask_question' && toolCall.name !== 'create_plan') {
             preCheck.blocked = true;
             preCheck.blockReason = 'plan mode';
             preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
@@ -568,6 +568,24 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   toolCallId: toolCall.id,
                 });
                 // Break out of tool loop - let user respond naturally
+                completedNaturally = true;
+              } else if (toolCall.name === 'create_plan') {
+                // Display plan as a checklist for user approval (#19)
+                const planTitle = String(args.title || 'Plan');
+                const planSteps = Array.isArray(args.steps) ? args.steps as string[] : [];
+                const planReasoning = typeof args.reasoning === 'string' ? args.reasoning : undefined;
+                let planMsg = `📋 Plan: ${planTitle}\n`;
+                if (planReasoning) planMsg += `\n   ${planReasoning}\n`;
+                planMsg += '\n' + planSteps.map((s: string, idx: number) => `   ${idx + 1}. [ ] ${s}`).join('\n');
+                planMsg += '\n\n   Type /approve to execute, or provide feedback to revise.';
+                ctx.addMessage('assistant', planMsg);
+                // Tell the LLM to wait for user approval
+                ctx.llmMessages.current.push({
+                  role: 'tool',
+                  content: '[Plan displayed to user. Waiting for approval. The user will either type /approve to execute the plan, or provide feedback to revise it. Do NOT proceed with execution until the user approves.]',
+                  toolCallId: toolCall.id,
+                });
+                // Break out of tool loop - wait for user approval
                 completedNaturally = true;
               } else {
                 const display = result.displayResult || result.result;

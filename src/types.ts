@@ -108,7 +108,7 @@ export const MODE_CONFIG: Record<Mode, { icon: string; label: string; descriptio
   plan: {
     icon: '📋',
     label: 'Plan',
-    description: 'Chat only, no execution',
+    description: 'Chat & plan, no execution. Use create_plan for structured plans.',
   },
   hybrid: {
     icon: '🔄',

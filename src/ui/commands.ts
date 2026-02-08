@@ -169,6 +169,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /plans [list|view]         - View plan history
   /template [save|use|del]   - Prompt templates (/t)
   /plan / /work              - Quick mode switch
+  /approve [notes]           - Approve pending plan & execute
 
 --- Appearance ---
   /skin [name]               - Switch HUD skin (${(await import('../hud.js')).listSkins().length}+ available)
@@ -1878,6 +1879,20 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       // Quick shortcut to enter plan mode
       ctx.setMode('plan');
       ctx.addMessage('system', `Mode: ${MODE_CONFIG['plan'].icon} ${MODE_CONFIG['plan'].label} - ${MODE_CONFIG['plan'].description}`);
+      break;
+    }
+
+    case '/approve': {
+      // Approve a pending plan and start execution (#19)
+      const approveMsg = parts.length > 1
+        ? `Plan approved with notes: ${parts.slice(1).join(' ')}. Execute it step by step, updating progress as you complete each step.`
+        : 'Plan approved. Execute it step by step, updating progress as you complete each step.';
+      // Switch to work mode for execution
+      ctx.setMode('work');
+      ctx.addMessage('system', `${MODE_CONFIG['work'].icon} Switched to work mode for plan execution`);
+      // Send approval as user message to the agent
+      ctx.addMessage('user', approveMsg);
+      await ctx.runAgent(approveMsg);
       break;
     }
 

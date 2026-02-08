@@ -6,8 +6,10 @@
 
 import React from 'react';
 import { Box, Text } from 'ink';
+import type { BoxProps } from 'ink';
 import { renderMarkdown } from '../markdown.js';
 import { getToolLabel, getCurrentCompanion } from '../companions.js';
+import { getCurrentSkin, getInkBorderStyle, getInkColor } from '../hud.js';
 import type { UIMessage, CollapseSettings } from './types.js';
 
 // ============================================================================
@@ -63,6 +65,31 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
         acc.push(line);
         return acc;
       }, []);
+
+      // Check if the active skin has borders enabled
+      const skin = getCurrentSkin();
+      const hasBorders = skin.borders.style !== 'none';
+
+      if (hasBorders) {
+        const borderStyle = getInkBorderStyle(skin) as BoxProps['borderStyle'];
+        const borderColor = getInkColor('border');
+        return (
+          <Box flexDirection="column" marginTop={1} marginBottom={1}>
+            <Text color="cyan">{skin.decorations.assistantPrefix}{getCurrentCompanion().name}:</Text>
+            <Box
+              flexDirection="column"
+              borderStyle={borderStyle}
+              borderColor={borderColor}
+              paddingX={1}
+            >
+              {lines.map((line, i) => (
+                <Text key={i}>{line}</Text>
+              ))}
+            </Box>
+          </Box>
+        );
+      }
+
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
           <Text color="cyan">✧ {getCurrentCompanion().name}:</Text>

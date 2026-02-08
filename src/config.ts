@@ -77,6 +77,9 @@ export interface CalliopeConfig {
   // Circuit Breakers
   circuitBreakersEnabled: boolean;
 
+  // Sandbox
+  sandboxMode: 'auto' | 'native' | 'docker' | 'off';
+
   // Smart Routing
   smartRoutingEnabled: boolean;
   smartRoutingCostSensitivity: number;  // 0-1: 0 = best quality, 1 = cheapest
@@ -109,6 +112,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   bannerStyle: 'full',
   renderer: 'ink',
   circuitBreakersEnabled: true,
+  sandboxMode: 'auto',
   smartRoutingEnabled: false,
   smartRoutingCostSensitivity: 0.3,
 };
@@ -158,6 +162,7 @@ const config = new Conf<CalliopeConfig>({
     renderer: { type: 'string', enum: ['ink', 'legacy', 'headless'] },
     useEmojis: { type: 'boolean' },
     circuitBreakersEnabled: { type: 'boolean' },
+    sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
     smartRoutingEnabled: { type: 'boolean' },
     smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
   },
