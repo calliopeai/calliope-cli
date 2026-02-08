@@ -22,7 +22,7 @@ Calliope CLI is a multi-model AI agent command-line interface that provides auto
 - Rich command system with 30+ slash commands
 - Real-time spinner animations and colored output
 - Session management with cost tracking
-- Autonomous loop system ("Ralph Loop")
+- Autonomous agent loop system (`/loop`)
 
 #### Tool System (`src/tools.ts`)
 - Core tools: shell execution, file operations, thinking framework

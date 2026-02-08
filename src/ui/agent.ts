@@ -6,6 +6,7 @@
  */
 
 import type React from 'react';
+import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
 import { chat, estimateContextUsage, needsSummarization } from '../providers.js';
 import { executeTool, getTools } from '../tools.js';
@@ -690,11 +691,34 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 // ============================================================================
 
 /**
+ * Start caffeinate to prevent system sleep during long operations (macOS).
+ */
+function startCaffeinate(): ChildProcess | null {
+  if (process.platform !== 'darwin') return null;
+  try {
+    const proc = spawn('caffeinate', ['-di'], { stdio: 'ignore', detached: true });
+    proc.unref();
+    return proc;
+  } catch {
+    return null;
+  }
+}
+
+function stopCaffeinate(proc: ChildProcess | null): void {
+  if (proc) {
+    try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+  }
+}
+
+/**
  * Agent loop - runs prompt repeatedly until completion promise or max iterations.
  */
 export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: number, completionPromise?: string): Promise<void> {
   ctx.setIsProcessing(true);
   setMood('focused');
+
+  // Prevent system sleep during long agent loops (macOS)
+  const caffeinateProc = startCaffeinate();
 
   for (let i = 0; i < maxIter; i++) {
     // Check if cancelled
@@ -752,4 +776,5 @@ export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: nu
 
   ctx.setLoopActive(false);
   ctx.setIsProcessing(false);
+  stopCaffeinate(caffeinateProc);
 }

@@ -26,6 +26,7 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('openrouter')) providers.push('openrouter');
   if (config.getApiKey('together')) providers.push('together');
   if (config.getApiKey('groq')) providers.push('groq');
+  if (config.getApiKey('fireworks')) providers.push('fireworks');
   if (config.getApiKey('mistral')) providers.push('mistral');
   if (config.getBaseUrl('ollama')) providers.push('ollama');
   if (config.getApiKey('ai21')) providers.push('ai21');
@@ -50,7 +51,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'ollama', 'litellm'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'ai21', 'huggingface', 'ollama', 'litellm'];
 
   for (const p of priority) {
     if (p === 'ollama' || p === 'litellm') {

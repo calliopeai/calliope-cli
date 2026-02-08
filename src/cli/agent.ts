@@ -5,6 +5,7 @@
  */
 
 import * as readline from 'readline';
+import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
 import { chat } from '../providers.js';
 import { TOOLS, executeTool } from '../tools.js';
@@ -16,6 +17,27 @@ import { getSpinnerFrames, getBoxChars } from '../hud.js';
 import { getToolLabel, getThinkingPhrase } from '../companions.js';
 import type { CLIState } from './types.js';
 import { debugLog } from './types.js';
+
+/**
+ * Start caffeinate to prevent system sleep during long operations (macOS).
+ * Returns the child process (or null if not on macOS).
+ */
+function startCaffeinate(): ChildProcess | null {
+  if (process.platform !== 'darwin') return null;
+  try {
+    const proc = spawn('caffeinate', ['-di'], { stdio: 'ignore', detached: true });
+    proc.unref();
+    return proc;
+  } catch {
+    return null;
+  }
+}
+
+function stopCaffeinate(proc: ChildProcess | null): void {
+  if (proc) {
+    try { proc.kill('SIGTERM'); } catch { /* already dead */ }
+  }
+}
 
 export async function runAgent(prompt: string, state: CLIState): Promise<string> {
   state.messages.push({ role: 'user', content: prompt });
@@ -178,6 +200,9 @@ export async function startLoop(args: string, state: CLIState): Promise<void> {
   state.loopMaxIterations = maxIterMatch ? parseInt(maxIterMatch[1], 10) : 50;
   state.loopCompletionPromise = completionMatch ? completionMatch[1] : undefined;
 
+  // Prevent system sleep during long agent loops (macOS)
+  const caffeinateProc = startCaffeinate();
+
   const box = getBoxChars();
   console.log();
   console.log(`${color(box.topLeft + box.horizontal, 'dim')} ${color('🔄 Agent Loop Started', 'bold')}`);
@@ -218,6 +243,7 @@ export async function startLoop(args: string, state: CLIState): Promise<void> {
   }
 
   state.loopActive = false;
+  stopCaffeinate(caffeinateProc);
   console.log();
 }
 
