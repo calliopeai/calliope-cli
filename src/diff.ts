@@ -592,7 +592,9 @@ export function formatUnifiedDiff(diff: FileDiff, options?: Partial<Skin['diff']
     lines.push(`${dc.header}@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${dc.reset}`);
 
     for (const line of chunk) {
-      const content = line.content.substring(0, config.maxLineWidth);
+      const rawContent = line.content.substring(0, config.maxLineWidth);
+      // Apply syntax highlighting to context lines for readability
+      const content = line.type === 'context' ? highlightSyntax(rawContent, diff.path) : rawContent;
       const lineNum = config.showLineNumbers
         ? (line.type === 'remove'
           ? (line.oldLineNum?.toString() || '').padStart(4)
@@ -607,7 +609,7 @@ export function formatUnifiedDiff(diff: FileDiff, options?: Partial<Skin['diff']
           lines.push(`${dc.remove}${lineNum}-${content}${dc.reset}`);
           break;
         case 'context':
-          lines.push(`${dc.context}${lineNum} ${content}${dc.reset}`);
+          lines.push(`${dc.context}${lineNum} ${dc.reset}${content}`);
           break;
       }
     }
@@ -808,6 +810,98 @@ export function wordDiff(oldLine: string, newLine: string): { old: string; new: 
   }
 
   return { old: oldResult, new: newResult };
+}
+
+// ============================================================================
+// Syntax Highlighting (#30)
+// ============================================================================
+
+/** Language detection from file extension */
+function detectLanguage(path: string): string | null {
+  const ext = path.split('.').pop()?.toLowerCase();
+  const langMap: Record<string, string> = {
+    ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript', mjs: 'javascript',
+    py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java', c: 'c', cpp: 'cpp', h: 'c',
+    cs: 'csharp', swift: 'swift', kt: 'kotlin', sh: 'shell', bash: 'shell', zsh: 'shell',
+    json: 'json', yaml: 'yaml', yml: 'yaml', toml: 'toml', md: 'markdown',
+    html: 'html', css: 'css', scss: 'css', sql: 'sql',
+  };
+  return ext ? langMap[ext] || null : null;
+}
+
+/** Syntax highlighting rules per language group */
+const SYNTAX_RULES: Record<string, Array<{ pattern: RegExp; color: string }>> = {
+  typescript: [
+    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },                                              // comments
+    { pattern: /(\/\*[\s\S]*?\*\/)/g, color: COLORS.dim },                                        // block comments
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)/g, color: COLORS.green }, // strings
+    { pattern: /\b(import|export|from|const|let|var|function|class|interface|type|enum|return|if|else|for|while|switch|case|break|continue|try|catch|throw|new|async|await|extends|implements)\b/g, color: COLORS.magenta }, // keywords
+    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },                                        // numbers
+  ],
+  python: [
+    { pattern: /(#[^\n]*)/g, color: COLORS.dim },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|'''[\s\S]*?'''|"""[\s\S]*?""")/g, color: COLORS.green },
+    { pattern: /\b(import|from|def|class|return|if|elif|else|for|while|try|except|raise|with|as|yield|lambda|pass|break|continue|and|or|not|in|is|None|True|False)\b/g, color: COLORS.magenta },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+  ],
+  go: [
+    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`)/g, color: COLORS.green },
+    { pattern: /\b(package|import|func|type|struct|interface|return|if|else|for|range|switch|case|break|continue|go|defer|chan|select|map|var|const)\b/g, color: COLORS.magenta },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+  ],
+  rust: [
+    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
+    { pattern: /\b(fn|let|mut|const|struct|enum|impl|trait|pub|use|mod|match|if|else|for|while|loop|return|self|Self|where|async|await|move|unsafe)\b/g, color: COLORS.magenta },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+  ],
+  shell: [
+    { pattern: /(#[^\n]*)/g, color: COLORS.dim },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
+    { pattern: /\b(if|then|else|elif|fi|for|do|done|while|case|esac|function|return|export|local|readonly)\b/g, color: COLORS.magenta },
+  ],
+  json: [
+    { pattern: /("(?:[^"\\]|\\.)*")\s*:/g, color: COLORS.cyan },    // keys
+    { pattern: /:\s*("(?:[^"\\]|\\.)*")/g, color: COLORS.green },    // string values
+    { pattern: /:\s*(\d+\.?\d*)/g, color: COLORS.yellow },           // number values
+    { pattern: /:\s*(true|false|null)\b/g, color: COLORS.magenta },  // special values
+  ],
+  default: [
+    { pattern: /(\/\/[^\n]*|#[^\n]*)/g, color: COLORS.dim },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+  ],
+};
+
+// Aliases
+SYNTAX_RULES.javascript = SYNTAX_RULES.typescript;
+SYNTAX_RULES.c = SYNTAX_RULES.rust;
+SYNTAX_RULES.cpp = SYNTAX_RULES.rust;
+SYNTAX_RULES.java = SYNTAX_RULES.typescript;
+SYNTAX_RULES.csharp = SYNTAX_RULES.typescript;
+SYNTAX_RULES.swift = SYNTAX_RULES.rust;
+SYNTAX_RULES.kotlin = SYNTAX_RULES.typescript;
+SYNTAX_RULES.ruby = SYNTAX_RULES.python;
+SYNTAX_RULES.css = SYNTAX_RULES.default;
+SYNTAX_RULES.html = SYNTAX_RULES.default;
+SYNTAX_RULES.sql = SYNTAX_RULES.default;
+SYNTAX_RULES.yaml = SYNTAX_RULES.default;
+SYNTAX_RULES.toml = SYNTAX_RULES.default;
+SYNTAX_RULES.markdown = SYNTAX_RULES.default;
+
+/**
+ * Apply syntax highlighting to a line of code
+ */
+export function highlightSyntax(line: string, filePath: string): string {
+  const lang = detectLanguage(filePath);
+  const rules = lang ? SYNTAX_RULES[lang] || SYNTAX_RULES.default : SYNTAX_RULES.default;
+
+  let result = line;
+  for (const rule of rules) {
+    result = result.replace(rule.pattern, `${rule.color}$1${COLORS.reset}`);
+  }
+  return result;
 }
 
 // ============================================================================

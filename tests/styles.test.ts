@@ -191,3 +191,64 @@ describe('constants', () => {
     expect(colors.cyan).toBeDefined();
   });
 });
+
+// ============================================================================
+// Syntax highlighting (#30)
+// ============================================================================
+
+describe('syntax highlighting', () => {
+  it('should highlight TypeScript keywords', async () => {
+    const { highlightSyntax } = await import('../src/diff.js');
+    const result = highlightSyntax('const foo = 42;', 'test.ts');
+    expect(result).toContain('const');
+    expect(result).toContain('42');
+    // Should have ANSI codes injected
+    expect(result.length).toBeGreaterThan('const foo = 42;'.length);
+  });
+
+  it('should highlight Python keywords', async () => {
+    const { highlightSyntax } = await import('../src/diff.js');
+    const result = highlightSyntax('def hello():', 'script.py');
+    expect(result).toContain('def');
+    expect(result.length).toBeGreaterThan('def hello():'.length);
+  });
+
+  it('should highlight strings', async () => {
+    const { highlightSyntax } = await import('../src/diff.js');
+    const result = highlightSyntax('const s = "hello";', 'test.js');
+    expect(result).toContain('"hello"');
+  });
+
+  it('should not crash on unknown extensions', async () => {
+    const { highlightSyntax } = await import('../src/diff.js');
+    const result = highlightSyntax('some text', 'file.xyz');
+    expect(result).toContain('some text');
+  });
+
+  it('should handle empty lines', async () => {
+    const { highlightSyntax } = await import('../src/diff.js');
+    const result = highlightSyntax('', 'test.ts');
+    expect(result).toBe('');
+  });
+});
+
+// ============================================================================
+// Ollama context limits (#41)
+// ============================================================================
+
+describe('Ollama context limits', () => {
+  it('should have context limits for common Ollama models', async () => {
+    const { getModelContextLimit } = await import('../src/model-detection.js');
+    // These should return specific limits, not the 32000 fallback
+    expect(getModelContextLimit('ollama', 'llama3.1:70b')).toBe(128000);
+    expect(getModelContextLimit('ollama', 'codellama:13b')).toBe(16384);
+    expect(getModelContextLimit('ollama', 'deepseek-coder:33b')).toBe(128000);
+    expect(getModelContextLimit('ollama', 'qwen2.5:7b')).toBe(128000);
+    expect(getModelContextLimit('ollama', 'phi-3:mini')).toBe(128000);
+  });
+
+  it('should fall back to 32000 for unknown models', async () => {
+    const { getModelContextLimit } = await import('../src/model-detection.js');
+    expect(getModelContextLimit('ollama', 'unknown-model:7b')).toBe(32000);
+  });
+});

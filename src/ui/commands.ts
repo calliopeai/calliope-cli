@@ -207,8 +207,25 @@ Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.agtermEnabled ? '\nAGTerm: ON (
     case '/model':
     case '/m':
       if (parts[1]) {
-        ctx.setModel(parts[1]);
-        ctx.addMessage('system', `Model: ${parts[1]}`);
+        const newModel = parts[1];
+        const oldModel = ctx.model || ctx.actualModel;
+
+        // Check context compatibility before switching (#26)
+        const oldLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, oldModel);
+        const newLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, newModel);
+        const currentTokens = ctx.estimateContextTokens();
+        const newPct = Math.round((currentTokens / newLimit) * 100);
+
+        ctx.setModel(newModel);
+        ctx.setContextTokens(currentTokens);
+
+        let switchWarning = '';
+        if (newPct > 80) {
+          switchWarning = `\n⚠️  Context at ${newPct}% of new model limit (${Math.round(currentTokens/1000)}K/${Math.round(newLimit/1000)}K). Consider /summarize compact.`;
+        } else if (newLimit < oldLimit) {
+          switchWarning = `\n📉 Context window: ${Math.round(oldLimit/1000)}K → ${Math.round(newLimit/1000)}K (${newPct}% used)`;
+        }
+        ctx.addMessage('system', `Model: ${oldModel} → ${newModel}${switchWarning}`);
       } else {
         ctx.addMessage('system', `Discovering models for ${ctx.actualProvider}...`);
         try {

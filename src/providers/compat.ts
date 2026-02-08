@@ -10,6 +10,7 @@ import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
+import { getOllamaFallbackModel } from '../model-detection.js';
 
 // API base URLs for OpenAI-compatible providers
 const PROVIDER_BASE_URLS: Record<string, string> = {
@@ -134,13 +135,37 @@ export async function chatOpenAICompatible(
     }
   }
 
-  // Non-streaming request
-  const response = await client.chat.completions.create({
-    model,
-    messages: openaiMessages,
-    tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: dynamicMaxTokens,
-  });
+  // Non-streaming request with Ollama fallback (#41)
+  let actualModel = model;
+  let response;
+  try {
+    response = await client.chat.completions.create({
+      model: actualModel,
+      messages: openaiMessages,
+      tools: openaiTools.length > 0 ? openaiTools : undefined,
+      max_tokens: dynamicMaxTokens,
+    });
+  } catch (error: unknown) {
+    // Ollama model not found - try fallback discovery
+    const status = (error as { status?: number })?.status;
+    if (provider === 'ollama' && (status === 404 || String(error).includes('not found'))) {
+      const fallback = await getOllamaFallbackModel();
+      if (fallback && fallback !== model) {
+        debugLog(`Ollama model "${model}" not found, falling back to "${fallback}"`);
+        actualModel = fallback;
+        response = await client.chat.completions.create({
+          model: actualModel,
+          messages: openaiMessages,
+          tools: openaiTools.length > 0 ? openaiTools : undefined,
+          max_tokens: dynamicMaxTokens,
+        });
+      } else {
+        throw new Error(`Ollama model "${model}" not found. Pull it with: ollama pull ${model}`);
+      }
+    } else {
+      throw error;
+    }
+  }
 
   if (!response.choices || response.choices.length === 0) {
     throw new Error(`Empty response from ${provider} API`);

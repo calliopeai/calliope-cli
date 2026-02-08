@@ -549,16 +549,43 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
       throw new Error(`Ollama API error: ${response.status}`);
     }
 
-    const data = await response.json() as { models: Array<{ name: string; size: number }> };
+    const data = await response.json() as { models: Array<{ name: string; size: number; details?: { parameter_size?: string; family?: string } }> };
     return data.models
       .filter(model => isCompatibleModel(model.name, 'ollama'))
       .map((model) => ({
         id: model.name,
         name: model.name,
-        description: `Size: ${formatSize(model.size)}`,
+        description: `Size: ${formatSize(model.size)}${model.details?.parameter_size ? ` (${model.details.parameter_size})` : ''}`,
       }));
   } catch (error) {
-    throw new Error(`Failed to connect to Ollama at ${baseUrl}`);
+    throw new Error(`Failed to connect to Ollama at ${baseUrl}. Is Ollama running? Try: ollama serve`);
+  }
+}
+
+/**
+ * Discover available Ollama models and return the best fallback.
+ * Called when the configured model isn't available.
+ */
+export async function getOllamaFallbackModel(): Promise<string | null> {
+  try {
+    const models = await getOllamaModels();
+    if (models.length === 0) return null;
+
+    // Preference order for fallback models (larger/better models first)
+    const preferenceOrder = [
+      'llama3.3', 'llama3.1', 'llama3', 'qwen3', 'qwen2.5', 'deepseek',
+      'codellama', 'mistral', 'phi-3', 'gemma2', 'gemma',
+    ];
+
+    for (const pref of preferenceOrder) {
+      const match = models.find(m => m.id.toLowerCase().startsWith(pref));
+      if (match) return match.id;
+    }
+
+    // If no preferred model found, return the first available one
+    return models[0].id;
+  } catch {
+    return null;
   }
 }
 
@@ -698,9 +725,27 @@ const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
   'gemini-2': 1000000,
   'gemini-1.5': 1000000,
   'llama-3.3': 128000,
+  'llama3.3': 128000,
   'llama-3.1': 128000,
+  'llama3.1': 128000,
+  'llama-3': 8192,
+  'llama3': 8192,
+  'llama2': 4096,
   'mistral-large': 128000,
   'mixtral': 32000,
+  'mistral': 32000,
+  'codellama': 16384,
+  'deepseek-coder': 128000,
+  'deepseek': 128000,
+  'phi-4': 128000,
+  'phi-3': 128000,
+  'qwen3': 128000,
+  'qwen2': 128000,
+  'qwen': 32000,
+  'gemma': 8192,
+  'gemma2': 8192,
+  'command-r': 128000,
+  'starcoder': 8192,
 };
 
 /**
@@ -713,9 +758,11 @@ export function getModelContextLimit(provider: LLMProvider, modelId: string): nu
     return modelInfo.contextLength;
   }
 
-  // Fall back to defaults based on model family
+  // Fall back to defaults based on model family (sort by key length desc for most specific match)
   const lowerModel = modelId.toLowerCase();
-  for (const [key, limit] of Object.entries(DEFAULT_CONTEXT_LIMITS)) {
+  const sortedEntries = Object.entries(DEFAULT_CONTEXT_LIMITS)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [key, limit] of sortedEntries) {
     if (lowerModel.includes(key.toLowerCase())) {
       return limit;
     }
