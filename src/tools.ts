@@ -96,6 +96,29 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'ask_question',
+    description: 'Ask the user a clarifying question. Use in plan mode to gather requirements before finalizing a plan. Can present multiple choice options or ask freeform questions.',
+    parameters: {
+      type: 'object',
+      properties: {
+        question: {
+          type: 'string',
+          description: 'The question to ask the user',
+        },
+        options: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional list of choices. If provided, displayed as numbered options. Omit for freeform questions.',
+        },
+        context: {
+          type: 'string',
+          description: 'Optional context explaining why this question matters for the plan',
+        },
+      },
+      required: ['question'],
+    },
+  },
+  {
     name: 'execute_code',
     description: 'Execute code in a sandboxed environment. Supports Python, Node.js, and shell scripts.',
     parameters: {
@@ -279,6 +302,21 @@ export async function executeTool(
           return { toolCallId: id, result: 'Error: thought must be a string', isError: true };
         }
         result = 'Thought recorded.';
+        break;
+      }
+
+      case 'ask_question': {
+        if (typeof args.question !== 'string') {
+          return { toolCallId: id, result: 'Error: question must be a string', isError: true };
+        }
+        // The actual question display is handled by the UI layer (agent.ts)
+        // This just returns a placeholder that gets replaced with the user's answer
+        const options = Array.isArray(args.options) ? args.options as string[] : undefined;
+        const contextNote = typeof args.context === 'string' ? args.context : undefined;
+        let questionDisplay = args.question;
+        if (contextNote) questionDisplay += `\n  Context: ${contextNote}`;
+        if (options) questionDisplay += '\n' + options.map((o: string, i: number) => `  ${i + 1}. ${o}`).join('\n');
+        result = `QUESTION:${questionDisplay}`;
         break;
       }
 
@@ -559,6 +597,16 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
       }
     } catch {
       // Ignore errors reading old content
+    }
+  }
+
+  // Auto-checkpoint before overwriting existing files (#20)
+  if (!isNewFile && oldContent) {
+    try {
+      const { createCheckpoint } = require('./checkpoint.js');
+      createCheckpoint(absPath, oldContent);
+    } catch {
+      // Checkpoint module not available or failed - continue with write
     }
   }
 

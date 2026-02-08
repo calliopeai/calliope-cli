@@ -6,6 +6,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import React from 'react';
 import * as config from '../config.js';
 import { selectProvider, getAvailableProviders } from '../providers.js';
@@ -1541,6 +1542,46 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       break;
     }
 
+    case '/trust':
+    case '/untrust': {
+      const { checkTrust, trustProject, untrustProject, listTrustedProjects, removeFromRegistry } = await import('../trust.js');
+      const trustSubCmd = command === '/untrust' ? 'remove' : (parts[1] || 'status');
+
+      if (trustSubCmd === 'status') {
+        const trust = checkTrust(process.cwd());
+        ctx.addMessage('system', `Trust: ${trust.trusted ? '✓ Trusted' : '✗ Untrusted'}\n${trust.reason}${trust.changed ? '\n⚠️ CALLIOPE.md has changed since trust was granted' : ''}`);
+      } else if (trustSubCmd === 'add' || trustSubCmd === 'yes') {
+        const dir = parts[2] || process.cwd();
+        trustProject(dir, parts.slice(3).join(' ') || undefined);
+        ctx.addMessage('system', `✓ Trusted: ${dir}`);
+      } else if (trustSubCmd === 'remove' || trustSubCmd === 'no') {
+        const dir = parts[2] || process.cwd();
+        if (command === '/untrust') {
+          untrustProject(parts[1] || process.cwd());
+        } else {
+          untrustProject(dir);
+        }
+        ctx.addMessage('system', `✗ Untrusted: ${command === '/untrust' ? (parts[1] || process.cwd()) : dir}`);
+      } else if (trustSubCmd === 'list') {
+        const projects = listTrustedProjects();
+        if (projects.length === 0) {
+          ctx.addMessage('system', 'No projects in trust registry.');
+        } else {
+          const list = projects.map(p =>
+            `  ${p.entry.trusted ? '✓' : '✗'} ${p.path}${p.entry.note ? ` (${p.entry.note})` : ''}`
+          ).join('\n');
+          ctx.addMessage('system', `Trust registry:\n${list}`);
+        }
+      } else if (trustSubCmd === 'clear') {
+        const dir = parts[2] || process.cwd();
+        removeFromRegistry(dir);
+        ctx.addMessage('system', `Removed from trust registry: ${dir}`);
+      } else {
+        ctx.addMessage('system', 'Usage: /trust [status|add|remove|list|clear]\n  /trust add [path] - trust a project\n  /trust remove [path] - untrust a project\n  /untrust [path] - shortcut for /trust remove');
+      }
+      break;
+    }
+
     case '/template':
     case '/t': {
       const subCmd = parts[1];
@@ -2158,6 +2199,66 @@ Options:
   --mode competitive|collaborative|consensus|overseer
 
 Requires --agterm flag.`);
+      }
+      break;
+    }
+
+    case '/checkpoint':
+    case '/cp': {
+      const { listCheckpoints, clearCheckpoints } = await import('../checkpoint.js');
+      const cpSubCmd = parts[1] || 'list';
+
+      if (cpSubCmd === 'list') {
+        const filterPath = parts[2];
+        const checkpoints = listCheckpoints(filterPath);
+        if (checkpoints.length === 0) {
+          ctx.addMessage('system', filterPath
+            ? `No checkpoints found for: ${filterPath}`
+            : 'No checkpoints found. Checkpoints are created automatically when files are overwritten.');
+        } else {
+          const list = checkpoints.slice(0, 20).map((cp, i) => {
+            const relPath = path.relative(process.cwd(), cp.filePath);
+            const time = new Date(cp.timestamp).toLocaleString();
+            const size = cp.size > 1024 ? `${(cp.size / 1024).toFixed(1)}KB` : `${cp.size}B`;
+            return `  ${i}. ${relPath} (${size}) - ${time}`;
+          }).join('\n');
+          ctx.addMessage('system', `Checkpoints (newest first):\n${list}${checkpoints.length > 20 ? `\n  ... and ${checkpoints.length - 20} more` : ''}`);
+        }
+      } else if (cpSubCmd === 'clear') {
+        const days = parts[2] ? parseInt(parts[2]) : undefined;
+        const removed = clearCheckpoints(days);
+        ctx.addMessage('system', `Cleared ${removed} checkpoint${removed !== 1 ? 's' : ''}${days ? ` older than ${days} days` : ''}.`);
+      } else {
+        ctx.addMessage('system', 'Usage: /checkpoint [list|clear]\n  /checkpoint list [path] - list checkpoints\n  /checkpoint clear [days] - clear old checkpoints\n  /restore <path> [index] - restore a file');
+      }
+      break;
+    }
+
+    case '/restore': {
+      const { restoreCheckpoint, listCheckpoints } = await import('../checkpoint.js');
+      const restorePath = parts[1];
+
+      if (!restorePath) {
+        ctx.addMessage('error', 'Usage: /restore <path> [index]\n  Restores a file from its most recent checkpoint.\n  Use /checkpoint list to see available checkpoints.');
+        break;
+      }
+
+      const idx = parts[2] ? parseInt(parts[2]) : 0;
+      const absRestorePath = path.resolve(restorePath);
+      const checkpoints = listCheckpoints(absRestorePath);
+
+      if (checkpoints.length === 0) {
+        ctx.addMessage('error', `No checkpoints found for: ${restorePath}`);
+        break;
+      }
+
+      const restored = restoreCheckpoint(absRestorePath, idx);
+      if (restored !== undefined) {
+        const relPath = path.relative(process.cwd(), absRestorePath);
+        const cp = checkpoints[idx];
+        ctx.addMessage('system', `✓ Restored ${relPath} from checkpoint (${new Date(cp.timestamp).toLocaleString()})`);
+      } else {
+        ctx.addMessage('error', `Failed to restore: checkpoint index ${idx} not found for ${restorePath}`);
       }
       break;
     }

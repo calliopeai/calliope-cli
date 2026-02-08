@@ -361,7 +361,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           };
 
           // Check blocking conditions
-          if (ctx.mode === 'plan' && toolCall.name !== 'think') {
+          if (ctx.mode === 'plan' && toolCall.name !== 'think' && toolCall.name !== 'ask_question') {
             preCheck.blocked = true;
             preCheck.blockReason = 'plan mode';
             preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
@@ -552,20 +552,40 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               if (toolCall.name === 'think') {
                 const thought = String(args.thought || '');
                 ctx.addMessage('tool', thought);
+              } else if (toolCall.name === 'ask_question') {
+                // Display question prominently (#42)
+                const question = String(args.question || '');
+                const options = Array.isArray(args.options) ? args.options as string[] : undefined;
+                const contextNote = typeof args.context === 'string' ? args.context : undefined;
+                let questionMsg = `❓ ${question}`;
+                if (contextNote) questionMsg += `\n   ${contextNote}`;
+                if (options) questionMsg += '\n' + options.map((o: string, i: number) => `   ${i + 1}. ${o}`).join('\n');
+                ctx.addMessage('assistant', questionMsg);
+                // Tell the LLM that we're waiting for user input
+                ctx.llmMessages.current.push({
+                  role: 'tool',
+                  content: '[Waiting for user response. The user will reply with their answer.]',
+                  toolCallId: toolCall.id,
+                });
+                // Break out of tool loop - let user respond naturally
+                completedNaturally = true;
               } else {
                 const display = result.displayResult || result.result;
                 const preview = display.split('\n').slice(0, 5).join('\n');
                 ctx.addMessage('tool', preview + (display.split('\n').length > 5 ? '\n...' : ''));
               }
 
-              ctx.llmMessages.current.push({
-                role: 'tool',
-                content: result.result,
-                toolCallId: toolCall.id,
-              });
+              if (toolCall.name !== 'ask_question') {
+                ctx.llmMessages.current.push({
+                  role: 'tool',
+                  content: result.result,
+                  toolCallId: toolCall.id,
+                });
+              }
             }
           }
         }
+        if (completedNaturally) break; // ask_question pauses for user input (#42)
         continue;
       }
 

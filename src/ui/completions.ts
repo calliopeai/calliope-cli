@@ -78,10 +78,14 @@ export const SLASH_COMMANDS = [
   '/smart',
   '/swarm',
   '/council',
+  '/trust',
+  '/untrust',
+  '/checkpoint', '/cp',
+  '/restore',
 ];
 
 // Commands that take a path argument (for file tab completion)
-export const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find'];
+export const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find', '/restore'];
 
 // ============================================================================
 // Path Completion

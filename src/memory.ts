@@ -357,9 +357,19 @@ export function listContextFiles(dir: string): string[] {
  * Build memory context string for system prompt
  */
 export function buildMemoryContext(dir: string): string {
-  const projectMemory = getProjectMemory(dir);
+  // Check project trust before loading project-level context (#23)
+  let projectTrusted = true;
+  try {
+    const { checkTrust, autoTrustIfNew } = require('./trust.js');
+    // Auto-trust on first visit (user-friendly default)
+    autoTrustIfNew(dir);
+    const trust = checkTrust(dir);
+    projectTrusted = trust.trusted;
+  } catch { /* trust module not available, default to trusted */ }
+
+  const projectMemory = projectTrusted ? getProjectMemory(dir) : { context: [], preferences: [], history: [], notes: [] };
   const globalMemory = getGlobalMemory();
-  const contextFiles = loadContextFiles(dir);
+  const contextFiles = projectTrusted ? loadContextFiles(dir) : [];
 
   const parts: string[] = [];
 
