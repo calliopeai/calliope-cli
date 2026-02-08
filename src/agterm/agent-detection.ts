@@ -4,7 +4,7 @@
  * Detect which agent CLIs are installed and available.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import type { SubAgentType, AgentCLIInfo } from './types.js';
 import { AGENT_CLI_MAP } from './types.js';
 
@@ -13,7 +13,7 @@ import { AGENT_CLI_MAP } from './types.js';
  */
 function commandExists(command: string): boolean {
   try {
-    execSync(`which ${command}`, { stdio: 'ignore' });
+    execFileSync('which', [command], { stdio: 'ignore' });
     return true;
   } catch {
     return false;

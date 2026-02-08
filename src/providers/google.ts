@@ -20,6 +20,27 @@ export async function chatGoogle(
 
   const genAI = new GoogleGenerativeAI(apiKey);
 
+  // Convert a tool property type to Gemini schema type
+  function convertPropertyType(prop: any): any {
+    const result: any = {
+      type: (prop.type || 'string').toUpperCase(),
+      description: prop.description,
+    };
+    if (prop.enum) result.enum = prop.enum;
+    // Handle nested objects
+    if (prop.type === 'object' && prop.properties) {
+      result.properties = Object.fromEntries(
+        Object.entries(prop.properties).map(([k, v]) => [k, convertPropertyType(v)])
+      );
+      if (prop.required) result.required = prop.required;
+    }
+    // Handle arrays
+    if (prop.type === 'array' && prop.items) {
+      result.items = convertPropertyType(prop.items);
+    }
+    return result;
+  }
+
   // Convert tools to Gemini function declarations
   const geminiTools = tools.length > 0 ? [{
     functionDeclarations: tools.map(t => ({
@@ -28,11 +49,7 @@ export async function chatGoogle(
       parameters: {
         type: 'OBJECT' as const,
         properties: Object.fromEntries(
-          Object.entries(t.parameters.properties).map(([key, prop]) => [key, {
-            type: prop.type.toUpperCase(),
-            description: prop.description,
-            ...(prop.enum ? { enum: prop.enum } : {}),
-          }])
+          Object.entries(t.parameters.properties).map(([key, prop]) => [key, convertPropertyType(prop)])
         ),
         required: t.parameters.required || [],
       },
@@ -111,9 +128,8 @@ export async function chatGoogle(
 
   const result = await chat.sendMessage(lastMessageParts);
   const response = result.response;
-  const text = response.text();
 
-  // Check for function calls
+  // Check for function calls first (text() throws when only function calls are present)
   const toolCalls: ToolCall[] = [];
   const candidates = response.candidates || [];
   for (const candidate of candidates) {
@@ -122,10 +138,18 @@ export async function chatGoogle(
         toolCalls.push({
           id: `gemini_${Date.now()}_${Math.random().toString(36).slice(2)}`,
           name: part.functionCall.name,
-          arguments: part.functionCall.args as Record<string, unknown>,
+          arguments: (part.functionCall.args || {}) as Record<string, unknown>,
         });
       }
     }
+  }
+
+  // Safely extract text (may throw if response only has function calls)
+  let text = '';
+  try {
+    text = response.text();
+  } catch {
+    // No text content - this is expected when only function calls are returned
   }
 
   return {

@@ -6,6 +6,7 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import type { SubAgentType, AgentEvent, SubAgentTask } from './types.js';
+import { AGENT_CLI_MAP } from './types.js';
 import { getAgentCLI } from './agent-detection.js';
 
 /**
@@ -28,15 +29,41 @@ const runningTasks = new Map<string, RunningTask>();
 const MAX_AGENT_OUTPUT = 100_000;
 
 /**
- * Get environment variables for an agent
- * Passes through existing env with terminal settings
+ * Safe environment variable allowlist for sub-agents.
+ * Only pass essential system vars + the specific API key the agent needs.
+ * This prevents credential leakage across provider boundaries.
  */
-function getAgentEnv(): Record<string, string> {
-  return {
-    ...process.env as Record<string, string>,
+const SAFE_ENV_VARS = [
+  'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE',
+  'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_CACHE_HOME',
+  'NODE_ENV', 'NO_COLOR', 'FORCE_COLOR',
+];
+
+/**
+ * Get environment variables for an agent.
+ * Only passes safe system vars + the specific API key for this agent type.
+ * Prevents credential leakage (e.g., Anthropic key leaking to Gemini sub-agent).
+ */
+function getAgentEnv(agentType: SubAgentType): Record<string, string> {
+  const env: Record<string, string> = {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
   };
+
+  // Copy safe system vars
+  for (const key of SAFE_ENV_VARS) {
+    if (process.env[key]) {
+      env[key] = process.env[key]!;
+    }
+  }
+
+  // Only pass the API key this specific agent needs
+  const agentConfig = AGENT_CLI_MAP[agentType];
+  if (agentConfig && process.env[agentConfig.envVar]) {
+    env[agentConfig.envVar] = process.env[agentConfig.envVar]!;
+  }
+
+  return env;
 }
 
 /**
@@ -49,7 +76,7 @@ export async function* executeAgent(
   timeout: number = 15 * 60 * 1000 // 15 minutes default
 ): AsyncIterable<AgentEvent> {
   const { command, args } = getAgentCLI(task.agent);
-  const env = getAgentEnv();
+  const env = getAgentEnv(task.agent);
 
   // Emit start event
   yield {

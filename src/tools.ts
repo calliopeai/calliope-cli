@@ -722,8 +722,8 @@ async function executeGit(operation: string, args: string, cwd: string): Promise
     return `Error: Unknown git operation: ${operation}. Allowed: ${allowedOps.join(', ')}`;
   }
 
-  // Sanitize args to prevent command injection
-  const safeArgs = args.replace(/[;&|`$]/g, '');
+  // Sanitize args to prevent command injection via shell metacharacters
+  const safeArgs = args.replace(/[;&|`$(){}!#\n\r]/g, '');
 
   let command: string;
   switch (operation) {

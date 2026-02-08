@@ -120,7 +120,7 @@ export function needsSummarization(
   actualInputTokens: number
 ): boolean {
   const contextLimit = getModelContextLimit(provider, model);
-  const threshold = contextLimit * 0.70; // Trigger summarization at 70% full
+  const threshold = contextLimit * 0.75; // Trigger summarization at 75% full
   return actualInputTokens >= threshold;
 }
 
@@ -138,7 +138,7 @@ export function getContextHealth(
     limit,
     used: actualInputTokens,
     percent,
-    needsSummarization: actualInputTokens >= limit * 0.70,
+    needsSummarization: actualInputTokens >= limit * 0.75,
   };
 }
 
@@ -159,7 +159,7 @@ export function estimateContextUsage(
     estimated,
     limit,
     percent,
-    needsSummarization: estimated >= limit * 0.70, // Conservative threshold for estimates
+    needsSummarization: estimated >= limit * 0.75, // Trigger auto-compact at 75%
   };
 }
 

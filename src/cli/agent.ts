@@ -194,7 +194,13 @@ export async function startLoop(args: string, state: CLIState): Promise<void> {
     const iterBox = getBoxChars();
     console.log(`${color(iterBox.topLeft + iterBox.horizontal, 'cyan')} ${color(`Iteration ${state.loopIteration}/${state.loopMaxIterations}`, 'bold')}`);
 
-    const result = await runAgent(state.loopPrompt, state);
+    // First iteration: use the original prompt
+    // Subsequent iterations: use a continuation prompt that references prior context
+    const iterationPrompt = state.loopIteration === 1
+      ? state.loopPrompt
+      : `Continue working on: ${state.loopPrompt}\n\nThis is iteration ${state.loopIteration}. Review your previous progress and continue from where you left off. Do not repeat completed work.`;
+
+    const result = await runAgent(iterationPrompt, state);
 
     if (state.loopCompletionPromise && result.includes(state.loopCompletionPromise)) {
       console.log(`${color('🎉 Completion promise detected!', 'green')}`);
