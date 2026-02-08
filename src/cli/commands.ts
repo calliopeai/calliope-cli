@@ -99,13 +99,13 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
       break;
 
     case '/persona':
-      if (parts[1] && ['calliope', 'professional', 'minimal'].includes(parts[1])) {
+      if (parts[1] && ['calliope', 'muse', 'minimal'].includes(parts[1])) {
         state.persona = parts[1] as AgentPersona;
         state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
         console.log(color(`Persona set to: ${parts[1]}`, 'green'));
       } else {
         console.log(`Current: ${color(state.persona, 'magenta')}`);
-        console.log('Options: calliope, professional, minimal');
+        console.log('Options: calliope, muse, minimal');
       }
       console.log();
       break;

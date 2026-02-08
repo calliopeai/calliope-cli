@@ -10,6 +10,7 @@ import { Box, Text, useInput } from 'ink';
 import * as fs from 'fs';
 import type { Mode } from '../types.js';
 import { getCurrentCompanion } from '../companions.js';
+import { getInkColor } from '../hud.js';
 import { Separator } from './components.js';
 import { SLASH_COMMANDS, PATH_COMMANDS, getPathCompletions, getSmartCommandSuggestions } from './completions.js';
 
@@ -434,14 +435,14 @@ export function ChatInput({
       {suggestions && suggestions.length > 0 && (
         <Box>
           <Text dimColor>Tab: </Text>
-          <Text color="cyan">{suggestions.slice(0, 5).join('  ')}</Text>
+          <Text color={getInkColor('secondary')}>{suggestions.slice(0, 5).join('  ')}</Text>
           {suggestions.length > 5 && <Text dimColor>  (+{suggestions.length - 5} more)</Text>}
         </Box>
       )}
       {/* Queue indicator */}
       {(queuedCount ?? 0) > 0 && (
         <Box>
-          <Text color="yellow">📨 {queuedCount} queued</Text>
+          <Text color={getInkColor('warning')}>📨 {queuedCount} queued</Text>
           <Text dimColor> | !msg to send now</Text>
         </Box>
       )}

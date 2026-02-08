@@ -3,6 +3,7 @@
  *
  * Footer status bar showing provider, model, context, cost, mode,
  * circuit breaker health, and smart routing status.
+ * Colors sourced from active palette.
  */
 
 import React from 'react';
@@ -12,6 +13,7 @@ import type { LLMProvider, Mode } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { Separator } from './components.js';
 import { getMoodText, getCurrentCompanion } from '../companions.js';
+import { getInkColor } from '../hud.js';
 import type { SessionStats } from './types.js';
 
 // ============================================================================
@@ -40,24 +42,29 @@ export function StatusBar({
   const termWidth = width || process.stdout.columns || 80;
   const formatTokens = (n: number) => n >= 1000 ? `${(n/1000).toFixed(1)}K` : String(n);
   const formatCost = (c: number) => c < 0.01 ? '<$0.01' : `$${c.toFixed(2)}`;
-  // Adaptive model name truncation based on terminal width
   const maxModelLen = termWidth < 80 ? 12 : termWidth < 120 ? 20 : 25;
   const displayModel = model.length > maxModelLen ? model.slice(0, maxModelLen - 3) + '...' : model;
   const modeConfig = MODE_CONFIG[mode];
 
-  // Context usage indicator - uses model's actual context length from API
+  // Palette colors
+  const successColor = getInkColor('success');
+  const warningColor = getInkColor('warning');
+  const errorColor = getInkColor('error');
+  const accentColor = getInkColor('accent');
+  const primaryColor = getInkColor('primary');
+
+  // Context usage indicator
   const contextLimit = getModelContextLimit(provider as LLMProvider, model);
   const contextPct = Math.min(100, Math.round((contextTokens / contextLimit) * 100));
-  const contextColor = contextPct > 80 ? 'red' : contextPct > 50 ? 'yellow' : 'green';
+  const contextColor = contextPct > 80 ? errorColor : contextPct > 50 ? warningColor : successColor;
 
   // Circuit breaker health indicator
   const healthIndicator = breakerHealth === 'tripped'
-    ? <Text color="red">[TRIP]</Text>
+    ? <Text color={errorColor}>[TRIP]</Text>
     : breakerHealth === 'warning'
-    ? <Text color="yellow">[!]</Text>
-    : <Text color="green">[OK]</Text>;
+    ? <Text color={warningColor}>[!]</Text>
+    : <Text color={successColor}>[OK]</Text>;
 
-  // Compact mode for narrow terminals
   const isNarrow = termWidth < 80;
 
   return (
@@ -76,7 +83,7 @@ export function StatusBar({
         {' │ '}
         {formatCost(stats.cost)}
         {breakerHealth ? <>{' │ '}{healthIndicator}</> : null}
-        {smartRouteActive ? <>{' │ '}<Text color="cyan">SMART</Text></> : null}
+        {smartRouteActive ? <>{' │ '}<Text color={accentColor}>SMART</Text></> : null}
         {isNarrow ? null : <>
           {' │ '}
           <Text dimColor>{getMoodText()}</Text>

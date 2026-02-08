@@ -107,7 +107,7 @@ export const SKINS: Record<string, Skin> = {
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'default',
-    defaultPersona: 'professional',
+    defaultPersona: 'calliope',
   },
 
   falcon: {

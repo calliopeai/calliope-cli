@@ -65,7 +65,7 @@ export interface CalliopeConfig {
   // HUD settings
   activeSkin: string;           // Current skin name (default: 'clean')
   activePalette: string;        // Current palette name (default: 'default')
-  activeCompanion: string;      // Current companion name (default: 'professional')
+  activeCompanion: string;      // Current companion name (default: 'calliope')
   activeThemePack?: string;     // Current theme pack name (optional)
   companionIntensity: 'professional' | 'immersive';  // Companion intensity mode
   useEmojis: boolean;           // Enable/disable emoji in UI decorations (default: true)
@@ -92,7 +92,7 @@ export interface CalliopeConfig {
 const DEFAULT_CONFIG: CalliopeConfig = {
   setupComplete: false,
   defaultProvider: 'auto',
-  persona: 'professional',
+  persona: 'calliope',
   maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
   fancyOutput: true,
   autoSaveHistory: true,
@@ -104,7 +104,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   density: 'normal',  // normal or compact
   activeSkin: 'clean',
   activePalette: 'default',
-  activeCompanion: 'professional',
+  activeCompanion: 'calliope',
   companionIntensity: 'immersive',
   useEmojis: true,
   diffStyle: 'inline',
@@ -116,6 +116,25 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   smartRoutingEnabled: false,
   smartRoutingCostSensitivity: 0.3,
 };
+
+// Pre-migrate config file before Conf validates schema
+// (Conf validates before migrations run, so we patch the JSON directly)
+function preMigrateConfig(): void {
+  try {
+    const os = require('os');
+    const fs = require('fs');
+    const path = require('path');
+    const configPath = path.join(os.homedir(), 'Library', 'Preferences', 'calliope-nodejs', 'config.json');
+    if (!fs.existsSync(configPath)) return;
+    const raw = fs.readFileSync(configPath, 'utf-8');
+    const data = JSON.parse(raw);
+    let changed = false;
+    if (data.persona === 'professional') { data.persona = 'calliope'; changed = true; }
+    if (data.activeCompanion === 'professional') { data.activeCompanion = 'calliope'; changed = true; }
+    if (changed) fs.writeFileSync(configPath, JSON.stringify(data, null, '\t'));
+  } catch { /* ignore migration errors */ }
+}
+preMigrateConfig();
 
 // Create config store
 const config = new Conf<CalliopeConfig>({
@@ -140,7 +159,7 @@ const config = new Conf<CalliopeConfig>({
     litellmApiKey: { type: 'string' },
     bedrockApiKey: { type: 'string' },
     bedrockBaseUrl: { type: 'string' },
-    persona: { type: 'string', enum: ['calliope', 'professional', 'minimal'] },
+    persona: { type: 'string', enum: ['calliope', 'muse', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     fancyOutput: { type: 'boolean' },
     autoSaveHistory: { type: 'boolean' },
@@ -385,19 +404,19 @@ const BUILTIN_PROFILES: Record<string, Profile> = {
   smart: {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
-    persona: 'professional',
+    persona: 'calliope',
     confirmMode: true,
   },
   cheap: {
     provider: 'google',
     model: 'gemini-2.0-flash',
-    persona: 'professional',
+    persona: 'calliope',
     confirmMode: true,
   },
   local: {
     provider: 'ollama',
     model: 'llama3.3',
-    persona: 'professional',
+    persona: 'calliope',
     confirmMode: true,
   },
 };

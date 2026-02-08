@@ -117,7 +117,7 @@ Be extremely concise. Execute tasks efficiently.`,
     },
 
     immersive: {
-      name: 'professional',
+      name: 'calliope',
       description: 'Clear, concise, and thorough',
       systemPrompt: `You are Calliope, an AI assistant for software development.
 

@@ -2,6 +2,7 @@
  * UI Module - Message Components
  *
  * MessageItem and MessageHistory for displaying conversation messages.
+ * All colors are sourced from the active palette via getInkColor().
  */
 
 import React from 'react';
@@ -45,11 +46,24 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
     collapse.totalTools !== undefined &&
     (collapse.totalTools - collapse.toolIndex) > collapse.toolDisplayLimit;
 
+  // Pull all colors from palette
+  const userColor = getInkColor('user');
+  const assistantColor = getInkColor('assistant');
+  const borderColor = getInkColor('border');
+  const systemColor = getInkColor('system');
+  const errorColor = getInkColor('error');
+  const successColor = getInkColor('success');
+  const warningColor = getInkColor('warning');
+  const accentColor = getInkColor('accent');
+  const dimColor = getInkColor('textDim');
+
+  const skin = getCurrentSkin();
+
   switch (msg.type) {
     case 'user':
       return (
         <Box flexDirection="column" marginTop={1}>
-          <Text><Text color="cyan">›</Text> {msg.content}</Text>
+          <Text><Text color={userColor}>{skin.decorations.promptPrefix || '›'}</Text> {msg.content}</Text>
         </Box>
       );
 
@@ -58,7 +72,6 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
       const rendered = renderMarkdown(msg.content);
       // Collapse consecutive blank lines to single blank line
       const lines = rendered.split('\n').reduce((acc: string[], line) => {
-        // Skip if this is a blank line following another blank line
         if (line === '' && acc.length > 0 && acc[acc.length - 1] === '') {
           return acc;
         }
@@ -66,19 +79,17 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
         return acc;
       }, []);
 
-      // Check if the active skin has borders enabled
-      const skin = getCurrentSkin();
       const hasBorders = skin.borders.style !== 'none';
+      const companionName = getCurrentCompanion().name;
 
       if (hasBorders) {
-        const borderStyle = getInkBorderStyle(skin) as BoxProps['borderStyle'];
-        const borderColor = getInkColor('border');
+        const bStyle = getInkBorderStyle(skin) as BoxProps['borderStyle'];
         return (
           <Box flexDirection="column" marginTop={1} marginBottom={1}>
-            <Text color="cyan">{skin.decorations.assistantPrefix}{getCurrentCompanion().name}:</Text>
+            <Text color={assistantColor}>{skin.decorations.assistantPrefix}{companionName}:</Text>
             <Box
               flexDirection="column"
-              borderStyle={borderStyle}
+              borderStyle={bStyle}
               borderColor={borderColor}
               paddingX={1}
             >
@@ -92,9 +103,9 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
 
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
-          <Text color="cyan">✧ {getCurrentCompanion().name}:</Text>
+          <Text color={assistantColor}>{skin.decorations.assistantPrefix || '●'} {companionName}:</Text>
           {lines.map((line, i) => (
-            <Text key={i}><Text color="blue">│</Text> {line}</Text>
+            <Text key={i}><Text color={borderColor}>{skin.decorations.separator || '│'}</Text> {line}</Text>
           ))}
         </Box>
       );
@@ -114,7 +125,6 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
 
       // Check if this tool should be collapsed (based on toolDisplayLimit)
       if (shouldCollapseThisTool || (collapse?.collapseTools && !isToolCall)) {
-        // Show collapsed single-line version
         const firstLine = msg.content.split('\n')[0].substring(0, 60);
         return (
           <Text dimColor>╰─ ▸ {firstLine}{msg.content.length > 60 ? '...' : ''}</Text>
@@ -129,8 +139,8 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
           const immersionLabel = getToolLabel(toolName);
           return (
             <Box flexDirection="column">
-              <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text>{immersionLabel ? <Text dimColor> {immersionLabel}</Text> : null}</Text>
-              <Text><Text dimColor>│</Text>  <Text dimColor>{preview}</Text></Text>
+              <Text><Text color={borderColor}>╭─</Text> {icon} <Text color={accentColor}>{toolName}</Text>{immersionLabel ? <Text dimColor> {immersionLabel}</Text> : null}</Text>
+              <Text><Text color={borderColor}>│</Text>  <Text dimColor>{preview}</Text></Text>
             </Box>
           );
         }
@@ -139,25 +149,26 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
       // Check for diff output from write_file
       const isDiff = msg.content.startsWith('DIFF:');
       if (isDiff) {
-        const lines = msg.content.split('\n');
-        const header = lines[0];
+        const diffLines = msg.content.split('\n');
+        const header = diffLines[0];
         const isNewFile = header.includes('NEW_FILE:');
         const filePath = isNewFile
           ? header.replace('DIFF:NEW_FILE:', '')
           : header.replace('DIFF:', '');
 
-        // Find summary line (starts with ⎿)
-        const summaryLine = lines.find(l => l.startsWith('⎿'));
-        const diffStartIdx = summaryLine ? lines.indexOf(summaryLine) + 1 : 1;
-        const diffLines = lines.slice(diffStartIdx, diffStartIdx + 12);
-        const hasMore = lines.length > diffStartIdx + 12;
+        const summaryLine = diffLines.find(l => l.startsWith('⎿'));
+        const diffStartIdx = summaryLine ? diffLines.indexOf(summaryLine) + 1 : 1;
+        const visibleDiffLines = diffLines.slice(diffStartIdx, diffStartIdx + 12);
+        const hasMore = diffLines.length > diffStartIdx + 12;
 
-        // Claude Code style diff display
         const action = isNewFile ? 'Write' : 'Update';
+        const addColor = getInkColor('diffAdd');
+        const removeColor = getInkColor('diffRemove');
+
         return (
           <Box flexDirection="column">
             <Text>
-              <Text color="cyan">{action}</Text>
+              <Text color={assistantColor}>{action}</Text>
               <Text dimColor>(</Text>
               <Text>{filePath}</Text>
               <Text dimColor>)</Text>
@@ -165,21 +176,19 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
             {summaryLine && (
               <Text>  <Text dimColor>{summaryLine}</Text></Text>
             )}
-            {diffLines.map((line, i) => {
-              // Check for line number format: "  123 +  content" or "  123 -  content"
+            {visibleDiffLines.map((line, i) => {
               const lineNumMatch = line.match(/^(\s*\d+)\s*([+-])\s{2}(.*)$/);
               if (lineNumMatch) {
                 const [, lineNum, prefix, content] = lineNumMatch;
-                const color = prefix === '+' ? 'green' : 'red';
+                const color = prefix === '+' ? addColor : removeColor;
                 return (
                   <Text key={i}>
                     <Text dimColor>      {lineNum}</Text>
-                    <Text color={color as 'green' | 'red'}> {prefix}</Text>
-                    <Text color={color as 'green' | 'red'}>  {content.substring(0, 70)}</Text>
+                    <Text color={color}> {prefix}</Text>
+                    <Text color={color}>  {content.substring(0, 70)}</Text>
                   </Text>
                 );
               }
-              // Context line with line number: "  123    content"
               const contextMatch = line.match(/^(\s*\d+)\s{4}(.*)$/);
               if (contextMatch) {
                 const [, lineNum, content] = contextMatch;
@@ -189,13 +198,12 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
                   </Text>
                 );
               }
-              // Fallback for old format or other lines
               let color: string | undefined;
-              if (line.includes(' + ') || line.startsWith('+ ')) color = 'green';
-              else if (line.includes(' - ') || line.startsWith('- ')) color = 'red';
+              if (line.includes(' + ') || line.startsWith('+ ')) color = addColor;
+              else if (line.includes(' - ') || line.startsWith('- ')) color = removeColor;
               return (
                 <Text key={i}>
-                  <Text color={color as 'green' | 'red' | undefined}>      {line.substring(0, 80)}</Text>
+                  <Text color={color}>      {line.substring(0, 80)}</Text>
                 </Text>
               );
             })}
@@ -204,13 +212,12 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
         );
       }
 
-      // Regular tool result with enhanced status detection
+      // Regular tool result
       const allLines = msg.content.split('\n');
-      const lines = allLines.slice(0, 5);
+      const resultLines = allLines.slice(0, 5);
       const totalLines = allLines.length;
       const hasMore = totalLines > 5;
 
-      // Enhanced status detection
       const lowerContent = msg.content.toLowerCase();
       const hasError = lowerContent.includes('error') ||
                        lowerContent.includes('failed') ||
@@ -221,33 +228,32 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
                          lowerContent.includes('deprecated') ||
                          lowerContent.includes('caution');
 
-      // Determine status icon and color
       let statusIcon = '✓';
-      let statusColor: 'green' | 'red' | 'yellow' = 'green';
+      let statusClr = successColor;
       if (hasError) {
         statusIcon = '✗';
-        statusColor = 'red';
+        statusClr = errorColor;
       } else if (hasWarning) {
         statusIcon = '⚠';
-        statusColor = 'yellow';
+        statusClr = warningColor;
       }
 
       return (
         <Box flexDirection="column">
-          {lines.map((line, i) => (
-            <Text key={i}><Text dimColor>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
+          {resultLines.map((line, i) => (
+            <Text key={i}><Text color={borderColor}>│</Text>  <Text dimColor>{line.substring(0, 100)}</Text></Text>
           ))}
-          {hasMore && <Text><Text dimColor>│</Text>  <Text dimColor>... ({totalLines - 5} more lines)</Text></Text>}
-          <Text><Text dimColor>╰─</Text> <Text color={statusColor}>{statusIcon}</Text></Text>
+          {hasMore && <Text><Text color={borderColor}>│</Text>  <Text dimColor>... ({totalLines - 5} more lines)</Text></Text>}
+          <Text><Text color={borderColor}>╰─</Text> <Text color={statusClr}>{statusIcon}</Text></Text>
         </Box>
       );
     }
 
     case 'system':
-      return <Text color="yellow">{msg.content}</Text>;
+      return <Text color={systemColor}>{msg.content}</Text>;
 
     case 'error':
-      return <Text color="red">✗ {msg.content}</Text>;
+      return <Text color={errorColor}>✗ {msg.content}</Text>;
 
     default:
       return <Text>{msg.content}</Text>;
@@ -266,7 +272,6 @@ export function MessageHistory({ messages, collapseSettings }: { messages: UIMes
   return (
     <Box flexDirection="column">
       {messages.map((msg) => {
-        // For tool messages, pass index for collapse calculation
         const msgCollapseSettings = msg.type === 'tool'
           ? { ...collapseSettings, toolIndex: toolIndex++, totalTools }
           : collapseSettings;

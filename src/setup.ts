@@ -208,11 +208,11 @@ export async function runSetup(force = false): Promise<boolean> {
   const personaChoice = await select({
     message: 'Choose Calliope\'s personality:',
     choices: [
-      { value: 'professional', name: 'Professional (Recommended)', description: 'Clear, concise, and thorough' },
-      { value: 'calliope', name: 'Calliope (Poetic)', description: 'Creative with artistic flair' },
+      { value: 'calliope', name: 'Calliope (Recommended)', description: 'Clear, concise, and thorough' },
+      { value: 'muse', name: 'Muse (Poetic)', description: 'Creative with artistic flair' },
       { value: 'minimal', name: 'Minimal', description: 'Extremely brief and efficient' },
     ],
-    default: 'professional',
+    default: 'calliope',
   });
 
   config.set('persona', personaChoice as AgentPersona);

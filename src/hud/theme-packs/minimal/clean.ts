@@ -55,7 +55,7 @@ export const CLEAN_PACK: ThemePack = {
     density: 'normal',
     responsive: { compact: 80, wide: 120 },
     defaultPalette: 'default',
-    defaultPersona: 'professional',
+    defaultPersona: 'calliope',
   },
 
   // ===========================================================================
@@ -97,7 +97,7 @@ export const CLEAN_PACK: ThemePack = {
   // ===========================================================================
   companions: {
     professional: {
-      name: 'professional',
+      name: 'calliope',
       description: 'Clear, concise, and thorough',
       systemPrompt: `You are Calliope, an AI assistant for software development.
 

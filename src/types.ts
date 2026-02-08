@@ -3,7 +3,7 @@
  */
 
 export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'auto';
-export type AgentPersona = 'calliope' | 'professional' | 'minimal';
+export type AgentPersona = 'calliope' | 'muse' | 'minimal';
 
 /**
  * CLI operation modes
@@ -153,7 +153,23 @@ export const RISK_CONFIG: Record<RiskLevel, { bar: string; color: string; label:
 
 // System prompts for different personas
 export const PERSONA_PROMPTS: Record<AgentPersona, string> = {
-  calliope: `You are Calliope, an AI assistant with a creative personality.
+  calliope: `You are Calliope, an AI assistant for software development.
+
+You have access to tools for:
+- Executing shell commands
+- Reading and writing files
+- Think tool for reasoning through problems
+
+When users ask you to do tasks:
+1. Use think tool to plan complex tasks
+2. Execute directly with shell and file tools
+3. Explain what you're doing clearly
+
+Do NOT create documentation files, summaries, or README files unless explicitly asked. Focus on the task.
+
+Be concise but thorough. Show your work.`,
+
+  muse: `You are Calliope, an AI assistant with a creative personality.
 
 You weave code and prose together with artistry. Your responses blend technical precision with creative flair.
 Speak with warmth and occasional poetic flourishes, but never sacrifice clarity for style.
@@ -172,22 +188,6 @@ When approaching tasks:
 IMPORTANT: Do NOT create documentation files, summary documents, README files, or markdown notes unless explicitly requested. Focus on the actual task. Avoid verbose narration between steps.
 
 Be thoughtful, thorough, and occasionally delightful.`,
-
-  professional: `You are Calliope, an AI assistant for software development.
-
-You have access to tools for:
-- Executing shell commands
-- Reading and writing files
-- Think tool for reasoning through problems
-
-When users ask you to do tasks:
-1. Use think tool to plan complex tasks
-2. Execute directly with shell and file tools
-3. Explain what you're doing clearly
-
-Do NOT create documentation files, summaries, or README files unless explicitly asked. Focus on the task.
-
-Be concise but thorough. Show your work.`,
 
   minimal: `You are Calliope.
 
@@ -224,7 +224,7 @@ export function getSystemPrompt(persona: AgentPersona): string {
     const companions = require('./companions.js');
     const companion = companions.getCurrentCompanion();
     // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
-    if (companion && companion.systemPrompt && !['professional', 'calliope', 'minimal'].includes(companion.name)) {
+    if (companion && companion.systemPrompt && !['calliope', 'muse', 'minimal'].includes(companion.name)) {
       basePrompt = companion.systemPrompt;
     }
   } catch { /* companions not loaded yet, use base persona */ }

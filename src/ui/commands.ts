@@ -292,13 +292,13 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       break;
 
     case '/persona':
-      if (parts[1] && ['calliope', 'professional', 'minimal'].includes(parts[1])) {
+      if (parts[1] && ['calliope', 'muse', 'minimal'].includes(parts[1])) {
         const p = parts[1] as AgentPersona;
         ctx.setPersona(p);
         ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(p) }];
         ctx.addMessage('system', `Persona: ${p}`);
       } else {
-        ctx.addMessage('system', `Persona: ${ctx.persona} | Options: calliope, professional, minimal`);
+        ctx.addMessage('system', `Persona: ${ctx.persona} | Options: calliope, muse, minimal`);
       }
       break;
 
@@ -476,11 +476,11 @@ Available keys:
           config.set('maxIterations', num);
           ctx.addMessage('system', `\u2713 maxIterations set to ${num}`);
         } else if (key === 'persona') {
-          if (!['calliope', 'professional', 'minimal'].includes(value)) {
-            ctx.addMessage('error', 'persona must be: calliope, professional, or minimal');
+          if (!['calliope', 'muse', 'minimal'].includes(value)) {
+            ctx.addMessage('error', 'persona must be: calliope, muse, or minimal');
             break;
           }
-          config.set('persona', value as 'calliope' | 'professional' | 'minimal');
+          config.set('persona', value as 'calliope' | 'muse' | 'minimal');
           ctx.setPersona(value as AgentPersona);
           ctx.addMessage('system', `\u2713 persona set to ${value}`);
         } else if (key === 'fancyOutput') {
@@ -931,10 +931,13 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     }
 
     case '/theme': {
-      const themes = await import('../themes.js');
       const subCmd = parts[1];
 
-      if (subCmd === 'list' || !subCmd) {
+      if (!subCmd) {
+        // Open interactive theme picker
+        ctx.setModalMode('theme-picker');
+      } else if (subCmd === 'list') {
+        const themes = await import('../themes.js');
         const list = themes.listThemes();
         const current = themes.getCurrentThemeName();
         const formatted = list.map((t: { name: string; custom?: boolean; description?: string }) => {
@@ -943,11 +946,14 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           return `  ${t.name}${marker}${custom} - ${t.description || 'No description'}`;
         }).join('\n');
         ctx.addMessage('system', `Available themes:\n${formatted}`);
-      } else if (themes.setCurrentTheme(subCmd)) {
-        themes.clearThemeCache();
-        ctx.addMessage('system', `Theme set to: ${subCmd}`);
       } else {
-        ctx.addMessage('error', `Theme not found: ${subCmd}`);
+        const themes = await import('../themes.js');
+        if (themes.setCurrentTheme(subCmd)) {
+          themes.clearThemeCache();
+          ctx.addMessage('system', `Theme set to: ${subCmd}`);
+        } else {
+          ctx.addMessage('error', `Theme not found: ${subCmd}`);
+        }
       }
       break;
     }

@@ -46,8 +46,8 @@ export type MoodState = keyof CompanionMoods;
 // ============================================================================
 
 export const COMPANIONS: Record<string, PersonaCompanion> = {
-  professional: {
-    name: 'professional',
+  calliope: {
+    name: 'calliope',
     description: 'Clear, concise, and thorough',
     systemPrompt: `You are Calliope, an AI assistant for software development.
 
@@ -77,8 +77,8 @@ Be concise but thorough. Show your work.`,
     },
   },
 
-  calliope: {
-    name: 'calliope',
+  muse: {
+    name: 'muse',
     description: 'Poetic, creative, with artistic flair',
     systemPrompt: `You are Calliope, an AI assistant with a creative personality.
 
@@ -398,11 +398,11 @@ let currentMood: MoodState = 'idle';
 
 export function getCompanion(name?: string): PersonaCompanion {
   if (!name) {
-    return currentCompanion || COMPANIONS.professional;
+    return currentCompanion || COMPANIONS.calliope;
   }
 
   if (COMPANIONS[name]) return COMPANIONS[name];
-  return COMPANIONS.professional;
+  return COMPANIONS.calliope;
 }
 
 export function applyCompanion(name: string): boolean {
@@ -415,7 +415,7 @@ export function applyCompanion(name: string): boolean {
 }
 
 export function getCurrentCompanion(): PersonaCompanion {
-  return currentCompanion || COMPANIONS.professional;
+  return currentCompanion || COMPANIONS.calliope;
 }
 
 export function listCompanions(): Array<{ name: string; description: string }> {

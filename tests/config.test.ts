@@ -60,7 +60,7 @@ describe('get / set', () => {
   it('should return default values after reset', () => {
     expect(get('setupComplete')).toBe(false);
     expect(get('defaultProvider')).toBe('auto');
-    expect(get('persona')).toBe('professional');
+    expect(get('persona')).toBe('calliope');
     expect(get('fancyOutput')).toBe(true);
     expect(get('maxIterations')).toBe(0);
   });
@@ -149,7 +149,7 @@ describe('getConfig', () => {
     expect(cfg).toBeDefined();
     expect(cfg.setupComplete).toBe(false);
     expect(cfg.defaultProvider).toBe('auto');
-    expect(cfg.persona).toBe('professional');
+    expect(cfg.persona).toBe('calliope');
   });
 });
 
@@ -317,7 +317,7 @@ describe('profiles', () => {
   it('should save and retrieve custom profiles', () => {
     saveProfile('myprofile', {
       provider: 'anthropic',
-      persona: 'professional',
+      persona: 'calliope',
     });
     const p = getProfile('myprofile');
     expect(p).toBeDefined();

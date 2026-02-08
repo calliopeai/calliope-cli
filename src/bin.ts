@@ -199,7 +199,7 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
 
   const skinName = envSkin || config.get('activeSkin') || 'clean';
   const paletteName = envPalette || config.get('activePalette') || 'default';
-  const companionName = envCompanion || config.get('activeCompanion') || 'professional';
+  const companionName = envCompanion || config.get('activeCompanion') || 'calliope';
 
   applySkin(skinName);
   applyPalette(paletteName);

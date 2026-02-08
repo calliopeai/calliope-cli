@@ -22,8 +22,8 @@ import * as hooks from '../hooks.js';
 import * as summarization from '../summarization.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
-import { getCurrentSkin, getCurrentPalette, paletteColorize } from '../hud.js';
-import { getCurrentCompanion } from '../companions.js';
+import { getCurrentSkin, getCurrentPalette, paletteColorize, applySkin, applyPalette } from '../hud.js';
+import { getCurrentCompanion, applyCompanion } from '../companions.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
@@ -40,6 +40,8 @@ import {
   ModelSelector, SessionSelector, UpgradePrompt, ComplexityWarning,
   SessionResumePrompt, KeybindingsModal,
 } from './modals.js';
+import { ThemePicker } from './theme-picker.js';
+import type { ThemeSelection } from './theme-picker.js';
 import { ChatInput } from './chat-input.js';
 import { StatusBar } from './status-bar.js';
 import { resetContextWarnings } from './context.js';
@@ -169,7 +171,7 @@ function TerminalChat() {
   }));
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker'>('none');
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
   const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: import('../types.js').ToolCall; resolve: (approved: boolean) => void } | null>(null);
@@ -883,6 +885,39 @@ function TerminalChat() {
       {/* Modal: Keybindings */}
       {modalMode === 'keys' && (
         <KeybindingsModal onClose={() => setModalMode('none')} />
+      )}
+
+      {/* Modal: Theme Picker */}
+      {modalMode === 'theme-picker' && (
+        <ThemePicker
+          currentLayout={layout}
+          currentSkin={getCurrentSkin().name}
+          currentPalette={getCurrentPalette().name}
+          currentCompanion={getCurrentCompanion().name}
+          onApply={(selection: ThemeSelection) => {
+            // Apply all selections
+            setLayout(selection.layout as 'classic' | 'response-top' | 'response-bottom' | 'split');
+            config.set('layout', selection.layout as 'classic' | 'response-top' | 'response-bottom' | 'split');
+            applySkin(selection.skin);
+            config.set('activeSkin', selection.skin);
+            applyPalette(selection.palette);
+            config.set('activePalette', selection.palette);
+            applyCompanion(selection.companion);
+            config.set('activeCompanion', selection.companion);
+
+            const changes: string[] = [];
+            if (selection.layout !== layout) changes.push(`layout=${selection.layout}`);
+            if (selection.skin !== getCurrentSkin().name) changes.push(`skin=${selection.skin}`);
+            if (selection.palette !== getCurrentPalette().name) changes.push(`palette=${selection.palette}`);
+            if (selection.companion !== getCurrentCompanion().name) changes.push(`companion=${selection.companion}`);
+
+            addMessage('system', changes.length > 0
+              ? `Theme applied: ${changes.join(', ')}`
+              : 'Theme unchanged.');
+            setModalMode('none');
+          }}
+          onCancel={() => setModalMode('none')}
+        />
       )}
 
       {/* Chat Input */}
