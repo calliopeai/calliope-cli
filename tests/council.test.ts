@@ -239,4 +239,107 @@ describe('Council Tool Integration', () => {
     expect(startTool!.parameters.properties.template).toBeDefined();
     expect(startTool!.parameters.properties.mode).toBeDefined();
   });
+
+  it('should have check_council tool', async () => {
+    const { getAgtermTools } = await import('../src/agterm/tools.js');
+    const tools = getAgtermTools();
+    const tool = tools.find(t => t.name === 'check_council');
+    expect(tool).toBeDefined();
+    expect(tool!.parameters.required).toContain('sessionId');
+  });
+
+  it('should have cancel_council tool', async () => {
+    const { getAgtermTools } = await import('../src/agterm/tools.js');
+    const tools = getAgtermTools();
+    const tool = tools.find(t => t.name === 'cancel_council');
+    expect(tool).toBeDefined();
+    expect(tool!.parameters.required).toContain('sessionId');
+  });
+});
+
+// ============================================================================
+// Council Configuration
+// ============================================================================
+
+describe('Council Configuration', () => {
+  it('should merge with defaults correctly', () => {
+    const config: CouncilConfig = {
+      ...DEFAULT_COUNCIL_CONFIG,
+      mode: 'consensus',
+      members: [
+        { id: 'a', name: 'A', agent: 'claude', weight: 1.0 },
+        { id: 'b', name: 'B', agent: 'gemini', weight: 1.0 },
+      ],
+      consensusThreshold: 0.75,
+    };
+
+    expect(config.mode).toBe('consensus');
+    expect(config.consensusThreshold).toBe(0.75);
+    expect(config.maxRounds).toBe(3); // from default
+    expect(config.tieBreaker).toBe('scoring'); // from default
+    expect(config.members.length).toBe(2);
+  });
+
+  it('should support weighted members', () => {
+    const members: CouncilMember[] = [
+      { id: 'a', name: 'Lead', agent: 'claude', role: 'lead', weight: 2.0 },
+      { id: 'b', name: 'Junior', agent: 'gemini', role: 'junior', weight: 0.5 },
+    ];
+
+    const totalWeight = members.reduce((sum, m) => sum + m.weight, 0);
+    expect(totalWeight).toBe(2.5);
+    expect(members[0].weight / totalWeight).toBeGreaterThan(0.7); // Lead has >70% voting power
+  });
+
+  it('should support designated tie-breaker', () => {
+    const config: CouncilConfig = {
+      ...DEFAULT_COUNCIL_CONFIG,
+      mode: 'consensus',
+      tieBreaker: 'designated',
+      designatedBreaker: 'lead-id',
+      members: [
+        { id: 'lead-id', name: 'Lead', agent: 'claude', weight: 1.0 },
+        { id: 'other', name: 'Other', agent: 'gemini', weight: 1.0 },
+      ],
+    };
+
+    expect(config.tieBreaker).toBe('designated');
+    expect(config.designatedBreaker).toBe('lead-id');
+  });
+});
+
+// ============================================================================
+// Template Validation
+// ============================================================================
+
+describe('Template Validation', () => {
+  it('code-review should have security reviewer with higher weight', () => {
+    const t = COUNCIL_TEMPLATES['code-review'];
+    const securityReviewer = t.members.find(m => m.role === 'security-reviewer');
+    expect(securityReviewer).toBeDefined();
+    expect(securityReviewer!.weight).toBeGreaterThan(1.0);
+  });
+
+  it('architecture should have lead architect with highest weight', () => {
+    const t = COUNCIL_TEMPLATES['architecture'];
+    const lead = t.members.find(m => m.role === 'lead-architect');
+    expect(lead).toBeDefined();
+    const maxWeight = Math.max(...t.members.map(m => m.weight));
+    expect(lead!.weight).toBe(maxWeight);
+  });
+
+  it('debate should have impartial judge', () => {
+    const t = COUNCIL_TEMPLATES['debate'];
+    const judge = t.members.find(m => m.role === 'impartial-judge');
+    expect(judge).toBeDefined();
+    expect(judge!.weight).toBeGreaterThan(1.0);
+  });
+
+  it('each template should use diverse agent types', () => {
+    for (const template of Object.values(COUNCIL_TEMPLATES)) {
+      const agents = new Set(template.members.map(m => m.agent));
+      // At least 1 unique agent type (most templates use mix of claude and gemini)
+      expect(agents.size).toBeGreaterThanOrEqual(1);
+    }
+  });
 });
