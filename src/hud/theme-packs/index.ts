@@ -51,7 +51,7 @@ import {
   SPRING_PACK, SUMMER_PACK, AUTUMN_PACK,
   WINTER_PACK, MEDICAL_PACK, APPLE_CIDER_SPIDER_PACK,
 } from './seasonal/index.js';
-import { CLEAN_PACK, PRO_PACK } from './minimal/index.js';
+import { CLEAN_PACK, PRO_PACK, MISANTHROPY_PACK, SAGGITARIA_PACK } from './minimal/index.js';
 
 // Types
 export type { ThemePack, ThemeCategory } from './types.js';
@@ -192,4 +192,6 @@ export const THEME_PACKS: Record<string, ThemePack> = {
   // Minimal
   clean: CLEAN_PACK,
   professional: PRO_PACK,
+  misanthropy: MISANTHROPY_PACK,
+  saggitaria: SAGGITARIA_PACK,
 };
