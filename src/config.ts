@@ -40,6 +40,8 @@ export interface CalliopeConfig {
   huggingfaceApiKey?: string;
   litellmBaseUrl?: string;  // LiteLLM proxy URL
   litellmApiKey?: string;
+  bedrockApiKey?: string;   // AWS Bedrock API key (for gateway/proxy auth)
+  bedrockBaseUrl?: string;  // AWS Bedrock gateway/proxy URL
 
   // Agent settings
   persona: AgentPersona;
@@ -132,6 +134,8 @@ const config = new Conf<CalliopeConfig>({
     huggingfaceApiKey: { type: 'string' },
     litellmBaseUrl: { type: 'string' },
     litellmApiKey: { type: 'string' },
+    bedrockApiKey: { type: 'string' },
+    bedrockBaseUrl: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'professional', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     fancyOutput: { type: 'boolean' },
@@ -294,6 +298,7 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (config.get('ai21ApiKey') || process.env.AI21_API_KEY) providers.push('ai21');
   if (config.get('huggingfaceApiKey') || process.env.HUGGINGFACE_API_KEY) providers.push('huggingface');
   if (config.get('litellmBaseUrl') || process.env.LITELLM_BASE_URL) providers.push('litellm');
+  if (config.get('bedrockApiKey') || process.env.BEDROCK_API_KEY || config.get('bedrockBaseUrl') || process.env.BEDROCK_BASE_URL) providers.push('bedrock');
 
   return providers;
 }
@@ -315,6 +320,7 @@ export function getApiKey(provider: LLMProvider): string | undefined {
     ai21: 'ai21ApiKey',
     huggingface: 'huggingfaceApiKey',
     litellm: 'litellmApiKey',
+    bedrock: 'bedrockApiKey',
     auto: undefined,
   };
 
@@ -335,6 +341,8 @@ export function getApiKey(provider: LLMProvider): string | undefined {
     ai21ApiKey: 'AI21_API_KEY',
     huggingfaceApiKey: 'HUGGINGFACE_API_KEY',
     litellmApiKey: 'LITELLM_API_KEY',
+    bedrockApiKey: 'BEDROCK_API_KEY',
+    bedrockBaseUrl: 'BEDROCK_BASE_URL',
   };
 
   const envVar = envMap[key];
@@ -354,6 +362,9 @@ export function getBaseUrl(provider: LLMProvider): string | undefined {
   }
   if (provider === 'litellm') {
     return process.env.LITELLM_BASE_URL || config.get('litellmBaseUrl') || 'http://localhost:4000';
+  }
+  if (provider === 'bedrock') {
+    return process.env.BEDROCK_BASE_URL || config.get('bedrockBaseUrl') || undefined;
   }
   return undefined;
 }

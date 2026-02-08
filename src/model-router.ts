@@ -170,6 +170,11 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     balanced: { name: 'Default', provider: 'litellm', model: 'gpt-4o', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
     smart: { name: 'Default', provider: 'litellm', model: 'gpt-4o', maxTokens: 16384, costPer1kInput: 0, costPer1kOutput: 0 },
   },
+  bedrock: {
+    fast: { name: 'Haiku', provider: 'bedrock', model: 'anthropic.claude-3-haiku-20240307-v1:0', maxTokens: 4096, costPer1kInput: 0.00025, costPer1kOutput: 0.00125 },
+    balanced: { name: 'Sonnet', provider: 'bedrock', model: 'anthropic.claude-3-5-sonnet-20241022-v2:0', maxTokens: 8192, costPer1kInput: 0.003, costPer1kOutput: 0.015 },
+    smart: { name: 'Opus', provider: 'bedrock', model: 'anthropic.claude-3-opus-20240229-v1:0', maxTokens: 8192, costPer1kInput: 0.015, costPer1kOutput: 0.075 },
+  },
   auto: {
     fast: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
     balanced: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },

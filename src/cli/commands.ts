@@ -46,7 +46,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
     case '/provider':
     case '/p':
       if (parts[1]) {
-        const validProviders: LLMProvider[] = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'ai21', 'huggingface', 'litellm', 'auto'];
+        const validProviders: LLMProvider[] = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'ai21', 'huggingface', 'litellm', 'bedrock', 'auto'];
         const requested = parts[1].toLowerCase() as LLMProvider;
         if (validProviders.includes(requested)) {
           state.provider = requested;

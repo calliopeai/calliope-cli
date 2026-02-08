@@ -20,6 +20,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   mistral: 'https://api.mistral.ai/v1',
   ai21: 'https://api.ai21.com/studio/v1',
   huggingface: 'https://api-inference.huggingface.co/v1',
+  // Bedrock uses a configurable gateway URL, not a fixed URL
 };
 
 /**
@@ -90,6 +91,11 @@ const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
     /whisper/i,             // Speech models
     /stable-diffusion/i,    // Image models
     /flux/i,                // Image models
+  ],
+  bedrock: [
+    /embed/i,               // Embedding models
+    /stability\./i,         // Image generation models
+    /amazon\.titan-embed/i, // Titan embedding models
   ],
 };
 
@@ -237,6 +243,9 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
       case 'huggingface':
       case 'fireworks':
         models = await getOpenAICompatibleModels(provider);
+        break;
+      case 'bedrock':
+        models = await getBedrockModels();
         break;
       default:
         throw new Error(`Model detection not implemented for ${provider}`);
@@ -619,6 +628,73 @@ async function getLiteLLMModels(): Promise<ModelInfo[]> {
 }
 
 /**
+ * Get Bedrock models (via gateway/proxy or fallback to known models)
+ */
+async function getBedrockModels(): Promise<ModelInfo[]> {
+  const baseUrl = config.getBaseUrl('bedrock');
+  const apiKey = config.getApiKey('bedrock');
+
+  // Try to list models from the gateway if available
+  if (baseUrl) {
+    try {
+      const modelsUrl = baseUrl.endsWith('/v1') ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+      const headers: Record<string, string> = {};
+      if (apiKey) {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+      const response = await fetch(modelsUrl, { headers });
+      if (response.ok) {
+        const data = await response.json() as { data: Array<{ id: string }> };
+        return data.data
+          .filter(model => isCompatibleModel(model.id, 'bedrock'))
+          .map(model => ({
+            id: model.id,
+            name: model.id,
+            description: getBedrockModelDescription(model.id),
+            contextLength: getBedrockContextLength(model.id),
+          }));
+      }
+    } catch {
+      // Fall through to static list
+    }
+  }
+
+  // Fallback to known Bedrock models
+  return [
+    { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2 (Bedrock)', description: 'Balanced intelligence and speed', contextLength: 200000 },
+    { id: 'anthropic.claude-3-opus-20240229-v1:0', name: 'Claude 3 Opus (Bedrock)', description: 'Most capable for complex tasks', contextLength: 200000 },
+    { id: 'anthropic.claude-3-haiku-20240307-v1:0', name: 'Claude 3 Haiku (Bedrock)', description: 'Fast and affordable', contextLength: 200000 },
+    { id: 'amazon.titan-text-premier-v1:0', name: 'Amazon Titan Text Premier', description: 'Amazon\'s flagship text model', contextLength: 32000 },
+    { id: 'amazon.titan-text-express-v1', name: 'Amazon Titan Text Express', description: 'Fast Amazon text model', contextLength: 8192 },
+    { id: 'meta.llama3-1-70b-instruct-v1:0', name: 'Llama 3.1 70B (Bedrock)', description: 'Meta\'s large instruction model', contextLength: 128000 },
+    { id: 'meta.llama3-1-8b-instruct-v1:0', name: 'Llama 3.1 8B (Bedrock)', description: 'Meta\'s efficient model', contextLength: 128000 },
+    { id: 'mistral.mistral-large-2407-v1:0', name: 'Mistral Large (Bedrock)', description: 'Mistral\'s most capable model', contextLength: 128000 },
+    { id: 'cohere.command-r-plus-v1:0', name: 'Command R+ (Bedrock)', description: 'Cohere\'s flagship model', contextLength: 128000 },
+  ];
+}
+
+function getBedrockModelDescription(modelId: string): string {
+  if (modelId.includes('claude') && modelId.includes('opus')) return 'Most capable Claude model on Bedrock';
+  if (modelId.includes('claude') && modelId.includes('sonnet')) return 'Balanced Claude model on Bedrock';
+  if (modelId.includes('claude') && modelId.includes('haiku')) return 'Fast Claude model on Bedrock';
+  if (modelId.includes('titan')) return 'Amazon Titan model';
+  if (modelId.includes('llama')) return 'Meta Llama model on Bedrock';
+  if (modelId.includes('mistral')) return 'Mistral model on Bedrock';
+  if (modelId.includes('cohere')) return 'Cohere model on Bedrock';
+  return 'AWS Bedrock model';
+}
+
+function getBedrockContextLength(modelId: string): number {
+  if (modelId.includes('claude')) return 200000;
+  if (modelId.includes('llama3-1') || modelId.includes('llama3.1')) return 128000;
+  if (modelId.includes('mistral-large')) return 128000;
+  if (modelId.includes('command-r')) return 128000;
+  if (modelId.includes('titan-text-premier')) return 32000;
+  if (modelId.includes('titan-text-express')) return 8192;
+  return 32000;
+}
+
+/**
  * Get models for OpenAI-compatible providers
  */
 async function getOpenAICompatibleModels(provider: LLMProvider): Promise<ModelInfo[]> {
@@ -746,6 +822,13 @@ const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
   'gemma2': 8192,
   'command-r': 128000,
   'starcoder': 8192,
+  // AWS Bedrock model IDs
+  'anthropic.claude': 200000,
+  'amazon.titan-text-premier': 32000,
+  'amazon.titan-text-express': 8192,
+  'meta.llama3': 128000,
+  'mistral.mistral-large': 128000,
+  'cohere.command-r': 128000,
 };
 
 /**

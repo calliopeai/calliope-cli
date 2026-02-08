@@ -44,12 +44,15 @@ export function getCheckpointDir(): string {
   return dir;
 }
 
+let checkpointCounter = 0;
+
 /**
- * Generate a checkpoint filename from a timestamp.
+ * Generate a unique checkpoint filename from a timestamp.
  */
 function makeFilename(timestamp: string): string {
-  // Replace colons and dots for filesystem safety: 2026-02-08T15:30:00.123Z → 2026-02-08T15-30-00-123Z
-  return `checkpoint-${timestamp.replace(/[:\.]/g, '-')}.json`;
+  // Replace colons and dots for filesystem safety + add counter to avoid same-millisecond collisions
+  const counter = String(checkpointCounter++).padStart(4, '0');
+  return `checkpoint-${timestamp.replace(/[:\.]/g, '-')}-${counter}.json`;
 }
 
 // ============================================================================

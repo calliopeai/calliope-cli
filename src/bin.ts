@@ -134,7 +134,9 @@ async function main(): Promise<void> {
                        process.env.OLLAMA_BASE_URL ||
                        process.env.AI21_API_KEY ||
                        process.env.HUGGINGFACE_API_KEY ||
-                       process.env.LITELLM_BASE_URL;
+                       process.env.LITELLM_BASE_URL ||
+                       process.env.BEDROCK_API_KEY ||
+                       process.env.BEDROCK_BASE_URL;
 
     if (hasEnvKeys) {
       // Skip setup if env keys present
@@ -235,6 +237,8 @@ ${bold('ENVIRONMENT VARIABLES')}
   OLLAMA_BASE_URL       Ollama server URL (default: localhost:11434)
   LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
   LITELLM_API_KEY       LiteLLM API key (if required)
+  BEDROCK_BASE_URL      AWS Bedrock gateway/proxy URL
+  BEDROCK_API_KEY       AWS Bedrock gateway API key (if required)
 
   CALLIOPE_SKIN         Override active skin (e.g. falcon, matrix)
   CALLIOPE_PALETTE      Override active palette (e.g. neon, pastel)

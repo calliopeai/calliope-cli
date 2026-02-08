@@ -32,6 +32,7 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('ai21')) providers.push('ai21');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
   if (config.getBaseUrl('litellm')) providers.push('litellm');
+  if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) providers.push('bedrock');
 
   return providers;
 }
@@ -44,6 +45,8 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
     // For Ollama/LiteLLM, check base URL instead of API key
     if (preferred === 'ollama' || preferred === 'litellm') {
       if (config.getBaseUrl(preferred)) return preferred;
+    } else if (preferred === 'bedrock') {
+      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) return preferred;
     } else {
       const key = config.getApiKey(preferred);
       if (key) return preferred;
@@ -51,11 +54,13 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'ai21', 'huggingface', 'ollama', 'litellm'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'ai21', 'huggingface', 'bedrock', 'ollama', 'litellm'];
 
   for (const p of priority) {
     if (p === 'ollama' || p === 'litellm') {
       if (config.getBaseUrl(p)) return p;
+    } else if (p === 'bedrock') {
+      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) return p;
     } else if (config.getApiKey(p)) {
       return p;
     }
@@ -99,6 +104,7 @@ export async function chat(
       case 'huggingface':
       case 'ollama':
       case 'litellm':
+      case 'bedrock':
         response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
         break;
       default:

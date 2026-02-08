@@ -48,6 +48,7 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.AI21_API_KEY) envProviders.push('ai21');
   if (process.env.HUGGINGFACE_API_KEY) envProviders.push('huggingface');
   if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
+  if (process.env.BEDROCK_API_KEY || process.env.BEDROCK_BASE_URL) envProviders.push('bedrock');
 
   if (envProviders.length > 0) {
     console.log(c(`  Found API keys in environment: ${envProviders.join(', ')}`, 'green'));
@@ -67,6 +68,7 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'mistral', name: 'Mistral AI', description: 'Mistral Large - European AI' },
       { value: 'ollama', name: 'Ollama (Local)', description: 'Run models locally - no API key needed' },
       { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
+      { value: 'bedrock', name: 'AWS Bedrock', description: 'AWS Bedrock via gateway/proxy' },
       { value: 'ai21', name: 'AI21 Labs', description: 'Jamba models' },
       { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
       { value: 'auto', name: 'Auto (use first available)', description: 'Automatically select based on available keys' },
@@ -108,6 +110,28 @@ export async function runSetup(force = false): Promise<boolean> {
       });
       if (apiKey && apiKey.length > 0) {
         config.set('litellmApiKey', apiKey);
+      }
+    }
+  } else if (providerChoice === 'bedrock' && needsKey) {
+    console.log();
+    console.log(c(`  AWS Bedrock requires a gateway/proxy with an OpenAI-compatible API.`, 'dim'));
+    const baseUrl = await input({
+      message: 'Enter your Bedrock gateway/proxy URL:',
+      default: 'http://localhost:8080',
+    });
+    config.set('bedrockBaseUrl', baseUrl);
+
+    const needsApiKey = await confirm({
+      message: 'Does your Bedrock gateway require an API key?',
+      default: false,
+    });
+    if (needsApiKey) {
+      const apiKey = await password({
+        message: 'Enter your Bedrock gateway API key:',
+        mask: '*',
+      });
+      if (apiKey && apiKey.length > 0) {
+        config.set('bedrockApiKey', apiKey);
       }
     }
   } else if (needsKey) {

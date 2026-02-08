@@ -47,6 +47,12 @@ export async function chatOpenAICompatible(
     // Append /v1 for OpenAI-compatible endpoint, unless already present
     baseURL = litellmBase.endsWith('/v1') ? litellmBase : `${litellmBase}/v1`;
     apiKey = config.getApiKey('litellm') || 'litellm'; // LiteLLM may or may not require key
+  } else if (provider === 'bedrock') {
+    const bedrockBase = config.getBaseUrl('bedrock');
+    if (!bedrockBase) throw new Error('Bedrock base URL not configured. Set BEDROCK_BASE_URL to your Bedrock gateway/proxy endpoint.');
+    // Append /v1 for OpenAI-compatible endpoint, unless already present
+    baseURL = bedrockBase.endsWith('/v1') ? bedrockBase : `${bedrockBase}/v1`;
+    apiKey = config.getApiKey('bedrock') || 'bedrock'; // Key depends on gateway setup
   } else {
     apiKey = config.getApiKey(provider);
     if (!apiKey) throw new Error(`${provider} API key not configured`);

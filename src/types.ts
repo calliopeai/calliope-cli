@@ -2,7 +2,7 @@
  * Calliope CLI Types
  */
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'auto';
+export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'auto';
 export type AgentPersona = 'calliope' | 'professional' | 'minimal';
 
 /**
@@ -99,6 +99,7 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   ai21: 'jamba-1.5-large',
   huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
+  bedrock: 'anthropic.claude-3-5-sonnet-20241022-v2:0',  // AWS Bedrock (via gateway/proxy)
   auto: 'claude-sonnet-4-20250514',
 };
 
@@ -257,6 +258,12 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'llama-3.1-8b-instant': { input: 0.05, output: 0.08 },
   // Together
   'meta-llama/Llama-3.3-70B-Instruct-Turbo': { input: 0.88, output: 0.88 },
+  // AWS Bedrock (same pricing as direct Anthropic)
+  'anthropic.claude-3-5-sonnet-20241022-v2:0': { input: 3, output: 15 },
+  'anthropic.claude-3-opus-20240229-v1:0': { input: 15, output: 75 },
+  'anthropic.claude-3-haiku-20240307-v1:0': { input: 0.25, output: 1.25 },
+  'amazon.titan-text-premier-v1:0': { input: 0.5, output: 1.5 },
+  'meta.llama3-1-70b-instruct-v1:0': { input: 0.99, output: 0.99 },
   // Default fallback
   'default': { input: 1, output: 3 },
 };
@@ -278,7 +285,7 @@ export function calculateCost(
 /**
  * Providers that support vision
  */
-export const VISION_PROVIDERS: LLMProvider[] = ['anthropic', 'openai', 'google'];
+export const VISION_PROVIDERS: LLMProvider[] = ['anthropic', 'openai', 'google', 'bedrock'];
 
 /**
  * Check if a provider/model supports vision
