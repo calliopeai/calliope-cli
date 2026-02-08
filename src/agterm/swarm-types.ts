@@ -77,6 +77,8 @@ export interface SwarmConfig {
   workerAgent: SubAgentType;
   /** Agent type for overseer (default: 'claude') */
   overseerAgent: SubAgentType;
+  /** Use smart routing to select worker agent per subtask (default: false) */
+  useSmartRouting: boolean;
 }
 
 /**
@@ -90,6 +92,7 @@ export const DEFAULT_SWARM_CONFIG: SwarmConfig = {
   subtaskTimeout: 5 * 60 * 1000,
   workerAgent: 'claude',
   overseerAgent: 'claude',
+  useSmartRouting: false,
 };
 
 /**

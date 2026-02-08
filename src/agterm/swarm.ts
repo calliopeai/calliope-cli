@@ -23,6 +23,9 @@ import {
 } from './decomposer.js';
 import { aggregateResults } from './aggregator.js';
 import { orchestrator } from './orchestrator.js';
+import { detectTaskType, smartRoute, getDefaultSmartRoutingConfig } from '../smart-router.js';
+import * as config from '../config.js';
+import type { SubAgentType } from './types.js';
 
 /**
  * Swarm Manager - Singleton
@@ -178,7 +181,11 @@ class SwarmManager {
 
         for (const subtask of retryable) {
           subtask.status = 'pending';
-          subtask.error = undefined;
+          // Try a different agent on retry if available
+          const alternateAgent = this.getAlternateAgent(subtask.agent);
+          if (alternateAgent && subtask.attempts >= 1) {
+            subtask.agent = alternateAgent;
+          }
         }
 
         if (retryable.length > 0) {
@@ -258,6 +265,46 @@ class SwarmManager {
   }
 
   /**
+   * Get an alternate agent to try on retry
+   */
+  private getAlternateAgent(currentAgent: SubAgentType): SubAgentType | null {
+    const agents: SubAgentType[] = ['claude', 'gemini', 'calliope', 'codex'];
+    const alternatives = agents.filter(a => a !== currentAgent);
+    return alternatives.length > 0 ? alternatives[0] : null;
+  }
+
+  /**
+   * Select the best agent for a subtask using smart routing
+   */
+  private selectAgentForSubtask(subtask: SwarmSubtask, session: SwarmSession): SubAgentType {
+    if (!session.config.useSmartRouting) {
+      return subtask.agent;
+    }
+
+    try {
+      // Use smart routing to determine task type and best provider
+      const routingConfig = {
+        ...getDefaultSmartRoutingConfig(),
+        enabled: true,
+        costSensitivity: config.get('smartRoutingCostSensitivity') ?? 0.3,
+      };
+
+      const decision = smartRoute(subtask.prompt, routingConfig);
+
+      // Map provider to agent type
+      const providerToAgent: Record<string, SubAgentType> = {
+        anthropic: 'claude',
+        google: 'gemini',
+        openai: 'codex',
+      };
+
+      return providerToAgent[decision.selected.provider] || subtask.agent;
+    } catch {
+      return subtask.agent;
+    }
+  }
+
+  /**
    * Execute a single subtask via the orchestrator
    */
   private async executeSubtask(
@@ -266,6 +313,9 @@ class SwarmManager {
     cwd?: string
   ): Promise<void> {
     try {
+      // Smart routing: select best agent for this subtask
+      const agent = this.selectAgentForSubtask(subtask, session);
+
       // Add context from dependencies to the prompt
       let enrichedPrompt = subtask.prompt;
       if (subtask.dependsOn.length > 0) {
@@ -285,7 +335,7 @@ class SwarmManager {
 
       const task = await orchestrator.spawnAgent(
         enrichedPrompt,
-        subtask.agent,
+        agent,
         { background: false, priority: subtask.priority, cwd }
       );
 

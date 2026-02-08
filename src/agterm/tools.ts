@@ -151,6 +151,11 @@ Aggregation:
             description: 'Agent type for workers (default: claude)',
             enum: ['calliope', 'claude', 'gemini', 'codex'],
           },
+          useSmartRouting: {
+            type: 'string',
+            description: 'Use smart routing to select best agent per subtask (default: false)',
+            enum: ['true', 'false'],
+          },
         },
         required: ['prompt'],
       },
@@ -381,11 +386,12 @@ ${task.error || task.result || '(no output)'}`;
         const aggregation = (args.aggregation as AggregationStrategy) || 'concatenate';
         const maxWorkers = typeof args.maxWorkers === 'number' ? args.maxWorkers : 3;
         const workerAgent = (args.workerAgent as SubAgentType) || 'claude';
+        const useSmartRouting = args.useSmartRouting === 'true' || args.useSmartRouting === true;
 
         try {
           const session = await swarmManager.startSwarm(
             prompt,
-            { decomposition: strategy, aggregation, maxWorkers, workerAgent },
+            { decomposition: strategy, aggregation, maxWorkers, workerAgent, useSmartRouting },
             cwd
           );
 

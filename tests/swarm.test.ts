@@ -432,3 +432,114 @@ describe('Swarm Integration', () => {
     }
   });
 });
+
+// ============================================================================
+// Robustness
+// ============================================================================
+
+describe('Swarm Robustness', () => {
+  describe('SwarmConfig', () => {
+    it('should support useSmartRouting option', () => {
+      const config: SwarmConfig = {
+        ...DEFAULT_SWARM_CONFIG,
+        useSmartRouting: true,
+      };
+      expect(config.useSmartRouting).toBe(true);
+    });
+
+    it('should default useSmartRouting to false', () => {
+      expect(DEFAULT_SWARM_CONFIG.useSmartRouting).toBe(false);
+    });
+  });
+
+  describe('dependency chains', () => {
+    it('should handle multi-level dependency chains', () => {
+      const subtasks: SwarmSubtask[] = [
+        { id: 'a', index: 0, prompt: 'T1', agent: 'claude', priority: 'normal', status: 'completed', dependsOn: [], attempts: 1, maxAttempts: 3, createdAt: new Date(), result: 'done' },
+        { id: 'b', index: 1, prompt: 'T2', agent: 'claude', priority: 'normal', status: 'completed', dependsOn: ['a'], attempts: 1, maxAttempts: 3, createdAt: new Date(), result: 'done' },
+        { id: 'c', index: 2, prompt: 'T3', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['b'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+      ];
+
+      const ready = getReadySubtasks(subtasks);
+      expect(ready.length).toBe(1);
+      expect(ready[0].id).toBe('c');
+    });
+
+    it('should handle multiple dependencies on same subtask', () => {
+      const subtasks: SwarmSubtask[] = [
+        { id: 'a', index: 0, prompt: 'T1', agent: 'claude', priority: 'normal', status: 'completed', dependsOn: [], attempts: 1, maxAttempts: 3, createdAt: new Date(), result: 'done' },
+        { id: 'b', index: 1, prompt: 'T2', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['a'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+        { id: 'c', index: 2, prompt: 'T3', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['a'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+      ];
+
+      const ready = getReadySubtasks(subtasks);
+      expect(ready.length).toBe(2);
+    });
+
+    it('should block on unmet dependencies', () => {
+      const subtasks: SwarmSubtask[] = [
+        { id: 'a', index: 0, prompt: 'T1', agent: 'claude', priority: 'normal', status: 'running', dependsOn: [], attempts: 1, maxAttempts: 3, createdAt: new Date() },
+        { id: 'b', index: 1, prompt: 'T2', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['a'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+      ];
+
+      const ready = getReadySubtasks(subtasks);
+      expect(ready.length).toBe(0);
+    });
+  });
+
+  describe('error handling in decomposition', () => {
+    it('should handle JSON with extra whitespace', () => {
+      const response = `  \n\n  [{"prompt": "Task 1", "dependsOn": []}]  \n\n  `;
+      const subtasks = parseDecompositionResponse(response, 'claude', 2);
+      expect(subtasks.length).toBe(1);
+    });
+
+    it('should handle malformed prompts gracefully', () => {
+      const response = JSON.stringify([
+        { prompt: '', dependsOn: [] },
+        { dependsOn: [] },
+      ]);
+      const subtasks = parseDecompositionResponse(response, 'claude', 2);
+      expect(subtasks.length).toBe(2);
+      expect(subtasks[1].prompt).toContain('Subtask 2');
+    });
+
+    it('should handle circular dependencies gracefully', () => {
+      const subtasks: SwarmSubtask[] = [
+        { id: 'a', index: 0, prompt: 'T1', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['1'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+        { id: 'b', index: 1, prompt: 'T2', agent: 'claude', priority: 'normal', status: 'pending', dependsOn: ['0'], attempts: 0, maxAttempts: 3, createdAt: new Date() },
+      ];
+
+      const resolved = resolveDependencies(subtasks);
+      // Both depend on each other - getReadySubtasks should return empty
+      const ready = getReadySubtasks(resolved);
+      expect(ready.length).toBe(0);
+    });
+  });
+
+  describe('aggregation edge cases', () => {
+    it('should handle single subtask without headers', () => {
+      const subtasks = [
+        { id: 'a', index: 0, prompt: 'Only task', agent: 'claude' as const, priority: 'normal' as const,
+          status: 'completed' as const, dependsOn: [], attempts: 1, maxAttempts: 3,
+          createdAt: new Date(), result: 'Single result' },
+      ];
+
+      const result = aggregateResults(subtasks, 'concatenate', 'Original');
+      expect(result).toContain('Single result');
+      expect(result).not.toContain('Subtask 1'); // Single task, no header
+    });
+
+    it('should handle empty results in subtasks', () => {
+      const subtasks = [
+        { id: 'a', index: 0, prompt: 'Task 1', agent: 'claude' as const, priority: 'normal' as const,
+          status: 'completed' as const, dependsOn: [], attempts: 1, maxAttempts: 3,
+          createdAt: new Date(), result: '' },
+      ];
+
+      const result = aggregateResults(subtasks, 'concatenate', 'Original');
+      // Empty result subtask should still not crash
+      expect(result).toBeDefined();
+    });
+  });
+});
