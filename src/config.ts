@@ -72,6 +72,13 @@ export interface CalliopeConfig {
   bannerStyle: 'full' | 'compact' | 'none';  // Banner display style
   renderer: 'ink' | 'legacy' | 'headless';  // Rendering engine
 
+  // Circuit Breakers
+  circuitBreakersEnabled: boolean;
+
+  // Smart Routing
+  smartRoutingEnabled: boolean;
+  smartRoutingCostSensitivity: number;  // 0-1: 0 = best quality, 1 = cheapest
+
   // Profiles
   profiles?: Record<string, Profile>;
   activeProfile?: string;
@@ -81,7 +88,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   setupComplete: false,
   defaultProvider: 'auto',
   persona: 'professional',
-  maxIterations: 500,
+  maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
   fancyOutput: true,
   autoSaveHistory: true,
   autoUpgrade: true,
@@ -99,6 +106,9 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   borderStyle: 'rounded',
   bannerStyle: 'full',
   renderer: 'ink',
+  circuitBreakersEnabled: true,
+  smartRoutingEnabled: false,
+  smartRoutingCostSensitivity: 0.3,
 };
 
 // Create config store
@@ -123,7 +133,7 @@ const config = new Conf<CalliopeConfig>({
     litellmBaseUrl: { type: 'string' },
     litellmApiKey: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'professional', 'minimal'] },
-    maxIterations: { type: 'number', minimum: 1, maximum: 10000 },
+    maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     fancyOutput: { type: 'boolean' },
     autoSaveHistory: { type: 'boolean' },
     workspaceRoot: { type: 'string' },
@@ -143,6 +153,9 @@ const config = new Conf<CalliopeConfig>({
     bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
     renderer: { type: 'string', enum: ['ink', 'legacy', 'headless'] },
     useEmojis: { type: 'boolean' },
+    circuitBreakersEnabled: { type: 'boolean' },
+    smartRoutingEnabled: { type: 'boolean' },
+    smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
   },
 });
 
@@ -185,8 +198,8 @@ export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfi
 
   // Validate numeric bounds
   if (key === 'maxIterations' && typeof value === 'number') {
-    if (value < 1 || value > 1000) {
-      throw new Error('maxIterations must be between 1 and 1000');
+    if (value < 0 || value > 1000000) {
+      throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
     }
   }
 
@@ -229,8 +242,8 @@ function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
     }
   }
   if (key === 'maxIterations' && typeof value === 'number') {
-    if (value < 1 || value > 1000) {
-      throw new Error('maxIterations must be between 1 and 1000');
+    if (value < 0 || value > 1000000) {
+      throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
     }
   }
 }

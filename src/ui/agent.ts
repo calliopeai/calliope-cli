@@ -21,6 +21,10 @@ import * as summarization from '../summarization.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { setMood } from '../companions.js';
 import { checkAndWarnContextLimit } from './context.js';
+import { CircuitBreaker } from '../circuit-breaker.js';
+import type { IterationData, BreakerCheckResult } from '../circuit-breaker.js';
+import { smartRoute, getDefaultSmartRoutingConfig } from '../smart-router.js';
+import type { SmartRoutingConfig } from '../smart-router.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall } from '../types.js';
 import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
@@ -40,6 +44,12 @@ export interface AgentContext {
   actualModel: string;
   stats: SessionStats;
   agtermEnabled: boolean;
+
+  // Circuit Breaker & Smart Routing
+  circuitBreaker?: CircuitBreaker;
+  smartRouteActive?: boolean;
+  smartRoutingConfig?: SmartRoutingConfig;
+  setBreakerHealth?: (health: 'ok' | 'warning' | 'tripped') => void;
 
   // Setters
   setStats: (fn: SessionStats | ((prev: SessionStats) => SessionStats)) => void;
@@ -131,9 +141,20 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   ctx.setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
   ctx.setStreamingResponse('');
 
-  // Auto-route to appropriate model based on task complexity
+  // Smart routing (cross-provider) takes precedence over autoRoute (single-provider)
   let effectiveModel = ctx.model;
-  if (ctx.autoRoute && typeof content === 'string') {
+  let effectiveProvider = ctx.provider;
+  if (ctx.smartRouteActive && ctx.smartRoutingConfig?.enabled && typeof content === 'string') {
+    const decision = smartRoute(content, ctx.smartRoutingConfig, {
+      messageCount: ctx.stats.messageCount,
+      hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
+    });
+    effectiveModel = decision.selected.model;
+    effectiveProvider = decision.selected.provider;
+    if (effectiveModel !== ctx.model || effectiveProvider !== ctx.provider) {
+      ctx.addMessage('system', `[Smart route: ${decision.selected.provider}/${decision.selected.tier} - ${decision.taskType}/${decision.complexity}]`);
+    }
+  } else if (ctx.autoRoute && typeof content === 'string') {
     const routeDecision = modelRouter.routeRequest(content, ctx.provider, {
       messageCount: ctx.stats.messageCount,
       hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
@@ -144,7 +165,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     }
   }
 
-  const maxIterations = config.get('maxIterations');
+  const maxIterations = config.get('maxIterations') || Infinity; // 0 = unlimited
   let completedNaturally = false;
 
   // Check context limit and warn if approaching capacity
@@ -274,6 +295,26 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             ctx.llmMessages.current = result.messages;
             ctx.debugLog('chat', 'SUMMARIZED', `removed=${result.summarizedCount} messages`);
           }
+        }
+      }
+
+      // Circuit breaker check after each iteration
+      if (ctx.circuitBreaker) {
+        const iterData: IterationData = {
+          iteration: i + 1,
+          inputTokens: response.usage?.inputTokens,
+          outputTokens: response.usage?.outputTokens,
+          cost: response.usage ? calculateCost(ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens, response.usage.outputTokens) : undefined,
+          toolCalls: response.toolCalls?.map(tc => ({ name: tc.name, arguments: tc.arguments as Record<string, unknown> })),
+          content: response.content,
+          timestamp: new Date(),
+        };
+        const breakerResult = ctx.circuitBreaker.check(iterData);
+        ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
+        if (breakerResult.tripped) {
+          ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue, /breaker status for details.`);
+          completedNaturally = true;
+          break;
         }
       }
 
@@ -551,23 +592,50 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       const availableProviders = getAvailableProviders();
       const otherProviders = availableProviders.filter(p => p !== ctx.actualProvider);
 
+      // Feed error to circuit breaker
+      if (ctx.circuitBreaker) {
+        const errorIterData: IterationData = {
+          iteration: i + 1,
+          error: errorMsg,
+          timestamp: new Date(),
+        };
+        const breakerResult = ctx.circuitBreaker.check(errorIterData);
+        ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
+        if (breakerResult.tripped) {
+          ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue.`);
+          completedNaturally = true;
+          break;
+        }
+      }
+
+      // Retryable errors continue the loop (circuit breaker handles safety)
+      const isRetryable = classified.category === 'rate_limit' || classified.category === 'server' || classified.category === 'timeout' || classified.category === 'network';
+
       // Suggest alternatives based on error type
       if (classified.category === 'rate_limit' || classified.category === 'server') {
         if (otherProviders.length > 0) {
-          ctx.addMessage('system', `💡 Try switching providers: /provider ${otherProviders[0]} or /models to see alternatives`);
+          ctx.addMessage('system', `\u{1f4a1} Try switching providers: /provider ${otherProviders[0]} or /models to see alternatives`);
         }
       } else if (classified.category === 'timeout' || classified.category === 'network') {
-        ctx.addMessage('system', `💡 Network issue detected. Check connection and try again, or use /provider to switch.`);
+        ctx.addMessage('system', `\u{1f4a1} Network issue detected. Check connection and try again, or use /provider to switch.`);
       } else if (classified.category === 'auth') {
-        ctx.addMessage('system', `💡 Run 'calliope --setup' to reconfigure API keys.`);
+        ctx.addMessage('system', `\u{1f4a1} Run 'calliope --setup' to reconfigure API keys.`);
       }
 
-      completedNaturally = true; // Error counts as "done" - don't show iteration warning
+      if (isRetryable && ctx.circuitBreaker) {
+        // Retryable errors: continue the loop, circuit breaker will catch repeated failures
+        ctx.addMessage('system', `Retrying... (circuit breaker will pause after ${ctx.circuitBreaker.getConfig().breakers['repeated-failure'].maxConsecutiveErrors} consecutive failures)`);
+        await new Promise(r => setTimeout(r, 2000)); // Brief delay before retry
+        continue;
+      }
+
+      // Non-retryable errors (auth, etc.) still kill the session
+      completedNaturally = true;
 
       // On error, clear queued messages to prevent infinite retry loop
       const currentQueuedOnError = ctx.queuedMessagesRef.current;
       if (currentQueuedOnError.length > 0) {
-        ctx.addMessage('system', `⚠️ Cleared ${currentQueuedOnError.length} queued message(s) due to error. Use /clear to reset conversation.`);
+        ctx.addMessage('system', `\u26a0\ufe0f Cleared ${currentQueuedOnError.length} queued message(s) due to error. Use /clear to reset conversation.`);
         ctx.setQueuedMessages([]);
       }
       return; // Exit early on error - don't process queued messages

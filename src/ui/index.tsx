@@ -24,6 +24,9 @@ import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageCon
 import type { ModelInfo } from '../model-detection.js';
 import { getCurrentSkin, getCurrentPalette, paletteColorize } from '../hud.js';
 import { getCurrentCompanion } from '../companions.js';
+import { CircuitBreaker } from '../circuit-breaker.js';
+import { getDefaultSmartRoutingConfig } from '../smart-router.js';
+import type { SmartRoutingConfig } from '../smart-router.js';
 
 // Sub-module imports
 import type {
@@ -246,6 +249,16 @@ function TerminalChat() {
   // Session state
   const sessionRef = useRef<storage.Session | null>(null);
   const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
+  const [smartRouteActive, setSmartRouteActive] = useState<boolean>(() => config.get('smartRoutingEnabled') ?? false);
+  const [breakerHealth, setBreakerHealth] = useState<'ok' | 'warning' | 'tripped'>('ok');
+  const circuitBreakerRef = useRef<CircuitBreaker>(
+    config.get('circuitBreakersEnabled') !== false ? new CircuitBreaker() : null as unknown as CircuitBreaker
+  );
+  const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
+    ...getDefaultSmartRoutingConfig(),
+    enabled: config.get('smartRoutingEnabled') ?? false,
+    costSensitivity: config.get('smartRoutingCostSensitivity') ?? 0.3,
+  });
   const [memoryLoaded, setMemoryLoaded] = useState(false);
 
   // Agent loop state
@@ -373,6 +386,10 @@ function TerminalChat() {
     actualModel,
     stats,
     agtermEnabled: moduleAgtermEnabled,
+    circuitBreaker: circuitBreakerRef.current || undefined,
+    smartRouteActive,
+    smartRoutingConfig: smartRoutingConfigRef.current,
+    setBreakerHealth,
 
     setStats,
     setStreamingResponse,
@@ -395,7 +412,7 @@ function TerminalChat() {
     validateAndRepairMessages,
 
     debugLog,
-  }), [provider, model, mode, confirmMode, autoRoute, actualProvider, actualModel, stats, addMessage, estimateContextTokens, validateAndRepairMessages]);
+  }), [provider, model, mode, confirmMode, autoRoute, smartRouteActive, actualProvider, actualModel, stats, addMessage, estimateContextTokens, validateAndRepairMessages]);
 
   // Run agent with user prompt
   const runAgent = useCallback(async (content: MessageContent) => {
@@ -434,6 +451,9 @@ function TerminalChat() {
     agtermEnabled: moduleAgtermEnabled,
     debugEnabled,
     modalMode,
+    circuitBreaker: circuitBreakerRef.current || undefined,
+    smartRouteActive,
+    smartRoutingConfig: smartRoutingConfigRef.current,
 
     setProvider,
     setModel,
@@ -465,6 +485,8 @@ function TerminalChat() {
     setTemplates,
     setContextTokens,
     setDebugEnabled: (v: boolean) => { debugEnabled = v; },
+    setSmartRouteActive,
+    setBreakerHealth,
 
     llmMessages,
     undoStack,
@@ -478,7 +500,7 @@ function TerminalChat() {
     runAgent,
     runLoop,
     exit,
-  }), [actualProvider, actualModel, provider, model, persona, mode, confirmMode, autoRoute,
+  }), [actualProvider, actualModel, provider, model, persona, mode, confirmMode, autoRoute, smartRouteActive,
        layout, density, collapseSettings, messages, stats, loopActive, isProcessing,
        thinkingState, streamingResponse, queuedMessages, bookmarks, templates, modalMode,
        addMessage, estimateContextTokens, saveUndoState, runAgent, runLoop, exit]);
@@ -875,6 +897,8 @@ function TerminalChat() {
         mode={mode}
         stats={stats}
         contextTokens={contextTokens}
+        breakerHealth={config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined}
+        smartRouteActive={smartRouteActive}
       />
     </Box>
   );

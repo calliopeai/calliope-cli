@@ -74,6 +74,8 @@ export const SLASH_COMMANDS = [
   '/pack',
   '/intensity',
   '/emoji',
+  '/breaker', '/cb',
+  '/smart',
 ];
 
 // Commands that take a path argument (for file tab completion)

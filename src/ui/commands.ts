@@ -19,6 +19,10 @@ import * as modelRouter from '../model-router.js';
 import * as summarization from '../summarization.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
 import { getAgentStatusReport } from '../agterm/index.js';
+import { CircuitBreaker } from '../circuit-breaker.js';
+import type { BreakerType } from '../circuit-breaker.js';
+import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
+import type { SmartRoutingConfig } from '../smart-router.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
@@ -58,6 +62,9 @@ export interface CommandContext {
   agtermEnabled: boolean;
   debugEnabled: boolean;
   modalMode: string;
+  circuitBreaker?: CircuitBreaker;
+  smartRouteActive: boolean;
+  smartRoutingConfig?: SmartRoutingConfig;
 
   // State setters
   setProvider: (p: LLMProvider) => void;
@@ -90,6 +97,8 @@ export interface CommandContext {
   setTemplates: (fn: PromptTemplate[] | ((prev: PromptTemplate[]) => PromptTemplate[])) => void;
   setContextTokens: (v: number) => void;
   setDebugEnabled: (v: boolean) => void;
+  setSmartRouteActive: (v: boolean) => void;
+  setBreakerHealth: (v: 'ok' | 'warning' | 'tripped') => void;
 
   // Refs
   llmMessages: React.MutableRefObject<LLMMessage[]>;
@@ -123,6 +132,8 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /provider [name]         - Switch AI provider
   /model [name]            - Switch model
   /route [on|off|test]     - Auto model routing by complexity
+  /smart [on|off|cost|test] - Cross-provider smart routing
+  /breaker [status|resume]  - Circuit breaker control
   /persona [name]          - Switch personality
   /todo [add|done|list]    - Manage TODOs
   /plans [list|view]       - View plan history
@@ -1786,6 +1797,114 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         }
         ctx.addMessage('system', `\u2713 Loaded ${history.length} messages from previous session`);
         ctx.setContextTokens(ctx.estimateContextTokens());
+      }
+      break;
+    }
+
+    // ================================================================
+    // Circuit Breaker
+    // ================================================================
+
+    case '/breaker':
+    case '/cb': {
+      const subCmd = parts[1];
+      if (!ctx.circuitBreaker) {
+        ctx.addMessage('system', 'Circuit breakers not initialized. They activate automatically during agent runs.');
+        break;
+      }
+
+      if (subCmd === 'status' || !subCmd) {
+        const statuses = ctx.circuitBreaker.getStatus();
+        const stats = ctx.circuitBreaker.getTrackingStats();
+        const health = ctx.circuitBreaker.getHealth();
+        let msg = `Circuit Breaker Health: ${health.toUpperCase()}\n\n`;
+        for (const s of statuses) {
+          const icon = s.state === 'open' ? '\u{1f534}' : s.state === 'half-open' ? '\u{1f7e1}' : '\u{1f7e2}';
+          msg += `${icon} ${s.type}: ${s.state} (tripped ${s.tripCount}x)`;
+          if (s.lastEvent) msg += ` - ${s.lastEvent.message}`;
+          msg += '\n';
+        }
+        msg += `\nTracking: ${stats.consecutiveErrors} consecutive errors, ${stats.totalTokens.toLocaleString()} total tokens, $${stats.totalCost.toFixed(2)} cost, ${stats.idleCount} idle`;
+        ctx.addMessage('system', msg);
+      } else if (subCmd === 'resume') {
+        const breakerType = parts[2] as BreakerType | undefined;
+        ctx.circuitBreaker.resume(breakerType);
+        ctx.setBreakerHealth(ctx.circuitBreaker.getHealth());
+        ctx.addMessage('system', `\u2713 Circuit breaker${breakerType ? ` "${breakerType}"` : 's'} resumed (half-open mode, 50% more generous thresholds)`);
+      } else if (subCmd === 'reset') {
+        const breakerType = parts[2] as BreakerType | undefined;
+        ctx.circuitBreaker.reset(breakerType);
+        ctx.setBreakerHealth(ctx.circuitBreaker.getHealth());
+        ctx.addMessage('system', `\u2713 Circuit breaker${breakerType ? ` "${breakerType}"` : 's'} reset to closed`);
+      } else if (subCmd === 'off') {
+        config.set('circuitBreakersEnabled', false);
+        ctx.addMessage('system', '\u2713 Circuit breakers disabled (will take effect on next agent run)');
+      } else if (subCmd === 'on') {
+        config.set('circuitBreakersEnabled', true);
+        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
+      } else {
+        ctx.addMessage('system', `Usage: /breaker [status|resume|reset|on|off]
+  /breaker resume [type]  - Resume tripped breaker (half-open)
+  /breaker reset [type]   - Reset breaker to closed
+  /breaker on|off         - Enable/disable circuit breakers
+
+Breaker types: repeated-failure, cost-runaway, infinite-loop, token-burn, stall`);
+      }
+      break;
+    }
+
+    // ================================================================
+    // Smart Routing
+    // ================================================================
+
+    case '/smart': {
+      const subCmd = parts[1];
+      if (subCmd === 'on') {
+        ctx.setSmartRouteActive(true);
+        config.set('smartRoutingEnabled', true);
+        ctx.addMessage('system', '\u2713 Smart routing ON - best model selected across all providers');
+      } else if (subCmd === 'off') {
+        ctx.setSmartRouteActive(false);
+        config.set('smartRoutingEnabled', false);
+        ctx.addMessage('system', '\u2713 Smart routing OFF - using fixed provider/model');
+      } else if (subCmd === 'cost' && parts[2]) {
+        const sensitivity = parseFloat(parts[2]);
+        if (isNaN(sensitivity) || sensitivity < 0 || sensitivity > 1) {
+          ctx.addMessage('error', 'Cost sensitivity must be between 0 (best quality) and 1 (cheapest)');
+        } else {
+          config.set('smartRoutingCostSensitivity', sensitivity);
+          ctx.addMessage('system', `\u2713 Smart routing cost sensitivity set to ${sensitivity} (0=quality, 1=cost)`);
+        }
+      } else if (subCmd === 'test' && parts[2]) {
+        const testMsg = parts.slice(2).join(' ');
+        const routingConfig: SmartRoutingConfig = ctx.smartRoutingConfig || {
+          ...getDefaultSmartRoutingConfig(),
+          enabled: true,
+          costSensitivity: config.get('smartRoutingCostSensitivity') ?? 0.3,
+        };
+        const decision = smartRoute(testMsg, routingConfig);
+        const taskInfo = detectTaskType(testMsg);
+        let msg = `Smart Route Test:\n`;
+        msg += `  Task type: ${taskInfo.taskType} (${Math.round(taskInfo.confidence * 100)}% confidence)\n`;
+        msg += `  Complexity: ${decision.complexity}\n`;
+        msg += `  Selected: ${decision.selected.provider}/${decision.selected.model} (${decision.selected.tier} tier)\n`;
+        msg += `  Score: ${(decision.selected.score * 100).toFixed(1)}\n`;
+        if (decision.alternatives.length > 0) {
+          msg += `  Alternatives:\n`;
+          for (const alt of decision.alternatives.slice(0, 3)) {
+            msg += `    - ${alt.provider}/${alt.model} (score: ${(alt.score * 100).toFixed(1)})\n`;
+          }
+        }
+        ctx.addMessage('system', msg);
+      } else {
+        ctx.addMessage('system', `Smart routing: ${ctx.smartRouteActive ? 'ON' : 'OFF'}
+Cost sensitivity: ${config.get('smartRoutingCostSensitivity') ?? 0.3}
+
+Usage: /smart [on|off|cost <0-1>|test <message>]
+  /smart on            - Enable cross-provider routing
+  /smart off           - Disable, use fixed provider
+  /smart cost <0-1>    - Set cost sensitivity (0=quality, 1=cheapest)
+  /smart test <msg>    - Test routing decision for a message`);
       }
       break;
     }
