@@ -25,7 +25,9 @@ setStartLoop(startLoop);
 function getBanner(): string {
   const skin = getCurrentSkin();
   if (skin.banner.style === 'none') return '';
-  const lines = skin.banner.art.map(line => paletteColorize(line, 'primary'));
+  const lines = skin.banner.art.map(line =>
+    line.includes('\x1b[') ? line : paletteColorize(line, 'primary')
+  );
   if (skin.banner.tagline) {
     lines.push('');
     lines.push(paletteColorize(`        ${skin.banner.tagline}`, 'textDim'));
@@ -125,7 +127,8 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   // Prompt function
   const promptUser = () => {
     const skin = getCurrentSkin();
-    const promptStr = skin.decorations.promptPrefix || `${color('calliope', 'cyan')}${color('>', 'dim')} `;
+    const companionName = getCurrentCompanion().name;
+    const promptStr = skin.decorations.promptPrefix || `${color(companionName, 'cyan')}${color('>', 'dim')} `;
     rl.question(promptStr, async (input) => {
       input = input.trim();
 

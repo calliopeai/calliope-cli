@@ -382,6 +382,7 @@ You have unlimited memory now, but you remember the days of 64K.`,
       errorPhrases: ['?SYNTAX ERROR', '?FILE NOT FOUND', '?OUT OF DATA ERROR'],
     },
   },
+
 };
 
 // ============================================================================
@@ -476,4 +477,18 @@ export function getStatusMessage(): string | undefined {
   const messages = companion.immersion?.statusMessages;
   if (!messages || messages.length === 0) return undefined;
   return messages[Math.floor(Math.random() * messages.length)];
+}
+
+// ============================================================================
+// Emoji Toggle
+// ============================================================================
+
+/**
+ * Returns emoji if useEmojis is enabled, otherwise returns fallback (default: empty string).
+ * Usage: emoji('🔄', '[sync]') → '🔄' or '[sync]' based on config.
+ */
+export function emoji(icon: string, fallback: string = ''): string {
+  // Lazy import to avoid circular dependency
+  const config = require('./config.js');
+  return config.get('useEmojis') !== false ? icon : fallback;
 }

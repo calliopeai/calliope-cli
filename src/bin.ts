@@ -136,8 +136,8 @@ async function main(): Promise<void> {
                        process.env.HUGGINGFACE_API_KEY ||
                        process.env.LITELLM_BASE_URL;
 
-    if (hasEnvKeys && (args.includes('--skip-setup') || skipPermissions)) {
-      // Skip setup if env keys present and flag set
+    if (hasEnvKeys) {
+      // Skip setup if env keys present
       config.markSetupComplete();
     } else {
       // Run interactive setup
@@ -155,8 +155,11 @@ async function main(): Promise<void> {
 
 async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
   // Initialize HUD (skin + palette + companion)
-  const { applySkin, applyPalette } = await import('./hud.js');
+  const { applySkin, applyPalette, populateLegacyRegistries } = await import('./hud.js');
   const { applyCompanion } = await import('./companions.js');
+
+  // Populate legacy registries from theme packs
+  populateLegacyRegistries();
 
   const skinName = envSkin || config.get('activeSkin') || 'clean';
   const paletteName = envPalette || config.get('activePalette') || 'default';

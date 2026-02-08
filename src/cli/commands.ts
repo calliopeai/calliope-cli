@@ -24,6 +24,7 @@ import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetSco
 import { color } from '../styles.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
+import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
 import type { CLIState } from './types.js';
 
 // Forward declaration — injected by index.ts to avoid circular imports
@@ -295,6 +296,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
         const newComp = getCurrentCompanion();
         if (newComp.name === parts[1]) {
           config.set('activeCompanion', parts[1]);
+          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
           console.log(color(`Companion set to: ${parts[1]}`, 'green'));
           console.log(color(`  "${newComp.greeting}"`, 'dim'));
         } else {
@@ -309,16 +311,114 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
         const hudSkin = getCurrentSkin();
         const hudPalette = getCurrentPalette();
         const hudCompanion = getCurrentCompanion();
+        const hudPack = getCurrentPack();
+        const hudIntensity = getCompanionMode();
         console.log(color('HUD Configuration', 'bold'));
+        if (hudPack) console.log(`  Pack:      ${color(hudPack.name, 'cyan')} — ${hudPack.description}`);
         console.log(`  Skin:      ${color(hudSkin.name, 'cyan')} — ${hudSkin.description}`);
         console.log(`  Palette:   ${color(hudPalette.name, 'cyan')} — ${hudPalette.description}`);
         console.log(`  Companion: ${color(hudCompanion.name, 'cyan')} — ${hudCompanion.description}`);
+        console.log(`  Intensity: ${hudIntensity}`);
+        console.log(`  Emojis:    ${config.get('useEmojis') !== false ? 'ON' : 'OFF'}`);
         console.log(`  Mood:      ${getMoodText()}`);
         console.log();
+        console.log(color('  /pack <name>  /intensity <pro|immersive>  /emoji [on|off]', 'dim'));
         console.log(color('  /skin <name>  /palette <name>  /companion <name>', 'dim'));
       }
       console.log();
       break;
+
+    case '/pack':
+      if (parts[1] === 'list' || !parts[1]) {
+        const category = parts[2] as any;
+        const packs = listThemePacks(category || undefined);
+        const currentP = getCurrentPack();
+        const grouped = new Map<string, typeof packs>();
+        for (const p of packs) {
+          const group = grouped.get(p.category) || [];
+          group.push(p);
+          grouped.set(p.category, group);
+        }
+        console.log(color('Theme Packs:', 'bold'));
+        for (const [cat, catPacks] of grouped) {
+          console.log(color(`\n  [${cat}]`, 'dim'));
+          for (const p of catPacks) {
+            const marker = currentP && p.name === currentP.name ? color(' *', 'green') : '';
+            console.log(`    ${p.name}${marker} — ${p.description}`);
+          }
+        }
+        console.log(color('\n  /pack <name>', 'dim'));
+      } else {
+        const success = applyThemePack(parts[1], getCompanionMode());
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('activeThemePack', parts[1]);
+          config.set('activeSkin', pack.skin.name);
+          config.set('activePalette', pack.palette.name);
+          const companion = getCompanionMode() === 'professional'
+            ? pack.companions.professional
+            : pack.companions.immersive;
+          config.set('activeCompanion', companion.name);
+          // Reset system prompt to use the companion's persona
+          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          console.log(color(`Theme pack: ${parts[1]}`, 'green'));
+          console.log(color(`  "${companion.greeting}"`, 'dim'));
+        } else {
+          console.log(color(`Theme pack not found: ${parts[1]}`, 'yellow'));
+        }
+      }
+      console.log();
+      break;
+
+    case '/intensity':
+      if (parts[1] === 'professional' || parts[1] === 'pro') {
+        const success = setCompanionMode('professional');
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('companionIntensity', 'professional');
+          config.set('activeCompanion', pack.companions.professional.name);
+          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          console.log(color(`Switched to professional mode`, 'green'));
+        } else {
+          console.log(color('No theme pack active. Use /pack <name> first.', 'yellow'));
+        }
+      } else if (parts[1] === 'immersive' || parts[1] === 'imm') {
+        const success = setCompanionMode('immersive');
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('companionIntensity', 'immersive');
+          config.set('activeCompanion', pack.companions.immersive.name);
+          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          console.log(color(`Switched to immersive mode`, 'green'));
+        } else {
+          console.log(color('No theme pack active. Use /pack <name> first.', 'yellow'));
+        }
+      } else {
+        console.log(`Intensity: ${getCompanionMode()}`);
+        console.log(color('Options: /intensity professional (pro), /intensity immersive (imm)', 'dim'));
+      }
+      console.log();
+      break;
+
+    case '/emoji': {
+      const emojiArg = parts[1];
+      const emojiCurrent = config.get('useEmojis') !== false;
+      if (emojiArg === 'on') {
+        config.set('useEmojis', true);
+        console.log(color('Emojis enabled', 'green'));
+      } else if (emojiArg === 'off') {
+        config.set('useEmojis', false);
+        console.log(color('Emojis disabled — text fallbacks will be used', 'green'));
+      } else if (emojiArg === 'toggle') {
+        config.set('useEmojis', !emojiCurrent);
+        console.log(color(`Emojis ${!emojiCurrent ? 'enabled' : 'disabled'}`, 'green'));
+      } else {
+        console.log(`Emojis: ${emojiCurrent ? 'ON' : 'OFF'}`);
+        console.log(color('Usage: /emoji [on|off|toggle]', 'dim'));
+      }
+      console.log();
+      break;
+    }
 
     case '/branch':
       {

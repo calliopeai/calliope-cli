@@ -9,6 +9,7 @@ import React from 'react';
 import { Box, Text, useInput } from 'ink';
 import * as fs from 'fs';
 import type { Mode } from '../types.js';
+import { getCurrentCompanion } from '../companions.js';
 import { Separator } from './components.js';
 import { SLASH_COMMANDS, PATH_COMMANDS, getPathCompletions, getSmartCommandSuggestions } from './completions.js';
 
@@ -424,7 +425,7 @@ export function ChatInput({
   const isEditing = editingQueueIndex !== null && editingQueueIndex !== undefined;
   const promptText = isProcessing
     ? (isEditing ? `edit[${editingQueueIndex + 1}]>` : 'queue>')
-    : 'calliope>';
+    : `${getCurrentCompanion().name}>`;
 
   return (
     <Box flexDirection="column">

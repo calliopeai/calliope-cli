@@ -21,3 +21,13 @@ export {
   saveCustomSkin, saveCustomPalette,
   clearHUDCache,
 } from './api.js';
+
+// Theme Packs
+export type { ThemePack, ThemeCategory } from './theme-packs/index.js';
+export {
+  THEME_PACKS,
+  applyThemePack, setCompanionMode,
+  getCurrentPack, getCompanionMode,
+  getThemePack, listThemePacks,
+  getPackCompanions, populateLegacyRegistries,
+} from './theme-packs/index.js';

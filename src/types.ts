@@ -193,6 +193,15 @@ Be extremely concise. Execute tasks efficiently.`,
 };
 
 export function getSystemPrompt(persona: AgentPersona): string {
+  // If a companion is active, use its system prompt instead of the base persona
+  try {
+    const companions = require('./companions.js');
+    const companion = companions.getCurrentCompanion();
+    // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
+    if (companion && companion.systemPrompt && !['professional', 'calliope', 'minimal'].includes(companion.name)) {
+      return companion.systemPrompt;
+    }
+  } catch { /* companions not loaded yet, use base persona */ }
   return PERSONA_PROMPTS[persona];
 }
 

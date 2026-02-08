@@ -287,4 +287,5 @@ export const PALETTES: Record<string, Palette> = {
       selection: ANSI.bgGray,
     },
   },
+
 };

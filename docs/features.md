@@ -533,6 +533,62 @@ This happens automatically when:
 
 ---
 
+## AGTerm (Multi-Agent Orchestration)
+
+Spawn other agent CLIs from within Calliope to parallelize work or leverage different models.
+
+### Supported Agents
+
+| Agent | CLI | Best For |
+|-------|-----|----------|
+| `calliope` | Calliope (self) | Full-featured, all tools, god mode |
+| `claude` | Claude Code | Complex coding, file ops, analysis |
+| `gemini` | Gemini CLI | Research, explanation, creative tasks |
+| `codex` | Codex CLI | Code generation and completion |
+
+Calliope auto-detects which agent CLIs are installed.
+
+### Spawn a Sub-Agent
+```bash
+# Delegate a task to Claude
+/spawn claude "Write unit tests for src/auth.ts"
+
+# Run in background
+/spawn claude "Refactor the database module" --background
+
+# Use Gemini for research
+/spawn gemini "Research best practices for JWT refresh tokens"
+
+# Self-spawn for parallel work
+/spawn calliope "Fix all lint errors in src/ui/"
+```
+
+### Check on Tasks
+```bash
+/agent status task-abc-123    # Check a specific task
+/agent list                   # See all running/queued tasks
+```
+
+### Cancel a Task
+```bash
+/agent cancel task-abc-123
+```
+
+### Task Priority
+```bash
+/spawn claude "Critical hotfix" --priority critical
+```
+
+Priority levels: `critical` > `high` > `normal` > `low`
+
+### Task Lifecycle
+
+Tasks move through: `queued` → `running` → `completed` | `failed` | `cancelled`
+
+The orchestrator manages queuing, prioritization, and depth tracking for nested agent execution.
+
+---
+
 ## Risk Assessment
 
 Every operation is classified:

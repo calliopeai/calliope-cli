@@ -64,6 +64,9 @@ export interface CalliopeConfig {
   activeSkin: string;           // Current skin name (default: 'clean')
   activePalette: string;        // Current palette name (default: 'default')
   activeCompanion: string;      // Current companion name (default: 'professional')
+  activeThemePack?: string;     // Current theme pack name (optional)
+  companionIntensity: 'professional' | 'immersive';  // Companion intensity mode
+  useEmojis: boolean;           // Enable/disable emoji in UI decorations (default: true)
   diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
   borderStyle: 'rounded' | 'sharp' | 'double' | 'ascii' | 'none';  // Border style override
   bannerStyle: 'full' | 'compact' | 'none';  // Banner display style
@@ -90,6 +93,8 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   activeSkin: 'clean',
   activePalette: 'default',
   activeCompanion: 'professional',
+  companionIntensity: 'immersive',
+  useEmojis: true,
   diffStyle: 'inline',
   borderStyle: 'rounded',
   bannerStyle: 'full',
@@ -131,10 +136,13 @@ const config = new Conf<CalliopeConfig>({
     activeSkin: { type: 'string' },
     activePalette: { type: 'string' },
     activeCompanion: { type: 'string' },
+    activeThemePack: { type: 'string' },
+    companionIntensity: { type: 'string', enum: ['professional', 'immersive'] },
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
     borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },
     bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
     renderer: { type: 'string', enum: ['ink', 'legacy', 'headless'] },
+    useEmojis: { type: 'boolean' },
   },
 });
 
@@ -261,18 +269,18 @@ export function resetConfig(): void {
 export function getConfiguredProviders(): LLMProvider[] {
   const providers: LLMProvider[] = [];
 
-  if (config.get('anthropicApiKey')) providers.push('anthropic');
-  if (config.get('googleApiKey')) providers.push('google');
-  if (config.get('openaiApiKey')) providers.push('openai');
-  if (config.get('togetherApiKey')) providers.push('together');
-  if (config.get('openrouterApiKey')) providers.push('openrouter');
-  if (config.get('groqApiKey')) providers.push('groq');
-  if (config.get('fireworksApiKey')) providers.push('fireworks');
-  if (config.get('mistralApiKey')) providers.push('mistral');
-  if (config.get('ollamaBaseUrl')) providers.push('ollama');
-  if (config.get('ai21ApiKey')) providers.push('ai21');
-  if (config.get('huggingfaceApiKey')) providers.push('huggingface');
-  if (config.get('litellmBaseUrl')) providers.push('litellm');
+  if (config.get('anthropicApiKey') || process.env.ANTHROPIC_API_KEY) providers.push('anthropic');
+  if (config.get('googleApiKey') || process.env.GOOGLE_API_KEY) providers.push('google');
+  if (config.get('openaiApiKey') || process.env.OPENAI_API_KEY) providers.push('openai');
+  if (config.get('togetherApiKey') || process.env.TOGETHER_API_KEY) providers.push('together');
+  if (config.get('openrouterApiKey') || process.env.OPENROUTER_API_KEY) providers.push('openrouter');
+  if (config.get('groqApiKey') || process.env.GROQ_API_KEY) providers.push('groq');
+  if (config.get('fireworksApiKey') || process.env.FIREWORKS_API_KEY) providers.push('fireworks');
+  if (config.get('mistralApiKey') || process.env.MISTRAL_API_KEY) providers.push('mistral');
+  if (config.get('ollamaBaseUrl') || process.env.OLLAMA_BASE_URL) providers.push('ollama');
+  if (config.get('ai21ApiKey') || process.env.AI21_API_KEY) providers.push('ai21');
+  if (config.get('huggingfaceApiKey') || process.env.HUGGINGFACE_API_KEY) providers.push('huggingface');
+  if (config.get('litellmBaseUrl') || process.env.LITELLM_BASE_URL) providers.push('litellm');
 
   return providers;
 }

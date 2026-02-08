@@ -10,6 +10,7 @@ import { MODE_CONFIG } from '../types.js';
 import type { LLMProvider, Mode } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { Separator } from './components.js';
+import { getMoodText, getCurrentCompanion } from '../companions.js';
 import type { SessionStats } from './types.js';
 
 // ============================================================================
@@ -53,7 +54,7 @@ export function StatusBar({
         {' │ '}
         {formatCost(stats.cost)}
         {' │ '}
-        <Text dimColor>Esc: exit</Text>
+        <Text dimColor>{getMoodText()}</Text>
       </Text>
     </Box>
   );

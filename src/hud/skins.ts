@@ -358,4 +358,5 @@ export const SKINS: Record<string, Skin> = {
     defaultPalette: 'monochrome',
     defaultPersona: 'basic',
   },
+
 };

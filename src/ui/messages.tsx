@@ -7,6 +7,7 @@
 import React from 'react';
 import { Box, Text, Static } from 'ink';
 import { renderMarkdown } from '../markdown.js';
+import { getToolLabel, getCurrentCompanion } from '../companions.js';
 import type { UIMessage, CollapseSettings } from './types.js';
 
 // ============================================================================
@@ -64,7 +65,7 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
       }, []);
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
-          <Text color="cyan">✧ Calliope:</Text>
+          <Text color="cyan">✧ {getCurrentCompanion().name}:</Text>
           {lines.map((line, i) => (
             <Text key={i}><Text color="blue">│</Text> {line}</Text>
           ))}
@@ -98,9 +99,10 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
         if (match) {
           const [, toolName, preview] = match;
           const icon = TOOL_ICONS[toolName] || '⚙️';
+          const immersionLabel = getToolLabel(toolName);
           return (
             <Box flexDirection="column">
-              <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text></Text>
+              <Text><Text dimColor>╭─</Text> {icon} <Text color="yellow">{toolName}</Text>{immersionLabel ? <Text dimColor> {immersionLabel}</Text> : null}</Text>
               <Text><Text dimColor>│</Text>  <Text dimColor>{preview}</Text></Text>
             </Box>
           );

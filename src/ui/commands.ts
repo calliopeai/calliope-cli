@@ -21,6 +21,7 @@ import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetSco
 import { getAgentStatusReport } from '../agterm/index.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
+import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode } from '../hud/theme-packs/index.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent, ToolCall } from '../types.js';
@@ -136,6 +137,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /undo                    - Undo last action (up to 10 steps)
   /redo                    - Redo undone action
   /confirm [on|off]        - Toggle risky op confirmation
+  /emoji [on|off|toggle]   - Toggle emoji in UI
   /profile [name|save|del] - Switch/save/delete profiles
   /mcp [add|remove|tools]  - Manage MCP servers
   /skills [add|remove]     - Manage agent skills
@@ -957,6 +959,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         const newComp = getCurrentCompanion();
         if (newComp.name === subCmd) {
           config.set('activeCompanion', subCmd);
+          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
           ctx.addMessage('system', `Companion set to: ${subCmd} \u2014 "${newComp.greeting}"`);
         } else {
           ctx.addMessage('error', `Companion not found: ${subCmd}. Available: ${listCompanions().map((c: { name: string }) => c.name).join(', ')}`);
@@ -969,14 +972,117 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       const hudSkin = getCurrentSkin();
       const hudPalette = getCurrentPalette();
       const hudCompanion = getCurrentCompanion();
+      const hudPack = getCurrentPack();
+      const hudIntensity = getCompanionMode();
       ctx.addMessage('system',
         `HUD Configuration\n` +
-        `  Skin:      ${hudSkin.name} \u2014 ${hudSkin.description}\n` +
-        `  Palette:   ${hudPalette.name} \u2014 ${hudPalette.description}\n` +
-        `  Companion: ${hudCompanion.name} \u2014 ${hudCompanion.description}\n` +
+        (hudPack ? `  Pack:      ${hudPack.name} — ${hudPack.description}\n` : '') +
+        `  Skin:      ${hudSkin.name} — ${hudSkin.description}\n` +
+        `  Palette:   ${hudPalette.name} — ${hudPalette.description}\n` +
+        `  Companion: ${hudCompanion.name} — ${hudCompanion.description}\n` +
+        `  Intensity: ${hudIntensity}\n` +
+        `  Emojis:    ${config.get('useEmojis') !== false ? 'ON' : 'OFF'}\n` +
         `  Mood:      ${getMoodText()}\n\n` +
+        `  /pack <name>  /intensity <pro|immersive>  /emoji [on|off]\n` +
         `  /skin <name>  /palette <name>  /companion <name>`
       );
+      break;
+    }
+
+    case '/pack': {
+      const subCmd = parts[1];
+      if (subCmd === 'list' || !subCmd) {
+        const category = parts[2] as any;
+        const packs = listThemePacks(category || undefined);
+        const currentP = getCurrentPack();
+        // Group by category
+        const grouped = new Map<string, typeof packs>();
+        for (const p of packs) {
+          const group = grouped.get(p.category) || [];
+          group.push(p);
+          grouped.set(p.category, group);
+        }
+        let output = 'Theme Packs:\n';
+        for (const [cat, catPacks] of grouped) {
+          output += `\n  [${cat}]\n`;
+          for (const p of catPacks) {
+            const marker = currentP && p.name === currentP.name ? ' *' : '';
+            output += `    ${p.name}${marker} — ${p.description}\n`;
+          }
+        }
+        output += '\nUse: /pack <name>';
+        ctx.addMessage('system', output);
+      } else {
+        const success = applyThemePack(subCmd, getCompanionMode());
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('activeThemePack', subCmd);
+          config.set('activeSkin', pack.skin.name);
+          config.set('activePalette', pack.palette.name);
+          const companion = getCompanionMode() === 'professional'
+            ? pack.companions.professional
+            : pack.companions.immersive;
+          config.set('activeCompanion', companion.name);
+          // Reset LLM system prompt to use the companion's persona
+          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.addMessage('system',
+            `Theme pack: ${subCmd}\n` +
+            `  Skin: ${pack.skin.name}, Palette: ${pack.palette.name}, Companion: ${companion.name}\n` +
+            `  "${companion.greeting}"`
+          );
+        } else {
+          ctx.addMessage('error', `Theme pack not found: ${subCmd}. Use /pack list to see available packs.`);
+        }
+      }
+      break;
+    }
+
+    case '/intensity': {
+      const intensity = parts[1];
+      if (intensity === 'professional' || intensity === 'pro') {
+        const success = setCompanionMode('professional');
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('companionIntensity', 'professional');
+          config.set('activeCompanion', pack.companions.professional.name);
+          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.addMessage('system', `Switched to professional mode — ${pack.companions.professional.description}`);
+        } else {
+          ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
+        }
+      } else if (intensity === 'immersive' || intensity === 'imm') {
+        const success = setCompanionMode('immersive');
+        if (success) {
+          const pack = getCurrentPack()!;
+          config.set('companionIntensity', 'immersive');
+          config.set('activeCompanion', pack.companions.immersive.name);
+          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.addMessage('system', `Switched to immersive mode — ${pack.companions.immersive.description}`);
+        } else {
+          ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
+        }
+      } else {
+        const currentIntensity = getCompanionMode();
+        ctx.addMessage('system', `Intensity: ${currentIntensity}\nOptions: /intensity professional (pro), /intensity immersive (imm)`);
+      }
+      break;
+    }
+
+    case '/emoji': {
+      const emojiArg = parts[1];
+      const current = config.get('useEmojis') !== false;
+      if (emojiArg === 'on') {
+        config.set('useEmojis', true);
+        ctx.addMessage('system', '\u2713 Emojis enabled');
+      } else if (emojiArg === 'off') {
+        config.set('useEmojis', false);
+        ctx.addMessage('system', '\u2713 Emojis disabled — text fallbacks will be used');
+      } else if (emojiArg === 'toggle') {
+        config.set('useEmojis', !current);
+        ctx.addMessage('system', `\u2713 Emojis ${!current ? 'enabled' : 'disabled'}`);
+      } else {
+        ctx.addMessage('system', `Emojis: ${current ? 'ON' : 'OFF'}\nUsage: /emoji [on|off|toggle]`);
+      }
       break;
     }
 

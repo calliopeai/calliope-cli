@@ -649,7 +649,7 @@ function TerminalChat() {
   // Streaming response component (reused across layouts)
   const StreamingResponseBox = streamingResponse ? (
     <Box flexDirection="column">
-      <Text color="cyan">✧ Calliope:</Text>
+      <Text color="cyan">✧ {getCurrentCompanion().name}:</Text>
       {streamingResponse.split('\n').map((line, i) => (
         <Text key={i}><Text color="blue">│</Text> {line}</Text>
       ))}
@@ -913,7 +913,12 @@ export function printBanner(): void {
   } else {
     console.log();
     for (const line of skin.banner.art) {
-      console.log(paletteColorize(line, 'primary'));
+      // If line already has ANSI escapes (self-colored art), print raw; otherwise colorize
+      if (line.includes('\x1b[')) {
+        console.log(line);
+      } else {
+        console.log(paletteColorize(line, 'primary'));
+      }
     }
     console.log();
     if (skin.banner.tagline) {

@@ -7,6 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { getCurrentSkin, getSpinnerFrames } from '../hud.js';
+import { getThinkingPhrase, getToolLabel, getMoodText } from '../companions.js';
 import type { ThinkingState, ActivityState } from './types.js';
 
 // ============================================================================
@@ -38,6 +39,8 @@ export function Separator() {
 export function ThinkingDisplay({ state }: { state: ThinkingState }) {
   const [frame, setFrame] = useState(0);
   const spinFrames = getSkinSpinnerFrames();
+  // Use companion's thinking phrase if available, otherwise default status
+  const [immersionPhrase] = useState(() => getThinkingPhrase());
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -46,18 +49,20 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
     return () => clearInterval(timer);
   }, [spinFrames.length]);
 
+  const displayStatus = immersionPhrase || state.status;
+
   return (
     <Box flexDirection="column">
       {/* Main status line */}
       <Box>
         <Text color="cyan">{spinFrames[frame % spinFrames.length]}</Text>
-        <Text> {state.status}</Text>
+        <Text> {displayStatus}</Text>
         {state.iteration != null && state.maxIterations && (
           <Text dimColor> ({state.iteration}/{state.maxIterations})</Text>
         )}
       </Box>
 
-      {/* Detail line */}
+      {/* Detail line — show companion tool label if available */}
       {state.detail && (
         <Box marginLeft={2}>
           <Text dimColor>↳ {state.detail}</Text>
@@ -67,7 +72,7 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
       {/* Thinking output (from think tool) */}
       {state.thinking && (
         <Box flexDirection="column" marginLeft={2}>
-          <Text color="magenta">💭 Thinking:</Text>
+          <Text color="magenta">Thinking:</Text>
           {state.thinking.split('\n').slice(0, 5).map((line, i) => (
             <Text key={i} dimColor>   {line.substring(0, 80)}</Text>
           ))}
