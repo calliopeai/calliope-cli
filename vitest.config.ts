@@ -11,7 +11,6 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       exclude: [
         'src/bin.ts',
-        'src/ui-cli.tsx',
         // React/Ink UI — needs integration testing, not unit tests
         'src/ui/**/*.tsx',
         'src/ui/agent.ts',
@@ -19,11 +18,7 @@ export default defineConfig({
         'src/ui/completions.ts',
         'src/ui/context.ts',
         'src/ui/pack-picker.tsx',
-        // Barrel re-exports (no logic)
-        'src/cli.ts',
-        'src/hud.ts',
-        'src/providers.ts',
-        'src/hud/index.ts',
+        // Theme pack registries (data only, no logic)
         'src/hud/theme-packs/index.ts',
         'src/hud/theme-packs/gaming/index.ts',
         'src/hud/theme-packs/trek/index.ts',

@@ -8,9 +8,9 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import type { BoxProps } from 'ink';
-import { getCurrentSkin, getInkColor } from '../hud.js';
+import { getCurrentSkin, getInkColor } from '../hud/api.js';
 import { getCurrentCompanion } from '../companions.js';
-import type { SkinFrame } from '../hud.js';
+import type { SkinFrame } from '../hud/types.js';
 
 // ============================================================================
 // HUDFrame Component

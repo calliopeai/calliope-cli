@@ -9,7 +9,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { listSkins, listPalettes, getSkin, getPalette } from '../hud.js';
+import { listSkins, listPalettes, getSkin, getPalette } from '../hud/api.js';
 import { listCompanions, getCompanion } from '../companions.js';
 
 // ============================================================================

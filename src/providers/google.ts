@@ -5,7 +5,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
-import { getTextContent } from './types.js';
+import { getTextContent, debugLog, type StreamCallback } from './types.js';
 
 /**
  * Chat with Google Gemini
@@ -13,7 +13,8 @@ import { getTextContent } from './types.js';
 export async function chatGoogle(
   messages: Message[],
   tools: Tool[],
-  model: string
+  model: string,
+  onToken?: StreamCallback
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
@@ -126,6 +127,58 @@ export async function chatGoogle(
     }
   }
 
+  // Use streaming if callback provided
+  if (onToken) {
+    let content = '';
+    const toolCalls: ToolCall[] = [];
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    try {
+      const streamResult = await chat.sendMessageStream(lastMessageParts);
+
+      for await (const chunk of streamResult.stream) {
+        // Extract text from streamed chunks
+        const candidates = chunk.candidates || [];
+        for (const candidate of candidates) {
+          for (const part of candidate.content?.parts || []) {
+            if ('text' in part && part.text) {
+              content += part.text;
+              onToken(part.text);
+            }
+            if ('functionCall' in part && part.functionCall) {
+              toolCalls.push({
+                id: `gemini_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                name: part.functionCall.name,
+                arguments: (part.functionCall.args || {}) as Record<string, unknown>,
+              });
+            }
+          }
+        }
+
+        // Capture usage metadata from chunks
+        if (chunk.usageMetadata) {
+          inputTokens = chunk.usageMetadata.promptTokenCount || 0;
+          outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+        }
+      }
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason: toolCalls.length > 0 ? 'tool_use' : 'stop',
+        usage: (inputTokens || outputTokens) ? { inputTokens, outputTokens } : undefined,
+      };
+    } catch (streamError) {
+      // Surface the streaming failure and re-throw so withRetry handles it
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+      debugLog('Google streaming failed:', errMsg);
+      onToken(`\n[Streaming error: ${errMsg}]\n`);
+      throw streamError;
+    }
+  }
+
+  // Non-streaming request
   const result = await chat.sendMessage(lastMessageParts);
   const response = result.response;
 
@@ -156,5 +209,9 @@ export async function chatGoogle(
     content: text,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason: toolCalls.length > 0 ? 'tool_use' : 'stop',
+    usage: response.usageMetadata ? {
+      inputTokens: response.usageMetadata.promptTokenCount || 0,
+      outputTokens: response.usageMetadata.candidatesTokenCount || 0,
+    } : undefined,
   };
 }

@@ -6,13 +6,13 @@
 
 import * as readline from 'readline';
 import * as config from '../config.js';
-import { selectProvider } from '../providers.js';
+import { selectProvider } from '../providers/index.js';
 import { getSystemPrompt, DEFAULT_MODELS } from '../types.js';
 import { checkForUpdates, getVersion, performUpgrade } from '../version-check.js';
 import * as memory from '../memory.js';
 import * as hooks from '../hooks.js';
 import { color } from '../styles.js';
-import { getCurrentSkin, paletteColorize } from '../hud.js';
+import { getCurrentSkin, paletteColorize } from '../hud/api.js';
 import { getCurrentCompanion } from '../companions.js';
 import type { CLIOptions, CLIState } from './types.js';
 import { COMMANDS, debugLog } from './types.js';

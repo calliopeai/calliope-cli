@@ -90,7 +90,7 @@ export async function chat(
         response = await chatAnthropic(messages, tools, actualModel, onToken);
         break;
       case 'google':
-        response = await chatGoogle(messages, tools, actualModel);
+        response = await chatGoogle(messages, tools, actualModel, onToken);
         break;
       case 'openai':
         response = await chatOpenAI(messages, tools, actualModel, onToken);

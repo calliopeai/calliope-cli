@@ -370,10 +370,16 @@ async function chatOpenAIResponses(
           content += typedEvent.delta;
           onToken(typedEvent.delta);
         } else if (isFunctionCallDoneEvent(typedEvent)) {
+          let parsedArgs: Record<string, unknown> = {};
+          try {
+            parsedArgs = JSON.parse(typedEvent.arguments || '{}');
+          } catch {
+            debugLog(`Failed to parse Responses API tool call arguments for ${typedEvent.name}: ${typedEvent.arguments?.substring(0, 200)}`);
+          }
           toolCalls.push({
             id: typedEvent.call_id || `call_${Date.now()}`,
             name: typedEvent.name,
-            arguments: JSON.parse(typedEvent.arguments || '{}'),
+            arguments: parsedArgs,
           });
           finishReason = 'tool_use';
         } else if (isCompletedEvent(typedEvent)) {
@@ -395,7 +401,11 @@ async function chatOpenAIResponses(
         usage: { inputTokens, outputTokens },
       };
     } catch (streamError) {
-      debugLog('Responses API streaming failed, falling back to non-streaming:', streamError);
+      // Surface the streaming failure and re-throw so withRetry handles it
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+      debugLog('OpenAI Responses API streaming failed:', errMsg);
+      onToken(`\n[Streaming error: ${errMsg}]\n`);
+      throw streamError;
     }
   }
 
@@ -522,11 +532,19 @@ export async function chatOpenAI(
       // Convert tool call deltas to tool calls
       const toolCalls = Object.values(toolCallDeltas)
         .filter(tc => tc.id && tc.name)
-        .map(tc => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: JSON.parse(tc.arguments || '{}'),
-        }));
+        .map(tc => {
+          let parsedArgs: Record<string, unknown> = {};
+          try {
+            parsedArgs = JSON.parse(tc.arguments || '{}');
+          } catch {
+            debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          }
+          return {
+            id: tc.id,
+            name: tc.name,
+            arguments: parsedArgs,
+          };
+        });
 
       if (toolCalls.length > 0) {
         finishReason = 'tool_use';
@@ -538,8 +556,11 @@ export async function chatOpenAI(
         finishReason,
       };
     } catch (streamError) {
-      // Fall back to non-streaming on error
-      console.error('Streaming failed, falling back to non-streaming:', streamError);
+      // Surface the streaming failure and re-throw so withRetry handles it
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+      debugLog('OpenAI streaming failed:', errMsg);
+      onToken(`\n[Streaming error: ${errMsg}]\n`);
+      throw streamError;
     }
   }
 

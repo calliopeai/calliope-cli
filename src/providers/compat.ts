@@ -120,11 +120,19 @@ export async function chatOpenAICompatible(
       // Convert tool call deltas to tool calls
       const toolCalls = Object.values(toolCallDeltas)
         .filter(tc => tc.id && tc.name)
-        .map(tc => ({
-          id: tc.id,
-          name: tc.name,
-          arguments: JSON.parse(tc.arguments || '{}'),
-        }));
+        .map(tc => {
+          let parsedArgs: Record<string, unknown> = {};
+          try {
+            parsedArgs = JSON.parse(tc.arguments || '{}');
+          } catch {
+            debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          }
+          return {
+            id: tc.id,
+            name: tc.name,
+            arguments: parsedArgs,
+          };
+        });
 
       if (toolCalls.length > 0) {
         finishReason = 'tool_use';
@@ -136,8 +144,11 @@ export async function chatOpenAICompatible(
         finishReason,
       };
     } catch (streamError) {
-      // Fall back to non-streaming on error
-      console.error('Streaming failed, falling back to non-streaming:', streamError);
+      // Surface the streaming failure and re-throw so withRetry handles it
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+      debugLog(`${provider} streaming failed:`, errMsg);
+      onToken(`\n[Streaming error: ${errMsg}]\n`);
+      throw streamError;
     }
   }
 

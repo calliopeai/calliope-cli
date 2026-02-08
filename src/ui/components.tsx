@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useStdout } from 'ink';
-import { getCurrentSkin, getSpinnerFrames, getInkColor } from '../hud.js';
+import { getCurrentSkin, getSpinnerFrames, getInkColor } from '../hud/api.js';
 import { getThinkingPhrase, getToolLabel, getMoodText } from '../companions.js';
 import type { ThinkingState, ActivityState } from './types.js';
 

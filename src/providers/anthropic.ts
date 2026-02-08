@@ -182,8 +182,11 @@ export async function chatAnthropic(
         usage: { inputTokens, outputTokens },
       };
     } catch (streamError) {
-      // Fall back to non-streaming on error
-      console.error('Anthropic streaming failed, falling back:', streamError);
+      // Surface the streaming failure and re-throw so withRetry handles it
+      const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
+      debugLog('Anthropic streaming failed:', errMsg);
+      onToken(`\n[Streaming error: ${errMsg}]\n`);
+      throw streamError;
     }
   }
 

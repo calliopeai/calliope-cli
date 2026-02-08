@@ -16,6 +16,10 @@ import type { Tool } from './types.js';
 // MCP storage directory
 const MCP_DIR = path.join(os.homedir(), '.calliope-cli', 'mcp');
 
+// Maximum response body sizes
+const MAX_MANIFEST_SIZE = 10 * 1024 * 1024;  // 10MB for manifests
+const MAX_RESPONSE_SIZE = 50 * 1024 * 1024;  // 50MB for tool results
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -152,8 +156,25 @@ export async function fetchManifest(url: string): Promise<MCPManifest> {
           },
           timeout: 10000,
         }, (rootRes) => {
+          // Check Content-Length if available
+          const contentLength = parseInt(rootRes.headers['content-length'] || '0', 10);
+          if (contentLength > MAX_MANIFEST_SIZE) {
+            rootReq.destroy();
+            reject(new Error(`MCP manifest too large: ${contentLength} bytes (max ${MAX_MANIFEST_SIZE})`));
+            return;
+          }
+
           let data = '';
-          rootRes.on('data', chunk => data += chunk);
+          let dataSize = 0;
+          rootRes.on('data', (chunk: Buffer | string) => {
+            dataSize += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
+            if (dataSize > MAX_MANIFEST_SIZE) {
+              rootReq.destroy();
+              reject(new Error(`MCP manifest exceeded size limit of ${MAX_MANIFEST_SIZE} bytes`));
+              return;
+            }
+            data += chunk;
+          });
           rootRes.on('end', () => {
             try {
               resolve(JSON.parse(data));
@@ -175,8 +196,25 @@ export async function fetchManifest(url: string): Promise<MCPManifest> {
         return;
       }
 
+      // Check Content-Length if available
+      const contentLength = parseInt(res.headers['content-length'] || '0', 10);
+      if (contentLength > MAX_MANIFEST_SIZE) {
+        req.destroy();
+        reject(new Error(`MCP manifest too large: ${contentLength} bytes (max ${MAX_MANIFEST_SIZE})`));
+        return;
+      }
+
       let data = '';
-      res.on('data', chunk => data += chunk);
+      let dataSize = 0;
+      res.on('data', (chunk: Buffer | string) => {
+        dataSize += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
+        if (dataSize > MAX_MANIFEST_SIZE) {
+          req.destroy();
+          reject(new Error(`MCP manifest exceeded size limit of ${MAX_MANIFEST_SIZE} bytes`));
+          return;
+        }
+        data += chunk;
+      });
       res.on('end', () => {
         try {
           resolve(JSON.parse(data));
@@ -346,8 +384,25 @@ async function mcpCall(
       },
       timeout: 30000,
     }, (res) => {
+      // Check Content-Length if available
+      const contentLength = parseInt(res.headers['content-length'] || '0', 10);
+      if (contentLength > MAX_RESPONSE_SIZE) {
+        req.destroy();
+        reject(new Error(`MCP response too large: ${contentLength} bytes (max ${MAX_RESPONSE_SIZE})`));
+        return;
+      }
+
       let data = '';
-      res.on('data', chunk => data += chunk);
+      let dataSize = 0;
+      res.on('data', (chunk: Buffer | string) => {
+        dataSize += typeof chunk === 'string' ? Buffer.byteLength(chunk) : chunk.length;
+        if (dataSize > MAX_RESPONSE_SIZE) {
+          req.destroy();
+          reject(new Error(`MCP response exceeded size limit of ${MAX_RESPONSE_SIZE} bytes`));
+          return;
+        }
+        data += chunk;
+      });
       res.on('end', () => {
         try {
           const response = JSON.parse(data);
@@ -496,10 +551,28 @@ export async function stdioCall(
   });
 
   return new Promise<unknown>((resolve, reject) => {
-    entry.pending.set(id, { resolve, reject });
+    // Wrap resolve/reject to clear the timeout on settlement
+    const timer = setTimeout(() => {
+      if (entry.pending.has(id)) {
+        entry.pending.delete(id);
+        reject(new Error('STDIO call timed out'));
+      }
+    }, 30000);
+
+    entry.pending.set(id, {
+      resolve: (value: unknown) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      reject: (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    });
 
     const ok = entry.process.stdin!.write(request + '\n', (err) => {
       if (err) {
+        clearTimeout(timer);
         entry.pending.delete(id);
         reject(new Error(`Failed to write to STDIO: ${err.message}`));
       }
@@ -511,14 +584,6 @@ export async function stdioCall(
         // Already written via callback above, just waiting for response
       });
     }
-
-    // Timeout after 30 seconds
-    setTimeout(() => {
-      if (entry.pending.has(id)) {
-        entry.pending.delete(id);
-        reject(new Error('STDIO call timed out'));
-      }
-    }, 30000);
   });
 }
 

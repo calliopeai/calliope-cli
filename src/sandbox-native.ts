@@ -49,15 +49,31 @@ export interface NativeSandboxOptions {
  *  - allow file-ioctl (terminal I/O), sysctl-read, mach-lookup, signal
  *  - optionally allow outbound HTTP/HTTPS
  */
+/**
+ * Sanitize a path for safe embedding in a Seatbelt profile string.
+ * Escapes characters that are significant in the Scheme-like DSL
+ * (double quotes, backslashes, parentheses) to prevent profile injection.
+ */
+function sanitizeSeatbeltPath(p: string): string {
+  // Reject paths containing null bytes
+  if (p.includes('\0')) {
+    throw new Error(`Invalid path for sandbox profile: contains null bytes`);
+  }
+  // Escape backslashes first, then double quotes
+  return p.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
 function buildSeatbeltProfile(
   cwd: string,
   options: NativeSandboxOptions = {},
 ): string {
   const extraReadWrite = options.readWritePaths || [];
 
+  const safeCwd = sanitizeSeatbeltPath(cwd);
+
   // Build read-write subpath rules for extra paths
   const extraRwRules = extraReadWrite
-    .map((p) => `(allow file-write* (subpath "${p}"))`)
+    .map((p) => `(allow file-write* (subpath "${sanitizeSeatbeltPath(p)}"))`)
     .join('\n');
 
   // Network rules
@@ -83,7 +99,7 @@ function buildSeatbeltProfile(
   (subpath "/private/var/folders")
   (subpath "/var/tmp")
   (subpath "/tmp")
-  (subpath "${cwd}")
+  (subpath "${safeCwd}")
 )
 
 ;; Extra paths
@@ -203,6 +219,14 @@ export function getSandboxStatus(): {
 }
 
 // ============================================================================
+// Output Size Limits
+// ============================================================================
+
+/** Maximum size for stdout/stderr buffers (10MB) to prevent unbounded memory growth */
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
+const TRUNCATION_WARNING = '\n\n[Output truncated at 10MB limit]';
+
+// ============================================================================
 // Execution
 // ============================================================================
 
@@ -255,6 +279,8 @@ function executeWithSeatbelt(
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     const child = spawn('sandbox-exec', ['-p', profile, 'bash', '-c', command], {
       cwd,
@@ -269,15 +295,30 @@ function executeWithSeatbelt(
     }, timeout);
 
     child.stdout.on('data', (data) => {
-      stdout += data.toString();
+      if (!stdoutTruncated) {
+        stdout += data.toString();
+        if (stdout.length > MAX_OUTPUT_SIZE) {
+          stdout = stdout.slice(0, MAX_OUTPUT_SIZE);
+          stdoutTruncated = true;
+        }
+      }
     });
 
     child.stderr.on('data', (data) => {
-      stderr += data.toString();
+      if (!stderrTruncated) {
+        stderr += data.toString();
+        if (stderr.length > MAX_OUTPUT_SIZE) {
+          stderr = stderr.slice(0, MAX_OUTPUT_SIZE);
+          stderrTruncated = true;
+        }
+      }
     });
 
     child.on('close', (code) => {
       clearTimeout(timer);
+
+      if (stdoutTruncated) stdout += TRUNCATION_WARNING;
+      if (stderrTruncated) stderr += TRUNCATION_WARNING;
 
       if (timedOut) {
         resolve({

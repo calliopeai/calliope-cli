@@ -108,6 +108,14 @@ export async function ensureImage(image: string): Promise<boolean> {
 }
 
 // ============================================================================
+// Output Size Limits
+// ============================================================================
+
+/** Maximum size for stdout/stderr buffers (10MB) to prevent unbounded memory growth */
+const MAX_OUTPUT_SIZE = 10 * 1024 * 1024;
+const TRUNCATION_WARNING = '\n\n[Output truncated at 10MB limit]';
+
+// ============================================================================
 // Sandbox Execution
 // ============================================================================
 
@@ -117,7 +125,8 @@ export async function ensureImage(image: string): Promise<boolean> {
 export async function executeInSandbox(
   language: Language,
   code: string,
-  config: Partial<SandboxConfig> = {}
+  config: Partial<SandboxConfig> = {},
+  cwd?: string
 ): Promise<ExecutionResult> {
   const cfg: SandboxConfig = { ...DEFAULT_CONFIG, ...config };
   const startTime = Date.now();
@@ -157,12 +166,14 @@ export async function executeInSandbox(
   fs.writeFileSync(codePath, code);
 
   // Build Docker command
-  const dockerArgs = buildDockerArgs(language, cfg, tempDir, codeFile);
+  const dockerArgs = buildDockerArgs(language, cfg, tempDir, codeFile, cwd || process.cwd());
 
   return new Promise((resolve) => {
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     const proc = spawn('docker', dockerArgs, {
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -174,11 +185,23 @@ export async function executeInSandbox(
     }, cfg.timeout);
 
     proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
+      if (!stdoutTruncated) {
+        stdout += data.toString();
+        if (stdout.length > MAX_OUTPUT_SIZE) {
+          stdout = stdout.slice(0, MAX_OUTPUT_SIZE);
+          stdoutTruncated = true;
+        }
+      }
     });
 
     proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
+      if (!stderrTruncated) {
+        stderr += data.toString();
+        if (stderr.length > MAX_OUTPUT_SIZE) {
+          stderr = stderr.slice(0, MAX_OUTPUT_SIZE);
+          stderrTruncated = true;
+        }
+      }
     });
 
     proc.on('close', (exitCode) => {
@@ -190,6 +213,9 @@ export async function executeInSandbox(
       } catch {
         // Ignore cleanup errors
       }
+
+      if (stdoutTruncated) stdout += TRUNCATION_WARNING;
+      if (stderrTruncated) stderr += TRUNCATION_WARNING;
 
       const duration = Date.now() - startTime;
 
@@ -257,7 +283,8 @@ function buildDockerArgs(
   language: Language,
   config: SandboxConfig,
   tempDir: string,
-  codeFile: string
+  codeFile: string,
+  cwd: string
 ): string[] {
   const image = LANGUAGE_IMAGES[language];
   const args: string[] = ['run', '--rm'];
@@ -282,7 +309,7 @@ function buildDockerArgs(
   // Mount workdir if enabled
   if (config.mountWorkdir) {
     const rwFlag = config.readOnly ? 'ro' : 'rw';
-    args.push('-v', `${process.cwd()}:/project:${rwFlag}`);
+    args.push('-v', `${cwd}:/project:${rwFlag}`);
   }
 
   // Image
@@ -369,6 +396,8 @@ export function executeUnsafe(
     let stdout = '';
     let stderr = '';
     let timedOut = false;
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
 
     const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -377,12 +406,31 @@ export function executeUnsafe(
       proc.kill('SIGKILL');
     }, timeout);
 
-    proc.stdout?.on('data', (data) => stdout += data.toString());
-    proc.stderr?.on('data', (data) => stderr += data.toString());
+    proc.stdout?.on('data', (data) => {
+      if (!stdoutTruncated) {
+        stdout += data.toString();
+        if (stdout.length > MAX_OUTPUT_SIZE) {
+          stdout = stdout.slice(0, MAX_OUTPUT_SIZE);
+          stdoutTruncated = true;
+        }
+      }
+    });
+    proc.stderr?.on('data', (data) => {
+      if (!stderrTruncated) {
+        stderr += data.toString();
+        if (stderr.length > MAX_OUTPUT_SIZE) {
+          stderr = stderr.slice(0, MAX_OUTPUT_SIZE);
+          stderrTruncated = true;
+        }
+      }
+    });
 
     proc.on('close', (exitCode) => {
       clearTimeout(timer);
       try { fs.rmSync(tempDir, { recursive: true }); } catch {}
+
+      if (stdoutTruncated) stdout += TRUNCATION_WARNING;
+      if (stderrTruncated) stderr += TRUNCATION_WARNING;
 
       resolve({
         success: !timedOut && exitCode === 0,
@@ -420,12 +468,13 @@ export function executeUnsafe(
 export async function execute(
   language: Language,
   code: string,
-  config: Partial<SandboxConfig> = {}
+  config: Partial<SandboxConfig> = {},
+  cwd?: string
 ): Promise<ExecutionResult> {
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   if (cfg.enabled && isDockerAvailable()) {
-    return executeInSandbox(language, code, cfg);
+    return executeInSandbox(language, code, cfg, cwd);
   } else {
     return executeUnsafe(language, code, cfg.timeout);
   }

@@ -8,8 +8,8 @@
 
 import * as fs from 'fs';
 import { colors as COLORS } from './styles.js';
-import { getCurrentSkin, getCurrentPalette } from './hud.js';
-import type { Skin } from './hud.js';
+import { getCurrentSkin, getCurrentPalette } from './hud/api.js';
+import type { Skin } from './hud/types.js';
 
 // ============================================================================
 // Types

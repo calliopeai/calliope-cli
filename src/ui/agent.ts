@@ -8,13 +8,14 @@
 import type React from 'react';
 import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
-import { chat, estimateContextUsage, needsSummarization } from '../providers.js';
+import { chat } from '../providers/index.js';
+import { estimateContextUsage, needsSummarization } from '../providers/types.js';
 import { executeTool, getTools } from '../tools.js';
 import { DEFAULT_MODELS, RISK_CONFIG, calculateCost } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { assessToolRisk, requiresConfirmation } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
-import { getAvailableProviders } from '../providers.js';
+import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
 import * as hooks from '../hooks.js';
 import * as modelRouter from '../model-router.js';

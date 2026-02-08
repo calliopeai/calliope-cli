@@ -46,6 +46,15 @@ export function getCheckpointDir(): string {
 
 let checkpointCounter = 0;
 
+/** Auto-cleanup: remove checkpoints older than this many days */
+const AUTO_CLEANUP_DAYS = 7;
+
+/** Minimum interval between auto-cleanup runs (1 hour in ms) */
+const AUTO_CLEANUP_INTERVAL = 60 * 60 * 1000;
+
+/** Timestamp of last auto-cleanup run */
+let lastAutoCleanup = 0;
+
 /**
  * Generate a unique checkpoint filename from a timestamp.
  */
@@ -66,6 +75,17 @@ function makeFilename(timestamp: string): string {
  * and no content was provided.
  */
 export function createCheckpoint(filePath: string, content?: string, sessionId?: string): string | undefined {
+  // Auto-cleanup old checkpoints periodically (at most once per hour)
+  const now = Date.now();
+  if (now - lastAutoCleanup > AUTO_CLEANUP_INTERVAL) {
+    lastAutoCleanup = now;
+    try {
+      clearCheckpoints(AUTO_CLEANUP_DAYS);
+    } catch {
+      // Don't let cleanup errors block checkpoint creation
+    }
+  }
+
   const absPath = path.resolve(filePath);
 
   // Determine content to save

@@ -235,7 +235,8 @@ function formatTodo(todo: Todo): string {
 }
 
 function parseTodoLine(line: string): Todo | null {
-  const parts = line.split('|');
+  // Split on unescaped pipes only (pipes not preceded by backslash)
+  const parts = line.split(/(?<!\\)\|/);
   if (parts.length < 7) return null;
 
   const [id, status, priority, tags, createdAt, completedAt, ...contentParts] = parts;
@@ -856,6 +857,48 @@ export function getCosts(): CostRecord {
   };
 }
 
+/** Maximum number of days to retain in costByDay */
+const COST_PRUNE_DAYS = 90;
+
+/** Maximum number of sessions to retain in costBySession */
+const COST_PRUNE_MAX_SESSIONS = 100;
+
+/** Minimum interval between cost pruning runs (1 hour in ms) */
+const COST_PRUNE_INTERVAL = 60 * 60 * 1000;
+
+/** Timestamp of last cost pruning run */
+let lastCostPrune = 0;
+
+/**
+ * Prune old entries from cost data to prevent unbounded growth.
+ * Removes costByDay entries older than COST_PRUNE_DAYS and trims
+ * costBySession to the most recent COST_PRUNE_MAX_SESSIONS entries.
+ */
+function pruneCosts(costs: CostRecord): void {
+  // Prune costByDay: remove entries older than 90 days
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - COST_PRUNE_DAYS);
+  const cutoffStr = getTodayString(cutoffDate);
+
+  const dayKeys = Object.keys(costs.costByDay);
+  for (const day of dayKeys) {
+    if (day < cutoffStr) {
+      delete costs.costByDay[day];
+    }
+  }
+
+  // Prune costBySession: keep only the most recent N sessions (by key, which contains timestamp)
+  const sessionKeys = Object.keys(costs.costBySession);
+  if (sessionKeys.length > COST_PRUNE_MAX_SESSIONS) {
+    // Session IDs are formatted as session_<timestamp>, so sorting works chronologically
+    sessionKeys.sort();
+    const toRemove = sessionKeys.slice(0, sessionKeys.length - COST_PRUNE_MAX_SESSIONS);
+    for (const key of toRemove) {
+      delete costs.costBySession[key];
+    }
+  }
+}
+
 /**
  * Record a cost
  */
@@ -867,11 +910,18 @@ export function recordCost(cost: number, provider: string, sessionId?: string): 
   costs.totalCost += cost;
   costs.costByProvider[provider] = (costs.costByProvider[provider] || 0) + cost;
   costs.costByDay[today] = (costs.costByDay[today] || 0) + cost;
-  
+
   if (sessionId) {
     costs.costBySession[sessionId] = (costs.costBySession[sessionId] || 0) + cost;
   }
-  
+
+  // Periodically prune old entries (at most once per hour)
+  const now = Date.now();
+  if (now - lastCostPrune > COST_PRUNE_INTERVAL) {
+    lastCostPrune = now;
+    pruneCosts(costs);
+  }
+
   costs.lastUpdated = new Date().toISOString();
   writeJSON(getCostFilePath(), costs);
 }

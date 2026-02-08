@@ -74,9 +74,14 @@ describe('analyzeComplexity', () => {
       expect(result.signals).toContain('complex task keywords');
     });
 
-    it('should detect "security" keyword', () => {
-      const result = analyzeComplexity('review the security of this API endpoint');
+    it('should detect "security" keyword in qualifying phrase', () => {
+      const result = analyzeComplexity('perform a security review of this API endpoint');
       expect(result.signals).toContain('complex task keywords');
+    });
+
+    it('should not detect bare "security" as complex', () => {
+      const result = analyzeComplexity('add a security header');
+      expect(result.signals).not.toContain('complex task keywords');
     });
 
     it('should detect "performance" keyword', () => {

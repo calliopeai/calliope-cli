@@ -13,7 +13,7 @@ import type { LLMProvider, Mode } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { Separator } from './components.js';
 import { getMoodText, getCurrentCompanion } from '../companions.js';
-import { getInkColor } from '../hud.js';
+import { getInkColor } from '../hud/api.js';
 import type { SessionStats } from './types.js';
 
 // ============================================================================

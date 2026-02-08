@@ -44,13 +44,17 @@ export function classifyError(error: unknown): ClassifiedError {
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
+  // Extract HTTP status code from error object properties if available
+  const statusCode = (error as any)?.status ?? (error as any)?.statusCode ?? (error as any)?.code;
+  const numericStatus = typeof statusCode === 'number' ? statusCode : parseInt(String(statusCode), 10);
+
   // Network errors
   if (
     lowerMessage.includes('econnrefused') ||
     lowerMessage.includes('enotfound') ||
     lowerMessage.includes('network') ||
     lowerMessage.includes('dns') ||
-    lowerMessage.includes('socket')
+    /\bsocket\b/i.test(message)
   ) {
     return {
       category: 'network',
@@ -80,7 +84,8 @@ export function classifyError(error: unknown): ClassifiedError {
   if (
     lowerMessage.includes('rate limit') ||
     lowerMessage.includes('too many requests') ||
-    lowerMessage.includes('429') ||
+    numericStatus === 429 ||
+    /\b429\b/.test(message) ||
     lowerMessage.includes('quota exceeded')  // Generic rate limit (not billing)
   ) {
     // Try to extract retry-after from error
@@ -99,7 +104,8 @@ export function classifyError(error: unknown): ClassifiedError {
   // Authentication errors
   if (
     lowerMessage.includes('unauthorized') ||
-    lowerMessage.includes('401') ||
+    numericStatus === 401 ||
+    /\b401\b/.test(message) ||
     lowerMessage.includes('api key') ||
     lowerMessage.includes('authentication') ||
     lowerMessage.includes('invalid key') ||
@@ -116,8 +122,11 @@ export function classifyError(error: unknown): ClassifiedError {
   // Invalid request errors
   if (
     lowerMessage.includes('bad request') ||
-    lowerMessage.includes('400') ||
-    lowerMessage.includes('invalid') ||
+    numericStatus === 400 ||
+    /\b400\b/.test(message) ||
+    lowerMessage.includes('invalid request') ||
+    lowerMessage.includes('invalid model') ||
+    lowerMessage.includes('invalid parameter') ||
     lowerMessage.includes('malformed')
   ) {
     return {
@@ -145,10 +154,11 @@ export function classifyError(error: unknown): ClassifiedError {
 
   // Server errors
   if (
-    lowerMessage.includes('500') ||
-    lowerMessage.includes('502') ||
-    lowerMessage.includes('503') ||
-    lowerMessage.includes('504') ||
+    numericStatus === 500 || numericStatus === 502 || numericStatus === 503 || numericStatus === 504 ||
+    /\b500\b/.test(message) ||
+    /\b502\b/.test(message) ||
+    /\b503\b/.test(message) ||
+    /\b504\b/.test(message) ||
     lowerMessage.includes('internal server') ||
     lowerMessage.includes('service unavailable')
   ) {
@@ -254,8 +264,8 @@ export function classifyError(error: unknown): ClassifiedError {
 
   // Vision/image capability errors
   if (
-    lowerMessage.includes('vision') ||
-    lowerMessage.includes('image') && (lowerMessage.includes('not supported') || lowerMessage.includes('cannot'))
+    (lowerMessage.includes('vision') && (lowerMessage.includes('not supported') || lowerMessage.includes('not available') || lowerMessage.includes('does not support') || lowerMessage.includes('cannot'))) ||
+    (lowerMessage.includes('image') && (lowerMessage.includes('not supported') || lowerMessage.includes('cannot')))
   ) {
     return {
       category: 'invalid_request',

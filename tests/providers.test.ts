@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { requiresResponsesAPI, toResponsesInput, toResponsesTools } from '../src/providers.js';
+import { requiresResponsesAPI, toResponsesInput, toResponsesTools } from '../src/providers/openai.js';
 import type { Message, Tool, ToolCall } from '../src/types.js';
 
 describe('requiresResponsesAPI', () => {

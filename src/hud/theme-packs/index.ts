@@ -1,5 +1,5 @@
 /**
- * Theme Packs - Registry & Barrel Export
+ * Theme Packs - Registry
  *
  * Central registry of all theme packs. Category index files
  * re-export packs which are assembled here.
@@ -52,21 +52,6 @@ import {
   WINTER_PACK, MEDICAL_PACK, APPLE_CIDER_SPIDER_PACK,
 } from './seasonal/index.js';
 import { CLEAN_PACK, PRO_PACK, MISANTHROPY_PACK, SAGGITARIA_PACK } from './minimal/index.js';
-
-// Types
-export type { ThemePack, ThemeCategory } from './types.js';
-
-// API
-export {
-  applyThemePack,
-  setCompanionMode,
-  getCurrentPack,
-  getCompanionMode,
-  getThemePack,
-  listThemePacks,
-  getPackCompanions,
-  populateLegacyRegistries,
-} from './api.js';
 
 // ============================================================================
 // Theme Pack Registry

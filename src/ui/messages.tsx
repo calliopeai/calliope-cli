@@ -10,7 +10,7 @@ import { Box, Text } from 'ink';
 import type { BoxProps } from 'ink';
 import { renderMarkdown } from '../markdown.js';
 import { getToolLabel, getCurrentCompanion } from '../companions.js';
-import { getCurrentSkin, getInkBorderStyle, getInkColor } from '../hud.js';
+import { getCurrentSkin, getInkBorderStyle, getInkColor } from '../hud/api.js';
 import type { UIMessage, CollapseSettings } from './types.js';
 
 // ============================================================================

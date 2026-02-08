@@ -21,10 +21,10 @@ export {
   getBaseUrl,
   CalliopeConfig,
 } from './config.js';
-export * from './providers.js';
+export * from './providers/index.js';
 export * from './tools.js';
 export * from './types.js';
-export { startCLI } from './cli.js';
+export { startCLI } from './cli/index.js';
 export { runSetup, reconfigure } from './setup.js';
 export { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
 export { selectModelInteractively, getAvailableModels, clearModelCache, getModelInfo, getModelContextLimit, preWarmModelCache } from './model-detection.js';
@@ -38,8 +38,8 @@ export {
   getBoxChars, getSpinnerFrames, getPaletteColor, paletteColorize,
   getInkColor, getInkBorderStyle,
   clearHUDCache,
-} from './hud.js';
-export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfig } from './hud.js';
+} from './hud/api.js';
+export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfig } from './hud/types.js';
 
 // Companions
 export {

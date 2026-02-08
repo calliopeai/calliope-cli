@@ -121,10 +121,10 @@ const DEFAULT_CONFIG: CalliopeConfig = {
 // (Conf validates before migrations run, so we patch the JSON directly)
 function preMigrateConfig(): void {
   try {
-    const os = require('os');
     const fs = require('fs');
     const path = require('path');
-    const configPath = path.join(os.homedir(), 'Library', 'Preferences', 'calliope-nodejs', 'config.json');
+    const envPaths = require('env-paths');
+    const configPath = path.join(envPaths('calliope').config, 'config.json');
     if (!fs.existsSync(configPath)) return;
     const raw = fs.readFileSync(configPath, 'utf-8');
     const data = JSON.parse(raw);

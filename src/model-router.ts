@@ -210,39 +210,55 @@ export function analyzeComplexity(message: string, context?: {
     score += 2;
   }
 
-  // Simple task indicators
+  // Simple task indicators — only count when the message is short enough
+  // to likely be a genuinely simple request (not a complex question starting with "what")
   const simplePatterns = [
-    /\b(what|how|explain|show|list|print|display)\b/i,
     /\b(simple|quick|easy|basic|just)\b/i,
     /\b(typo|fix|rename|format)\b/i,
   ];
-  for (const pattern of simplePatterns) {
-    if (pattern.test(lower)) {
-      signals.push('simple task keywords');
-      score -= 1;
-      break;
+  // Question words only count as simple for short messages (< 30 words)
+  const simpleQuestionPattern = /\b(what|how|explain|show|list|print|display)\b/i;
+  if (words < 30 && simpleQuestionPattern.test(lower)) {
+    signals.push('simple task keywords');
+    score -= 1;
+  } else {
+    for (const pattern of simplePatterns) {
+      if (pattern.test(lower)) {
+        signals.push('simple task keywords');
+        score -= 1;
+        break;
+      }
     }
   }
 
-  // Complex task indicators
+  // Complex task indicators — cap at first match to prevent score explosion
   const complexPatterns = [
-    /\b(refactor|architect|design|implement|optimize|analyze)\b/i,
+    /\b(refactor|architect|design|implement|optimize)\b/i,
     /\b(complex|comprehensive|thorough|detailed)\b/i,
-    /\b(security|performance|scalability)\b/i,
+    /\b(security|performance|scalability)\s+(audit|review|analysis|optimization|issue|improvement)/i,
     /\b(debug|investigate|diagnose)\b/i,
     /\b(multiple|several|various|different)\s+(files?|components?|modules?)/i,
   ];
+  let complexMatchCount = 0;
   for (const pattern of complexPatterns) {
     if (pattern.test(lower)) {
       signals.push('complex task keywords');
       score += 2;
+      complexMatchCount++;
+      if (complexMatchCount >= 2) break;  // Cap accumulation at 2 matches
     }
+  }
+
+  // "analyze" is complex only when accompanied by another complex signal or a long message
+  if (/\banalyze\b/i.test(lower) && (complexMatchCount > 0 || words > 20)) {
+    signals.push('complex task keywords');
+    score += 2;
   }
 
   // Expert task indicators
   const expertPatterns = [
     /\b(cryptograph|concurrency|distributed|microservice)/i,
-    /\b(algorithm|data\s*structure|complexity)\b/i,
+    /\b(algorithm|data\s*structure)\b/i,
     /\b(security\s*audit|vulnerability|exploit)\b/i,
     /\b(machine\s*learning|neural|ai\s*model)\b/i,
   ];

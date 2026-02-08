@@ -7,13 +7,13 @@
 import * as readline from 'readline';
 import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
-import { chat } from '../providers.js';
+import { chat } from '../providers/index.js';
 import { TOOLS, executeTool } from '../tools.js';
 import { assessToolRisk, requiresConfirmation, formatRiskBar } from '../risk.js';
 import * as hooks from '../hooks.js';
 import type { ToolCall } from '../types.js';
 import { colors as c, color } from '../styles.js';
-import { getSpinnerFrames, getBoxChars } from '../hud.js';
+import { getSpinnerFrames, getBoxChars } from '../hud/api.js';
 import { getToolLabel, getThinkingPhrase } from '../companions.js';
 import type { CLIState } from './types.js';
 import { debugLog } from './types.js';
@@ -57,7 +57,7 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
   };
 
   try {
-    const maxIterations = config.get('maxIterations');
+    const maxIterations = config.get('maxIterations') || Infinity; // 0 = unlimited
     let iteration = 0;
     let finalResponse = '';
 

@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import React from 'react';
 import * as config from '../config.js';
-import { selectProvider, getAvailableProviders } from '../providers.js';
+import { selectProvider, getAvailableProviders } from '../providers/index.js';
 import { getSystemPrompt, DEFAULT_MODELS, MODE_CONFIG } from '../types.js';
 import { getVersion, getLatestVersion, performUpgrade } from '../version-check.js';
 import { getAvailableModels } from '../model-detection.js';
@@ -25,10 +25,10 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
-import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud.js';
+import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud/api.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
-import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/index.js';
+import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent, ToolCall } from '../types.js';
@@ -173,7 +173,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /approve [notes]           - Approve pending plan & execute
 
 --- Appearance ---
-  /skin [name]               - Switch HUD skin (${(await import('../hud.js')).listSkins().length}+ available)
+  /skin [name]               - Switch HUD skin (${(await import('../hud/api.js')).listSkins().length}+ available)
   /palette [name]            - Switch color palette
   /companion [name]          - Switch companion personality
   /pack [name]               - Apply theme pack (skin+palette+companion)
@@ -461,7 +461,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
         ctx.addMessage('system', `Usage: /set <key> <value>
 Available keys:
   maxIterations <number>  - Max agent iterations (current: ${config.get('maxIterations')})
-  persona <name>          - calliope, professional, minimal
+  persona <name>          - calliope, muse, minimal
   fancyOutput <bool>      - true/false`);
         break;
       }
@@ -906,7 +906,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     case '/branch': {
       const branching = await import('../branching.js');
       const subCmd = parts[1];
-      const sessionId = `session_${Date.now()}`;  // Would use actual session ID
+      const sessionId = ctx.sessionRef.current?.id || `session_${Date.now()}`;
 
       if (subCmd === 'list' || !subCmd) {
         const tree = branching.getBranchTree(sessionId);
@@ -1252,10 +1252,25 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         const cfg = configPath ? projectConfig.loadProjectConfig(configPath) : null;
         const cmdName = parts[2];
         if (cfg?.commands?.[cmdName]) {
-          ctx.addMessage('system', `Running: ${cfg.commands[cmdName]}`);
-          // Queue the command to run
+          const commandToRun = cfg.commands[cmdName];
+          // Show the command and source for user awareness
+          ctx.addMessage('system',
+            `Project command "${cmdName}" from ${configPath}:\n` +
+            `  $ ${commandToRun}\n\n` +
+            `Type "/project run-confirm ${cmdName}" to execute, or review the .calliope config first.`
+          );
+        } else {
+          ctx.addMessage('error', `Command not found: ${cmdName}`);
+        }
+      } else if (subCmd === 'run-confirm' && parts[2]) {
+        const configPath = projectConfig.findProjectConfig(cwd);
+        const cfg = configPath ? projectConfig.loadProjectConfig(configPath) : null;
+        const cmdName = parts[2];
+        if (cfg?.commands?.[cmdName]) {
+          const commandToRun = cfg.commands[cmdName];
+          ctx.addMessage('system', `Running: ${commandToRun}`);
           const { spawn } = await import('child_process');
-          const proc = spawn('sh', ['-c', cfg.commands[cmdName]], { cwd, stdio: 'pipe' });
+          const proc = spawn('sh', ['-c', commandToRun], { cwd, stdio: 'pipe' });
           let output = '';
           proc.stdout?.on('data', (d: Buffer) => output += d.toString());
           proc.stderr?.on('data', (d: Buffer) => output += d.toString());
@@ -1266,7 +1281,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           ctx.addMessage('error', `Command not found: ${cmdName}`);
         }
       } else {
-        ctx.addMessage('system', 'Usage: /project [init|show|run <cmd>]');
+        ctx.addMessage('system', 'Usage: /project [init|show|run <cmd>|run-confirm <cmd>]');
       }
       break;
     }

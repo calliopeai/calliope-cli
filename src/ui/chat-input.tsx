@@ -10,7 +10,7 @@ import { Box, Text, useInput } from 'ink';
 import * as fs from 'fs';
 import type { Mode } from '../types.js';
 import { getCurrentCompanion } from '../companions.js';
-import { getInkColor } from '../hud.js';
+import { getInkColor } from '../hud/api.js';
 import { Separator } from './components.js';
 import { SLASH_COMMANDS, PATH_COMMANDS, getPathCompletions, getSmartCommandSuggestions } from './completions.js';
 

@@ -168,6 +168,19 @@ export class TokenBuffer {
     this.buffer = '';
     this.emitted = '';
   }
+
+  /**
+   * Destroy the buffer, clearing any pending timers
+   */
+  destroy(): void {
+    if (this.emitTimer) {
+      clearTimeout(this.emitTimer);
+      this.emitTimer = null;
+    }
+    this.buffer = '';
+    this.emitted = '';
+    this.callback = () => {};
+  }
 }
 
 // ============================================================================

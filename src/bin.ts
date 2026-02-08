@@ -191,7 +191,8 @@ async function main(): Promise<void> {
 
 async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
   // Initialize HUD (skin + palette + companion)
-  const { applySkin, applyPalette, populateLegacyRegistries } = await import('./hud.js');
+  const { applySkin, applyPalette } = await import('./hud/api.js');
+  const { populateLegacyRegistries } = await import('./hud/theme-packs/api.js');
   const { applyCompanion } = await import('./companions.js');
 
   // Populate legacy registries from theme packs
@@ -223,11 +224,11 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
     process.exit(exitCode);
   } else if (useLegacyUI) {
     // Use legacy readline-based CLI
-    const { startCLI: start } = await import('./cli.js');
+    const { startCLI: start } = await import('./cli/index.js');
     await start(fullOptions);
   } else {
     // Use new ink-based UI
-    const { startInkCLI } = await import('./ui-cli.js');
+    const { startInkCLI } = await import('./ui/index.js');
     await startInkCLI(fullOptions);
   }
 }

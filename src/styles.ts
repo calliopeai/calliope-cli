@@ -311,12 +311,12 @@ export function resolveColor(name: StyleName): string {
   // Lazy resolve semantic color from palette
   try {
     // Dynamic import to avoid circular dependency at module load time
-    const { getCurrentPalette } = require('./hud.js');
+    const { getCurrentPalette } = require('./hud/api.js');
     const palette = getCurrentPalette();
     const value = palette.colors[name as SemanticColor];
     if (value) return value;
   } catch {
-    // hud.js not loaded yet — fall through
+    // hud/api.js not loaded yet — fall through
   }
 
   return '';
@@ -382,7 +382,7 @@ export function getBoxStyle(styleName?: string): BoxStyleChars {
 
   // Default: try to read from current skin
   try {
-    const { getCurrentSkin } = require('./hud.js');
+    const { getCurrentSkin } = require('./hud/api.js');
     const skin = getCurrentSkin();
     const name = skin.borders.style;
     if (name === 'custom' && skin.borders.custom) {

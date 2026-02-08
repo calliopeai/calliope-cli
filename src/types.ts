@@ -290,12 +290,6 @@ export const VISION_PROVIDERS: LLMProvider[] = ['anthropic', 'openai', 'google',
 /**
  * Check if a provider/model supports vision
  */
-export function supportsVision(provider: LLMProvider, model?: string): boolean {
-  if (!VISION_PROVIDERS.includes(provider)) return false;
-  // Most modern models from these providers support vision
-  if (model?.includes('haiku') || model?.includes('mini')) return true;
-  if (model?.includes('sonnet') || model?.includes('opus')) return true;
-  if (model?.includes('gpt-4')) return true;
-  if (model?.includes('gemini')) return true;
-  return true;
+export function supportsVision(provider: LLMProvider, _model?: string): boolean {
+  return VISION_PROVIDERS.includes(provider);
 }

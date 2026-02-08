@@ -17,10 +17,9 @@ import {
   listPalettes,
   clearHUDCache,
   getInkColor as hudGetInkColor,
-  type SemanticColorKey,
-  type Palette,
-  PALETTES,
-} from './hud.js';
+} from './hud/api.js';
+import type { SemanticColorKey, Palette } from './hud/types.js';
+import { PALETTES } from './hud/palettes.js';
 
 // ============================================================================
 // Types (kept for backward compat)

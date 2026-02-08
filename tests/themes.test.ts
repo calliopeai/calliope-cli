@@ -27,7 +27,8 @@ import {
   ANSI,
   type Theme,
 } from '../src/themes.js';
-import { PALETTES, clearHUDCache, applyPalette } from '../src/hud.js';
+import { PALETTES } from '../src/hud/palettes.js';
+import { clearHUDCache, applyPalette } from '../src/hud/api.js';
 
 // Filesystem paths used by themes.ts
 const THEMES_DIR = path.join(os.homedir(), '.calliope-cli', 'themes');

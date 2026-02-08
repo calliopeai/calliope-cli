@@ -239,25 +239,22 @@ export function getTools(agtermEnabled: boolean = false): Tool[] {
  * Validate path is within allowed directory (prevent path traversal)
  */
 function validatePath(filePath: string, cwd: string): string {
-  // Primary validation via scope manager
-  const validated = scopeValidatePath(filePath, cwd);
+  // Check raw input for null bytes before any resolution (path injection attack)
+  if (filePath.includes('\0')) {
+    throw new Error(`Invalid path: contains null bytes`);
+  }
 
-  // Secondary validation: ensure path doesn't escape allowed directories
-  const resolved = path.resolve(cwd, validated);
-  const normalizedCwd = path.resolve(cwd);
-
-  // Check for path traversal attempts
-  if (validated.includes('..')) {
-    // Ensure the resolved path is still within cwd or an allowed scope
-    if (!resolved.startsWith(normalizedCwd) && !resolved.startsWith('/tmp')) {
+  // Check raw input for path traversal attempts before resolution
+  if (filePath.includes('..')) {
+    const resolved = path.resolve(cwd, filePath);
+    const normalizedCwd = path.resolve(cwd);
+    if (!resolved.startsWith(normalizedCwd + path.sep) && resolved !== normalizedCwd && !resolved.startsWith('/tmp/') && resolved !== '/tmp') {
       throw new Error(`Path traversal detected: ${filePath} resolves outside allowed scope`);
     }
   }
 
-  // Check for null bytes (path injection attack)
-  if (validated.includes('\0')) {
-    throw new Error(`Invalid path: contains null bytes`);
-  }
+  // Primary validation via scope manager
+  const validated = scopeValidatePath(filePath, cwd);
 
   return validated;
 }
@@ -424,6 +421,9 @@ export async function executeTool(
 /**
  * Commands that are blocked outright (not just flagged as risky).
  * These are destructive system-level commands that should never be run by an agent.
+ *
+ * Patterns are tested against the normalized command (see normalizeCommand())
+ * to defeat common bypass techniques like quoting, env prefixes, and subshells.
  */
 const BLOCKED_COMMANDS = [
   /^sudo\s/,
@@ -441,9 +441,141 @@ const BLOCKED_COMMANDS = [
   /^chmod\s+-R\s+777/,
   /^curl.*\|\s*(sh|bash)/, // pipe to shell
   /^wget.*\|\s*(sh|bash)/,
-  /\|\s*sh\s*$/,           // pipe to sh
-  /\|\s*bash\s*$/,         // pipe to bash
+  /\|\s*sh(\s|;|$)/,      // pipe to sh (anywhere, not just end)
+  /\|\s*bash(\s|;|$)/,    // pipe to bash (anywhere, not just end)
+  /\|\s*zsh(\s|;|$)/,     // pipe to zsh
+  /bash\s+<\(/,           // process substitution: bash <(...)
+  /sh\s+<\(/,             // process substitution: sh <(...)
+  /zsh\s+<\(/,            // process substitution: zsh <(...)
 ];
+
+/**
+ * Normalize a shell command to defeat common blocklist bypass techniques (#60).
+ *
+ * Handles:
+ * - Leading env-var assignments: \`VAR=1 sudo ...\` -> \`sudo ...\`
+ * - Subshell wrapping: \`(sudo rm ...)\` -> \`sudo rm ...\`
+ * - Quote insertion: \`'su'do\` or \`"su"do\` -> \`sudo\`
+ * - Backslash escaping: \`su\do\` -> \`sudo\`
+ *
+ * The result is used only for blocklist matching; the original command is still
+ * passed to the shell for execution.
+ */
+function normalizeCommand(command: string): string {
+  let cmd = command.trim();
+
+  // Strip leading subshell / group wrappers: ( ... ), { ... }
+  while (
+    (cmd.startsWith('(') && cmd.endsWith(')')) ||
+    (cmd.startsWith('{') && cmd.endsWith('}'))
+  ) {
+    cmd = cmd.slice(1, -1).trim();
+  }
+
+  // Strip leading env-var assignments: FOO=bar BAZ="qux" command ...
+  cmd = cmd.replace(/^(\s*[A-Za-z_][A-Za-z0-9_]*=\S*\s+)+/, '');
+
+  // Remove inserted quotes that break up words: 'su'do -> sudo, "su"do -> sudo
+  cmd = cmd.replace(/['"]/g, '');
+
+  // Remove backslash escapes: su\do -> sudo
+  cmd = cmd.replace(/\\(.)/g, '$1');
+
+  return cmd.trim();
+}
+
+/**
+ * Check a command (and all sub-commands separated by ; or &&/||) against
+ * the blocklist. Returns the matching pattern source string, or null if allowed.
+ */
+function matchesBlocklist(command: string): string | null {
+  // Split on command separators to check each sub-command
+  const subCommands = command.split(/\s*(?:;|&&|\|\|)\s*/);
+
+  for (const sub of subCommands) {
+    const normalized = normalizeCommand(sub);
+    for (const pattern of BLOCKED_COMMANDS) {
+      if (pattern.test(normalized)) {
+        return pattern.source;
+      }
+    }
+  }
+
+  // Also test the full normalized command (for patterns that span separators, like pipes)
+  const fullNormalized = normalizeCommand(command);
+  for (const pattern of BLOCKED_COMMANDS) {
+    if (pattern.test(fullNormalized)) {
+      return pattern.source;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract file paths from a shell command for scope validation (#63).
+ *
+ * Looks for common file-access commands (cat, cp, mv, head, tail, etc.) and
+ * extracts the path arguments. Only absolute paths and paths starting with ~/
+ * are extracted, since relative paths are within the cwd which is already in scope.
+ *
+ * Returns an array of extracted paths (may be empty).
+ */
+function extractFilePathsFromCommand(command: string): string[] {
+  const paths: string[] = [];
+
+  // Commands that read or write files, followed by path arguments
+  const fileCommands = [
+    'cat', 'head', 'tail', 'less', 'more', 'cp', 'mv', 'rm',
+    'tee', 'touch', 'chmod', 'chown', 'ln', 'readlink',
+    'source', '\\.',
+  ];
+
+  const cmdPattern = new RegExp(
+    '(?:^|[;&|]\\s*)(?:' + fileCommands.join('|') + ')\\s+' +
+    '(?:-[^\\s]*\\s+)*' +
+    '((?:\\/|~\\/)[^\\s;|&>]+)',
+    'g'
+  );
+
+  let match;
+  while ((match = cmdPattern.exec(command)) !== null) {
+    let p = match[1];
+    if (p.startsWith('~/')) {
+      p = path.join(process.env.HOME || '/tmp', p.slice(2));
+    }
+    p = p.replace(/['"]+$/, '');
+    paths.push(p);
+  }
+
+  // Also catch redirection targets: > /path, >> /path
+  const redirectPattern = />{1,2}\s*((?:\/|~\/)[^\s;|&]+)/g;
+  while ((match = redirectPattern.exec(command)) !== null) {
+    let p = match[1];
+    if (p.startsWith('~/')) {
+      p = path.join(process.env.HOME || '/tmp', p.slice(2));
+    }
+    p = p.replace(/['"]+$/, '');
+    paths.push(p);
+  }
+
+  return paths;
+}
+
+/**
+ * Validate that a shell command does not access files outside scope (#63).
+ * Returns an error message if a path violation is found, or null if ok.
+ */
+function validateShellPaths(command: string, cwd: string): string | null {
+  const extractedPaths = extractFilePathsFromCommand(command);
+  for (const p of extractedPaths) {
+    const allowed = isInScope(p, cwd);
+    if (!allowed) {
+      return 'Shell command blocked: "' + p + '" is outside allowed scope. Use /add-dir to expand scope.';
+    }
+  }
+  return null;
+}
 
 /**
  * Determine whether to use native sandboxing for shell commands based on config.
@@ -466,12 +598,16 @@ function shouldUseNativeSandbox(): 'use' | 'skip' | 'require' {
  * Execute a shell command
  */
 async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
-  // Check against blocked command patterns
-  const trimmed = command.trim();
-  for (const pattern of BLOCKED_COMMANDS) {
-    if (pattern.test(trimmed)) {
-      return `Error: Command blocked for safety. Pattern "${pattern.source}" is not allowed.`;
-    }
+  // Check against blocked command patterns using normalized matching (#60)
+  const blocked = matchesBlocklist(command);
+  if (blocked) {
+    return `Error: Command blocked for safety. Pattern "${blocked}" is not allowed.`;
+  }
+
+  // Check file paths in shell commands against scope (#63)
+  const scopeError = validateShellPaths(command, cwd);
+  if (scopeError) {
+    return `Error: ${scopeError}`;
   }
 
   // Check if native sandbox should be used
@@ -803,7 +939,7 @@ async function executeCode(
       timeout,
       mountWorkdir: true,
       readOnly: true,
-    });
+    }, cwd);
 
     const sandboxIndicator = result.sandboxed ? '[sandboxed:docker]' : '[unsandboxed]';
     const statusIndicator = result.success ? 'ok' : 'err';

@@ -97,6 +97,76 @@ class PluginManager {
   }
 
   /**
+   * Validate a plugin manifest has required fields and correct types
+   */
+  private validateManifest(manifest: unknown, name: string): manifest is PluginMetadata {
+    if (typeof manifest !== 'object' || manifest === null) {
+      console.warn(`Plugin ${name}: plugin.json is not a valid object`);
+      return false;
+    }
+    const m = manifest as Record<string, unknown>;
+    if (typeof m.name !== 'string' || m.name.length === 0) {
+      console.warn(`Plugin ${name}: plugin.json missing required "name" field`);
+      return false;
+    }
+    if (typeof m.version !== 'string' || m.version.length === 0) {
+      console.warn(`Plugin ${name}: plugin.json missing required "version" field`);
+      return false;
+    }
+    if (typeof m.description !== 'string') {
+      console.warn(`Plugin ${name}: plugin.json missing required "description" field`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Validate a loaded plugin module has the expected structure
+   */
+  private validatePluginExports(plugin: unknown, name: string): plugin is Plugin {
+    if (typeof plugin !== 'object' || plugin === null) {
+      console.warn(`Plugin ${name}: module does not export an object`);
+      return false;
+    }
+    const p = plugin as Record<string, unknown>;
+    // tools must be an array if present
+    if (p.tools !== undefined && !Array.isArray(p.tools)) {
+      console.warn(`Plugin ${name}: "tools" export must be an array`);
+      return false;
+    }
+    // hooks must be an array if present
+    if (p.hooks !== undefined && !Array.isArray(p.hooks)) {
+      console.warn(`Plugin ${name}: "hooks" export must be an array`);
+      return false;
+    }
+    // init must be a function if present
+    if (p.init !== undefined && typeof p.init !== 'function') {
+      console.warn(`Plugin ${name}: "init" export must be a function`);
+      return false;
+    }
+    // cleanup must be a function if present
+    if (p.cleanup !== undefined && typeof p.cleanup !== 'function') {
+      console.warn(`Plugin ${name}: "cleanup" export must be a function`);
+      return false;
+    }
+    // Validate each tool has required fields
+    if (Array.isArray(p.tools)) {
+      for (const tool of p.tools) {
+        if (typeof tool !== 'object' || tool === null) {
+          console.warn(`Plugin ${name}: each tool must be an object`);
+          return false;
+        }
+        const t = tool as Record<string, unknown>;
+        if (typeof t.name !== 'string' || typeof t.description !== 'string' || typeof t.execute !== 'function') {
+          console.warn(`Plugin ${name}: each tool must have name (string), description (string), and execute (function)`);
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /**
    * Load a single plugin by name
    */
   async loadPlugin(name: string): Promise<LoadedPlugin | null> {
@@ -105,24 +175,50 @@ class PluginManager {
     const indexPath = path.join(pluginPath, 'index.js');
 
     try {
-      // Check for manifest
-      if (!fs.existsSync(manifestPath)) {
-        console.warn(`Plugin ${name}: Missing plugin.json`);
+      // Validate plugin name (prevent directory traversal)
+      if (name.includes('..') || name.includes('/') || name.includes('\\')) {
+        console.warn(`Plugin ${name}: invalid plugin name`);
         return null;
       }
 
-      // Read manifest
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginMetadata;
+      // Check for manifest (required)
+      if (!fs.existsSync(manifestPath)) {
+        console.warn(`Plugin ${name}: Missing plugin.json manifest — skipping`);
+        return null;
+      }
 
-      // Check for entry point
+      // Read and validate manifest
+      let manifestRaw: unknown;
+      try {
+        manifestRaw = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      } catch {
+        console.warn(`Plugin ${name}: plugin.json is not valid JSON`);
+        return null;
+      }
+
+      if (!this.validateManifest(manifestRaw, name)) {
+        return null;
+      }
+      const manifest = manifestRaw as PluginMetadata;
+
+      // Check for entry point — only .js files allowed
       if (!fs.existsSync(indexPath)) {
         console.warn(`Plugin ${name}: Missing index.js`);
         return null;
       }
 
+      // Log plugin loading for user awareness
+      console.log(`Loading plugin: ${name} v${manifest.version} (${pluginPath})`);
+
       // Dynamic import the plugin
       const pluginModule = await import(indexPath);
-      const plugin: Plugin = pluginModule.default || pluginModule;
+      const pluginCandidate: unknown = pluginModule.default || pluginModule;
+
+      // Validate the plugin exports have expected structure
+      if (!this.validatePluginExports(pluginCandidate, name)) {
+        return null;
+      }
+      const plugin = pluginCandidate as Plugin;
 
       // Merge manifest with plugin
       plugin.metadata = { ...manifest, ...plugin.metadata };

@@ -255,12 +255,21 @@ class AgentOrchestrator {
     const now = Date.now();
     let cleaned = 0;
 
+    // Collect IDs to delete first, then delete in a separate pass
+    const toDelete: string[] = [];
     for (const [taskId, task] of this.tasks) {
       if (
         ['completed', 'failed', 'cancelled'].includes(task.status) &&
         task.completedAt &&
         now - task.completedAt.getTime() > maxAgeMs
       ) {
+        toDelete.push(taskId);
+      }
+    }
+
+    for (const taskId of toDelete) {
+      const task = this.tasks.get(taskId);
+      if (task) {
         // Remove from parent's childIds
         if (task.parentId) {
           const parent = this.tasks.get(task.parentId);

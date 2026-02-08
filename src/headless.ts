@@ -7,7 +7,7 @@
  */
 
 import * as config from './config.js';
-import { chat, selectProvider } from './providers.js';
+import { chat, selectProvider } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import * as memory from './memory.js';
