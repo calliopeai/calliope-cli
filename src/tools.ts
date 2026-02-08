@@ -335,9 +335,41 @@ export async function executeTool(
 }
 
 /**
+ * Commands that are blocked outright (not just flagged as risky).
+ * These are destructive system-level commands that should never be run by an agent.
+ */
+const BLOCKED_COMMANDS = [
+  /^sudo\s/,
+  /^su\s/,
+  /^rm\s+-rf\s+\//,      // rm -rf /
+  /^rm\s+-fr\s+\//,
+  /^rm\s+-rf\s+~/,       // rm -rf ~
+  /^rm\s+-fr\s+~/,
+  /^dd\s+.*of=\/dev\//,  // dd to block devices
+  /^mkfs/,
+  /^fdisk/,
+  /^parted/,
+  /^format/,
+  />\s*\/dev\//,          // redirect to devices
+  /^chmod\s+-R\s+777/,
+  /^curl.*\|\s*(sh|bash)/, // pipe to shell
+  /^wget.*\|\s*(sh|bash)/,
+  /\|\s*sh\s*$/,           // pipe to sh
+  /\|\s*bash\s*$/,         // pipe to bash
+];
+
+/**
  * Execute a shell command
  */
 async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
+  // Check against blocked command patterns
+  const trimmed = command.trim();
+  for (const pattern of BLOCKED_COMMANDS) {
+    if (pattern.test(trimmed)) {
+      return `Error: Command blocked for safety. Pattern "${pattern.source}" is not allowed.`;
+    }
+  }
+
   const MAX_OUTPUT_SIZE = 50000; // 50K chars max output
 
   return new Promise((resolve, reject) => {
@@ -622,7 +654,7 @@ async function executeCode(
   const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
     timeout,
     mountWorkdir: true,
-    readOnly: false,
+    readOnly: true,  // Mount workdir read-only to prevent sandbox escape
   });
 
   const sandboxIndicator = result.sandboxed ? '🔒 [sandboxed]' : '⚠️ [unsandboxed]';

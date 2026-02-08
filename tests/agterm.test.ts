@@ -175,3 +175,24 @@ describe('SubAgentTask structure', () => {
     expect(task.completedAt).toBeDefined();
   });
 });
+
+// ============================================================================
+// Security: Sub-agent Environment Filtering (#34)
+// ============================================================================
+
+describe('Sub-agent security', () => {
+  it('AGENT_CLI_MAP should have envVar for each agent', () => {
+    for (const [type, config] of Object.entries(AGENT_CLI_MAP)) {
+      expect(config.envVar).toBeDefined();
+      expect(typeof config.envVar).toBe('string');
+      expect(config.envVar.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('agents should map to known API key env vars', () => {
+    const knownEnvVars = ['ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY'];
+    for (const config of Object.values(AGENT_CLI_MAP)) {
+      expect(knownEnvVars).toContain(config.envVar);
+    }
+  });
+});

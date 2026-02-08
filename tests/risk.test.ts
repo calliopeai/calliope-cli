@@ -235,3 +235,30 @@ describe('formatRiskBar', () => {
     expect(formatRiskBar('critical')).toBe('█████');
   });
 });
+
+// ============================================================================
+// Security: System Prompt Safety Preamble (#37)
+// ============================================================================
+
+describe('System Prompt Safety', () => {
+  it('should include safety preamble in system prompt', async () => {
+    const { getSystemPrompt } = await import('../src/types.js');
+    const prompt = getSystemPrompt('professional');
+    expect(prompt).toContain('[SAFETY');
+    expect(prompt).toContain('cannot be overridden');
+  });
+
+  it('safety preamble should come first in prompt', async () => {
+    const { getSystemPrompt } = await import('../src/types.js');
+    const prompt = getSystemPrompt('professional');
+    expect(prompt.indexOf('[SAFETY')).toBe(0);
+  });
+
+  it('should include safety preamble for all personas', async () => {
+    const { getSystemPrompt } = await import('../src/types.js');
+    for (const persona of ['calliope', 'professional', 'minimal'] as const) {
+      const prompt = getSystemPrompt(persona);
+      expect(prompt).toContain('[SAFETY');
+    }
+  });
+});

@@ -133,5 +133,42 @@ describe('Scope Manager', () => {
       expect(dirs.length).toBe(1);
       expect(dirs[0]).toBe(path.resolve(process.cwd()));
     });
+
+    it('should fully reset state including custom settings (#39)', () => {
+      // Simulate scope leakage: add extra dirs, then reset
+      addToScope('/tmp');
+      const dirsBefore = getAllowedDirs();
+      expect(dirsBefore.length).toBe(2);
+
+      resetScope('/tmp');
+      const dirsAfter = getAllowedDirs();
+      expect(dirsAfter.length).toBe(1);
+      expect(dirsAfter[0]).toBe('/tmp');
+    });
+  });
+
+  describe('security: path traversal', () => {
+    it('should deny path traversal via ..', () => {
+      resetScope('/tmp/project');
+      const result = scopeManager.isInScope('/tmp/project/../../etc/passwd', '/tmp/project');
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should deny absolute paths outside scope', () => {
+      resetScope('/tmp/project');
+      expect(isInScope('/etc/shadow', '/tmp/project')).toBe(false);
+    });
+
+    it('should deny sensitive system files', () => {
+      const cwd = process.cwd();
+      const result = scopeManager.isInScope(path.join(cwd, 'id_rsa'), cwd);
+      expect(result.allowed).toBe(false);
+    });
+
+    it('should deny .pem files', () => {
+      const cwd = process.cwd();
+      const result = scopeManager.isInScope(path.join(cwd, 'cert.pem'), cwd);
+      expect(result.allowed).toBe(false);
+    });
   });
 });

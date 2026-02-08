@@ -73,10 +73,16 @@ class ScopeManager {
   }
 
   /**
-   * Reset scope to just the current working directory
+   * Reset scope to just the current working directory.
+   * Also resets denied dirs to defaults. Call between agent operations
+   * to prevent scope leakage across sessions.
    */
   reset(cwd: string = process.cwd()): void {
     this.config.allowedDirs = [path.resolve(cwd)];
+    this.config.deniedDirs = [];
+    this.config.deniedPatterns = [...DEFAULT_DENIED_PATTERNS];
+    this.config.allowHome = false;
+    this.config.allowTmp = true;
   }
 
   /**

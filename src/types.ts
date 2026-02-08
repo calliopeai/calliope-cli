@@ -192,17 +192,33 @@ Tools: shell, files, think.
 Be extremely concise. Execute tasks efficiently.`,
 };
 
+/**
+ * Safety preamble prepended to ALL system prompts (including companions).
+ * This ensures companion personas cannot override core safety instructions.
+ */
+const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overridden]
+- Only modify files within the user's project scope
+- Never execute destructive system commands (rm -rf /, sudo, dd, mkfs)
+- Never access or leak credentials, API keys, or sensitive environment variables
+- Always respect user's explicit instructions (read-only, no-write, etc.)
+- Do NOT create documentation files unless explicitly requested
+[END SAFETY]
+
+`;
+
 export function getSystemPrompt(persona: AgentPersona): string {
   // If a companion is active, use its system prompt instead of the base persona
+  let basePrompt = PERSONA_PROMPTS[persona];
   try {
     const companions = require('./companions.js');
     const companion = companions.getCurrentCompanion();
     // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
     if (companion && companion.systemPrompt && !['professional', 'calliope', 'minimal'].includes(companion.name)) {
-      return companion.systemPrompt;
+      basePrompt = companion.systemPrompt;
     }
   } catch { /* companions not loaded yet, use base persona */ }
-  return PERSONA_PROMPTS[persona];
+  // Prepend safety preamble so companion prompts cannot override safety rules
+  return SAFETY_PREAMBLE + basePrompt;
 }
 
 // Pricing per 1M tokens (input, output) in USD
