@@ -2,14 +2,28 @@
  * Calliope CLI - Theme System
  *
  * Color themes for terminal output.
+ * Now wired through the HUD Palette layer for the new skin/palette system.
+ * Maintains full backward compatibility — existing theme names map to palette names.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { colors as ANSI } from './styles.js';
+import {
+  getCurrentPalette,
+  getPalette,
+  applyPalette,
+  listPalettes,
+  clearHUDCache,
+  getInkColor as hudGetInkColor,
+  type SemanticColorKey,
+  type Palette,
+  PALETTES,
+} from './hud.js';
 
 // ============================================================================
-// Types
+// Types (kept for backward compat)
 // ============================================================================
 
 export interface Theme {
@@ -57,240 +71,23 @@ export interface Theme {
 }
 
 // ============================================================================
-// ANSI Color Codes
+// Built-in Themes (backward compat — map to palettes)
 // ============================================================================
 
-const ANSI = {
-  // Reset
-  reset: '\x1b[0m',
-
-  // Styles
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  italic: '\x1b[3m',
-  underline: '\x1b[4m',
-
-  // Foreground colors
-  black: '\x1b[30m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-  white: '\x1b[37m',
-  gray: '\x1b[90m',
-
-  // Bright foreground
-  brightRed: '\x1b[91m',
-  brightGreen: '\x1b[92m',
-  brightYellow: '\x1b[93m',
-  brightBlue: '\x1b[94m',
-  brightMagenta: '\x1b[95m',
-  brightCyan: '\x1b[96m',
-  brightWhite: '\x1b[97m',
-
-  // Background colors
-  bgBlack: '\x1b[40m',
-  bgRed: '\x1b[41m',
-  bgGreen: '\x1b[42m',
-  bgYellow: '\x1b[43m',
-  bgBlue: '\x1b[44m',
-  bgMagenta: '\x1b[45m',
-  bgCyan: '\x1b[46m',
-  bgWhite: '\x1b[47m',
-  bgGray: '\x1b[100m',
-};
-
-// ============================================================================
-// Built-in Themes
-// ============================================================================
+function paletteToTheme(p: Palette): Theme {
+  return {
+    name: p.name,
+    description: p.description,
+    colors: { ...p.colors },
+  };
+}
 
 export const THEMES: Record<string, Theme> = {
-  default: {
-    name: 'default',
-    description: 'Default dark theme',
-    colors: {
-      primary: ANSI.cyan,
-      secondary: ANSI.blue,
-      accent: ANSI.magenta,
-
-      text: ANSI.white,
-      textDim: ANSI.gray,
-      textBold: ANSI.bold + ANSI.white,
-
-      user: ANSI.green,
-      assistant: ANSI.cyan,
-      system: ANSI.yellow,
-      error: ANSI.red,
-
-      codeKeyword: ANSI.magenta,
-      codeString: ANSI.green,
-      codeNumber: ANSI.cyan,
-      codeComment: ANSI.gray,
-      codeFunction: ANSI.yellow,
-
-      diffAdd: ANSI.green,
-      diffRemove: ANSI.red,
-      diffContext: ANSI.gray,
-
-      success: ANSI.green,
-      warning: ANSI.yellow,
-      info: ANSI.blue,
-
-      border: ANSI.gray,
-      background: '',
-      selection: ANSI.bgBlue,
-    },
-  },
-
-  light: {
-    name: 'light',
-    description: 'Light theme for bright terminals',
-    colors: {
-      primary: ANSI.blue,
-      secondary: ANSI.cyan,
-      accent: ANSI.magenta,
-
-      text: ANSI.black,
-      textDim: ANSI.gray,
-      textBold: ANSI.bold + ANSI.black,
-
-      user: ANSI.blue,
-      assistant: ANSI.magenta,
-      system: ANSI.gray,
-      error: ANSI.red,
-
-      codeKeyword: ANSI.magenta,
-      codeString: ANSI.green,
-      codeNumber: ANSI.blue,
-      codeComment: ANSI.gray,
-      codeFunction: ANSI.cyan,
-
-      diffAdd: ANSI.green,
-      diffRemove: ANSI.red,
-      diffContext: ANSI.gray,
-
-      success: ANSI.green,
-      warning: ANSI.yellow,
-      info: ANSI.blue,
-
-      border: ANSI.gray,
-      background: '',
-      selection: ANSI.bgCyan,
-    },
-  },
-
-  monokai: {
-    name: 'monokai',
-    description: 'Monokai-inspired dark theme',
-    colors: {
-      primary: ANSI.brightMagenta,
-      secondary: ANSI.brightCyan,
-      accent: ANSI.brightYellow,
-
-      text: ANSI.white,
-      textDim: ANSI.gray,
-      textBold: ANSI.bold + ANSI.white,
-
-      user: ANSI.brightGreen,
-      assistant: ANSI.brightCyan,
-      system: ANSI.yellow,
-      error: ANSI.brightRed,
-
-      codeKeyword: ANSI.brightMagenta,
-      codeString: ANSI.brightYellow,
-      codeNumber: ANSI.brightMagenta,
-      codeComment: ANSI.gray,
-      codeFunction: ANSI.brightGreen,
-
-      diffAdd: ANSI.brightGreen,
-      diffRemove: ANSI.brightRed,
-      diffContext: ANSI.gray,
-
-      success: ANSI.brightGreen,
-      warning: ANSI.brightYellow,
-      info: ANSI.brightCyan,
-
-      border: ANSI.gray,
-      background: '',
-      selection: ANSI.bgGray,
-    },
-  },
-
-  nord: {
-    name: 'nord',
-    description: 'Nord-inspired arctic theme',
-    colors: {
-      primary: ANSI.brightCyan,
-      secondary: ANSI.blue,
-      accent: ANSI.brightMagenta,
-
-      text: ANSI.brightWhite,
-      textDim: ANSI.gray,
-      textBold: ANSI.bold + ANSI.brightWhite,
-
-      user: ANSI.brightCyan,
-      assistant: ANSI.brightBlue,
-      system: ANSI.yellow,
-      error: ANSI.brightRed,
-
-      codeKeyword: ANSI.brightMagenta,
-      codeString: ANSI.brightGreen,
-      codeNumber: ANSI.brightMagenta,
-      codeComment: ANSI.gray,
-      codeFunction: ANSI.brightCyan,
-
-      diffAdd: ANSI.brightGreen,
-      diffRemove: ANSI.brightRed,
-      diffContext: ANSI.gray,
-
-      success: ANSI.brightGreen,
-      warning: ANSI.brightYellow,
-      info: ANSI.brightBlue,
-
-      border: ANSI.blue,
-      background: '',
-      selection: ANSI.bgBlue,
-    },
-  },
-
-  minimal: {
-    name: 'minimal',
-    description: 'Minimal monochrome theme',
-    colors: {
-      primary: ANSI.white,
-      secondary: ANSI.gray,
-      accent: ANSI.white,
-
-      text: ANSI.white,
-      textDim: ANSI.gray,
-      textBold: ANSI.bold + ANSI.white,
-
-      user: ANSI.white,
-      assistant: ANSI.white,
-      system: ANSI.gray,
-      error: ANSI.white,
-
-      codeKeyword: ANSI.bold + ANSI.white,
-      codeString: ANSI.white,
-      codeNumber: ANSI.white,
-      codeComment: ANSI.gray,
-      codeFunction: ANSI.white,
-
-      diffAdd: ANSI.white,
-      diffRemove: ANSI.dim + ANSI.white,
-      diffContext: ANSI.gray,
-
-      success: ANSI.white,
-      warning: ANSI.white,
-      info: ANSI.gray,
-
-      border: ANSI.gray,
-      background: '',
-      selection: ANSI.bgGray,
-    },
-  },
+  default: paletteToTheme(PALETTES.default),
+  light: paletteToTheme(PALETTES.light),
+  monokai: paletteToTheme(PALETTES.monokai),
+  nord: paletteToTheme(PALETTES.nord),
+  minimal: paletteToTheme(PALETTES.monochrome),
 };
 
 // ============================================================================
@@ -313,7 +110,7 @@ export function getCurrentThemeName(): string {
   ensureThemesDir();
   if (fs.existsSync(THEME_FILE)) {
     const name = fs.readFileSync(THEME_FILE, 'utf-8').trim();
-    if (THEMES[name] || fs.existsSync(path.join(THEMES_DIR, `${name}.json`))) {
+    if (THEMES[name] || PALETTES[name] || fs.existsSync(path.join(THEMES_DIR, `${name}.json`))) {
       return name;
     }
   }
@@ -321,14 +118,33 @@ export function getCurrentThemeName(): string {
 }
 
 /**
- * Set current theme
+ * Set current theme (also applies the corresponding palette)
  */
 export function setCurrentTheme(name: string): boolean {
+  // Accept palette names as theme names
+  if (PALETTES[name]) {
+    applyPalette(name);
+    ensureThemesDir();
+    fs.writeFileSync(THEME_FILE, name);
+    clearThemeCache();
+    return true;
+  }
+  // Also accept legacy theme names
+  const legacyMap: Record<string, string> = { minimal: 'monochrome' };
+  const paletteName = legacyMap[name] || name;
+  if (PALETTES[paletteName]) {
+    applyPalette(paletteName);
+    ensureThemesDir();
+    fs.writeFileSync(THEME_FILE, name);
+    clearThemeCache();
+    return true;
+  }
   if (!THEMES[name] && !fs.existsSync(path.join(THEMES_DIR, `${name}.json`))) {
     return false;
   }
   ensureThemesDir();
   fs.writeFileSync(THEME_FILE, name);
+  clearThemeCache();
   return true;
 }
 
@@ -337,6 +153,20 @@ export function setCurrentTheme(name: string): boolean {
  */
 export function getCurrentTheme(): Theme {
   const name = getCurrentThemeName();
+
+  // Try palette system first
+  const palette = getPalette(name);
+  if (palette.name === name) {
+    return paletteToTheme(palette);
+  }
+
+  // Legacy theme name mapping
+  const legacyMap: Record<string, string> = { minimal: 'monochrome' };
+  const mappedName = legacyMap[name];
+  if (mappedName) {
+    const p = getPalette(mappedName);
+    return paletteToTheme(p);
+  }
 
   // Check built-in themes
   if (THEMES[name]) {
@@ -357,31 +187,35 @@ export function getCurrentTheme(): Theme {
 }
 
 /**
- * List available themes
+ * List available themes (combines legacy themes + palettes)
  */
 export function listThemes(): Array<{ name: string; description?: string; custom: boolean }> {
   const themes: Array<{ name: string; description?: string; custom: boolean }> = [];
 
-  // Built-in themes
-  for (const [name, theme] of Object.entries(THEMES)) {
-    themes.push({ name, description: theme.description, custom: false });
+  // Add all palettes as themes
+  for (const p of listPalettes()) {
+    themes.push({ name: p.name, description: p.description, custom: p.custom });
   }
 
-  // Custom themes
+  // Custom themes from disk
   ensureThemesDir();
-  const files = fs.readdirSync(THEMES_DIR);
-  for (const file of files) {
-    if (file.endsWith('.json')) {
-      const name = file.slice(0, -5);
-      if (!THEMES[name]) {
-        try {
-          const theme = JSON.parse(fs.readFileSync(path.join(THEMES_DIR, file), 'utf-8'));
-          themes.push({ name, description: theme.description, custom: true });
-        } catch {
-          // Skip invalid files
+  try {
+    const files = fs.readdirSync(THEMES_DIR);
+    for (const file of files) {
+      if (file.endsWith('.json')) {
+        const name = file.slice(0, -5);
+        if (!themes.find(t => t.name === name)) {
+          try {
+            const theme = JSON.parse(fs.readFileSync(path.join(THEMES_DIR, file), 'utf-8'));
+            themes.push({ name, description: theme.description, custom: true });
+          } catch {
+            // Skip invalid files
+          }
         }
       }
     }
+  } catch {
+    // Directory read failed
   }
 
   return themes;
@@ -419,10 +253,11 @@ export function getTheme(): Theme {
  */
 export function clearThemeCache(): void {
   currentTheme = null;
+  clearHUDCache();
 }
 
 /**
- * Apply color to text
+ * Apply color to text using semantic color key
  */
 export function colorize(text: string, colorKey: keyof Theme['colors']): string {
   const theme = getTheme();
@@ -435,6 +270,37 @@ export function colorize(text: string, colorKey: keyof Theme['colors']): string 
  */
 export function createColorFn(colorKey: keyof Theme['colors']): (text: string) => string {
   return (text: string) => colorize(text, colorKey);
+}
+
+// ============================================================================
+// New HUD-aware helpers
+// ============================================================================
+
+/**
+ * Get ANSI color code for a semantic color key from the current palette
+ */
+export function getThemeColor(key: SemanticColorKey): string {
+  const palette = getCurrentPalette();
+  return palette.colors[key] || '';
+}
+
+/**
+ * Get Ink-compatible color name for a semantic color key
+ */
+export function getInkColor(key: SemanticColorKey): string {
+  return hudGetInkColor(key);
+}
+
+/**
+ * Hook-style helper for Ink components: returns all semantic colors as Ink-compatible names
+ */
+export function useThemeColors(): Record<SemanticColorKey, string> {
+  const palette = getCurrentPalette();
+  const result = {} as Record<SemanticColorKey, string>;
+  for (const key of Object.keys(palette.colors) as SemanticColorKey[]) {
+    result[key] = hudGetInkColor(key);
+  }
+  return result;
 }
 
 // Export ANSI codes for direct use

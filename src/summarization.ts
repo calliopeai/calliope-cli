@@ -31,10 +31,10 @@ export interface SummarizationOptions {
 
 /**
  * Estimate token count for a message
- * Uses rough approximation: ~4 chars per token for English
+ * Uses conservative approximation: ~3 chars per token for English
  */
 export function estimateTokens(content: string): number {
-  return Math.ceil(content.length / 4);
+  return Math.ceil(content.length / 3);
 }
 
 /**
@@ -52,8 +52,8 @@ export function estimateTotalTokens(messages: LLMMessage[]): number {
         }
       }
     }
-    // Add overhead for role, etc.
-    total += 10;
+    // Add overhead for role, formatting, metadata
+    total += 40;
   }
   return total;
 }

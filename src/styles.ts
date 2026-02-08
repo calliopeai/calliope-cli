@@ -2,7 +2,23 @@
  * Calliope CLI - Shared Styling
  *
  * Centralized colors, icons, and formatting utilities.
+ * Extended with semantic color support and skin-aware box styles.
  */
+
+// ============================================================================
+// Semantic Color Type (all 26 palette keys)
+// ============================================================================
+
+export type SemanticColor =
+  | 'primary' | 'secondary' | 'accent'
+  | 'text' | 'textDim' | 'textBold'
+  | 'user' | 'assistant' | 'system' | 'error'
+  | 'codeKeyword' | 'codeString' | 'codeNumber' | 'codeComment' | 'codeFunction'
+  | 'diffAdd' | 'diffRemove' | 'diffContext'
+  | 'success' | 'warning' | 'info'
+  | 'border' | 'background' | 'selection';
+
+export type StyleName = ColorName | SemanticColor;
 
 // ============================================================================
 // ANSI Color Codes
@@ -29,6 +45,7 @@ export const colors = {
   white: '\x1b[37m',
 
   // Bright colors
+  gray: '\x1b[90m',
   brightBlack: '\x1b[90m',
   brightRed: '\x1b[91m',
   brightGreen: '\x1b[92m',
@@ -39,10 +56,15 @@ export const colors = {
   brightWhite: '\x1b[97m',
 
   // Background colors
+  bgBlack: '\x1b[40m',
   bgRed: '\x1b[41m',
   bgGreen: '\x1b[42m',
   bgYellow: '\x1b[43m',
   bgBlue: '\x1b[44m',
+  bgMagenta: '\x1b[45m',
+  bgCyan: '\x1b[46m',
+  bgWhite: '\x1b[47m',
+  bgGray: '\x1b[100m',
 } as const;
 
 export type ColorName = keyof typeof colors;
@@ -269,4 +291,105 @@ export function boxFooter(width: number = 60): string {
 export function indent(text: string, spaces: number = 2): string {
   const prefix = ' '.repeat(spaces);
   return text.split('\n').map(line => prefix + line).join('\n');
+}
+
+// ============================================================================
+// Semantic Color Resolver (lazy to avoid circular deps with hud.ts)
+// ============================================================================
+
+/**
+ * Resolve a StyleName to an ANSI code.
+ * Accepts both raw ColorName ('cyan', 'red') and SemanticColor ('primary', 'diffAdd').
+ * Semantic colors are resolved lazily from the current palette.
+ */
+export function resolveColor(name: StyleName): string {
+  // Try raw ANSI color first
+  if (name in colors) {
+    return colors[name as ColorName];
+  }
+
+  // Lazy resolve semantic color from palette
+  try {
+    // Dynamic import to avoid circular dependency at module load time
+    const { getCurrentPalette } = require('./hud.js');
+    const palette = getCurrentPalette();
+    const value = palette.colors[name as SemanticColor];
+    if (value) return value;
+  } catch {
+    // hud.js not loaded yet — fall through
+  }
+
+  return '';
+}
+
+/**
+ * Apply a semantic or raw color to text
+ */
+export function styledColor(text: string, name: StyleName): string {
+  const code = resolveColor(name);
+  if (!code) return text;
+  return `${code}${text}${colors.reset}`;
+}
+
+// ============================================================================
+// Skin-Aware Box Styles
+// ============================================================================
+
+export interface BoxStyleChars {
+  topLeft: string;
+  topRight: string;
+  bottomLeft: string;
+  bottomRight: string;
+  horizontal: string;
+  vertical: string;
+}
+
+export const BOX_STYLE_VARIANTS: Record<string, BoxStyleChars> = {
+  rounded: {
+    topLeft: '\u256D', topRight: '\u256E',
+    bottomLeft: '\u2570', bottomRight: '\u256F',
+    horizontal: '\u2500', vertical: '\u2502',
+  },
+  sharp: {
+    topLeft: '\u250C', topRight: '\u2510',
+    bottomLeft: '\u2514', bottomRight: '\u2518',
+    horizontal: '\u2500', vertical: '\u2502',
+  },
+  double: {
+    topLeft: '\u2554', topRight: '\u2557',
+    bottomLeft: '\u255A', bottomRight: '\u255D',
+    horizontal: '\u2550', vertical: '\u2551',
+  },
+  ascii: {
+    topLeft: '+', topRight: '+',
+    bottomLeft: '+', bottomRight: '+',
+    horizontal: '-', vertical: '|',
+  },
+  none: {
+    topLeft: ' ', topRight: ' ',
+    bottomLeft: ' ', bottomRight: ' ',
+    horizontal: ' ', vertical: ' ',
+  },
+};
+
+/**
+ * Get box style characters for the current skin (or a given style name)
+ */
+export function getBoxStyle(styleName?: string): BoxStyleChars {
+  if (styleName && BOX_STYLE_VARIANTS[styleName]) {
+    return BOX_STYLE_VARIANTS[styleName];
+  }
+
+  // Default: try to read from current skin
+  try {
+    const { getCurrentSkin } = require('./hud.js');
+    const skin = getCurrentSkin();
+    const name = skin.borders.style;
+    if (name === 'custom' && skin.borders.custom) {
+      return skin.borders.custom;
+    }
+    return BOX_STYLE_VARIANTS[name] || BOX_STYLE_VARIANTS.rounded;
+  } catch {
+    return BOX_STYLE_VARIANTS.rounded;
+  }
 }

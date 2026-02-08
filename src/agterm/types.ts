@@ -118,7 +118,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 export const AGENT_CLI_MAP: Record<SubAgentType, { command: string; args: string[]; envVar: string }> = {
   calliope: {
     command: 'calliope',
-    args: ['-g'],  // god mode for autonomous execution
+    args: [],  // sub-agents should respect confirmation prompts
     envVar: 'ANTHROPIC_API_KEY'  // calliope uses anthropic by default
   },
   claude: {

@@ -221,7 +221,8 @@ function validatePath(filePath: string, cwd: string): string {
 export async function executeTool(
   toolCall: ToolCall,
   cwd: string,
-  timeout = 60000
+  timeout = 60000,
+  onOutput?: (chunk: string) => void
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
 
@@ -243,7 +244,7 @@ export async function executeTool(
         if (typeof args.command !== 'string') {
           return { toolCallId: id, result: 'Error: command must be a string', isError: true };
         }
-        result = await executeShell(args.command, cwd, timeout);
+        result = await executeShell(args.command, cwd, timeout, onOutput);
         break;
       }
 
@@ -336,7 +337,9 @@ export async function executeTool(
 /**
  * Execute a shell command
  */
-async function executeShell(command: string, cwd: string, timeout: number): Promise<string> {
+async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
+  const MAX_OUTPUT_SIZE = 50000; // 50K chars max output
+
   return new Promise((resolve, reject) => {
     const proc = spawn('bash', ['-c', command], {
       cwd,
@@ -346,13 +349,30 @@ async function executeShell(command: string, cwd: string, timeout: number): Prom
 
     let stdout = '';
     let stderr = '';
+    let truncated = false;
 
     proc.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const chunk = data.toString();
+      if (onOutput) onOutput(chunk);
+      if (!truncated) {
+        stdout += chunk;
+        if (stdout.length > MAX_OUTPUT_SIZE) {
+          stdout = stdout.slice(0, MAX_OUTPUT_SIZE);
+          truncated = true;
+        }
+      }
     });
 
     proc.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      if (onOutput) onOutput(chunk);
+      if (!truncated) {
+        stderr += chunk;
+        if (stderr.length > MAX_OUTPUT_SIZE) {
+          stderr = stderr.slice(0, MAX_OUTPUT_SIZE);
+          truncated = true;
+        }
+      }
     });
 
     const timer = setTimeout(() => {
@@ -362,7 +382,11 @@ async function executeShell(command: string, cwd: string, timeout: number): Prom
 
     proc.on('close', (code) => {
       clearTimeout(timer);
-      const output = stdout + (stderr ? `\nstderr: ${stderr}` : '');
+      let output = stdout + (stderr ? `\nstderr: ${stderr}` : '');
+
+      if (truncated) {
+        output += '\n\n[Output truncated at 50K chars. Use head/tail/grep to filter.]';
+      }
 
       if (code !== 0) {
         resolve(`Exit code ${code}\n${output}`);

@@ -7,19 +7,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { colors as c } from './styles.js';
 
 const PACKAGE_NAME = '@calliopelabs/cli';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-// ANSI colors
-const c = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  yellow: '\x1b[33m',
-  green: '\x1b[32m',
-};
 
 interface VersionCache {
   lastCheck: number;

@@ -37,6 +37,8 @@ import { requiresConfirmation } from './risk.js';
 import { executeParallel, analyzeDependencies, getParallelizationStats, canParallelize } from './parallel-tools.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from './scope.js';
 import { getAgentStatusReport } from './agterm/index.js';
+import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes, getSpinnerFrames, getBoxChars, paletteColorize, getPaletteColor, getInkBorderStyle } from './hud.js';
+import { getCurrentCompanion, applyCompanion, listCompanions, setMood, getMoodText, getToolLabel, getThinkingPhrase } from './companions.js';
 
 // Module-level state for agterm mode
 let moduleAgtermEnabled = false;
@@ -226,16 +228,16 @@ function ErrorFallback({
 // Constants
 // ============================================================================
 
-const BANNER_LINES = [
-  ' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗',
-  '██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝',
-  '██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ',
-  '██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ',
-  '╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗',
-  ' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝',
-];
+// Skin-aware: banner lines and spinner frames come from current skin
+function getBannerLines(): string[] {
+  return getCurrentSkin().banner.art;
+}
+function getSkinSpinnerFrames(): string[] {
+  return getSpinnerFrames();
+}
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+// Fallback constants (used if skin not yet loaded)
+const DEFAULT_SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 const TOOL_ICONS: Record<string, string> = {
   shell: '⚡',
@@ -274,19 +276,20 @@ interface ThinkingState {
 
 function ThinkingDisplay({ state }: { state: ThinkingState }) {
   const [frame, setFrame] = useState(0);
+  const spinFrames = getSkinSpinnerFrames();
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setFrame(f => (f + 1) % SPINNER_FRAMES.length);
+      setFrame(f => (f + 1) % spinFrames.length);
     }, 80);
     return () => clearInterval(timer);
-  }, []);
+  }, [spinFrames.length]);
 
   return (
     <Box flexDirection="column">
       {/* Main status line */}
       <Box>
-        <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
+        <Text color="cyan">{spinFrames[frame % spinFrames.length]}</Text>
         <Text> {state.status}</Text>
         {state.iteration != null && state.maxIterations && (
           <Text dimColor> ({state.iteration}/{state.maxIterations})</Text>
@@ -319,17 +322,18 @@ function ThinkingDisplay({ state }: { state: ThinkingState }) {
 // Legacy simple indicator for non-agent operations
 function ProcessingIndicator({ label }: { label: string }) {
   const [frame, setFrame] = useState(0);
+  const spinFrames = getSkinSpinnerFrames();
 
   useEffect(() => {
     const timer = setInterval(() => {
-      setFrame(f => (f + 1) % SPINNER_FRAMES.length);
+      setFrame(f => (f + 1) % spinFrames.length);
     }, 80);
     return () => clearInterval(timer);
-  }, []);
+  }, [spinFrames.length]);
 
   return (
     <Box>
-      <Text color="cyan">{SPINNER_FRAMES[frame]}</Text>
+      <Text color="cyan">{spinFrames[frame % spinFrames.length]}</Text>
       <Text dimColor> {label}</Text>
     </Box>
   );
@@ -1038,6 +1042,10 @@ const SLASH_COMMANDS = [
   '/work',
   '/plan',
   '/resume',
+  '/skin',
+  '/palette',
+  '/companion',
+  '/hud',
 ];
 
 // Commands that take a path argument (for file tab completion)
@@ -1960,10 +1968,12 @@ function TerminalChat() {
     { role: 'system', content: getSystemPrompt(persona) }
   ]);
 
-  // Estimate context tokens (rough: ~4 chars per token)
+  // Estimate context tokens (conservative: ~2.5 chars per token + 1.35x overhead)
   const estimateContextTokens = useCallback(() => {
     let chars = 0;
+    let msgCount = 0;
     for (const msg of llmMessages.current) {
+      msgCount++;
       if (typeof msg.content === 'string') {
         chars += msg.content.length;
       } else if (Array.isArray(msg.content)) {
@@ -1975,8 +1985,15 @@ function TerminalChat() {
           }
         }
       }
+      // Include tool call arguments in estimation
+      if (msg.toolCalls) {
+        for (const tool of msg.toolCalls) {
+          chars += JSON.stringify(tool.arguments || {}).length;
+        }
+      }
     }
-    return Math.round(chars / 4);
+    // Conservative: 2.5 chars/token, 1.35x overhead for formatting/metadata, +50 per message
+    return Math.round((chars / 2.5) * 1.35 + msgCount * 50);
   }, []);
 
   // Session state
@@ -1984,7 +2001,7 @@ function TerminalChat() {
   const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
   const [memoryLoaded, setMemoryLoaded] = useState(false);
 
-  // Ralph Wiggum loop state
+  // Agent loop state
   const [loopActive, setLoopActive] = useState(false);
   const [loopPrompt, setLoopPrompt] = useState<string>('');
   const [loopMaxIterations, setLoopMaxIterations] = useState(100);
@@ -2561,7 +2578,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         setLoopIteration(0);
         loopCancelledRef.current = false;
 
-        addMessage('system', `🔄 Ralph Wiggum Loop Started
+        addMessage('system', `🔄 Agent Loop Started
   Prompt: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"
   Max iterations: ${maxIterMatch ? maxIterMatch[1] : '100'}
   ${completionMatch ? `Completion promise: "${completionMatch[1]}"` : 'No completion promise (runs until max iterations)'}
@@ -2871,6 +2888,92 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         } else {
           addMessage('error', `Theme not found: ${subCmd}`);
         }
+        break;
+      }
+
+      case '/skin': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const skins = listSkins();
+          const current = getCurrentSkin();
+          const formatted = skins.map(s => {
+            const marker = s.name === current.name ? ' *' : '';
+            const custom = s.custom ? ' (custom)' : '';
+            return `  ${s.name}${marker}${custom} - ${s.description}`;
+          }).join('\n');
+          addMessage('system', `Active: ${current.name}\nAvailable skins:\n${formatted}`);
+        } else {
+          applySkin(subCmd);
+          const newSkin = getCurrentSkin();
+          if (newSkin.name === subCmd) {
+            config.set('activeSkin', subCmd);
+            addMessage('system', `Skin set to: ${subCmd} — ${newSkin.description}`);
+          } else {
+            addMessage('error', `Skin not found: ${subCmd}. Available: ${listSkins().map(s => s.name).join(', ')}`);
+          }
+        }
+        break;
+      }
+
+      case '/palette': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const palettes = listPalettes();
+          const current = getCurrentPalette();
+          const formatted = palettes.map(p => {
+            const marker = p.name === current.name ? ' *' : '';
+            const custom = p.custom ? ' (custom)' : '';
+            return `  ${p.name}${marker}${custom} - ${p.description}`;
+          }).join('\n');
+          addMessage('system', `Active: ${current.name}\nAvailable palettes:\n${formatted}`);
+        } else {
+          applyPalette(subCmd);
+          const newPal = getCurrentPalette();
+          if (newPal.name === subCmd) {
+            config.set('activePalette', subCmd);
+            addMessage('system', `Palette set to: ${subCmd} — ${newPal.description}`);
+          } else {
+            addMessage('error', `Palette not found: ${subCmd}. Available: ${listPalettes().map(p => p.name).join(', ')}`);
+          }
+        }
+        break;
+      }
+
+      case '/companion': {
+        const subCmd = parts[1];
+        if (subCmd === 'list' || !subCmd) {
+          const companions = listCompanions();
+          const current = getCurrentCompanion();
+          const formatted = companions.map(comp => {
+            const marker = comp.name === current.name ? ' *' : '';
+            return `  ${comp.name}${marker} - ${comp.description}`;
+          }).join('\n');
+          addMessage('system', `Active: ${current.name}\nAvailable companions:\n${formatted}`);
+        } else {
+          applyCompanion(subCmd);
+          const newComp = getCurrentCompanion();
+          if (newComp.name === subCmd) {
+            config.set('activeCompanion', subCmd);
+            addMessage('system', `Companion set to: ${subCmd} — "${newComp.greeting}"`);
+          } else {
+            addMessage('error', `Companion not found: ${subCmd}. Available: ${listCompanions().map(c => c.name).join(', ')}`);
+          }
+        }
+        break;
+      }
+
+      case '/hud': {
+        const hudSkin = getCurrentSkin();
+        const hudPalette = getCurrentPalette();
+        const hudCompanion = getCurrentCompanion();
+        addMessage('system',
+          `HUD Configuration\n` +
+          `  Skin:      ${hudSkin.name} — ${hudSkin.description}\n` +
+          `  Palette:   ${hudPalette.name} — ${hudPalette.description}\n` +
+          `  Companion: ${hudCompanion.name} — ${hudCompanion.description}\n` +
+          `  Mood:      ${getMoodText()}\n\n` +
+          `  /skin <name>  /palette <name>  /companion <name>`
+        );
         break;
       }
 
@@ -3659,8 +3762,8 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     const modelLimit = getModelContextLimit(actualProvider, effectiveModel || actualModel);
     let contextPercentage = (currentContextTokens / modelLimit) * 100;
 
-    // Auto-compact if we're over 95% capacity to prevent API errors
-    if (contextPercentage > 95) {
+    // Auto-compact if we're over 75% capacity to prevent API errors
+    if (contextPercentage > 75) {
       addMessage('system', `🔄 Context at ${Math.round(contextPercentage)}% - auto-compacting to prevent errors...`);
       const result = summarization.summarizeConversation(llmMessages.current, {
         maxTokens: Math.floor(modelLimit * 0.7), // Target 70% of limit after compaction
@@ -3680,7 +3783,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           return;
         }
       }
-    } else if (contextPercentage > 85) {
+    } else if (contextPercentage > 65) {
       addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
    Consider: /summarize compact | /clear | shorter messages`);
     }
@@ -3690,7 +3793,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       if (i > 0) {
         const iterContextTokens = estimateContextTokens();
         const iterContextPercentage = (iterContextTokens / modelLimit) * 100;
-        if (iterContextPercentage > 95) {
+        if (iterContextPercentage > 75) {
           addMessage('system', `🔄 Context grew to ${Math.round(iterContextPercentage)}% - auto-compacting...`);
           const result = summarization.summarizeConversation(llmMessages.current, {
             maxTokens: Math.floor(modelLimit * 0.7),
@@ -3774,7 +3877,8 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           // Auto-summarize if context is getting too full (85% threshold)
           if (needsSummarization(provider, model || DEFAULT_MODELS[provider], response.usage.inputTokens)) {
             debugLog('chat', 'AUTO-SUMMARIZING', `inputTokens=${response.usage.inputTokens}`);
-            const result = summarization.summarizeConversation(llmMessages.current, { maxTokens: 100000 });
+            const postCompactLimit = Math.floor(getModelContextLimit(provider, model || DEFAULT_MODELS[provider]) * 0.6);
+            const result = summarization.summarizeConversation(llmMessages.current, { maxTokens: postCompactLimit });
             if (result.summarizedCount > 0) {
               llmMessages.current = result.messages;
               debugLog('chat', 'SUMMARIZED', `removed=${result.summarizedCount} messages`);
@@ -4119,7 +4223,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     debugLog('runAgent', 'RETURN');
   }, [provider, model, addMessage, mode, estimateContextTokens]); // Note: queuedMessages accessed via ref
 
-  // Ralph Wiggum loop - runs prompt repeatedly until completion promise or max iterations
+  // Agent loop - runs prompt repeatedly until completion promise or max iterations
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
     setIsProcessing(true);
 
@@ -4133,12 +4237,15 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       setLoopIteration(i + 1);
       addMessage('system', `🔄 Loop iteration ${i + 1}/${maxIter}`);
 
-      // Add the loop prompt as user message
-      llmMessages.current.push({ role: 'user', content: prompt });
+      // First iteration: send original prompt. Subsequent: send continuation.
+      const iterationPrompt = i === 0
+        ? prompt
+        : `Continue working on the task: "${prompt}"\n\nThis is iteration ${i + 1}. Review what you've done so far and continue making progress.`;
+      llmMessages.current.push({ role: 'user', content: iterationPrompt });
 
       try {
         // Run the agent
-        await runAgent(prompt);
+        await runAgent(iterationPrompt);
 
         // Check for completion promise in the last assistant message
         if (completionPromise) {
@@ -4592,24 +4699,31 @@ function App() {
 function printBanner(): void {
   const provider = selectProvider(config.get('defaultProvider'));
   const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
+  const skin = getCurrentSkin();
 
-  const cyan = '\x1b[36m';
-  const cyanBright = '\x1b[96m';
   const dim = '\x1b[2m';
   const reset = '\x1b[0m';
 
-  console.log();
-  console.log(`${cyanBright}${BANNER_LINES[0]}${reset}`);
-  console.log(`${cyanBright}${BANNER_LINES[1]}${reset}`);
-  console.log(`${cyan}${BANNER_LINES[2]}${reset}`);
-  console.log(`${cyan}${BANNER_LINES[3]}${reset}`);
-  console.log(`${cyanBright}${BANNER_LINES[4]}${reset}`);
-  console.log(`${cyan}${BANNER_LINES[5]}${reset}`);
-  console.log();
-  console.log(`${dim}        The Muse of Digital Eloquence${reset}`);
-  console.log();
+  if (skin.banner.style === 'none') {
+    // No banner
+  } else {
+    console.log();
+    for (const line of skin.banner.art) {
+      console.log(paletteColorize(line, 'primary'));
+    }
+    console.log();
+    if (skin.banner.tagline) {
+      console.log(`${dim}        ${skin.banner.tagline}${reset}`);
+      console.log();
+    }
+  }
+
+  const companion = getCurrentCompanion();
   console.log(`${dim}  v${getVersion()} | ${provider}:${model}${reset}`);
   console.log(`${dim}  /help for commands | ESC to exit${reset}`);
+  if (companion.greeting) {
+    console.log(`${dim}  ${companion.greeting}${reset}`);
+  }
   console.log();
 }
 

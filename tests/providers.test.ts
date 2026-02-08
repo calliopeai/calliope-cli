@@ -1,94 +1,11 @@
 /**
  * Tests for providers module - Responses API support
+ * Tests actual production code from src/providers.ts
  */
 
 import { describe, it, expect } from 'vitest';
+import { requiresResponsesAPI, toResponsesInput, toResponsesTools } from '../src/providers.js';
 import type { Message, Tool, ToolCall } from '../src/types.js';
-
-// Since the conversion functions are private, we'll test the exported behavior
-// and create mock versions for unit testing the logic
-
-// Models that require Responses API
-const RESPONSES_API_MODELS = ['o3', 'o3-mini', 'o3-pro', 'o4-mini', 'gpt-5'];
-
-function requiresResponsesAPI(model: string): boolean {
-  return RESPONSES_API_MODELS.some(m => model.startsWith(m));
-}
-
-// Mock conversion function for testing
-function toResponsesInput(messages: Message[]): Array<any> {
-  const input: Array<any> = [];
-
-  for (const m of messages) {
-    if (m.role === 'system') {
-      input.push({
-        role: 'developer',
-        content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      });
-    } else if (m.role === 'tool') {
-      input.push({
-        type: 'function_call_output',
-        call_id: m.toolCallId || '',
-        output: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      });
-    } else if (m.role === 'assistant') {
-      if (m.toolCalls && m.toolCalls.length > 0) {
-        const textContent = typeof m.content === 'string' ? m.content : '';
-        if (textContent) {
-          input.push({
-            role: 'assistant',
-            content: textContent,
-          });
-        }
-        for (const tc of m.toolCalls) {
-          input.push({
-            type: 'function_call',
-            call_id: tc.id,
-            name: tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          });
-        }
-      } else {
-        input.push({
-          role: 'assistant',
-          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-        });
-      }
-    } else if (m.role === 'user') {
-      if (Array.isArray(m.content)) {
-        const parts: Array<any> = [];
-        for (const block of m.content) {
-          if (block.type === 'text') {
-            parts.push({ type: 'input_text', text: block.text });
-          } else if (block.type === 'image') {
-            parts.push({
-              type: 'input_image',
-              image_url: { url: `data:${block.mediaType};base64,${block.data}` },
-            });
-          }
-        }
-        input.push({ role: 'user', content: parts });
-      } else {
-        input.push({
-          role: 'user',
-          content: m.content,
-        });
-      }
-    }
-  }
-
-  return input;
-}
-
-function toResponsesTools(tools: Tool[]): Array<any> {
-  return tools.map(t => ({
-    type: 'function',
-    name: t.name,
-    description: t.description,
-    parameters: t.parameters,
-    strict: false,
-  }));
-}
 
 describe('requiresResponsesAPI', () => {
   it('should return true for o3 models', () => {
@@ -129,8 +46,8 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(1);
-    expect(result[0].role).toBe('developer');
-    expect(result[0].content).toBe('You are a helpful assistant.');
+    expect(result[0]).toHaveProperty('role', 'developer');
+    expect(result[0]).toHaveProperty('content', 'You are a helpful assistant.');
   });
 
   it('should convert user messages', () => {
@@ -140,8 +57,8 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(1);
-    expect(result[0].role).toBe('user');
-    expect(result[0].content).toBe('Hello, world!');
+    expect(result[0]).toHaveProperty('role', 'user');
+    expect(result[0]).toHaveProperty('content', 'Hello, world!');
   });
 
   it('should convert assistant messages', () => {
@@ -151,8 +68,8 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(1);
-    expect(result[0].role).toBe('assistant');
-    expect(result[0].content).toBe('Hi there!');
+    expect(result[0]).toHaveProperty('role', 'assistant');
+    expect(result[0]).toHaveProperty('content', 'Hi there!');
   });
 
   it('should convert tool messages to function_call_output', () => {
@@ -162,9 +79,9 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('function_call_output');
-    expect(result[0].call_id).toBe('call_123');
-    expect(result[0].output).toBe('{"result": "success"}');
+    expect(result[0]).toHaveProperty('type', 'function_call_output');
+    expect(result[0]).toHaveProperty('call_id', 'call_123');
+    expect(result[0]).toHaveProperty('output', '{"result": "success"}');
   });
 
   it('should convert assistant messages with tool calls', () => {
@@ -177,12 +94,12 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(2);
-    expect(result[0].role).toBe('assistant');
-    expect(result[0].content).toBe('Let me read that file.');
-    expect(result[1].type).toBe('function_call');
-    expect(result[1].call_id).toBe('call_abc');
-    expect(result[1].name).toBe('read_file');
-    expect(result[1].arguments).toBe('{"path":"/test.txt"}');
+    expect(result[0]).toHaveProperty('role', 'assistant');
+    expect(result[0]).toHaveProperty('content', 'Let me read that file.');
+    expect(result[1]).toHaveProperty('type', 'function_call');
+    expect(result[1]).toHaveProperty('call_id', 'call_abc');
+    expect(result[1]).toHaveProperty('name', 'read_file');
+    expect(result[1]).toHaveProperty('arguments', '{"path":"/test.txt"}');
   });
 
   it('should convert multi-modal user messages with images', () => {
@@ -198,7 +115,7 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(1);
-    expect(result[0].role).toBe('user');
+    expect(result[0]).toHaveProperty('role', 'user');
     expect(result[0].content).toHaveLength(2);
     expect(result[0].content[0]).toEqual({ type: 'input_text', text: 'What is in this image?' });
     expect(result[0].content[1]).toEqual({
@@ -222,12 +139,12 @@ describe('toResponsesInput', () => {
 
     const result = toResponsesInput(messages);
     expect(result).toHaveLength(6);
-    expect(result[0].role).toBe('developer');
-    expect(result[1].role).toBe('user');
-    expect(result[2].role).toBe('assistant');
-    expect(result[3].type).toBe('function_call');
-    expect(result[4].type).toBe('function_call_output');
-    expect(result[5].role).toBe('assistant');
+    expect(result[0]).toHaveProperty('role', 'developer');
+    expect(result[1]).toHaveProperty('role', 'user');
+    expect(result[2]).toHaveProperty('role', 'assistant');
+    expect(result[3]).toHaveProperty('type', 'function_call');
+    expect(result[4]).toHaveProperty('type', 'function_call_output');
+    expect(result[5]).toHaveProperty('role', 'assistant');
   });
 });
 
@@ -249,11 +166,11 @@ describe('toResponsesTools', () => {
 
     const result = toResponsesTools(tools);
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('function');
-    expect(result[0].name).toBe('read_file');
-    expect(result[0].description).toBe('Read a file from disk');
+    expect(result[0]).toHaveProperty('type', 'function');
+    expect(result[0]).toHaveProperty('name', 'read_file');
+    expect(result[0]).toHaveProperty('description', 'Read a file from disk');
     expect(result[0].parameters).toEqual(tools[0].parameters);
-    expect(result[0].strict).toBe(false);
+    expect(result[0]).toHaveProperty('strict', false);
   });
 
   it('should convert multiple tools', () => {
@@ -272,8 +189,8 @@ describe('toResponsesTools', () => {
 
     const result = toResponsesTools(tools);
     expect(result).toHaveLength(2);
-    expect(result[0].name).toBe('shell');
-    expect(result[1].name).toBe('write_file');
+    expect(result[0]).toHaveProperty('name', 'shell');
+    expect(result[1]).toHaveProperty('name', 'write_file');
   });
 
   it('should handle tools with no description', () => {
@@ -286,6 +203,6 @@ describe('toResponsesTools', () => {
     ];
 
     const result = toResponsesTools(tools);
-    expect(result[0].description).toBe('');
+    expect(result[0]).toHaveProperty('description', '');
   });
 });

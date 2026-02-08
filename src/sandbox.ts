@@ -4,7 +4,7 @@
  * Secure code execution using Docker containers.
  */
 
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -73,7 +73,7 @@ export function isDockerAvailable(): boolean {
   if (dockerAvailable !== null) return dockerAvailable;
 
   try {
-    execSync('docker --version', { stdio: 'pipe' });
+    execFileSync('docker', ['--version'], { stdio: 'pipe' });
     dockerAvailable = true;
   } catch {
     dockerAvailable = false;
@@ -87,7 +87,7 @@ export function isDockerAvailable(): boolean {
  */
 export function imageExists(image: string): boolean {
   try {
-    execSync(`docker image inspect ${image}`, { stdio: 'pipe' });
+    execFileSync('docker', ['image', 'inspect', '--', image], { stdio: 'pipe' });
     return true;
   } catch {
     return false;

@@ -2,9 +2,14 @@
  * Calliope CLI - Diff Preview System
  *
  * Shows diffs before applying file changes, with approve/reject workflow.
+ * Supports inline, unified, and side-by-side diff display styles.
+ * Colors come from the active palette. Diff config comes from the active skin.
  */
 
 import * as fs from 'fs';
+import { colors as COLORS } from './styles.js';
+import { getCurrentSkin, getCurrentPalette } from './hud.js';
+import type { Skin } from './hud.js';
 
 // ============================================================================
 // Types
@@ -40,6 +45,9 @@ export interface PendingChange {
 // Diff Generation
 // ============================================================================
 
+// Max file size for LCS diff (100KB) — larger files use simple line diff to avoid OOM
+const MAX_LCS_SIZE = 100_000;
+
 /**
  * Simple line-by-line diff algorithm
  */
@@ -53,6 +61,11 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
   // Add header
   diffLines.push({ type: 'header', content: `--- a/${path}` });
   diffLines.push({ type: 'header', content: `+++ b/${path}` });
+
+  // For large files, fall back to simple line-by-line comparison to avoid O(n*m) OOM
+  if (oldContent.length > MAX_LCS_SIZE || newContent.length > MAX_LCS_SIZE) {
+    return generateSimpleDiff(oldLines, newLines, path, diffLines);
+  }
 
   // Simple LCS-based diff
   const lcs = longestCommonSubsequence(oldLines, newLines);
@@ -128,6 +141,35 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
 }
 
 /**
+ * Simple line-by-line diff for large files (avoids O(n*m) LCS)
+ */
+function generateSimpleDiff(oldLines: string[], newLines: string[], path: string, diffLines: DiffLine[]): FileDiff {
+  let additions = 0;
+  let deletions = 0;
+  const maxLen = Math.max(oldLines.length, newLines.length);
+
+  for (let i = 0; i < maxLen; i++) {
+    const oldLine = i < oldLines.length ? oldLines[i] : undefined;
+    const newLine = i < newLines.length ? newLines[i] : undefined;
+
+    if (oldLine === newLine) {
+      diffLines.push({ type: 'context', content: oldLine!, oldLineNum: i + 1, newLineNum: i + 1 });
+    } else {
+      if (oldLine !== undefined) {
+        diffLines.push({ type: 'remove', content: oldLine, oldLineNum: i + 1 });
+        deletions++;
+      }
+      if (newLine !== undefined) {
+        diffLines.push({ type: 'add', content: newLine, newLineNum: i + 1 });
+        additions++;
+      }
+    }
+  }
+
+  return { path, oldContent: oldLines.join('\n'), newContent: newLines.join('\n'), lines: diffLines, additions, deletions };
+}
+
+/**
  * LCS algorithm for diff
  */
 function longestCommonSubsequence(a: string[], b: string[]): Array<[number, number]> {
@@ -166,17 +208,6 @@ function longestCommonSubsequence(a: string[], b: string[]): Array<[number, numb
 // ============================================================================
 // Diff Formatting
 // ============================================================================
-
-// ANSI colors
-const COLORS = {
-  reset: '\x1b[0m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  cyan: '\x1b[36m',
-  dim: '\x1b[2m',
-  bgRed: '\x1b[41m',
-  bgGreen: '\x1b[42m',
-};
 
 /**
  * Format diff for terminal display
@@ -484,4 +515,320 @@ export function formatChangeSummary(additions: number, deletions: number): strin
  */
 export function createDiff(oldContent: string, newContent: string, path: string): FileDiff {
   return generateDiff(oldContent, newContent, path);
+}
+
+// ============================================================================
+// Skin-Aware Diff Formatting
+// ============================================================================
+
+/**
+ * Get diff colors from the current palette
+ */
+function getDiffColors(): { add: string; remove: string; context: string; header: string; reset: string } {
+  try {
+    const palette = getCurrentPalette();
+    return {
+      add: palette.colors.diffAdd || COLORS.green,
+      remove: palette.colors.diffRemove || COLORS.red,
+      context: palette.colors.diffContext || COLORS.dim,
+      header: palette.colors.info || COLORS.cyan,
+      reset: COLORS.reset,
+    };
+  } catch {
+    return { add: COLORS.green, remove: COLORS.red, context: COLORS.dim, header: COLORS.cyan, reset: COLORS.reset };
+  }
+}
+
+/**
+ * Get diff config from the current skin
+ */
+function getDiffConfig(): Skin['diff'] {
+  try {
+    return getCurrentSkin().diff;
+  } catch {
+    return {
+      style: 'inline',
+      showLineNumbers: true,
+      contextLines: 2,
+      maxLineWidth: 80,
+      wordDiff: false,
+      header: 'action',
+    };
+  }
+}
+
+// ============================================================================
+// Unified Diff Formatter
+// ============================================================================
+
+/**
+ * Format diff in unified style (standard @@ hunk markers, ---/+++ headers)
+ */
+export function formatUnifiedDiff(diff: FileDiff, options?: Partial<Skin['diff']>): string {
+  const config = { ...getDiffConfig(), ...options };
+  const dc = getDiffColors();
+  const lines: string[] = [];
+
+  // Header
+  if (config.header === 'path' || config.header === 'hunk') {
+    lines.push(`${dc.header}--- a/${diff.path}${dc.reset}`);
+    lines.push(`${dc.header}+++ b/${diff.path}${dc.reset}`);
+  } else if (config.header === 'action') {
+    const action = diff.deletions === 0 ? 'Create' : diff.additions === 0 ? 'Delete' : 'Update';
+    lines.push(`${dc.header}${action}(${diff.path})${dc.reset}`);
+  }
+  lines.push('');
+
+  // Group into hunks
+  const diffLines = diff.lines.filter(l => l.type !== 'header');
+  const chunks = groupDiffChunks(diffLines, config.contextLines);
+
+  for (const chunk of chunks) {
+    // Hunk header
+    const oldStart = chunk.find(l => l.oldLineNum)?.oldLineNum || 1;
+    const newStart = chunk.find(l => l.newLineNum)?.newLineNum || 1;
+    const oldCount = chunk.filter(l => l.type === 'remove' || l.type === 'context').length;
+    const newCount = chunk.filter(l => l.type === 'add' || l.type === 'context').length;
+    lines.push(`${dc.header}@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${dc.reset}`);
+
+    for (const line of chunk) {
+      const content = line.content.substring(0, config.maxLineWidth);
+      const lineNum = config.showLineNumbers
+        ? (line.type === 'remove'
+          ? (line.oldLineNum?.toString() || '').padStart(4)
+          : (line.newLineNum?.toString() || '').padStart(4)) + ' '
+        : '';
+
+      switch (line.type) {
+        case 'add':
+          lines.push(`${dc.add}${lineNum}+${content}${dc.reset}`);
+          break;
+        case 'remove':
+          lines.push(`${dc.remove}${lineNum}-${content}${dc.reset}`);
+          break;
+        case 'context':
+          lines.push(`${dc.context}${lineNum} ${content}${dc.reset}`);
+          break;
+      }
+    }
+    lines.push('');
+  }
+
+  // Summary
+  lines.push(`${dc.add}+${diff.additions}${dc.reset} ${dc.remove}-${diff.deletions}${dc.reset}`);
+
+  return lines.join('\n');
+}
+
+// ============================================================================
+// Side-by-Side Diff Formatter
+// ============================================================================
+
+/**
+ * Format diff in side-by-side two-column display
+ */
+export function formatSideBySideDiff(diff: FileDiff, termWidth?: number, options?: Partial<Skin['diff']>): string {
+  const config = { ...getDiffConfig(), ...options };
+  const dc = getDiffColors();
+  const lines: string[] = [];
+
+  const width = termWidth || (process.stdout.columns || 120);
+  const colWidth = Math.floor((width - 3) / 2); // 3 for the separator " | "
+
+  // Header
+  if (config.header === 'path' || config.header === 'hunk') {
+    lines.push(`${dc.header}--- a/${diff.path}${dc.reset}${''.padEnd(colWidth - diff.path.length - 6)}${dc.header}+++ b/${diff.path}${dc.reset}`);
+  } else if (config.header === 'action') {
+    const action = diff.deletions === 0 ? 'Create' : diff.additions === 0 ? 'Delete' : 'Update';
+    lines.push(`${dc.header}${action}(${diff.path})${dc.reset}`);
+  }
+  lines.push(`${'─'.repeat(colWidth)} │ ${'─'.repeat(colWidth)}`);
+
+  // Pair up removed/added lines for side-by-side
+  const diffLines = diff.lines.filter(l => l.type !== 'header');
+  const chunks = groupDiffChunks(diffLines, config.contextLines);
+
+  for (const chunk of chunks) {
+    // Build paired lines
+    const pairs: Array<{ left: DiffLine | null; right: DiffLine | null }> = [];
+    let i = 0;
+    while (i < chunk.length) {
+      const line = chunk[i];
+      if (line.type === 'context') {
+        pairs.push({ left: line, right: line });
+        i++;
+      } else if (line.type === 'remove') {
+        // Collect consecutive removes, then pair with consecutive adds
+        const removes: DiffLine[] = [];
+        while (i < chunk.length && chunk[i].type === 'remove') {
+          removes.push(chunk[i]);
+          i++;
+        }
+        const adds: DiffLine[] = [];
+        while (i < chunk.length && chunk[i].type === 'add') {
+          adds.push(chunk[i]);
+          i++;
+        }
+        const maxPairs = Math.max(removes.length, adds.length);
+        for (let j = 0; j < maxPairs; j++) {
+          pairs.push({
+            left: j < removes.length ? removes[j] : null,
+            right: j < adds.length ? adds[j] : null,
+          });
+        }
+      } else if (line.type === 'add') {
+        pairs.push({ left: null, right: line });
+        i++;
+      } else {
+        i++;
+      }
+    }
+
+    for (const pair of pairs) {
+      const leftContent = pair.left ? pair.left.content.substring(0, colWidth - 6) : '';
+      const rightContent = pair.right ? pair.right.content.substring(0, colWidth - 6) : '';
+      const leftNum = pair.left
+        ? (pair.left.oldLineNum?.toString() || '').padStart(4) + ' '
+        : '     ';
+      const rightNum = pair.right
+        ? (pair.right.newLineNum?.toString() || '').padStart(4) + ' '
+        : '     ';
+
+      let leftFormatted: string;
+      let rightFormatted: string;
+
+      if (pair.left?.type === 'remove') {
+        leftFormatted = `${dc.remove}${leftNum}${leftContent}${dc.reset}`;
+      } else if (pair.left?.type === 'context') {
+        leftFormatted = `${dc.context}${leftNum}${leftContent}${dc.reset}`;
+      } else {
+        leftFormatted = `${leftNum}${leftContent}`;
+      }
+
+      if (pair.right?.type === 'add') {
+        rightFormatted = `${dc.add}${rightNum}${rightContent}${dc.reset}`;
+      } else if (pair.right?.type === 'context') {
+        rightFormatted = `${dc.context}${rightNum}${rightContent}${dc.reset}`;
+      } else {
+        rightFormatted = `${rightNum}${rightContent}`;
+      }
+
+      // Pad to column width (approximate — ANSI codes make exact alignment hard)
+      const leftPadded = leftContent.padEnd(colWidth - 5);
+      const rightPadded = rightContent;
+
+      if (pair.left?.type === 'remove') {
+        lines.push(`${dc.remove}${leftNum}${leftPadded}${dc.reset} ${COLORS.dim}│${COLORS.reset} ${pair.right ? (pair.right.type === 'add' ? dc.add : dc.context) : ''}${rightNum}${rightPadded}${dc.reset}`);
+      } else if (pair.left?.type === 'context') {
+        lines.push(`${dc.context}${leftNum}${leftPadded}${dc.reset} ${COLORS.dim}│${COLORS.reset} ${dc.context}${rightNum}${rightPadded}${dc.reset}`);
+      } else {
+        lines.push(`${leftNum}${leftPadded} ${COLORS.dim}│${COLORS.reset} ${pair.right?.type === 'add' ? dc.add : ''}${rightNum}${rightPadded}${dc.reset}`);
+      }
+    }
+    lines.push('');
+  }
+
+  lines.push(`${dc.add}+${diff.additions}${dc.reset} ${dc.remove}-${diff.deletions}${dc.reset}`);
+
+  return lines.join('\n');
+}
+
+// ============================================================================
+// Word-Level Diff
+// ============================================================================
+
+/**
+ * Compute word-level diff between two lines, returning highlighted segments
+ */
+export function wordDiff(oldLine: string, newLine: string): { old: string; new: string } {
+  const dc = getDiffColors();
+  const oldWords = oldLine.split(/(\s+)/);
+  const newWords = newLine.split(/(\s+)/);
+
+  // Simple LCS on words
+  const m = oldWords.length;
+  const n = newWords.length;
+  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldWords[i - 1] === newWords[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  // Backtrack
+  const lcs: Array<[number, number]> = [];
+  let i = m, j = n;
+  while (i > 0 && j > 0) {
+    if (oldWords[i - 1] === newWords[j - 1]) {
+      lcs.unshift([i - 1, j - 1]);
+      i--; j--;
+    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+
+  // Build highlighted old line
+  let oldResult = '';
+  let oi = 0;
+  for (const [oldIdx] of lcs) {
+    // Removed words before this match
+    while (oi < oldIdx) {
+      oldResult += `${dc.remove}${COLORS.bold}${oldWords[oi]}${dc.reset}${dc.remove}`;
+      oi++;
+    }
+    oldResult += oldWords[oi];
+    oi++;
+  }
+  while (oi < oldWords.length) {
+    oldResult += `${dc.remove}${COLORS.bold}${oldWords[oi]}${dc.reset}${dc.remove}`;
+    oi++;
+  }
+
+  // Build highlighted new line
+  let newResult = '';
+  let ni = 0;
+  for (const [, newIdx] of lcs) {
+    while (ni < newIdx) {
+      newResult += `${dc.add}${COLORS.bold}${newWords[ni]}${dc.reset}${dc.add}`;
+      ni++;
+    }
+    newResult += newWords[ni];
+    ni++;
+  }
+  while (ni < newWords.length) {
+    newResult += `${dc.add}${COLORS.bold}${newWords[ni]}${dc.reset}${dc.add}`;
+    ni++;
+  }
+
+  return { old: oldResult, new: newResult };
+}
+
+// ============================================================================
+// Skin-Driven Diff Dispatcher
+// ============================================================================
+
+export type DiffStyle = 'inline' | 'unified' | 'side-by-side';
+
+/**
+ * Format a diff using the style from the current skin (or override)
+ */
+export function formatSkinDiff(diff: FileDiff, styleOverride?: DiffStyle, termWidth?: number): string {
+  const style = styleOverride || getDiffConfig().style;
+
+  switch (style) {
+    case 'unified':
+      return formatUnifiedDiff(diff);
+    case 'side-by-side':
+      return formatSideBySideDiff(diff, termWidth);
+    case 'inline':
+    default:
+      return formatDiff(diff, getDiffConfig().contextLines);
+  }
 }

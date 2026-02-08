@@ -23,6 +23,11 @@ interface RunningTask {
 const runningTasks = new Map<string, RunningTask>();
 
 /**
+ * Max output size per sub-agent (100K chars) to prevent context blowout
+ */
+const MAX_AGENT_OUTPUT = 100_000;
+
+/**
  * Get environment variables for an agent
  * Passes through existing env with terminal settings
  */
@@ -103,7 +108,15 @@ export async function* executeAgent(
   proc.stdout?.on('data', (data) => {
     const content = data.toString();
     const running = runningTasks.get(task.id);
-    if (running) running.output += content;
+    if (running) {
+      if (running.output.length < MAX_AGENT_OUTPUT) {
+        running.output += content;
+        if (running.output.length > MAX_AGENT_OUTPUT) {
+          running.output = running.output.slice(0, MAX_AGENT_OUTPUT) +
+            '\n\n[Sub-agent output truncated at 100K chars]';
+        }
+      }
+    }
 
     events.push({
       type: 'text',
@@ -118,7 +131,9 @@ export async function* executeAgent(
   proc.stderr?.on('data', (data) => {
     const content = data.toString();
     const running = runningTasks.get(task.id);
-    if (running) running.output += content;
+    if (running && running.output.length < MAX_AGENT_OUTPUT) {
+      running.output += content;
+    }
 
     events.push({
       type: 'text',

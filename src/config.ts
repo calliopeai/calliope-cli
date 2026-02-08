@@ -60,6 +60,15 @@ export interface CalliopeConfig {
   layout: 'classic' | 'response-top' | 'response-bottom' | 'split';  // UI layout preference
   density: 'normal' | 'compact';  // Display density (compact = less whitespace)
 
+  // HUD settings
+  activeSkin: string;           // Current skin name (default: 'clean')
+  activePalette: string;        // Current palette name (default: 'default')
+  activeCompanion: string;      // Current companion name (default: 'professional')
+  diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
+  borderStyle: 'rounded' | 'sharp' | 'double' | 'ascii' | 'none';  // Border style override
+  bannerStyle: 'full' | 'compact' | 'none';  // Banner display style
+  renderer: 'ink' | 'legacy' | 'headless';  // Rendering engine
+
   // Profiles
   profiles?: Record<string, Profile>;
   activeProfile?: string;
@@ -68,7 +77,7 @@ export interface CalliopeConfig {
 const DEFAULT_CONFIG: CalliopeConfig = {
   setupComplete: false,
   defaultProvider: 'auto',
-  persona: 'calliope',
+  persona: 'professional',
   maxIterations: 500,
   fancyOutput: true,
   autoSaveHistory: true,
@@ -78,6 +87,13 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   toolDisplayLimit: 0,  // 0 = show all expanded
   layout: 'response-bottom',  // Default: tools scroll up, response at bottom
   density: 'normal',  // normal or compact
+  activeSkin: 'clean',
+  activePalette: 'default',
+  activeCompanion: 'professional',
+  diffStyle: 'inline',
+  borderStyle: 'rounded',
+  bannerStyle: 'full',
+  renderer: 'ink',
 };
 
 // Create config store
@@ -112,6 +128,13 @@ const config = new Conf<CalliopeConfig>({
     toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
     layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split'] },
     density: { type: 'string', enum: ['normal', 'compact'] },
+    activeSkin: { type: 'string' },
+    activePalette: { type: 'string' },
+    activeCompanion: { type: 'string' },
+    diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
+    borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },
+    bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
+    renderer: { type: 'string', enum: ['ink', 'legacy', 'headless'] },
   },
 });
 
@@ -325,7 +348,7 @@ const BUILTIN_PROFILES: Record<string, Profile> = {
   smart: {
     provider: 'anthropic',
     model: 'claude-sonnet-4-20250514',
-    persona: 'calliope',
+    persona: 'professional',
     confirmMode: true,
   },
   cheap: {

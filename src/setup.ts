@@ -7,22 +7,7 @@
 import { input, select, confirm, password } from '@inquirer/prompts';
 import * as config from './config.js';
 import type { LLMProvider, AgentPersona } from './config.js';
-
-// ANSI colors
-const colors = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  cyan: '\x1b[36m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  magenta: '\x1b[35m',
-  brightCyan: '\x1b[96m',
-};
-
-function c(text: string, color: keyof typeof colors): string {
-  return `${colors[color]}${text}${colors.reset}`;
-}
+import { color as c } from './styles.js';
 
 const BANNER = `
 ${c(' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗', 'brightCyan')}
@@ -32,7 +17,7 @@ ${c('██║     ██╔══██║██║     ██║     ██║
 ${c('╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗', 'brightCyan')}
 ${c(' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝', 'cyan')}
 
-        ${c('The Muse of Digital Eloquence', 'dim')}
+        ${c('Multi-Model AI Agent CLI', 'dim')}
 `;
 
 /**
@@ -199,11 +184,11 @@ export async function runSetup(force = false): Promise<boolean> {
   const personaChoice = await select({
     message: 'Choose Calliope\'s personality:',
     choices: [
-      { value: 'calliope', name: 'Calliope (Poetic)', description: 'The Muse - creative with artistic flair' },
-      { value: 'professional', name: 'Professional', description: 'Clear, concise, and thorough' },
+      { value: 'professional', name: 'Professional (Recommended)', description: 'Clear, concise, and thorough' },
+      { value: 'calliope', name: 'Calliope (Poetic)', description: 'Creative with artistic flair' },
       { value: 'minimal', name: 'Minimal', description: 'Extremely brief and efficient' },
     ],
-    default: 'calliope',
+    default: 'professional',
   });
 
   config.set('persona', personaChoice as AgentPersona);

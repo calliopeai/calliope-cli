@@ -2,13 +2,14 @@
 /**
  * Calliope CLI - Main Entry Point
  *
- * Multi-model AI agent CLI with Ralph Wiggum autonomous loops.
+ * Multi-model AI agent CLI with autonomous agent loops.
  * Run `calliope` to start an interactive session.
  */
 
 import { runSetup } from './setup.js';
 import * as config from './config.js';
 import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
+import { colors } from './styles.js';
 
 // Handle CLI flags
 const args = process.argv.slice(2);
@@ -23,8 +24,16 @@ const useLegacyUI = args.includes('--legacy');
 // Check for AGTerm mode (multi-agent orchestration)
 const agtermEnabled = args.includes('--agterm') || args.includes('-a');
 
+// Check for headless mode (no-TTY agent orchestration)
+const useHeadless = args.includes('--headless') || !process.stdout.isTTY;
+
+// HUD environment variable overrides
+const envSkin = process.env.CALLIOPE_SKIN;
+const envPalette = process.env.CALLIOPE_PALETTE;
+const envCompanion = process.env.CALLIOPE_COMPANION;
+
 // Export for CLI to access
-export { skipPermissions, agtermEnabled };
+export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion };
 
 async function main(): Promise<void> {
   // Handle --help
@@ -57,19 +66,19 @@ async function main(): Promise<void> {
     const hasUpdate = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
 
     if (!hasUpdate) {
-      console.log(`\x1b[32m✓\x1b[0m Already on latest version (v${current})`);
+      console.log(`${colors.green}✓${colors.reset} Already on latest version (v${current})`);
       process.exit(0);
     }
 
-    console.log(`\x1b[33m→\x1b[0m New version available: v${latest}`);
+    console.log(`${colors.yellow}→${colors.reset} New version available: v${latest}`);
     console.log('Upgrading...');
 
     const success = await performUpgrade();
     if (success) {
-      console.log(`\x1b[32m✓\x1b[0m Upgraded to v${latest}`);
+      console.log(`${colors.green}✓${colors.reset} Upgraded to v${latest}`);
       process.exit(0);
     } else {
-      console.log('\x1b[31m✗\x1b[0m Upgrade failed. Try: npm install -g @calliopelabs/cli@latest');
+      console.log(`${colors.red}✗${colors.reset} Upgrade failed. Try: npm install -g @calliopelabs/cli@latest`);
       process.exit(1);
     }
   }
@@ -99,15 +108,15 @@ async function main(): Promise<void> {
 
   // Show warning if god-mode enabled
   if (skipPermissions) {
-    console.log('\x1b[35m⚡ GOD MODE ENABLED\x1b[0m');
-    console.log('\x1b[2m   Tools execute without confirmation. Use wisely.\x1b[0m');
+    console.log(`${colors.magenta}⚡ GOD MODE ENABLED${colors.reset}`);
+    console.log(`${colors.dim}   Tools execute without confirmation. Use wisely.${colors.reset}`);
     console.log();
   }
 
   // Show notice if agterm mode enabled
   if (agtermEnabled) {
-    console.log('\x1b[36m🤖 AGTERM MODE ENABLED\x1b[0m');
-    console.log('\x1b[2m   Multi-agent orchestration active. Use /agents to see available sub-agents.\x1b[0m');
+    console.log(`${colors.cyan}🤖 AGTERM MODE ENABLED${colors.reset}`);
+    console.log(`${colors.dim}   Multi-agent orchestration active. Use /agents to see available sub-agents.${colors.reset}`);
     console.log();
   }
 
@@ -145,13 +154,35 @@ async function main(): Promise<void> {
 }
 
 async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
+  // Initialize HUD (skin + palette + companion)
+  const { applySkin, applyPalette } = await import('./hud.js');
+  const { applyCompanion } = await import('./companions.js');
+
+  const skinName = envSkin || config.get('activeSkin') || 'clean';
+  const paletteName = envPalette || config.get('activePalette') || 'default';
+  const companionName = envCompanion || config.get('activeCompanion') || 'professional';
+
+  applySkin(skinName);
+  applyPalette(paletteName);
+  applyCompanion(companionName);
+
   // Merge in global flags
   const fullOptions = {
     ...options,
     agtermEnabled: options.agtermEnabled ?? agtermEnabled,
   };
 
-  if (useLegacyUI) {
+  if (useHeadless) {
+    // Use headless renderer (no-TTY, JSON/text output)
+    const { runHeadless } = await import('./headless.js');
+    // Extract prompt from remaining args (non-flag args)
+    const prompt = args.filter(a => !a.startsWith('-')).join(' ');
+    const exitCode = await runHeadless({
+      prompt: prompt || undefined,
+      outputMode: args.includes('--json') ? 'json' : 'text',
+    });
+    process.exit(exitCode);
+  } else if (useLegacyUI) {
     // Use legacy readline-based CLI
     const { startCLI: start } = await import('./cli.js');
     await start(fullOptions);
@@ -183,6 +214,9 @@ ${bold('OPTIONS')}
   -a, --agterm      Enable multi-agent orchestration mode
                     Unlock spawn_agent, check_agent tools
   --legacy          Use legacy readline UI instead of ink
+  --headless        Use headless renderer (JSON/text, no TTY)
+                    Auto-enabled when stdout is not a terminal
+  --json            Output JSON events (with --headless)
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
@@ -198,12 +232,16 @@ ${bold('ENVIRONMENT VARIABLES')}
   LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
   LITELLM_API_KEY       LiteLLM API key (if required)
 
+  CALLIOPE_SKIN         Override active skin (e.g. falcon, matrix)
+  CALLIOPE_PALETTE      Override active palette (e.g. neon, pastel)
+  CALLIOPE_COMPANION    Override active companion (e.g. copilot, wopr)
+
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands
   /provider         Switch AI provider
   /model            Change model
   /persona          Change personality
-  /loop             Start autonomous loop (Ralph Wiggum)
+  /loop             Start autonomous agent loop
   /save             Save session
   /exit             Exit
 
@@ -218,7 +256,7 @@ ${bold('MORE INFO')}
 }
 
 function bold(text: string): string {
-  return `\x1b[1m${text}\x1b[0m`;
+  return `${colors.bold}${text}${colors.reset}`;
 }
 
 // Run
