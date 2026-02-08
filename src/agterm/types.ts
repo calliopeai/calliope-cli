@@ -40,6 +40,7 @@ export interface SubAgentTask {
   result?: string;
   error?: string;
   pid?: number;
+  swarmId?: string;
   createdAt: Date;
   updatedAt: Date;
   startedAt?: Date;

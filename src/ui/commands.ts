@@ -18,7 +18,8 @@ import * as skills from '../skills.js';
 import * as modelRouter from '../model-router.js';
 import * as summarization from '../summarization.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
-import { getAgentStatusReport } from '../agterm/index.js';
+import { getAgentStatusReport, swarmManager } from '../agterm/index.js';
+import type { DecompositionStrategy, AggregationStrategy } from '../agterm/index.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
@@ -166,6 +167,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /collapse [tools|all|off] - Collapse/expand tool output
   /upgrade                 - Check for updates
   /agents                  - Show sub-agent status (--agterm mode)
+  /swarm [start|status|list] - Swarm mode: parallel task decomposition
   /scope [details|reset]   - Show/manage file access scope
   /add-dir <path>          - Add directory to allowed scope
   /remove-dir <path>       - Remove directory from scope
@@ -1905,6 +1907,116 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
   /smart off           - Disable, use fixed provider
   /smart cost <0-1>    - Set cost sensitivity (0=quality, 1=cheapest)
   /smart test <msg>    - Test routing decision for a message`);
+      }
+      break;
+    }
+
+    // ================================================================
+    // Swarm Mode
+    // ================================================================
+
+    case '/swarm': {
+      const subCmd = parts[1];
+      if (!ctx.agtermEnabled) {
+        ctx.addMessage('system', 'AGTerm mode not enabled. Start with --agterm flag to use swarm mode.');
+        break;
+      }
+
+      if (subCmd === 'start' || (subCmd && !['status', 'list', 'cancel', 'help'].includes(subCmd))) {
+        // /swarm start <prompt> or /swarm <prompt>
+        const promptStart = subCmd === 'start' ? 2 : 1;
+        const prompt = parts.slice(promptStart).join(' ');
+        if (!prompt) {
+          ctx.addMessage('system', 'Usage: /swarm <task description>\n  /swarm start <task> [--strategy parallel|sequential|map-reduce|pipeline] [--aggregation concatenate|merge-dedupe|summarize|structured]');
+          break;
+        }
+
+        // Parse optional flags from the prompt
+        let strategy: DecompositionStrategy = 'parallel';
+        let aggregation: AggregationStrategy = 'concatenate';
+        let cleanPrompt = prompt;
+
+        const strategyMatch = prompt.match(/--strategy\s+(parallel|sequential|map-reduce|pipeline)/);
+        if (strategyMatch) {
+          strategy = strategyMatch[1] as DecompositionStrategy;
+          cleanPrompt = cleanPrompt.replace(strategyMatch[0], '').trim();
+        }
+
+        const aggMatch = prompt.match(/--aggregation\s+(concatenate|merge-dedupe|summarize|structured)/);
+        if (aggMatch) {
+          aggregation = aggMatch[1] as AggregationStrategy;
+          cleanPrompt = cleanPrompt.replace(aggMatch[0], '').trim();
+        }
+
+        try {
+          const session = await swarmManager.startSwarm(
+            cleanPrompt,
+            { decomposition: strategy, aggregation }
+          );
+          ctx.addMessage('system', `\u2713 Swarm started: ${session.id.slice(0, 8)}\nStrategy: ${strategy} \u2192 ${aggregation}\nStatus: ${session.status}\n\nUse /swarm status ${session.id.slice(0, 8)} to check progress.`);
+        } catch (err) {
+          ctx.addMessage('error', `Failed to start swarm: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      } else if (subCmd === 'status') {
+        const sessionId = parts[2];
+        if (sessionId) {
+          const session = swarmManager.getAllSessions().find(s => s.id.startsWith(sessionId));
+          if (session) {
+            let msg = swarmManager.formatSessionStatus(session);
+            if (session.status === 'completed' && session.result) {
+              msg += `\n\nResult:\n${session.result.slice(0, 500)}${(session.result.length > 500) ? '...' : ''}`;
+            }
+            ctx.addMessage('system', msg);
+          } else {
+            ctx.addMessage('system', `Swarm session not found: ${sessionId}`);
+          }
+        } else {
+          const sessions = swarmManager.getAllSessions();
+          if (sessions.length === 0) {
+            ctx.addMessage('system', 'No swarm sessions.');
+          } else {
+            const lines = sessions.map(s => {
+              const subtaskInfo = s.subtasks.length > 0
+                ? ` (${s.subtasks.filter(st => st.status === 'completed').length}/${s.subtasks.length} done)`
+                : '';
+              return `  ${s.id.slice(0, 8)} ${s.status}${subtaskInfo} - ${s.prompt.slice(0, 50)}`;
+            });
+            ctx.addMessage('system', `Swarm Sessions:\n${lines.join('\n')}`);
+          }
+        }
+      } else if (subCmd === 'list') {
+        const sessions = swarmManager.getAllSessions();
+        const stats = swarmManager.getStats();
+        let msg = `Swarm Stats: ${stats.totalSessions} total, ${stats.activeSessions} active, ${stats.completedSessions} completed, ${stats.failedSessions} failed\n`;
+        if (sessions.length > 0) {
+          for (const s of sessions) {
+            msg += `\n  ${s.id.slice(0, 8)} [${s.status}] ${s.prompt.slice(0, 60)}`;
+          }
+        }
+        ctx.addMessage('system', msg);
+      } else if (subCmd === 'cancel' && parts[2]) {
+        const session = swarmManager.getAllSessions().find(s => s.id.startsWith(parts[2]));
+        if (session) {
+          await swarmManager.cancelSwarm(session.id);
+          ctx.addMessage('system', `\u2713 Swarm ${parts[2]} cancelled.`);
+        } else {
+          ctx.addMessage('system', `Swarm session not found: ${parts[2]}`);
+        }
+      } else {
+        ctx.addMessage('system', `Swarm Mode: Decompose complex tasks into parallel subtasks.
+
+Usage:
+  /swarm <task>                    Start a swarm with default settings
+  /swarm start <task> [options]    Start with explicit options
+  /swarm status [id]               Show swarm session status
+  /swarm list                      List all swarm sessions
+  /swarm cancel <id>               Cancel a running swarm
+
+Options:
+  --strategy parallel|sequential|map-reduce|pipeline
+  --aggregation concatenate|merge-dedupe|summarize|structured
+
+Requires --agterm flag.`);
       }
       break;
     }

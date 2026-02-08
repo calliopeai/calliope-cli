@@ -6,8 +6,10 @@
 
 import type { Tool, ToolCall, ToolResult } from '../types.js';
 import { orchestrator } from './orchestrator.js';
+import { swarmManager } from './swarm.js';
 import { getAvailableAgents, detectAgents } from './agent-detection.js';
 import type { SubAgentType, TaskPriority } from './types.js';
+import type { DecompositionStrategy, AggregationStrategy } from './swarm-types.js';
 
 /**
  * Build dynamic tool description with available agents
@@ -106,13 +108,88 @@ export function getAgtermTools(): Tool[] {
         required: ['taskId'],
       },
     },
+    {
+      name: 'start_swarm',
+      description: `Start a swarm to decompose a complex task into parallel subtasks.
+An overseer agent breaks the task down, then worker agents execute subtasks concurrently.
+Results are aggregated into a single response.
+
+Strategies:
+- parallel: Independent subtasks, all run at once
+- sequential: Ordered steps, each depends on previous
+- map-reduce: Map phase (parallel) then merge results
+- pipeline: Stages that transform output sequentially
+
+Aggregation:
+- concatenate: Ordered concatenation with headers
+- merge-dedupe: Combine and remove duplicates
+- summarize: Key points from each subtask
+- structured: Organized report format`,
+      parameters: {
+        type: 'object',
+        properties: {
+          prompt: {
+            type: 'string',
+            description: 'The complex task to decompose and execute',
+          },
+          strategy: {
+            type: 'string',
+            description: 'Decomposition strategy (default: parallel)',
+            enum: ['parallel', 'sequential', 'map-reduce', 'pipeline'],
+          },
+          aggregation: {
+            type: 'string',
+            description: 'How to merge results (default: concatenate)',
+            enum: ['concatenate', 'merge-dedupe', 'summarize', 'structured'],
+          },
+          maxWorkers: {
+            type: 'number',
+            description: 'Maximum concurrent workers (default: 3)',
+          },
+          workerAgent: {
+            type: 'string',
+            description: 'Agent type for workers (default: claude)',
+            enum: ['calliope', 'claude', 'gemini', 'codex'],
+          },
+        },
+        required: ['prompt'],
+      },
+    },
+    {
+      name: 'check_swarm',
+      description: 'Check the status of a swarm session. Shows subtask progress and results.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'The swarm session ID',
+          },
+        },
+        required: ['sessionId'],
+      },
+    },
+    {
+      name: 'cancel_swarm',
+      description: 'Cancel a running swarm session and all its subtasks.',
+      parameters: {
+        type: 'object',
+        properties: {
+          sessionId: {
+            type: 'string',
+            description: 'The swarm session ID to cancel',
+          },
+        },
+        required: ['sessionId'],
+      },
+    },
   ];
 }
 
 /**
  * AGTerm tool names for quick lookup
  */
-export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent'];
+export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm'];
 
 /**
  * Check if a tool name is an agterm tool
@@ -287,6 +364,87 @@ ${task.error || task.result || '(no output)'}`;
           await orchestrator.cancelTask(taskId);
           result = `Task ${taskId} cancelled.`;
         }
+        break;
+      }
+
+      case 'start_swarm': {
+        const prompt = String(args.prompt || '');
+        if (!prompt) {
+          return {
+            toolCallId: id,
+            result: 'Error: prompt is required',
+            isError: true,
+          };
+        }
+
+        const strategy = (args.strategy as DecompositionStrategy) || 'parallel';
+        const aggregation = (args.aggregation as AggregationStrategy) || 'concatenate';
+        const maxWorkers = typeof args.maxWorkers === 'number' ? args.maxWorkers : 3;
+        const workerAgent = (args.workerAgent as SubAgentType) || 'claude';
+
+        try {
+          const session = await swarmManager.startSwarm(
+            prompt,
+            { decomposition: strategy, aggregation, maxWorkers, workerAgent },
+            cwd
+          );
+
+          result = `Swarm started.
+Session ID: ${session.id}
+Strategy: ${strategy} → ${aggregation}
+Workers: ${maxWorkers}x ${workerAgent}
+Status: ${session.status}
+
+Use check_swarm("${session.id}") to monitor progress.`;
+        } catch (err) {
+          return {
+            toolCallId: id,
+            result: `Error starting swarm: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+        break;
+      }
+
+      case 'check_swarm': {
+        const sessionId = String(args.sessionId || '');
+        if (!sessionId) {
+          return {
+            toolCallId: id,
+            result: 'Error: sessionId is required',
+            isError: true,
+          };
+        }
+
+        const session = swarmManager.getSession(sessionId);
+        if (!session) {
+          result = `Swarm session not found: ${sessionId}`;
+        } else {
+          result = swarmManager.formatSessionStatus(session);
+          if (session.status === 'completed' && session.result) {
+            result += `\n\nResult:\n${session.result}`;
+          }
+          if (session.status === 'failed' && session.error) {
+            result += `\n\nError: ${session.error}`;
+          }
+        }
+        break;
+      }
+
+      case 'cancel_swarm': {
+        const sessionId = String(args.sessionId || '');
+        if (!sessionId) {
+          return {
+            toolCallId: id,
+            result: 'Error: sessionId is required',
+            isError: true,
+          };
+        }
+
+        const cancelled = await swarmManager.cancelSwarm(sessionId);
+        result = cancelled
+          ? `Swarm session ${sessionId} cancelled.`
+          : `Swarm session not found: ${sessionId}`;
         break;
       }
 

@@ -51,3 +51,34 @@ export {
   isAgtermTool,
   executeAgtermTool,
 } from './tools.js';
+
+// Swarm
+export type {
+  SwarmSession,
+  SwarmSubtask,
+  SwarmConfig,
+  SwarmStatus,
+  SwarmSubtaskStatus,
+  DecompositionStrategy,
+  AggregationStrategy,
+} from './swarm-types.js';
+
+export { DEFAULT_SWARM_CONFIG } from './swarm-types.js';
+
+export { swarmManager } from './swarm.js';
+
+// Decomposer
+export {
+  buildDecompositionPrompt,
+  parseDecompositionResponse,
+  resolveDependencies,
+  getReadySubtasks,
+  allSubtasksDone,
+  hasFailedSubtasks,
+} from './decomposer.js';
+
+// Aggregator
+export {
+  aggregateResults,
+  buildAggregationPrompt,
+} from './aggregator.js';
