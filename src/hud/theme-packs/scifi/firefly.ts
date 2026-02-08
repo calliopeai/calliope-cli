@@ -62,7 +62,7 @@ export const FIREFLY_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -91,13 +91,15 @@ export const FIREFLY_PACK: ThemePack = {
       entryAnimation: 'typewriter',
       animationSpeed: 40,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'warp-speed',
+        duration: 1300,
         color: '#8B4513',
+        colorSecondary: '#FF8C00',
+        chars: '~≈*·SHINY',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['·', '··', '···', '··'],
     },
     density: 'normal',

@@ -86,12 +86,13 @@ export const TETRIS_PACK: ThemePack = {
         { text: '  ██████  ', color: '#00FF00' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 40,
+      animationSpeed: 30,
       transition: {
-        effect: 'pixel-dissolve',
-        duration: 800,
+        effect: 'rainbow-wave',
+        duration: 900,
         color: '#00FFFF',
         colorSecondary: '#FF00FF',
+        chars: '\u25AA\u25AB\u25AC\u25AE\u25A6\u25A9\u25A3\u25A2[]',
       },
     },
     animations: {

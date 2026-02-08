@@ -68,7 +68,7 @@ export const X_FILES_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -101,12 +101,14 @@ export const X_FILES_PACK: ThemePack = {
         { text: '  ║                                              ║', color: '#000000' },
         { text: '  ╚══════════════════════════════════════════════╝', color: '#006600' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 45,
+      entryAnimation: 'typewriter',
+      animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
-        duration: 800,
+        effect: 'static-noise',
+        duration: 1400,
         color: '#006600',
+        colorSecondary: '#00FF00',
+        chars: '·★XFILE?TRUST',
       },
     },
     animations: {

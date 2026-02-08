@@ -62,7 +62,7 @@ export const ALTERED_CARBON_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -83,16 +83,17 @@ export const ALTERED_CARBON_PACK: ThemePack = {
         { text: '  Death is not the end. It\'s just a sleeve away.', color: '#1A0033' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 30,
+      animationSpeed: 35,
       transition: {
         effect: 'glitch',
-        duration: 600,
+        duration: 1100,
         color: '#9B30FF',
         colorSecondary: '#FF0044',
+        chars: '◈◇◆STACK/SLEEVE',
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'digital-rain',
       thinkingSpinner: ['\u25C8', '\u25C7', '\u25C8', '\u25C6', '\u25C8'],
     },
     density: 'normal',

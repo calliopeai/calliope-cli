@@ -50,17 +50,25 @@ export const MISANTHROPY_PACK: ThemePack = {
       spawn_agent: '&',
     },
     frame: {
-      enabled: false,
-      style: 'none',
+      enabled: true,
+      style: 'sides',
     },
     splash: {
       coloredArt: [
         { text: '  calliope', color: '#888888' },
       ],
-      entryAnimation: 'none',
+      entryAnimation: 'typewriter',
+      animationSpeed: 80,
+      transition: {
+        effect: 'glitch',
+        duration: 1500,
+        color: '#FF0000',
+        colorSecondary: '#330000',
+        chars: '×÷∅∄',
+      },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
     },
     diff: {
       style: 'inline',

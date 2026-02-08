@@ -16,7 +16,6 @@ export type ThemeCategory =
   | 'retro'
   | 'cultural'
   | 'seasonal'
-  | 'medical'
   | 'minimal'
   | 'custom';
 

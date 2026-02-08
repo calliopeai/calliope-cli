@@ -72,7 +72,7 @@ export const MARIO_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -88,8 +88,14 @@ export const MARIO_PACK: ThemePack = {
         { text: '  ▀▀▀ World 1-1 Starting... ▀▀▀  ', color: '#FF0000' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 50,
-      transition: { effect: 'pixel-dissolve', duration: 1500, color: '#FF0000', colorSecondary: '#FFD700' },
+      animationSpeed: 30,
+      transition: {
+        effect: 'pixel-dissolve',
+        duration: 1200,
+        color: '#FF0000',
+        colorSecondary: '#FFD700',
+        chars: '?!*@#$%&',
+      },
     },
     animations: {
       ambient: 'pulse-border',

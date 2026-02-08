@@ -59,7 +59,7 @@ export const MATRIX_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'sides',
+      style: 'full',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -78,8 +78,15 @@ export const MATRIX_PACK: ThemePack = {
         { text: '         Follow the white rabbit.                 ', color: '#006600' },
         { text: '                                                  ', color: '#003300' },
       ],
-      entryAnimation: 'typewriter',
-      animationSpeed: 40,
+      entryAnimation: 'scan-lines',
+      animationSpeed: 30,
+      transition: {
+        effect: 'matrix-rain',
+        duration: 1500,
+        color: '#00FF00',
+        colorSecondary: '#003300',
+        chars: 'ᵯₐₜᵣᵢₓ01░▒▓',
+      },
     },
     animations: {
       ambient: 'digital-rain',

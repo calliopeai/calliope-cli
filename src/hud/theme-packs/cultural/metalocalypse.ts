@@ -73,7 +73,7 @@ export const METALOCALYPSE_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -95,16 +95,17 @@ export const METALOCALYPSE_PACK: ThemePack = {
         { text: '         \\m/  BRUTAL  \\m/', color: '#FF0000' },
       ],
       entryAnimation: 'scan-lines',
-      animationSpeed: 20,
+      animationSpeed: 25,
       transition: {
         effect: 'glitch',
-        duration: 800,
+        duration: 900,
         color: '#FF0000',
         colorSecondary: '#000000',
+        chars: ['🤘', '💀', '🎸', '\\m/', '†', '▓', '█'],
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'scan-line',
       thinkingSpinner: ['🤘', '💀', '🤘', '💀'],
     },
     density: 'normal',

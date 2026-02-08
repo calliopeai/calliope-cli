@@ -63,7 +63,7 @@ export const AUTUMN_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -81,12 +81,13 @@ export const AUTUMN_PACK: ThemePack = {
         { text: '     Leaves fall. Code endures.', color: '#1A0F00' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 60,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'fade',
+        duration: 1600,
         color: '#FF8C00',
         colorSecondary: '#8B4513',
+        chars: '🍂🍁🎃🌾',
       },
     },
     animations: {

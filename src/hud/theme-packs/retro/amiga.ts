@@ -66,7 +66,7 @@ export const AMIGA_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -93,10 +93,11 @@ export const AMIGA_PACK: ThemePack = {
       entryAnimation: 'scan-lines',
       animationSpeed: 35,
       transition: {
-        effect: 'static-noise',
-        duration: 800,
+        effect: 'rainbow-wave',
+        duration: 1400,
         color: '#0055AA',
         colorSecondary: '#FF8800',
+        chars: '▓▒░█▄▀',
       },
     },
     animations: {

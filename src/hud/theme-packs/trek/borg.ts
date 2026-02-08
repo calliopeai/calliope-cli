@@ -95,10 +95,11 @@ export const BORG_PACK: ThemePack = {
       entryAnimation: 'scan-lines',
       animationSpeed: 20,
       transition: {
-        effect: 'digital-rain',
-        duration: 1500,
+        effect: 'glitch',
+        duration: 1800,
         color: '#00FF00',
-        colorSecondary: '#003300',
+        colorSecondary: '#001100',
+        chars: '█▓▒░01',
       },
     },
     animations: {

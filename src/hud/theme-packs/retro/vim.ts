@@ -65,7 +65,7 @@ export const VIM_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'status-only',
       titleBar: {
         enabled: true,
         position: 'bottom',
@@ -86,11 +86,13 @@ export const VIM_PACK: ThemePack = {
         { text: '   type :help for help      ', color: '#333333' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 35,
+      animationSpeed: 30,
       transition: {
-        effect: 'terminal-boot',
+        effect: 'fade',
         duration: 800,
         color: '#00FF00',
+        colorSecondary: '#019833',
+        chars: ':~hjkl',
       },
     },
     animations: {

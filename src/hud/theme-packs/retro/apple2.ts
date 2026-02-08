@@ -67,7 +67,7 @@ export const APPLE2_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -90,16 +90,17 @@ export const APPLE2_PACK: ThemePack = {
         { text: '   ==============================  ', color: '#001100' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 50,
+      animationSpeed: 100,
       transition: {
-        effect: 'terminal-boot',
-        duration: 1200,
+        effect: 'fade',
+        duration: 1000,
         color: '#33FF33',
-        colorSecondary: '#00AA00',
+        colorSecondary: '#005500',
+        chars: ']_*=',
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'none',
       thinkingSpinner: ['_', ' ', '█', ' ', '_', ' ', '█', ' '],
     },
     density: 'compact',

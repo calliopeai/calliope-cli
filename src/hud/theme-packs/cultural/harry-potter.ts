@@ -109,11 +109,13 @@ export const HARRY_POTTER_PACK: ThemePack = {
         { text: '     forget to code."       ~ Albus Dumbledore', color: '#FFD700' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 45,
+      animationSpeed: 60,
       transition: {
-        effect: 'fade-in',
-        color: '#8B0000',
-        colorSecondary: '#FFD700',
+        effect: 'sparkle',
+        duration: 1300,
+        color: '#FFD700',
+        colorSecondary: '#8B0000',
+        chars: ['⚡', '✨', '🪄', '★', '☆', '◈', '🦉'],
       },
     },
     animations: {

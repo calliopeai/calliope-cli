@@ -62,7 +62,7 @@ export const BILL_AND_TED_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -83,12 +83,13 @@ export const BILL_AND_TED_PACK: ThemePack = {
         { text: '  ╚══════════════════════════════════════════╝', color: '#FF00FF' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 35,
+      animationSpeed: 30,
       transition: {
         effect: 'sparkle',
-        duration: 800,
+        duration: 1200,
         color: '#00FFFF',
         colorSecondary: '#FF00FF',
+        chars: '\\m/*~!',
       },
     },
     animations: {

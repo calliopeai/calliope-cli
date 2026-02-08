@@ -11,7 +11,7 @@ import type { ThemePack } from '../types.js';
 export const MEDICAL_PACK: ThemePack = {
   name: 'medical',
   description: 'Clinical terminal — EKG readouts, vital signs, sterile precision',
-  category: 'medical',
+  category: 'seasonal',
   tags: ['clinical', 'health', 'diagnostic', 'sterile'],
   relatedPacks: ['spring', 'summer', 'autumn', 'winter'],
 
@@ -62,7 +62,7 @@ export const MEDICAL_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -79,12 +79,14 @@ export const MEDICAL_PACK: ThemePack = {
         { text: ' \u2502  HR: 72bpm  BP: 120/80  SpO2: 98% \u2502', color: '#E0F0F0' },
         { text: ' \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256F', color: '#FFFFFF' },
       ],
-      entryAnimation: 'scan-lines',
-      animationSpeed: 30,
+      entryAnimation: 'typewriter',
+      animationSpeed: 40,
       transition: {
-        effect: 'scan-lines',
-        color: '#008080',
-        colorSecondary: '#FFFFFF',
+        effect: 'terminal-boot',
+        duration: 1000,
+        color: '#00FF00',
+        colorSecondary: '#003300',
+        chars: '♥♡▓░▒',
       },
     },
     animations: {

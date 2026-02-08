@@ -67,7 +67,7 @@ export const FUTURAMA_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -93,9 +93,11 @@ export const FUTURAMA_PACK: ThemePack = {
       entryAnimation: 'drop-in',
       animationSpeed: 35,
       transition: {
-        effect: 'drop-in',
+        effect: 'sparkle',
+        duration: 1000,
         color: '#FF4500',
         colorSecondary: '#00BFFF',
+        chars: '🤖⚙🔩📦BITE',
       },
     },
     animations: {

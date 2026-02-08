@@ -62,7 +62,7 @@ export const VOYAGER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'sides',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -91,13 +91,14 @@ export const VOYAGER_PACK: ThemePack = {
       animationSpeed: 40,
       transition: {
         effect: 'warp-speed',
-        duration: 1200,
-        color: '#00CCCC',
+        duration: 1600,
+        color: '#4682B4',
         colorSecondary: '#C0C0C0',
+        chars: '◁▷△▽☕',
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'digital-rain',
       thinkingSpinner: ['◁', '◀', '◁', '▷', '▶', '▷', '△', '▲', '△', '▽', '▼', '▽'],
     },
     density: 'normal',

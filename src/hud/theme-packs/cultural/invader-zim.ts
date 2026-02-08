@@ -75,7 +75,7 @@ export const INVADER_ZIM_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -99,13 +99,14 @@ export const INVADER_ZIM_PACK: ThemePack = {
       animationSpeed: 20,
       transition: {
         effect: 'glitch',
-        duration: 800,
-        color: '#FF00FF',
+        duration: 900,
+        color: '#9B30FF',
         colorSecondary: '#00FF00',
+        chars: ['◈', '◇', '👽', '🛸', '◆', '▼', '▲'],
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'digital-rain',
       thinkingSpinner: ['\u25C8', '\u25C7', '\u25C8', '\u25C7'],
     },
     density: 'normal',

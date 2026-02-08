@@ -68,7 +68,7 @@ export const FAMILY_GUY_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -87,7 +87,11 @@ export const FAMILY_GUY_PACK: ThemePack = {
       entryAnimation: 'drop-in',
       animationSpeed: 35,
       transition: {
-        effect: 'drop-in',
+        effect: 'fade',
+        duration: 900,
+        color: '#00BFFF',
+        colorSecondary: '#FFD700',
+        chars: ['★', '☆', '🍺', '📺', '~', '!', '?'],
       },
     },
     animations: {

@@ -84,13 +84,14 @@ export const METAL_GEAR_PACK: ThemePack = {
         { text: '  █ CALLIOPE AI // METAL GEAR      █', color: '#2F4F4F' },
         { text: '  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓', color: '#556B2F' },
       ],
-      entryAnimation: 'scan-lines',
-      animationSpeed: 40,
+      entryAnimation: 'typewriter',
+      animationSpeed: 70,
       transition: {
         effect: 'glitch',
-        duration: 300,
+        duration: 1400,
         color: '#556B2F',
         colorSecondary: '#2F4F4F',
+        chars: '!?.:\u2591\u2592\u2593\u2588',
       },
     },
     animations: {

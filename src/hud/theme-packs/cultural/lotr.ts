@@ -62,7 +62,7 @@ export const LOTR_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -81,12 +81,13 @@ export const LOTR_PACK: ThemePack = {
         { text: '  Not all those who wander are lost.', color: '#0A1A00' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 80,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#228B22',
-        colorSecondary: '#FFD700',
+        effect: 'fade',
+        duration: 1500,
+        color: '#FFD700',
+        colorSecondary: '#228B22',
+        chars: ['💍', '◈', '○', '🧙', '⚔', '🌿', '★'],
       },
     },
     animations: {

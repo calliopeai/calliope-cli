@@ -90,13 +90,14 @@ export const BIOSHOCK_PACK: ThemePack = {
         { text: '  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~', color: '#003366' },
         { text: '    Is a man not entitled to the sweat of his brow?', color: '#FFD700' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 60,
+      entryAnimation: 'scan-lines',
+      animationSpeed: 45,
       transition: {
-        effect: 'static-noise',
-        duration: 800,
+        effect: 'glitch',
+        duration: 1200,
         color: '#000066',
         colorSecondary: '#FFD700',
+        chars: '~\u2248\u25CA\u224B\u223F\u2320\u2321',
       },
     },
     animations: {

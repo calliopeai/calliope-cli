@@ -89,10 +89,11 @@ export const TRON_PACK: ThemePack = {
       entryAnimation: 'scan-lines',
       animationSpeed: 25,
       transition: {
-        effect: 'scan-lines',
-        duration: 800,
+        effect: 'pixel-dissolve',
+        duration: 1100,
         color: '#00BFFF',
         colorSecondary: '#FF6600',
+        chars: '◈◇◆║═▓GRID',
       },
     },
     animations: {

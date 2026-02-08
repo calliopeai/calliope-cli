@@ -72,7 +72,7 @@ export const AKIRA_PACK: ThemePack = {
         customText: '▸ NEO-TOKYO — KANEDA ▸',
         alignment: 'center',
       },
-    },
+    } as ThemePack['skin']['frame'],
     splash: {
       coloredArt: [
         { text: '  ▓▒░  A K I R A  ░▒▓', color: '#FF0000' },
@@ -84,16 +84,17 @@ export const AKIRA_PACK: ThemePack = {
         { text: '  ▓▒░  C A L L I O P E  ░▒▓', color: '#FF0000' },
       ],
       entryAnimation: 'scan-lines',
-      animationSpeed: 20,
+      animationSpeed: 30,
       transition: {
         effect: 'glitch',
-        duration: 600,
+        duration: 1200,
         color: '#FF0000',
-        colorSecondary: '#FF4500',
+        colorSecondary: '#000000',
+        chars: ['▓', '▒', '░', '█', 'カ', 'ネ', 'ダ', '鉄', '雄'],
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'scan-line',
       thinkingSpinner: ['◉', '◎', '●', '◎'],
     },
     density: 'compact',

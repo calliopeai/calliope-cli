@@ -62,7 +62,7 @@ export const DS9_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -84,10 +84,11 @@ export const DS9_PACK: ThemePack = {
       entryAnimation: 'fade-in',
       animationSpeed: 50,
       transition: {
-        effect: 'warp-speed',
-        duration: 800,
-        color: '#000066',
-        colorSecondary: '#CD853F',
+        effect: 'static-noise',
+        duration: 1000,
+        color: '#FF8C00',
+        colorSecondary: '#8B4513',
+        chars: '◆◇⚾░▓',
       },
     },
     animations: {

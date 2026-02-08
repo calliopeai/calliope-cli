@@ -70,7 +70,7 @@ export const BANANA_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -97,12 +97,13 @@ export const BANANA_PACK: ThemePack = {
         { text: '   There\'s always money in the banana stand.', color: '#FFA500' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 25,
+      animationSpeed: 20,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
+        effect: 'rainbow-wave',
+        duration: 1100,
         color: '#FFD700',
         colorSecondary: '#FFFF00',
+        chars: ['🍌', '🐒', '~', ')', '(', '★', '☆'],
       },
     },
     animations: {

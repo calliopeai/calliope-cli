@@ -72,7 +72,7 @@ export const EGYPTIAN_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -96,12 +96,13 @@ export const EGYPTIAN_PACK: ThemePack = {
         { text: '  ☥ · ☥ · ☥ · ☥   ', color: '#1A0F00' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 75,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'warp-speed',
+        duration: 1400,
         color: '#FFD700',
         colorSecondary: '#191970',
+        chars: ['☥', '◈', '👁', '🐍', '☀', '◆', '△'],
       },
     },
     animations: {

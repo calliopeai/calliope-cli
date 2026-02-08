@@ -69,12 +69,12 @@ export const DOOM_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
         content: 'custom',
-        customText: '▓▓▓ UAC MARS FACILITY ▓▓▓ DEMONIC THREAT LEVEL: MAXIMUM ▓▓▓',
+        customText: '\u2593\u2593\u2593 UAC MARS FACILITY \u2593\u2593\u2593 DEMONIC THREAT LEVEL: MAXIMUM \u2593\u2593\u2593',
         alignment: 'center',
       },
     },
@@ -100,6 +100,7 @@ export const DOOM_PACK: ThemePack = {
         duration: 800,
         color: '#FF0000',
         colorSecondary: '#8B0000',
+        chars: '\u2588\u2593\u2592\u2591\u2620\u26A1\u2020',
       },
     },
     animations: {

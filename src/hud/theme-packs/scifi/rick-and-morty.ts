@@ -62,7 +62,7 @@ export const RICK_AND_MORTY_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -85,10 +85,11 @@ export const RICK_AND_MORTY_PACK: ThemePack = {
       entryAnimation: 'drop-in',
       animationSpeed: 25,
       transition: {
-        effect: 'glitch',
-        duration: 600,
-        color: '#00FF00',
+        effect: 'rainbow-wave',
+        duration: 1100,
+        color: '#39FF14',
         colorSecondary: '#00BFFF',
+        chars: '◉◌🌀WUBBA*BURP',
       },
     },
     animations: {

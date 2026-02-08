@@ -72,7 +72,7 @@ export const GREEK_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -93,12 +93,13 @@ export const GREEK_PACK: ThemePack = {
         { text: '           ⚡ Mount Olympus ⚡', color: '#1A1A2E' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 70,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'sparkle',
+        duration: 1300,
         color: '#FFFFFF',
-        colorSecondary: '#4169E1',
+        colorSecondary: '#FFD700',
+        chars: ['Ω', 'Δ', 'Φ', '⚡', '🏛', '◈', '☆'],
       },
     },
     animations: {

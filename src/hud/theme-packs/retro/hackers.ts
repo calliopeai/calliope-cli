@@ -66,7 +66,7 @@ export const HACKERS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -91,10 +91,11 @@ export const HACKERS_PACK: ThemePack = {
       entryAnimation: 'scan-lines',
       animationSpeed: 25,
       transition: {
-        effect: 'glitch',
-        duration: 600,
+        effect: 'matrix-rain',
+        duration: 1500,
         color: '#00FF00',
         colorSecondary: '#FF00FF',
+        chars: '01█▓▒░',
       },
     },
     animations: {

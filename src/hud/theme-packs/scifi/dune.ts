@@ -72,7 +72,7 @@ export const DUNE_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -92,12 +92,13 @@ export const DUNE_PACK: ThemePack = {
         { text: '  Fear is the mind-killer.', color: '#1A0F00' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 60,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'warp-speed',
+        duration: 1600,
         color: '#EDC967',
         colorSecondary: '#DAA520',
+        chars: '░▒▓≈~SPICE',
       },
     },
     animations: {

@@ -63,7 +63,7 @@ export const ENTERPRISE_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -84,16 +84,17 @@ export const ENTERPRISE_PACK: ThemePack = {
         { text: '  Where no human has gone before.', color: '#556B2F' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 40,
+      animationSpeed: 55,
       transition: {
         effect: 'fade',
-        duration: 600,
-        color: '#808000',
-        colorSecondary: '#C0C0C0',
+        duration: 1000,
+        color: '#C0C0C0',
+        colorSecondary: '#4169E1',
+        chars: '>-+|=',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['-', '\\', '|', '/', '-', '\\', '|', '/'],
     },
     density: 'normal',

@@ -402,7 +402,7 @@ export interface TransitionConfig {
   duration?: number;
   color?: string;
   colorSecondary?: string;
-  chars?: string;
+  chars?: string | string[];
 }
 
 /**
@@ -448,6 +448,16 @@ export async function renderTransition(config: TransitionConfig): Promise<void> 
       case 'static-noise':
         await staticNoise(cols, rows, duration);
         break;
+      case 'fade':
+      case 'fade-in':
+        await fadeEffect(cols, rows, duration, color);
+        break;
+      case 'scan-lines':
+        await scanLinesEffect(cols, rows, duration, color, colorSec);
+        break;
+      case 'digital-rain':
+        await matrixRain(cols, rows, duration, color, colorSec, config.chars);
+        break;
     }
   } finally {
     // Show cursor, clear screen
@@ -459,10 +469,10 @@ export async function renderTransition(config: TransitionConfig): Promise<void> 
 // --- Matrix Digital Rain ---
 async function matrixRain(
   cols: number, rows: number, duration: number,
-  color: string, colorDim: string, chars?: string,
+  color: string, colorDim: string, chars?: string | string[],
 ): Promise<void> {
-  const charset = chars || '\u30A2\u30A4\u30A6\u30A8\u30AA\u30AB\u30AD\u30AF\u30B1\u30B3\u30B5\u30B7\u30B9\u30BB\u30BD\u30BF\u30C1\u30C4\u30C6\u30C80123456789';
-  const charArr = [...charset];
+  const defaultChars = '\u30A2\u30A4\u30A6\u30A8\u30AA\u30AB\u30AD\u30AF\u30B1\u30B3\u30B5\u30B7\u30B9\u30BB\u30BD\u30BF\u30C1\u30C4\u30C6\u30C80123456789';
+  const charArr = Array.isArray(chars) ? chars : [...(chars || defaultChars)];
   const randChar = () => charArr[Math.floor(Math.random() * charArr.length)];
 
   // Column state: each column has a "drop" position that falls
@@ -815,6 +825,80 @@ async function staticNoise(cols: number, rows: number, duration: number): Promis
         }
       }
       output += line + '\n';
+    }
+
+    process.stdout.write(output);
+    await delay(frameTime);
+  }
+}
+
+// --- Fade Effect ---
+async function fadeEffect(cols: number, rows: number, duration: number, color: string): Promise<void> {
+  const frameTime = 60;
+  const frames = Math.floor(duration / frameTime);
+  const w = Math.min(cols, 120);
+  const h = Math.min(rows - 1, 25);
+  const blockChars = [' ', '\u2591', '\u2592', '\u2593', '\u2588', '\u2593', '\u2592', '\u2591', ' '];
+
+  process.stdout.write('\x1b[2J\x1b[H');
+
+  for (let f = 0; f < frames; f++) {
+    const progress = f / frames;
+    // Fade in then out: peak at 0.5
+    const intensity = Math.sin(progress * Math.PI);
+    const charIdx = Math.floor(intensity * (blockChars.length - 1));
+    const ch = blockChars[charIdx];
+
+    // Parse base color and scale brightness by intensity
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    const cr = Math.floor(r * intensity);
+    const cg = Math.floor(g * intensity);
+    const cb = Math.floor(b * intensity);
+    const hex = `#${cr.toString(16).padStart(2, '0')}${cg.toString(16).padStart(2, '0')}${cb.toString(16).padStart(2, '0')}`;
+
+    let output = '\x1b[H';
+    const line = colorFg(ch.repeat(w), hex);
+    for (let y = 0; y < h; y++) {
+      output += line + '\n';
+    }
+
+    process.stdout.write(output);
+    await delay(frameTime);
+  }
+}
+
+// --- Scan Lines Effect ---
+async function scanLinesEffect(
+  cols: number, rows: number, duration: number,
+  color: string, colorSec: string,
+): Promise<void> {
+  const frameTime = 50;
+  const frames = Math.floor(duration / frameTime);
+  const w = Math.min(cols, 120);
+  const h = Math.min(rows - 1, 25);
+
+  process.stdout.write('\x1b[2J\x1b[H');
+
+  for (let f = 0; f < frames; f++) {
+    const scanY = Math.floor((f / frames) * h * 2) % h;
+    let output = '\x1b[H';
+
+    for (let y = 0; y < h; y++) {
+      const dist = Math.abs(y - scanY);
+      if (dist === 0) {
+        // Bright scan line
+        output += colorFg('\u2588'.repeat(w), '#FFFFFF') + '\n';
+      } else if (dist <= 2) {
+        // Near glow
+        output += colorFg('\u2593'.repeat(w), color) + '\n';
+      } else if (dist <= 4) {
+        // Dim trail
+        output += colorFg('\u2591'.repeat(w), colorSec) + '\n';
+      } else {
+        output += ' '.repeat(w) + '\n';
+      }
     }
 
     process.stdout.write(output);

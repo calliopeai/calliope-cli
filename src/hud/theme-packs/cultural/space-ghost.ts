@@ -71,7 +71,7 @@ export const SPACE_GHOST_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -97,16 +97,17 @@ export const SPACE_GHOST_PACK: ThemePack = {
         { text: '       .  *  .    *    .   *   .  *  .    *', color: '#FFD700' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 60,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'static-noise',
+        duration: 1000,
         color: '#FFD700',
         colorSecondary: '#000000',
+        chars: ['👻', '⚡', '★', '☆', '█', '▓', '░'],
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['\u{1F47B}', '\u00B7', '\u{1F47B}', '\u00B7'],
     },
     density: 'normal',

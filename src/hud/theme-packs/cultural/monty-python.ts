@@ -65,7 +65,7 @@ export const MONTY_PYTHON_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -82,11 +82,13 @@ export const MONTY_PYTHON_PACK: ThemePack = {
         { text: '  |     "None shall pass!"              |', color: '#1A1A00' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 45,
+      animationSpeed: 70,
       transition: {
-        effect: 'drop-in',
+        effect: 'sparkle',
+        duration: 1200,
         color: '#8B4513',
         colorSecondary: '#FFD700',
+        chars: ['🥥', '🐇', '⚔', '!', 'N', 'i', '🏰'],
       },
     },
     animations: {

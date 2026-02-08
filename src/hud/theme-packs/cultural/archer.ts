@@ -70,7 +70,7 @@ export const ARCHER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -94,16 +94,17 @@ export const ARCHER_PACK: ThemePack = {
         { text: '  ╚══════════════════════════════════════════════╝', color: '#008080' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 35,
+      animationSpeed: 55,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'scan-lines',
+        duration: 1200,
         color: '#008080',
         colorSecondary: '#FF0000',
+        chars: ['◆', '◇', '🍸', '█', '▓', '░', '⊕'],
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['◆', '◇', '◆', '◇'],
     },
     density: 'normal',

@@ -185,8 +185,6 @@ export const THEME_PACKS: Record<string, ThemePack> = {
 
   // Seasonal
   'apple-cider-spider': APPLE_CIDER_SPIDER_PACK,
-
-  // Medical
   medical: MEDICAL_PACK,
 
   // Minimal

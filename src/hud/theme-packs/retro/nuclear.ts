@@ -65,7 +65,7 @@ export const NUCLEAR_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -88,12 +88,13 @@ export const NUCLEAR_PACK: ThemePack = {
         { text: '  ╚══════════════════════════════════════════════╝', color: '#FFA500' },
       ],
       entryAnimation: 'scan-lines',
-      animationSpeed: 25,
+      animationSpeed: 40,
       transition: {
-        effect: 'glitch',
-        duration: 600,
+        effect: 'static-noise',
+        duration: 1600,
         color: '#FFA500',
-        colorSecondary: '#FF0000',
+        colorSecondary: '#FFD700',
+        chars: '☢▓▒░=|',
       },
     },
     animations: {

@@ -66,12 +66,12 @@ export const MINECRAFT_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
         content: 'custom',
-        customText: '⛏ MINECRAFT ⛏',
+        customText: '\u26CF MINECRAFT \u26CF',
         alignment: 'center',
       },
     },
@@ -84,12 +84,13 @@ export const MINECRAFT_PACK: ThemePack = {
         { text: '  ████████████████████████████████', color: '#2D8B2D' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 45,
+      animationSpeed: 40,
       transition: {
-        effect: 'pixel-dissolve',
-        duration: 800,
+        effect: 'sparkle',
+        duration: 1100,
         color: '#2D8B2D',
         colorSecondary: '#8B4513',
+        chars: '[]#\u25FB\u25FC\u2B1C\u2B1B',
       },
     },
     animations: {

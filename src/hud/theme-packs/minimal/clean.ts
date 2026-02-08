@@ -69,10 +69,14 @@ export const CLEAN_PACK: ThemePack = {
     },
     splash: {
       coloredArt: [],
-      entryAnimation: 'none',
-      animationSpeed: 0,
+      entryAnimation: 'fade-in',
+      animationSpeed: 50,
       transition: {
-        effect: 'none',
+        effect: 'fade',
+        duration: 1000,
+        color: '#FFFFFF',
+        colorSecondary: '#CCCCCC',
+        chars: '·•○◦',
       },
     },
     animations: {

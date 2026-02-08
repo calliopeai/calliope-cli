@@ -76,7 +76,7 @@ export const BOBS_BURGERS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -107,12 +107,13 @@ export const BOBS_BURGERS_PACK: ThemePack = {
         { text: '   \\_________________________________________/', color: '#FF0000' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'fade',
+        duration: 1100,
         color: '#FF0000',
         colorSecondary: '#FFD700',
+        chars: ['🍔', '~', '♥', '★', '☆', '♪', '✦'],
       },
     },
     animations: {

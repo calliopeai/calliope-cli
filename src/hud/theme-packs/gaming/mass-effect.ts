@@ -68,12 +68,12 @@ export const MASS_EFFECT_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
         content: 'custom',
-        customText: '▓▓▓ SSV NORMANDY SR-2 ▓▓▓',
+        customText: '\u2593\u2593\u2593 SSV NORMANDY SR-2 \u2593\u2593\u2593',
         alignment: 'center',
       },
     },
@@ -92,12 +92,13 @@ export const MASS_EFFECT_PACK: ThemePack = {
         { text: '  CALLIOPE AI TERMINAL  ·  STATUS: ONLINE', color: '#00CCFF' },
       ],
       entryAnimation: 'scan-lines',
-      animationSpeed: 35,
+      animationSpeed: 60,
       transition: {
         effect: 'warp-speed',
-        duration: 800,
+        duration: 1600,
         color: '#0066FF',
         colorSecondary: '#00CCFF',
+        chars: '\u25C7\u25C6\u25C8\u25CF\u25CB\u2605\u2295\u2297',
       },
     },
     animations: {

@@ -91,12 +91,13 @@ export const WARHAMMER_PACK: ThemePack = {
         { text: '         ╚══════════════════════════════╝', color: '#FFD700' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 40,
+      animationSpeed: 80,
       transition: {
         effect: 'terminal-boot',
-        duration: 1200,
+        duration: 2000,
         color: '#FFD700',
         colorSecondary: '#8B0000',
+        chars: '\u2720\u2629\u269C\u271F\u2628\u2694\u2620',
       },
     },
     animations: {

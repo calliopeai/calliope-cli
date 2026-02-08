@@ -41,6 +41,10 @@ const LAYOUTS = [
   { name: 'response-top', description: 'Response pinned at top, tools below' },
   { name: 'response-bottom', description: 'Tools scroll up, response at bottom' },
   { name: 'split', description: 'Side-by-side: tools left, response right' },
+  { name: 'zen', description: 'Response only, tools hidden — distraction-free' },
+  { name: 'focus', description: 'Latest response pinned top, compact tool log' },
+  { name: 'dashboard', description: 'Three-panel: stats, response, tools' },
+  { name: 'minimal', description: 'No decorations, raw text output' },
 ];
 
 const STEPS = ['Layout', 'Skin', 'Palette', 'Companion', 'Confirm'] as const;

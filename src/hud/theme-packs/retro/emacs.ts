@@ -65,7 +65,7 @@ export const EMACS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'bottom',
@@ -88,12 +88,14 @@ export const EMACS_PACK: ThemePack = {
         { text: '  ║                                      ║', color: '#8B008B' },
         { text: '  ╚══════════════════════════════════════╝', color: '#8B008B' },
       ],
-      entryAnimation: 'fade-in',
+      entryAnimation: 'typewriter',
       animationSpeed: 40,
       transition: {
         effect: 'terminal-boot',
-        duration: 600,
+        duration: 1100,
         color: '#8B008B',
+        colorSecondary: '#DA70D6',
+        chars: '();M-x',
       },
     },
     animations: {

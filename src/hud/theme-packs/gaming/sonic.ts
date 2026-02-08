@@ -92,13 +92,14 @@ export const SONIC_PACK: ThemePack = {
       animationSpeed: 20,
       transition: {
         effect: 'rainbow-wave',
-        duration: 400,
+        duration: 800,
         color: '#0066FF',
         colorSecondary: '#FFD700',
+        chars: '\u00AB\u00BB\u2192\u21D2~>>=>>',
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'none',
       thinkingSpinner: ['💨', '💨·', '💨··', '💨···', '···', '··', '·', '⚡'],
     },
     density: 'compact',

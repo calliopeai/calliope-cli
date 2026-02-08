@@ -67,7 +67,7 @@ export const APPLE_CIDER_SPIDER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -89,13 +89,14 @@ export const APPLE_CIDER_SPIDER_PACK: ThemePack = {
         { text: '    \\  /\\  /\\  /\\  /\\  /\\  /   ', color: '#FF8C00' },
         { text: '     \\/  \\/  \\/  \\/  \\/  \\/    ', color: '#1A0A00' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      entryAnimation: 'drop-in',
+      animationSpeed: 35,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#FF8C00',
-        colorSecondary: '#9B30FF',
+        effect: 'sparkle',
+        duration: 1300,
+        color: '#FF4500',
+        colorSecondary: '#8B0000',
+        chars: '🕷🍎🕸🎃',
       },
     },
     animations: {

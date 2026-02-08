@@ -70,7 +70,7 @@ export const AMERICAN_DAD_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -94,17 +94,18 @@ export const AMERICAN_DAD_PACK: ThemePack = {
         { text: '  ║   << AUTHORIZED PERSONNEL ONLY >>      ║', color: '#FF0000' },
         { text: '  ╚═══════════════════════════════════════╝', color: '#0000FF' },
       ],
-      entryAnimation: 'fade-in',
+      entryAnimation: 'drop-in',
       animationSpeed: 40,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'static-noise',
+        duration: 1100,
         color: '#FF0000',
         colorSecondary: '#0000FF',
+        chars: ['★', '🦅', '█', '▓', '▒', '░', '🇺🇸'],
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['★', '☆', '★', '☆'],
     },
     density: 'normal',

@@ -106,12 +106,13 @@ export const WITCHER_PACK: ThemePack = {
         { text: '          \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518', color: '#C0C0C0' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 70,
+      animationSpeed: 65,
       transition: {
-        effect: 'static-noise',
-        duration: 600,
+        effect: 'fade-in',
+        duration: 1400,
         color: '#C0C0C0',
         colorSecondary: '#DAA520',
+        chars: '\u2694\u25C6\u2727\u263D\u2605\u2697',
       },
     },
     animations: {

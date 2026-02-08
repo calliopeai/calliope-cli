@@ -63,7 +63,7 @@ export const JETSONS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -83,12 +83,13 @@ export const JETSONS_PACK: ThemePack = {
         { text: '\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256F', color: '#004040' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 35,
+      animationSpeed: 30,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
+        effect: 'pixel-dissolve',
+        duration: 900,
         color: '#00CED1',
         colorSecondary: '#FF6347',
+        chars: '◡◠☉✧★ORBIT',
       },
     },
     animations: {

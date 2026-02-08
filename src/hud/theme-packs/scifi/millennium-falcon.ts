@@ -89,13 +89,14 @@ export const FALCON_PACK: ThemePack = {
         { text: '     \u201CShe may not look like much, but', color: '#FF8C00' },
         { text: "      she's got it where it counts.\u201D", color: '#FF8C00' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 35,
+      entryAnimation: 'scan-lines',
+      animationSpeed: 30,
       transition: {
-        effect: 'glitch',
-        duration: 600,
+        effect: 'warp-speed',
+        duration: 1200,
         color: '#4169E1',
         colorSecondary: '#FF8C00',
+        chars: '◇◈◆★·HYPERSPACE',
       },
     },
     animations: {

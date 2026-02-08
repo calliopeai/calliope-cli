@@ -63,7 +63,7 @@ export const WINTER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'full',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -82,16 +82,17 @@ export const WINTER_PACK: ThemePack = {
         { text: '  ❆  ·  ❆  ·  ❆  ·  ❆  ·  ❆  ·  ❆', color: '#E0E8F0' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 55,
+      animationSpeed: 70,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#B0E0E6',
-        colorSecondary: '#FFFFFF',
+        effect: 'sparkle',
+        duration: 1800,
+        color: '#FFFFFF',
+        colorSecondary: '#87CEEB',
+        chars: '❄️🌨️⛄✧',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['❄', '·', '❄', '·'],
     },
     density: 'normal',

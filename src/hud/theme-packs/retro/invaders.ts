@@ -60,7 +60,7 @@ export const INVADERS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'full',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -89,12 +89,13 @@ export const INVADERS_PACK: ThemePack = {
         { text: '         CREDIT  00', color: '#FFFFFF' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 30,
+      animationSpeed: 35,
       transition: {
         effect: 'pixel-dissolve',
-        duration: 800,
+        duration: 1100,
         color: '#00FF00',
         colorSecondary: '#33FF33',
+        chars: '▼▲█░',
       },
     },
     animations: {

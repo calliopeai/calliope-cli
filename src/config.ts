@@ -59,7 +59,7 @@ export interface CalliopeConfig {
   collapseTools: boolean;      // Auto-collapse tool output
   collapseThinking: boolean;   // Auto-collapse think blocks
   toolDisplayLimit: number;    // Show last N tools expanded, rest collapsed (0 = all expanded)
-  layout: 'classic' | 'response-top' | 'response-bottom' | 'split';  // UI layout preference
+  layout: 'classic' | 'response-top' | 'response-bottom' | 'split' | 'zen' | 'focus' | 'dashboard' | 'minimal';  // UI layout preference
   density: 'normal' | 'compact';  // Display density (compact = less whitespace)
 
   // HUD settings
@@ -168,7 +168,7 @@ const config = new Conf<CalliopeConfig>({
     collapseTools: { type: 'boolean' },
     collapseThinking: { type: 'boolean' },
     toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
-    layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split'] },
+    layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'] },
     density: { type: 'string', enum: ['normal', 'compact'] },
     activeSkin: { type: 'string' },
     activePalette: { type: 'string' },

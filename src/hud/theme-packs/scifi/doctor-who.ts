@@ -90,12 +90,13 @@ export const DOCTOR_WHO_PACK: ThemePack = {
         { text: '       or ever will...', color: '#FFD700' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 45,
       transition: {
-        effect: 'glitch',
-        duration: 600,
+        effect: 'warp-speed',
+        duration: 1500,
         color: '#003B6F',
         colorSecondary: '#FFD700',
+        chars: '⧫◇⟐TARDIS✦',
       },
     },
     animations: {

@@ -62,7 +62,7 @@ export const TERMINATOR_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -90,14 +90,15 @@ export const TERMINATOR_PACK: ThemePack = {
       entryAnimation: 'scan-lines',
       animationSpeed: 20,
       transition: {
-        effect: 'scan-lines',
+        effect: 'glitch',
         duration: 1000,
         color: '#FF0000',
         colorSecondary: '#8B0000',
+        chars: '◎◉●TARGET01',
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'digital-rain',
       thinkingSpinner: ['◎', '◉', '●', '◉'],
     },
     density: 'normal',

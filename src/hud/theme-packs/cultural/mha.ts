@@ -67,7 +67,7 @@ export const MHA_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -92,10 +92,11 @@ export const MHA_PACK: ThemePack = {
       entryAnimation: 'drop-in',
       animationSpeed: 25,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
+        effect: 'pixel-dissolve',
+        duration: 1100,
         color: '#00FF00',
         colorSecondary: '#FF0000',
+        chars: ['★', '✦', '拳', 'U', 'A', '⚡', '💪'],
       },
     },
     animations: {

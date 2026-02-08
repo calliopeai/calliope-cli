@@ -66,7 +66,7 @@ export const DOS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -92,15 +92,17 @@ export const DOS_PACK: ThemePack = {
         { text: 'Ready.', color: '#FFFFFF' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 45,
+      animationSpeed: 60,
       transition: {
         effect: 'terminal-boot',
-        duration: 1200,
-        color: '#FFFFFF',
+        duration: 1400,
+        color: '#AAAAAA',
+        colorSecondary: '#555555',
+        chars: '_>C:\\',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['_', ' '],
     },
     density: 'compact',

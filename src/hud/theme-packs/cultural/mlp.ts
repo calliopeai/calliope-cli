@@ -82,10 +82,11 @@ export const MLP_PACK: ThemePack = {
       entryAnimation: 'fade-in',
       animationSpeed: 40,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'rainbow-wave',
+        duration: 1400,
         color: '#FF69B4',
         colorSecondary: '#9370DB',
+        chars: ['✨', '🦄', '🌈', '💎', '★', '♥', '☆'],
       },
     },
     animations: {

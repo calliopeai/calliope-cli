@@ -60,7 +60,7 @@ export const CYBERPUNK_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -77,8 +77,15 @@ export const CYBERPUNK_PACK: ThemePack = {
         { text: '  \u2503  STATUS: ONLINE                \u2503', color: '#00FF00' },
         { text: '  \u2517\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u251B', color: '#FF00FF' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 60,
+      entryAnimation: 'scan-lines',
+      animationSpeed: 30,
+      transition: {
+        effect: 'glitch',
+        duration: 1000,
+        color: '#FF00FF',
+        colorSecondary: '#00FFFF',
+        chars: '█▓▒░┃╋',
+      },
     },
     animations: {
       ambient: 'pulse-border',

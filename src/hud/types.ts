@@ -124,12 +124,12 @@ export interface SkinTransition {
   /** Secondary color for dual-tone effects (hex) */
   colorSecondary?: string;
   /** Characters used in the effect (e.g. katakana for matrix, stars for sparkle) */
-  chars?: string;
+  chars?: string | string[];
 }
 
 export interface SkinFrame {
   enabled: boolean;
-  style: 'full' | 'top-bottom' | 'sides' | 'none';
+  style: 'full' | 'top-bottom' | 'sides' | 'none' | 'minimal-header' | 'status-only' | 'hud-overlay' | 'accent-bar';
   titleBar?: {
     enabled: boolean;
     position: 'top' | 'bottom';

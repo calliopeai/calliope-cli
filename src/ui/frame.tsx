@@ -8,7 +8,7 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import type { BoxProps } from 'ink';
-import { getCurrentSkin, getInkBorderStyle, getInkColor } from '../hud.js';
+import { getCurrentSkin, getInkColor } from '../hud.js';
 import { getCurrentCompanion } from '../companions.js';
 import type { SkinFrame } from '../hud.js';
 
@@ -24,27 +24,15 @@ export interface HUDFrameProps {
 export function HUDFrame({ children, width }: HUDFrameProps) {
   const skin = getCurrentSkin();
   const frame = skin.frame;
+  const frameEnabled = !!(frame?.enabled && frame.style !== 'none');
 
-  // No frame configured — render children directly
-  if (!frame?.enabled || frame.style === 'none') {
-    return <>{children}</>;
-  }
-
+  // All hooks must be called before any conditional returns (React rules of hooks)
   const { stdout } = useStdout();
   const termWidth = width || stdout?.columns || 80;
 
-  // Resolve border style
   const borderColor = getInkColor('border');
-  const bStyle = getInkBorderStyle(skin) as BoxProps['borderStyle'];
-
-  // Resolve title bar content
-  const titleText = resolveTitleText(frame);
-  const showTitleTop = frame.titleBar?.enabled && frame.titleBar.position !== 'bottom';
-  const showTitleBottom = frame.titleBar?.enabled && frame.titleBar.position === 'bottom';
-
-  // Ambient animation state
-  const [ambientColor, setAmbientColor] = useState(borderColor);
   const animations = skin.animations;
+  const [ambientColor, setAmbientColor] = useState(borderColor);
 
   useEffect(() => {
     if (animations?.ambient === 'pulse-border') {
@@ -58,52 +46,50 @@ export function HUDFrame({ children, width }: HUDFrameProps) {
     }
   }, [animations?.ambient]);
 
+  // No frame configured — render children directly
+  if (!frameEnabled) {
+    return <>{children}</>;
+  }
+
+  // Resolve title bar content
+  const titleText = resolveTitleText(frame);
+  const showTitleTop = frame.titleBar?.enabled && frame.titleBar.position !== 'bottom';
+  const showTitleBottom = frame.titleBar?.enabled && frame.titleBar.position === 'bottom';
+
   const effectiveBorderColor = animations?.ambient === 'pulse-border' ? ambientColor : borderColor;
 
-  // Frame style determines which borders to render
-  const frameBox = (content: React.ReactNode) => {
-    switch (frame.style) {
-      case 'full':
-        return (
-          <Box flexDirection="column" width={termWidth}
-            borderStyle={bStyle} borderColor={effectiveBorderColor}>
-            {content}
-          </Box>
-        );
-      case 'top-bottom':
-        return (
-          <Box flexDirection="column" width={termWidth}
-            borderStyle={bStyle} borderColor={effectiveBorderColor}
-            borderLeft={false} borderRight={false}>
-            {content}
-          </Box>
-        );
-      case 'sides':
-        return (
-          <Box flexDirection="column" width={termWidth}
-            borderStyle={bStyle} borderColor={effectiveBorderColor}
-            borderTop={false} borderBottom={false}>
-            {content}
-          </Box>
-        );
-      default:
-        return <Box flexDirection="column" width={termWidth}>{content}</Box>;
-    }
-  };
+  // NOTE: We intentionally do NOT wrap content in a bordered <Box>.
+  // Ink re-renders by clearing and rewriting visible lines, but bordered boxes
+  // that scroll off-screen leave artifacts in the scrollback buffer, causing
+  // repeated frame borders. Instead, decorative elements are rendered inline.
 
-  return frameBox(
+  return (
     <>
       {/* Title bar at top */}
       {showTitleTop && titleText && (
-        <TitleBar text={titleText} alignment={frame.titleBar?.alignment || 'center'} width={termWidth - 2} />
+        <TitleBar
+          text={titleText}
+          alignment={frame.titleBar?.alignment || 'center'}
+          width={termWidth}
+          borderColor={effectiveBorderColor}
+          cornerDecor={frame.cornerDecor}
+          frameStyle={frame.style}
+        />
       )}
 
-      {/* Main content */}
+      {/* Main content — no border wrapping */}
       {children}
 
       {/* Title bar at bottom (above status bar) */}
       {showTitleBottom && titleText && (
-        <TitleBar text={titleText} alignment={frame.titleBar?.alignment || 'center'} width={termWidth - 2} />
+        <TitleBar
+          text={titleText}
+          alignment={frame.titleBar?.alignment || 'center'}
+          width={termWidth}
+          borderColor={effectiveBorderColor}
+          cornerDecor={frame.cornerDecor}
+          frameStyle={frame.style}
+        />
       )}
     </>
   );
@@ -113,9 +99,17 @@ export function HUDFrame({ children, width }: HUDFrameProps) {
 // TitleBar Sub-component
 // ============================================================================
 
-function TitleBar({ text, alignment, width }: { text: string; alignment: 'left' | 'center' | 'right'; width: number }) {
+interface TitleBarProps {
+  text: string;
+  alignment: 'left' | 'center' | 'right';
+  width: number;
+  borderColor: string;
+  cornerDecor?: SkinFrame['cornerDecor'];
+  frameStyle: string;
+}
+
+function TitleBar({ text, alignment, width, borderColor: bColor, cornerDecor, frameStyle }: TitleBarProps) {
   const accentColor = getInkColor('accent');
-  const borderColor = getInkColor('border');
 
   // Build title string with decorative separators
   const maxTitleLen = Math.min(text.length, width - 6);
@@ -125,11 +119,24 @@ function TitleBar({ text, alignment, width }: { text: string; alignment: 'left' 
   if (alignment === 'left') justifyContent = 'flex-start';
   if (alignment === 'right') justifyContent = 'flex-end';
 
+  // Frame style influences the decorators around the title
+  const leftDecor = frameStyle === 'hud-overlay'
+    ? (cornerDecor?.topLeft || '[')
+    : frameStyle === 'accent-bar'
+      ? '\u2503 '
+      : '\u2500\u2500 ';
+  const rightDecor = frameStyle === 'hud-overlay'
+    ? (cornerDecor?.topRight || ']')
+    : frameStyle === 'accent-bar'
+      ? ''
+      : ' \u2500\u2500';
+  const decorColor = frameStyle === 'accent-bar' ? accentColor : bColor;
+
   return (
     <Box justifyContent={justifyContent} paddingX={1}>
-      <Text color={borderColor} dimColor>\u2500\u2500 </Text>
+      <Text color={decorColor} dimColor>{leftDecor}</Text>
       <Text color={accentColor} bold>{displayTitle}</Text>
-      <Text color={borderColor} dimColor> \u2500\u2500</Text>
+      {rightDecor && <Text color={decorColor} dimColor>{rightDecor}</Text>}
     </Box>
   );
 }

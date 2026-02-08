@@ -43,6 +43,8 @@ import {
   SessionResumePrompt, KeybindingsModal,
 } from './modals.js';
 import { ThemePicker } from './theme-picker.js';
+import { PackPicker } from './pack-picker.js';
+import { applyThemePack, getCurrentPack, getCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
 import type { ThemeSelection } from './theme-picker.js';
 import { ChatInput } from './chat-input.js';
 import { StatusBar } from './status-bar.js';
@@ -164,7 +166,7 @@ function TerminalChat() {
   const [persona, setPersona] = useState<AgentPersona>(() => config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
-  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split'>(() => config.get('layout') || 'response-bottom');
+  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split' | 'zen' | 'focus' | 'dashboard' | 'minimal'>(() => config.get('layout') || 'response-bottom');
   const [density, setDensity] = useState<'normal' | 'compact'>(() => config.get('density') || 'normal');
   const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>(() => ({
     collapseTools: config.get('collapseTools') ?? false,
@@ -173,7 +175,7 @@ function TerminalChat() {
   }));
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker' | 'pack-picker'>('none');
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
   const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: import('../types.js').ToolCall; resolve: (approved: boolean) => void } | null>(null);
@@ -765,6 +767,48 @@ function TerminalChat() {
         </>
       )}
 
+      {/* Zen layout: response only, tools hidden */}
+      {layout === 'zen' && (
+        <>
+          <MessageHistory
+            messages={messages.filter(m => m.type === 'user' || m.type === 'assistant')}
+            collapseSettings={{ collapseTools: true, collapseThinking: true, toolDisplayLimit: 0 }}
+          />
+          {ProcessingBox}
+          {StreamingResponseBox}
+        </>
+      )}
+
+      {/* Focus layout: latest response pinned, compact tool log */}
+      {layout === 'focus' && (
+        <>
+          {StreamingResponseBox}
+          {ProcessingBox}
+          <MessageHistory messages={messages} collapseSettings={{ collapseTools: true, collapseThinking: true, toolDisplayLimit: 3 }} />
+        </>
+      )}
+
+      {/* Dashboard layout: stats strip, response, tools */}
+      {layout === 'dashboard' && (
+        <>
+          <Text dimColor>
+            {'  '}{stats.inputTokens ? `tokens: ${stats.inputTokens}/${stats.outputTokens}` : ''}{stats.cost ? ` | cost: $${stats.cost.toFixed(4)}` : ''}{model ? ` | ${model}` : ''}{` | ${getCurrentCompanion().name}`}
+          </Text>
+          {StreamingResponseBox}
+          {ProcessingBox}
+          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
+        </>
+      )}
+
+      {/* Minimal layout: no decorations */}
+      {layout === 'minimal' && (
+        <>
+          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
+          {ProcessingBox}
+          {StreamingResponseBox}
+        </>
+      )}
+
       {/* Debug overlay when debug mode is enabled */}
       {debugEnabled && (
         <Box marginY={0}>
@@ -899,8 +943,8 @@ function TerminalChat() {
           currentCompanion={getCurrentCompanion().name}
           onApply={(selection: ThemeSelection) => {
             // Apply all selections
-            setLayout(selection.layout as 'classic' | 'response-top' | 'response-bottom' | 'split');
-            config.set('layout', selection.layout as 'classic' | 'response-top' | 'response-bottom' | 'split');
+            setLayout(selection.layout as typeof layout);
+            config.set('layout', selection.layout as typeof layout);
             applySkin(selection.skin);
             config.set('activeSkin', selection.skin);
             applyPalette(selection.palette);
@@ -918,6 +962,40 @@ function TerminalChat() {
               ? `Theme applied: ${changes.join(', ')}`
               : 'Theme unchanged.');
             setModalMode('none');
+          }}
+          onCancel={() => setModalMode('none')}
+        />
+      )}
+
+      {/* Modal: Pack Picker */}
+      {modalMode === 'pack-picker' && (
+        <PackPicker
+          onApply={async (packName: string) => {
+            setModalMode('none');
+
+            // Run transition animation if defined
+            const targetPack = getThemePack(packName);
+            if (targetPack?.skin.splash?.transition) {
+              await renderTransition(targetPack.skin.splash.transition);
+            }
+
+            const success = applyThemePack(packName, getCompanionMode());
+            if (success) {
+              const pack = getCurrentPack()!;
+              config.set('activeThemePack', packName);
+              config.set('activeSkin', pack.skin.name);
+              config.set('activePalette', pack.palette.name);
+              const companion = getCompanionMode() === 'professional'
+                ? pack.companions.professional
+                : pack.companions.immersive;
+              config.set('activeCompanion', companion.name);
+
+              addMessage('system',
+                `Theme pack: ${packName}\n` +
+                `  Skin: ${pack.skin.name}, Palette: ${pack.palette.name}, Companion: ${companion.name}\n` +
+                `  "${companion.greeting}"`
+              );
+            }
           }}
           onCancel={() => setModalMode('none')}
         />

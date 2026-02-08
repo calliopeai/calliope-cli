@@ -72,8 +72,8 @@ export const BASIC_PACK: ThemePack = {
         { text: '  READY.                       ', color: '#FFFFFF' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 60,
-      transition: { effect: 'terminal-boot', duration: 2000, color: '#FFFFFF', colorSecondary: '#0000AA' },
+      animationSpeed: 90,
+      transition: { effect: 'scan-lines', duration: 1200, color: '#33FF33', colorSecondary: '#001100', chars: '█▓▒░_>' },
     },
     animations: {
       ambient: 'none',

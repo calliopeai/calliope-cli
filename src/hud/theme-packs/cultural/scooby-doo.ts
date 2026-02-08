@@ -65,7 +65,7 @@ export const SCOOBY_DOO_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -86,13 +86,14 @@ export const SCOOBY_DOO_PACK: ThemePack = {
         { text: '  ║  🚐 The Mystery Machine is ready...  ║', color: '#00FF00' },
         { text: '  ╚══════════════════════════════════════╝', color: '#00FF00' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      entryAnimation: 'drop-in',
+      animationSpeed: 35,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#00FF00',
-        colorSecondary: '#9B30FF',
+        effect: 'sparkle',
+        duration: 1100,
+        color: '#FF6600',
+        colorSecondary: '#00FF00',
+        chars: ['🐾', '🔍', '?', '!', '★', '👻', '🚐'],
       },
     },
     animations: {

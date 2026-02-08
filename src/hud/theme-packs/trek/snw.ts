@@ -62,7 +62,7 @@ export const SNW_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -87,14 +87,15 @@ export const SNW_PACK: ThemePack = {
       entryAnimation: 'fade-in',
       animationSpeed: 45,
       transition: {
-        effect: 'warp-speed',
-        duration: 800,
-        color: '#FFD700',
-        colorSecondary: '#4169E1',
+        effect: 'sparkle',
+        duration: 1200,
+        color: '#FFFFFF',
+        colorSecondary: '#FFD700',
+        chars: '☆★✦✧⊹⋆',
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'pulse-border',
       thinkingSpinner: ['☆', '★', '✦', '✧', '◇', '◆', '⊹', '⋆'],
     },
     density: 'normal',

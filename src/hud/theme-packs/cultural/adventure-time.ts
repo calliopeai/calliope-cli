@@ -75,7 +75,7 @@ export const ADVENTURE_TIME_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -101,12 +101,13 @@ export const ADVENTURE_TIME_PACK: ThemePack = {
         { text: '   ╚══════════════════════════════════════════════╝', color: '#00BFFF' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 30,
+      animationSpeed: 25,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
-        color: '#00BFFF',
-        colorSecondary: '#FFD700',
+        effect: 'rainbow-wave',
+        duration: 1200,
+        color: '#FFD700',
+        colorSecondary: '#00BFFF',
+        chars: ['★', '☆', '⚔', '♪', '✦', '☀', '♥'],
       },
     },
     animations: {

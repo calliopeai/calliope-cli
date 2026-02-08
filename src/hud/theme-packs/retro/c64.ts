@@ -65,7 +65,7 @@ export const C64_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'full',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -86,12 +86,13 @@ export const C64_PACK: ThemePack = {
         { text: 'READY.', color: '#A5A5FF' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 55,
+      animationSpeed: 80,
       transition: {
         effect: 'terminal-boot',
-        duration: 1200,
+        duration: 1600,
         color: '#6C6CFF',
-        colorSecondary: '#0000AA',
+        colorSecondary: '#FFFFFF',
+        chars: '▌▀▐▄█_',
       },
     },
     animations: {

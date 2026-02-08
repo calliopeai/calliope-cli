@@ -66,7 +66,7 @@ export const COWBOY_BEBOP_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -87,17 +87,18 @@ export const COWBOY_BEBOP_PACK: ThemePack = {
         { text: '  :                               :', color: '#8B0000' },
         { text: '  \'*~*:._.:*~*:._.:*~*:._.:*~*:\'', color: '#1A0A00' },
       ],
-      entryAnimation: 'fade-in',
+      entryAnimation: 'drop-in',
       animationSpeed: 45,
       transition: {
-        effect: 'sparkle',
-        duration: 600,
+        effect: 'fade',
+        duration: 1200,
         color: '#FF4500',
         colorSecondary: '#FFD700',
+        chars: '♪♫♬♩~*:._BANG',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['♪', '♫', '♬', '♩'],
     },
     density: 'normal',

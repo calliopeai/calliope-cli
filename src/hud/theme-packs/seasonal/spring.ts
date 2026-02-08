@@ -62,7 +62,7 @@ export const SPRING_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -84,14 +84,15 @@ export const SPRING_PACK: ThemePack = {
       entryAnimation: 'fade-in',
       animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#FFB7C5',
-        colorSecondary: '#90EE90',
+        effect: 'sparkle',
+        duration: 1200,
+        color: '#90EE90',
+        colorSecondary: '#FFB6C1',
+        chars: '🌸✿❀🌺',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['🌸', '·', '🌸', '·'],
     },
     density: 'spacious',

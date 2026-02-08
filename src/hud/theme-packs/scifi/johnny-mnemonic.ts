@@ -80,10 +80,16 @@ export const JOHNNY_MNEMONIC_PACK: ThemePack = {
       ],
       entryAnimation: 'scan-lines',
       animationSpeed: 20,
-      transition: { effect: 'glitch', duration: 800, color: '#00FF00', colorSecondary: '#FF00FF' },
+      transition: {
+        effect: 'digital-rain',
+        duration: 1200,
+        color: '#00FF00',
+        colorSecondary: '#FF00FF',
+        chars: '█▓▒░DATA320GB',
+      },
     },
     animations: {
-      ambient: 'digital-rain',
+      ambient: 'scan-line',
       thinkingSpinner: ['\u2588', '\u2593', '\u2592', '\u2591'],
     },
     density: 'compact',

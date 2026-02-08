@@ -67,7 +67,7 @@ export const ONE_PIECE_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -92,10 +92,11 @@ export const ONE_PIECE_PACK: ThemePack = {
       entryAnimation: 'drop-in',
       animationSpeed: 30,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
-        color: '#FF0000',
-        colorSecondary: '#4169E1',
+        effect: 'warp-speed',
+        duration: 1300,
+        color: '#4169E1',
+        colorSecondary: '#FF0000',
+        chars: ['☠', '⚓', '⛵', '🏴', '~', '≈', '◉'],
       },
     },
     animations: {

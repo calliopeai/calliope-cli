@@ -81,12 +81,13 @@ export const BTTF_PACK: ThemePack = {
         { text: ' ╚═══════════════════════════════════════╝', color: '#333333' },
       ],
       entryAnimation: 'scan-lines',
-      animationSpeed: 30,
+      animationSpeed: 45,
       transition: {
-        effect: 'glitch',
-        duration: 800,
+        effect: 'warp-speed',
+        duration: 1500,
         color: '#00BFFF',
-        colorSecondary: '#FFFFFF',
+        colorSecondary: '#FFA500',
+        chars: '⚡◈═▸◂',
       },
     },
     animations: {

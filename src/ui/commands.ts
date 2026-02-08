@@ -501,30 +501,34 @@ Available keys:
       break;
 
     case '/layout': {
-      // /layout [classic|response-top|response-bottom|split]
-      const layoutArg = parts[1] as 'classic' | 'response-top' | 'response-bottom' | 'split' | undefined;
+      // /layout [classic|response-top|response-bottom|split|zen|focus|dashboard|minimal]
+      const layoutArg = parts[1] as string | undefined;
 
       if (!layoutArg) {
         ctx.addMessage('system', `Current layout: ${ctx.layout}
 
 Available layouts:
-  classic        - Everything in chronological order
-  response-top   - Calliope response at top, tools below
+  classic         - Everything in chronological order
+  response-top    - Calliope response at top, tools below
   response-bottom - Tools at top, response at bottom (default)
-  split          - Side by side: tools left, response right
+  split           - Side by side: tools left, response right
+  zen             - Response only, tools hidden — distraction-free
+  focus           - Latest response pinned top, compact tool log
+  dashboard       - Three-panel: stats, response, tools
+  minimal         - No decorations, raw text output
 
 Usage: /layout <name>`);
         break;
       }
 
-      const validLayouts = ['classic', 'response-top', 'response-bottom', 'split'];
+      const validLayouts = ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'];
       if (!validLayouts.includes(layoutArg)) {
         ctx.addMessage('error', `Invalid layout. Choose: ${validLayouts.join(', ')}`);
         break;
       }
 
-      config.set('layout', layoutArg);
-      ctx.setLayout(layoutArg);
+      config.set('layout', layoutArg as any);
+      ctx.setLayout(layoutArg as any);
       ctx.addMessage('system', `\u2713 Layout set to: ${layoutArg}`);
       break;
     }
@@ -1068,7 +1072,11 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
 
     case '/pack': {
       const subCmd = parts[1];
-      if (subCmd === 'list' || !subCmd) {
+      if (!subCmd) {
+        ctx.setModalMode('pack-picker');
+        break;
+      }
+      if (subCmd === 'list') {
         const category = parts[2] as any;
         const packs = listThemePacks(category || undefined);
         const currentP = getCurrentPack();

@@ -65,7 +65,7 @@ export const BREAKING_BAD_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -81,17 +81,18 @@ export const BREAKING_BAD_PACK: ThemePack = {
         { text: '   ║     "I am the one who codes."        ║', color: '#00BFFF' },
         { text: '   ╚══════════════════════════════════════╝', color: '#1A1A00' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      entryAnimation: 'typewriter',
+      animationSpeed: 60,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'glitch',
+        duration: 1200,
         color: '#228B22',
         colorSecondary: '#FFD700',
+        chars: ['⚗', '💎', '☢', 'H', 'e', '▓', '░'],
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'scan-line',
       thinkingSpinner: ['⚗', '·', '💎', '·'],
     },
     density: 'normal',

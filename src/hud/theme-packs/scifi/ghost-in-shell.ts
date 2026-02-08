@@ -66,7 +66,7 @@ export const GHOST_IN_SHELL_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -91,13 +91,14 @@ export const GHOST_IN_SHELL_PACK: ThemePack = {
         { text: '  \u2551   "The net is vast and infinite..."      \u2551', color: '#9B30FF' },
         { text: '  \u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D', color: '#00CED1' },
       ],
-      entryAnimation: 'scan-lines',
-      animationSpeed: 20,
+      entryAnimation: 'typewriter',
+      animationSpeed: 30,
       transition: {
         effect: 'digital-rain',
         duration: 1500,
         color: '#00CED1',
         colorSecondary: '#9B30FF',
+        chars: '◈◇◆▓GHOST01NET',
       },
     },
     animations: {

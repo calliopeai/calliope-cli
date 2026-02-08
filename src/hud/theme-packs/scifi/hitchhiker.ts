@@ -64,7 +64,7 @@ export const HITCHHIKER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -84,13 +84,14 @@ export const HITCHHIKER_PACK: ThemePack = {
         { text: "\u2551                                          \u2551", color: '#00FF00' },
         { text: "\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D", color: '#003300' },
       ],
-      entryAnimation: 'typewriter',
-      animationSpeed: 45,
+      entryAnimation: 'drop-in',
+      animationSpeed: 40,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'rainbow-wave',
+        duration: 1400,
         color: '#00FF00',
         colorSecondary: '#00BFFF',
+        chars: '42~*:._DON\'TPANIC',
       },
     },
     animations: {

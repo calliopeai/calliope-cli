@@ -68,7 +68,7 @@ export const AVATAR_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -99,16 +99,17 @@ export const AVATAR_PACK: ThemePack = {
         { text: '  ╚════════════════════════════════════════╝', color: '#4169E1' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'sparkle',
+        duration: 1400,
         color: '#4169E1',
-        colorSecondary: '#FFD700',
+        colorSecondary: '#FF8C00',
+        chars: ['≈', '▓', '╬', '○', '☯', '◈', '∞'],
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'none',
       thinkingSpinner: ['🌊', '⛰', '🔥', '💨'],
     },
     density: 'normal',

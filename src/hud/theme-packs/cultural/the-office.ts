@@ -65,8 +65,8 @@ export const OFFICE_PACK: ThemePack = {
       spawn_agent: '☕',
     },
     frame: {
-      enabled: true,
-      style: 'top-bottom',
+      enabled: false,
+      style: 'none',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -87,13 +87,14 @@ export const OFFICE_PACK: ThemePack = {
         { text: '  |   [ WORLD\'S BEST CODER ]            |', color: '#4A90D9' },
         { text: '  +-------------------------------------+', color: '#4A90D9' },
       ],
-      entryAnimation: 'fade-in',
+      entryAnimation: 'typewriter',
       animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
+        effect: 'fade',
         duration: 800,
         color: '#D2B48C',
         colorSecondary: '#4A90D9',
+        chars: ['📎', '☕', '📄', '★', '·', '|', '~'],
       },
     },
     animations: {

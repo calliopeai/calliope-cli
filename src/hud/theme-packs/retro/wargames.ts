@@ -80,9 +80,17 @@ export const WARGAMES_PACK: ThemePack = {
         { text: ' ************************************', color: '#00FF00' },
       ],
       entryAnimation: 'typewriter',
-      animationSpeed: 60,
+      animationSpeed: 70,
+      transition: {
+        effect: 'static-noise',
+        duration: 1800,
+        color: '#00FF00',
+        colorSecondary: '#003300',
+        chars: '*.|/-\\',
+      },
     },
     animations: {
+      ambient: 'scan-line',
       thinkingSpinner: ['|', '/', '-', '\\'],
       processingSpinner: ['.', '..', '...', '....', '...', '..'],
     },

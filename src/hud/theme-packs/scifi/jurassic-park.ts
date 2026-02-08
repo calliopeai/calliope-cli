@@ -81,7 +81,7 @@ export const JURASSIC_PARK_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -109,13 +109,14 @@ export const JURASSIC_PARK_PACK: ThemePack = {
         { text: '║  "Life, uh, finds a way."  — Dr. Ian Malcolm    ║', color: '#FFD700' },
         { text: '╚══════════════════════════════════════════════════╝', color: '#FFD700' },
       ],
-      entryAnimation: 'scan-lines',
-      animationSpeed: 30,
+      entryAnimation: 'fade-in',
+      animationSpeed: 35,
       transition: {
-        effect: 'glitch',
-        duration: 800,
+        effect: 'terminal-boot',
+        duration: 1600,
         color: '#FFD700',
-        colorSecondary: '#FF4500',
+        colorSecondary: '#228B22',
+        chars: '>_AHAHAH!MAGIC',
       },
     },
     animations: {

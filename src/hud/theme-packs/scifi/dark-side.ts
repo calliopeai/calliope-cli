@@ -112,12 +112,13 @@ export const DARK_SIDE_PACK: ThemePack = {
         { text: '  ═══════════════════════════════════════════════════   ', color: '#FF0000' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 35,
+      animationSpeed: 40,
       transition: {
-        effect: 'glitch',
-        duration: 600,
+        effect: 'static-noise',
+        duration: 1300,
         color: '#FF0000',
-        colorSecondary: '#000000',
+        colorSecondary: '#8B0000',
+        chars: '◆◇▸▸IMPERIAL',
       },
     },
     animations: {

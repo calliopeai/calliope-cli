@@ -61,7 +61,7 @@ export const BLADE_RUNNER_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -86,16 +86,17 @@ export const BLADE_RUNNER_PACK: ThemePack = {
         { text: '     "...like tears in rain."', color: '#FFA500' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 50,
       transition: {
-        effect: 'fade-in',
-        duration: 1200,
+        effect: 'glitch',
+        duration: 1400,
         color: '#FFA500',
         colorSecondary: '#00BFFF',
+        chars: '▌▐░▒▓REPLICANT',
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'pulse-border',
       thinkingSpinner: ['◉', '◎', '○', '◎', '◉'],
     },
     density: 'normal',

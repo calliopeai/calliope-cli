@@ -62,7 +62,7 @@ export const LOWER_DECKS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -81,12 +81,13 @@ export const LOWER_DECKS_PACK: ThemePack = {
         { text: '  ╚══════════════════════════════════════╝', color: '#FF69B4' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 30,
+      animationSpeed: 25,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
-        color: '#FF1493',
-        colorSecondary: '#00FF7F',
+        effect: 'rainbow-wave',
+        duration: 800,
+        color: '#8B5CF6',
+        colorSecondary: '#14B8A6',
+        chars: '~!*^✨',
       },
     },
     animations: {

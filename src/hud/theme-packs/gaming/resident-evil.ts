@@ -84,9 +84,15 @@ export const RESIDENT_EVIL_PACK: ThemePack = {
         { text: '  ║  STATUS: ██████████ ACTIVE       ║', color: '#330000' },
         { text: '  ☣ ═══════════════════════════════ ☣', color: '#8B0000' },
       ],
-      entryAnimation: 'typewriter',
-      animationSpeed: 30,
-      transition: { effect: 'static-noise', duration: 1500, color: '#8B0000', colorSecondary: '#000000' },
+      entryAnimation: 'scan-lines',
+      animationSpeed: 35,
+      transition: {
+        effect: 'static-noise',
+        duration: 1500,
+        color: '#8B0000',
+        colorSecondary: '#000000',
+        chars: '\u2623\u2593\u2592\u2591\u2588\u25C8\u25C9',
+      },
     },
     animations: {
       ambient: 'scan-line',

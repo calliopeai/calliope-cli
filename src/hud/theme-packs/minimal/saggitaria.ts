@@ -53,7 +53,7 @@ export const SAGGITARIA_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'accent-bar',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -70,7 +70,14 @@ export const SAGGITARIA_PACK: ThemePack = {
         { text: '                                           ', color: '#95E1D3' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 80,
+      animationSpeed: 60,
+      transition: {
+        effect: 'sparkle',
+        duration: 2000,
+        color: '#9B59B6',
+        colorSecondary: '#3498DB',
+        chars: '✦★☆◇',
+      },
     },
     animations: {
       ambient: 'pulse-border',

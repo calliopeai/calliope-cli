@@ -66,7 +66,7 @@ export const SIMPSONS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'top-bottom',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -89,16 +89,17 @@ export const SIMPSONS_PACK: ThemePack = {
         { text: '  ╚══════════════════════════════════════╝', color: '#FFD700' },
       ],
       entryAnimation: 'drop-in',
-      animationSpeed: 35,
+      animationSpeed: 30,
       transition: {
-        effect: 'drop-in',
-        duration: 600,
+        effect: 'fade',
+        duration: 1000,
         color: '#FFD700',
-        colorSecondary: '#00BFFF',
+        colorSecondary: '#00FF00',
+        chars: ['🍩', '☢', '★', 'D', '\'', 'o', 'h', '!'],
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['\u{1F369}', '\u00B7', '\u{1F369}', '\u00B7'],
     },
     density: 'normal',

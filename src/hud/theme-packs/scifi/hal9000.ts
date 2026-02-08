@@ -61,7 +61,7 @@ export const HAL9000_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'sides',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -86,16 +86,18 @@ export const HAL9000_PACK: ThemePack = {
         { text: '   any conscious entity can ever hope   ', color: '#660000' },
         { text: '                to do.                  ', color: '#660000' },
       ],
-      entryAnimation: 'fade-in',
-      animationSpeed: 60,
+      entryAnimation: 'typewriter',
+      animationSpeed: 70,
       transition: {
-        effect: 'fade-in',
-        duration: 1200,
-        color: '#660000',
+        effect: 'fade',
+        duration: 1800,
+        color: '#FF0000',
+        colorSecondary: '#660000',
+        chars: '◉○·HAL9000',
       },
     },
     animations: {
-      ambient: 'none',
+      ambient: 'pulse-border',
       thinkingSpinner: ['◉', '○', '◉', '○'],
     },
     density: 'spacious',

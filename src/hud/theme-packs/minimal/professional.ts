@@ -65,7 +65,7 @@ export const PRO_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'minimal-header',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -80,11 +80,13 @@ export const PRO_PACK: ThemePack = {
         { text: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', color: '#666666' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 50,
+      animationSpeed: 40,
       transition: {
-        effect: 'fade-in',
-        duration: 300,
-        color: '#4A90D9',
+        effect: 'fade',
+        duration: 800,
+        color: '#4169E1',
+        colorSecondary: '#1A1A2E',
+        chars: '▸◆◇○',
       },
     },
     animations: {

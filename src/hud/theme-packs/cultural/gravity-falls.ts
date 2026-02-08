@@ -77,7 +77,7 @@ export const GRAVITY_FALLS_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'hud-overlay',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -109,12 +109,13 @@ export const GRAVITY_FALLS_PACK: ThemePack = {
         { text: '                                  |__________|', color: '#FFD700' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 45,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
+        effect: 'sparkle',
+        duration: 1300,
         color: '#228B22',
         colorSecondary: '#FFD700',
+        chars: ['△', '▲', '☆', '🔮', '?', '!', '👁'],
       },
     },
     animations: {

@@ -98,13 +98,14 @@ export const EVANGELION_PACK: ThemePack = {
       animationSpeed: 25,
       transition: {
         effect: 'glitch',
-        duration: 600,
+        duration: 1000,
         color: '#7B2FBE',
         colorSecondary: '#FF6600',
+        chars: '▲▽◈NERVATFIELD',
       },
     },
     animations: {
-      ambient: 'pulse-border',
+      ambient: 'scan-line',
       thinkingSpinner: ['\u25B2', '\u25B3', '\u25BC', '\u25BD', '\u25C8'],
     },
     density: 'normal',

@@ -62,7 +62,7 @@ export const ALIEN_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'full',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -87,13 +87,14 @@ export const ALIEN_PACK: ThemePack = {
         { text: '  ║                                      ║', color: '#003300' },
         { text: '  ╚══════════════════════════════════════╝', color: '#003300' },
       ],
-      entryAnimation: 'scan-lines',
-      animationSpeed: 20,
+      entryAnimation: 'fade-in',
+      animationSpeed: 55,
       transition: {
-        effect: 'terminal-boot',
-        duration: 800,
+        effect: 'static-noise',
+        duration: 1200,
         color: '#00FF00',
         colorSecondary: '#000000',
+        chars: '·~≈▒░XENO',
       },
     },
     animations: {

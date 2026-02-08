@@ -68,7 +68,7 @@ export const SUPERNATURAL_PACK: ThemePack = {
     },
     frame: {
       enabled: true,
-      style: 'top-bottom',
+      style: 'sides',
       titleBar: {
         enabled: true,
         position: 'top',
@@ -92,16 +92,17 @@ export const SUPERNATURAL_PACK: ThemePack = {
         { text: '  ================================================', color: '#000000' },
       ],
       entryAnimation: 'fade-in',
-      animationSpeed: 40,
+      animationSpeed: 65,
       transition: {
-        effect: 'fade-in',
-        duration: 600,
-        color: '#FFA500',
-        colorSecondary: '#000000',
+        effect: 'static-noise',
+        duration: 1100,
+        color: '#191970',
+        colorSecondary: '#FFA500',
+        chars: ['☠', '✝', '⛧', '🔥', '▓', '░', '◆'],
       },
     },
     animations: {
-      ambient: 'scan-line',
+      ambient: 'pulse-border',
       thinkingSpinner: ['\u2726', '\u00B7', '\u2726', '\u00B7'],
     },
     density: 'normal',
