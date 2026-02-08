@@ -129,69 +129,88 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   switch (command) {
     case '/help':
     case '/h':
-      ctx.addMessage('system', `Commands:
-  /mode [plan|hybrid|work] - Switch modes (Shift+Tab to cycle)
-  /provider [name]         - Switch AI provider
-  /model [name]            - Switch model
-  /route [on|off|test]     - Auto model routing by complexity
-  /smart [on|off|cost|test] - Cross-provider smart routing
-  /breaker [status|resume]  - Circuit breaker control
-  /persona [name]          - Switch personality
-  /todo [add|done|list]    - Manage TODOs
-  /plans [list|view]       - View plan history
-  /session [list|info]     - Session management
-  /history [search]        - Chat history
-  /context [load|summary]  - Context management
-  /summarize [context|compact] - Summarize/compact context
-  /clear                   - Clear conversation
-  /copy                    - Copy last response to clipboard
-  /export [file.md]        - Export conversation to markdown
-  /edit                    - Edit and resend last message
-  /undo                    - Undo last action (up to 10 steps)
-  /redo                    - Redo undone action
-  /confirm [on|off]        - Toggle risky op confirmation
-  /emoji [on|off|toggle]   - Toggle emoji in UI
-  /profile [name|save|del] - Switch/save/delete profiles
-  /mcp [add|remove|tools]  - Manage MCP servers
-  /skills [add|remove]     - Manage agent skills
-  /memory [init|add|show]  - Project memory (CALLIOPE.md)
-  /project [init|show|run] - Project config (.calliope)
-  /find <pattern>          - Fuzzy file search
-  /branch [new|switch]     - Conversation branches
-  /theme [name|list]       - Color themes
-  /hooks [list|add]        - Pre/post tool hooks
-  /search <query>          - Search conversation
-  /status                  - Show status
-  /config                  - Show config
-  /layout [name]           - Switch UI layout (classic/split/etc)
-  /density [normal|compact] - Set display density
-  /collapse [tools|all|off] - Collapse/expand tool output
-  /upgrade                 - Check for updates
-  /agents                  - Show sub-agent status (--agterm mode)
-  /swarm [start|status|list] - Swarm mode: parallel task decomposition
-  /council [start|status]    - Agent councils: multi-agent deliberation
-  /scope [details|reset]   - Show/manage file access scope
-  /add-dir <path>          - Add directory to allowed scope
-  /remove-dir <path>       - Remove directory from scope
-  /template [save|use|del] - Manage prompt templates
-  /cost                    - Show cost tracking summary
-  /bookmark [name]         - Create bookmark at current point
-  /bookmark list           - List all bookmarks
-  /bookmark goto <n>       - Jump to bookmark
-  /queue [show|clear|flush] - Manage queued messages
-  /flush                   - Force-process queued msgs (unstick)
-  /debug [on|off]          - Show state / toggle debug logging
-  /unstick                 - Emergency reset of processing state
-  /work                    - Quick switch to work mode
-  /plan                    - Quick switch to plan mode
-  /keys or /?              - Show keyboard shortcuts
-  /resume [n]              - Resume previous session (load n messages)
-  /exit                    - Exit
+      ctx.addMessage('system', `--- Model & Routing ---
+  /provider [name]           - Switch AI provider (/p)
+  /model [name]              - Switch model (/m)
+  /models                    - List available models
+  /mode [plan|hybrid|work]   - Switch modes (Shift+Tab to cycle)
+  /persona [name]            - Switch personality
+  /route [on|off]            - Auto model routing (/autoroute)
+  /smart [on|off|cost|test]  - Cross-provider smart routing
+  /breaker [status|resume]   - Circuit breaker control (/cb)
+
+--- Conversation ---
+  /edit                      - Edit and resend last message
+  /undo / /redo              - Undo/redo (up to 10 steps)
+  /copy                      - Copy last response to clipboard
+  /export [file.md]          - Export conversation to markdown
+  /branch [new|switch]       - Conversation branches
+  /clear                     - Clear conversation (/c)
+
+--- Session & State ---
+  /session [list|info|fork|save] - Session management (/sessions)
+  /resume [sessionId]        - Resume session (restores full context)
+  /checkpoint [list|clear]   - File checkpoints (/cp)
+  /restore <path> [index]    - Restore file from checkpoint
+  /bookmark [name|list|goto] - Bookmarks (/bm)
+  /queue [show|clear|flush]  - Message queue (/q)
+
+--- Context & Scope ---
+  /scope [details|reset]     - File access scope (/dirs)
+  /add-dir / /remove-dir     - Manage scope directories
+  /context [load|summary]    - Context management
+  /summarize                 - Compact context to save tokens
+  /trust [add|remove|list]   - Project trust registry
+  /find <pattern>            - Fuzzy file search
+  /search <query>            - Search conversation
+
+--- Tasks & Planning ---
+  /todo [add|done|list]      - Manage TODOs
+  /plans [list|view]         - View plan history
+  /template [save|use|del]   - Prompt templates (/t)
+  /plan / /work              - Quick mode switch
+
+--- Appearance ---
+  /skin [name]               - Switch HUD skin (${(await import('../hud.js')).listSkins().length}+ available)
+  /palette [name]            - Switch color palette
+  /companion [name]          - Switch companion personality
+  /pack [name]               - Apply theme pack (skin+palette+companion)
+  /theme [name]              - Color themes
+  /layout [name]             - UI layout (classic/split/etc)
+  /density [normal|compact]  - Display density
+  /collapse [tools|all|off]  - Tool output visibility
+  /intensity [1-5]           - Immersion level
+  /emoji [on|off]            - Toggle emoji
+
+--- Tools & Integration ---
+  /mcp [add|remove|tools]    - MCP servers
+  /skills [add|remove]       - Agent skills
+  /memory [init|add|show]    - Project memory (CALLIOPE.md)
+  /project [init|show|run]   - Project config (.calliope)
+  /hooks [list|add]          - Pre/post tool hooks
+  /profile [name|save|del]   - Switch/save/delete profiles
+
+--- Multi-Agent ---
+  /agents                    - Sub-agent status (--agterm mode)
+  /swarm [start|status]      - Parallel task decomposition
+  /council [start|status]    - Multi-agent deliberation
+  /loop [prompt] [n]         - Iterative agent loop
+  /cancel-loop               - Stop running loop (/stop)
+
+--- System ---
+  /status                    - Show status (/s)
+  /config                    - Show config
+  /set <key> <value>         - Set config variable
+  /cost                      - Cost tracking summary
+  /confirm [on|off]          - Toggle risky op confirmation
+  /debug [on|off]            - Debug state/logging
+  /unstick                   - Emergency reset
+  /upgrade                   - Check for updates
+  /keys or /?                - Keyboard shortcuts
+  /exit                      - Exit (/quit)
 
 File references: @filename, ./path, /absolute/path
-Modes: \u{1F4CB} Plan | \u{1F504} Hybrid | \u{1F527} Work
-Queue: \u{2191}/\u{2193} edit, Ctrl+D delete, !msg to send directly
-Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.agtermEnabled ? '\nAGTerm: ON (spawn_agent, check_agent tools available)' : ''}`);
+Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.agtermEnabled ? '\nAGTerm: ON' : ''}`);
       break;
 
     case '/provider':
@@ -1300,12 +1319,32 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       } else if (parts[1] === 'info') {
         const session = ctx.sessionRef.current;
         if (session) {
-          ctx.addMessage('system', `Session: ${session.projectName}\nCreated: ${new Date(session.createdAt).toLocaleString()}\nMessages: ${session.messageCount}`);
+          const savedMessages = storage.loadMessageHistory();
+          const savedCount = savedMessages ? savedMessages.length : 0;
+          ctx.addMessage('system', `Session: ${session.projectName}\nID: ${session.id}\nCreated: ${new Date(session.createdAt).toLocaleString()}\nMessages: ${session.messageCount}\nSaved LLM messages: ${savedCount}`);
         } else {
           ctx.addMessage('system', 'No active session.');
         }
+      } else if (parts[1] === 'fork') {
+        const session = ctx.sessionRef.current;
+        if (!session) {
+          ctx.addMessage('error', 'No active session to fork.');
+        } else {
+          // Save current messages before forking
+          storage.saveMessageHistory(ctx.llmMessages.current);
+          const forked = storage.forkSession(session.projectPath);
+          if (forked) {
+            ctx.sessionRef.current = forked;
+            ctx.addMessage('system', `Forked session: ${forked.id}\nMessages carried over: ${ctx.llmMessages.current.length}\n\nYou are now on the forked session. The original session is preserved.`);
+          } else {
+            ctx.addMessage('error', 'Failed to fork session. No saved messages found.');
+          }
+        }
+      } else if (parts[1] === 'save') {
+        storage.saveMessageHistory(ctx.llmMessages.current);
+        ctx.addMessage('system', `Saved ${ctx.llmMessages.current.length} LLM messages to session.`);
       } else {
-        ctx.addMessage('system', 'Usage: /session [list|info] or just /sessions');
+        ctx.addMessage('system', 'Usage: /session [list|info|fork|save] or just /sessions');
       }
       break;
 
@@ -1843,21 +1882,38 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     }
 
     case '/resume': {
-      // Resume previous session manually
-      const history = storage.getChatHistory(parseInt(parts[1]) || 20);
-      if (history.length === 0) {
-        ctx.addMessage('system', 'No previous messages to resume.');
-      } else {
-        for (const msg of history) {
-          if (msg.role === 'user' || msg.role === 'assistant') {
-            ctx.llmMessages.current.push({
-              role: msg.role,
-              content: msg.content,
-            });
-          }
+      // Resume a session by loading saved LLM message history
+      // Usage: /resume [sessionId] - resume a specific session, or current session if no ID
+      const targetSessionId = parts[1];
+
+      // Try loading full message history first (preferred - preserves tool calls etc.)
+      const savedMessages = storage.loadMessageHistory(targetSessionId);
+
+      if (savedMessages && savedMessages.length > 0) {
+        // Replace current LLM messages with saved ones
+        ctx.llmMessages.current.length = 0;
+        for (const msg of savedMessages) {
+          ctx.llmMessages.current.push(msg as LLMMessage);
         }
-        ctx.addMessage('system', `\u2713 Loaded ${history.length} messages from previous session`);
+        ctx.addMessage('system', `Restored ${savedMessages.length} messages from saved session${targetSessionId ? ` (${targetSessionId})` : ''}`);
         ctx.setContextTokens(ctx.estimateContextTokens());
+      } else {
+        // Fall back to chat.log history (legacy format, user/assistant only)
+        const history = storage.getChatHistory(20);
+        if (history.length === 0) {
+          ctx.addMessage('system', 'No previous messages to resume. Start a conversation first, messages are auto-saved.');
+        } else {
+          for (const msg of history) {
+            if (msg.role === 'user' || msg.role === 'assistant') {
+              ctx.llmMessages.current.push({
+                role: msg.role,
+                content: msg.content,
+              });
+            }
+          }
+          ctx.addMessage('system', `Loaded ${history.length} messages from chat log (legacy format, tool context not preserved)`);
+          ctx.setContextTokens(ctx.estimateContextTokens());
+        }
       }
       break;
     }

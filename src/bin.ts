@@ -25,7 +25,7 @@ const useLegacyUI = args.includes('--legacy');
 const agtermEnabled = args.includes('--agterm') || args.includes('-a');
 
 // Check for headless mode (no-TTY agent orchestration)
-const useHeadless = args.includes('--headless') || !process.stdout.isTTY;
+const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
 
 // HUD environment variable overrides
 const envSkin = process.env.CALLIOPE_SKIN;
@@ -217,9 +217,10 @@ ${bold('OPTIONS')}
   -a, --agterm      Enable multi-agent orchestration mode
                     Unlock spawn_agent, check_agent tools
   --legacy          Use legacy readline UI instead of ink
-  --headless        Use headless renderer (JSON/text, no TTY)
-                    Auto-enabled when stdout is not a terminal
+  --headless        Headless mode (JSON/text output, no TTY)
+  --batch           Alias for --headless
   --json            Output JSON events (with --headless)
+  --pipe            Read from stdin, write to stdout (alias)
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
@@ -250,8 +251,11 @@ ${bold('INTERACTIVE COMMANDS')}
 
 ${bold('EXAMPLES')}
   calliope                    Start interactive session
-  calliope --setup            Run setup wizard
   calliope "explain this"     Start with a prompt
+  calliope --setup            Run setup wizard
+  calliope --batch "fix lint" Non-interactive batch execution
+  echo "review" | calliope    Pipe prompt via stdin
+  calliope --headless --json  JSON event stream output
 
 ${bold('MORE INFO')}
   https://github.com/calliopeai/calliope-cli

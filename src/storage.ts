@@ -462,6 +462,141 @@ export function getChatHistory(limit?: number): ChatMessage[] {
   return history;
 }
 
+// ============================================================================
+// Session Persistence (Full LLM Message History)
+// ============================================================================
+
+/**
+ * Find a session directory by session ID
+ */
+export function getSessionDirById(sessionId: string): string | null {
+  initStorage();
+
+  try {
+    const entries = fs.readdirSync(paths.sessions, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name !== 'current') {
+        const sessionFile = path.join(paths.sessions, entry.name, 'session.json');
+        const session = readJSON<Session>(sessionFile, null as unknown as Session);
+        if (session && session.id === sessionId) {
+          return path.join(paths.sessions, entry.name);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors
+  }
+  return null;
+}
+
+/**
+ * Save the full LLM message array to the current session directory as messages.json.
+ * This preserves tool calls, tool results, and all message metadata for perfect resume.
+ */
+export function saveMessageHistory(messages: unknown[]): void {
+  const session = getCurrentSession();
+  if (!session) return;
+
+  try {
+    const messagesFile = path.join(paths.currentSession, 'messages.json');
+    writeJSON(messagesFile, messages);
+
+    // Update session metadata
+    const sessionFile = path.join(paths.currentSession, 'session.json');
+    session.messageCount = messages.length;
+    session.lastAccessedAt = new Date().toISOString();
+    writeJSON(sessionFile, session);
+  } catch {
+    // Silently fail - don't break the agent loop
+  }
+}
+
+/**
+ * Load saved LLM messages from a session.
+ * If sessionId is provided, loads from that session; otherwise loads from current session.
+ */
+export function loadMessageHistory(sessionId?: string): unknown[] | null {
+  try {
+    let messagesFile: string;
+
+    if (sessionId) {
+      const sessionDir = getSessionDirById(sessionId);
+      if (!sessionDir) return null;
+      messagesFile = path.join(sessionDir, 'messages.json');
+    } else {
+      messagesFile = path.join(paths.currentSession, 'messages.json');
+    }
+
+    if (!fs.existsSync(messagesFile)) return null;
+
+    const content = fs.readFileSync(messagesFile, 'utf-8');
+    const messages = JSON.parse(content);
+    if (Array.isArray(messages)) {
+      return messages;
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return null;
+}
+
+/**
+ * Fork the current session: creates a new session with the current messages copied.
+ * Returns the new session, or null on failure.
+ */
+export function forkSession(projectPath: string): Session | null {
+  initStorage();
+
+  // Load current messages
+  const currentMessages = loadMessageHistory();
+  if (!currentMessages || currentMessages.length === 0) {
+    return null;
+  }
+
+  const currentSession = getCurrentSession();
+
+  // Create a unique fork directory name
+  const projectName = path.basename(projectPath) || 'unnamed';
+  const date = getTodayString();
+  const forkSuffix = `_fork_${Date.now()}`;
+  const forkDirName = `${date}_${projectName}${forkSuffix}`;
+  const forkDir = path.join(paths.sessions, forkDirName);
+
+  try {
+    fs.mkdirSync(forkDir, { recursive: true });
+    fs.mkdirSync(path.join(forkDir, 'plans'), { recursive: true });
+
+    const newSession: Session = {
+      id: `session_${Date.now()}`,
+      projectPath,
+      projectName,
+      createdAt: new Date().toISOString(),
+      lastAccessedAt: new Date().toISOString(),
+      messageCount: currentMessages.length,
+      provider: currentSession?.provider || '',
+      model: currentSession?.model || '',
+    };
+
+    // Write session metadata
+    writeJSON(path.join(forkDir, 'session.json'), newSession);
+
+    // Copy messages to fork
+    writeJSON(path.join(forkDir, 'messages.json'), currentMessages);
+
+    // Create empty chat log and todos
+    fs.writeFileSync(path.join(forkDir, 'chat.log'), '');
+    fs.writeFileSync(path.join(forkDir, 'todos.txt'), '');
+
+    // Point current symlink to fork
+    updateCurrentSymlink(forkDir);
+
+    return newSession;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Search chat history
  */

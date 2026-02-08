@@ -10,6 +10,7 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { spawn, type ChildProcess } from 'child_process';
 import type { Tool } from './types.js';
 
 // MCP storage directory
@@ -28,6 +29,10 @@ export interface MCPServer {
   status: 'connected' | 'disconnected' | 'error';
   lastConnected?: string;
   autoConnect: boolean;
+  transport: 'http' | 'stdio';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
 }
 
 export interface MCPTool {
@@ -69,6 +74,15 @@ export interface MCPPrompt {
     required?: boolean;
   }>;
 }
+
+interface StdioProcess {
+  process: ChildProcess;
+  pending: Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>;
+  buffer: string;
+  nextId: number;
+}
+
+const stdioProcesses = new Map<string, StdioProcess>();
 
 // ============================================================================
 // Storage
@@ -195,6 +209,7 @@ export async function registerServer(url: string, autoConnect = true): Promise<M
     status: 'connected',
     lastConnected: new Date().toISOString(),
     autoConnect,
+    transport: 'http',
   };
 
   const servers = loadServers();
@@ -282,10 +297,18 @@ export async function executeMCPTool(
 
   // Make RPC call to server
   try {
-    const result = await mcpCall(server.url, 'tools/call', {
-      name: mcpToolName,
-      arguments: args,
-    });
+    let result: unknown;
+    if (server.transport === 'stdio') {
+      result = await stdioCall(server.id, 'tools/call', {
+        name: mcpToolName,
+        arguments: args,
+      });
+    } else {
+      result = await mcpCall(server.url, 'tools/call', {
+        name: mcpToolName,
+        arguments: args,
+      });
+    }
     return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
   } catch (e) {
     return `Error: MCP call failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -379,4 +402,249 @@ export async function refreshServer(idOrUrl: string): Promise<MCPServer | null> 
 
   saveServers(servers);
   return server;
+}
+
+// ============================================================================
+// STDIO Transport
+// ============================================================================
+
+/**
+ * Spawn a child process for a STDIO MCP server
+ */
+export function spawnStdioProcess(server: MCPServer): StdioProcess {
+  if (!server.command) {
+    throw new Error(`STDIO server ${server.id} has no command configured`);
+  }
+
+  const child = spawn(server.command, server.args || [], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    env: { ...process.env, ...(server.env || {}) },
+  });
+
+  const entry: StdioProcess = {
+    process: child,
+    pending: new Map(),
+    buffer: '',
+    nextId: 1,
+  };
+
+  child.stdout!.on('data', (chunk: Buffer) => {
+    entry.buffer += chunk.toString();
+    // Process complete lines
+    let newlineIdx: number;
+    while ((newlineIdx = entry.buffer.indexOf('\n')) !== -1) {
+      const line = entry.buffer.slice(0, newlineIdx).trim();
+      entry.buffer = entry.buffer.slice(newlineIdx + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.id != null && entry.pending.has(msg.id)) {
+          const { resolve, reject } = entry.pending.get(msg.id)!;
+          entry.pending.delete(msg.id);
+          if (msg.error) {
+            reject(new Error(msg.error.message || 'STDIO MCP error'));
+          } else {
+            resolve(msg.result);
+          }
+        }
+      } catch {
+        // Ignore non-JSON lines (e.g. debug output)
+      }
+    }
+  });
+
+  child.on('error', (err: Error) => {
+    // Reject all pending requests
+    for (const [, { reject }] of entry.pending) {
+      reject(new Error(`STDIO process error: ${err.message}`));
+    }
+    entry.pending.clear();
+  });
+
+  child.on('exit', (code: number | null) => {
+    // Reject all pending requests
+    for (const [, { reject }] of entry.pending) {
+      reject(new Error(`STDIO process exited with code ${code}`));
+    }
+    entry.pending.clear();
+    stdioProcesses.delete(server.id);
+  });
+
+  stdioProcesses.set(server.id, entry);
+  return entry;
+}
+
+/**
+ * Send a JSON-RPC call over STDIO to a running MCP server process
+ */
+export async function stdioCall(
+  serverId: string,
+  method: string,
+  params: Record<string, unknown>
+): Promise<unknown> {
+  const entry = stdioProcesses.get(serverId);
+  if (!entry) {
+    throw new Error(`No running STDIO process for server ${serverId}`);
+  }
+
+  const id = entry.nextId++;
+  const request = JSON.stringify({
+    jsonrpc: '2.0',
+    id,
+    method,
+    params,
+  });
+
+  return new Promise<unknown>((resolve, reject) => {
+    entry.pending.set(id, { resolve, reject });
+
+    const ok = entry.process.stdin!.write(request + '\n', (err) => {
+      if (err) {
+        entry.pending.delete(id);
+        reject(new Error(`Failed to write to STDIO: ${err.message}`));
+      }
+    });
+
+    if (!ok) {
+      // Backpressure - wait for drain
+      entry.process.stdin!.once('drain', () => {
+        // Already written via callback above, just waiting for response
+      });
+    }
+
+    // Timeout after 30 seconds
+    setTimeout(() => {
+      if (entry.pending.has(id)) {
+        entry.pending.delete(id);
+        reject(new Error('STDIO call timed out'));
+      }
+    }, 30000);
+  });
+}
+
+/**
+ * Register and start a STDIO MCP server
+ */
+export async function registerStdioServer(
+  command: string,
+  args?: string[],
+  env?: Record<string, string>,
+  autoConnect = true
+): Promise<MCPServer> {
+  const server: MCPServer = {
+    id: `mcp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: command,
+    url: '',
+    tools: [],
+    status: 'disconnected',
+    autoConnect,
+    transport: 'stdio',
+    command,
+    args,
+    env,
+  };
+
+  // Spawn and initialize
+  spawnStdioProcess(server);
+
+  try {
+    // Send initialize
+    await stdioCall(server.id, 'initialize', {
+      protocolVersion: '2024-11-05',
+      capabilities: {},
+      clientInfo: { name: 'calliope-cli', version: '0.8.20' },
+    });
+
+    // Discover tools
+    const toolsResult = await stdioCall(server.id, 'tools/list', {}) as
+      { tools?: MCPTool[] } | undefined;
+    const tools = (toolsResult && toolsResult.tools) ? toolsResult.tools : [];
+
+    server.tools = tools;
+    server.status = 'connected';
+    server.lastConnected = new Date().toISOString();
+
+    // Use the command basename as name if we got one from init
+    const basename = path.basename(command);
+    server.name = basename;
+  } catch (e) {
+    server.status = 'error';
+    stopStdioServer(server.id);
+    throw new Error(`Failed to initialize STDIO server: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
+  // Persist
+  const servers = loadServers();
+  const existing = servers.findIndex(s =>
+    s.transport === 'stdio' && s.command === command &&
+    JSON.stringify(s.args || []) === JSON.stringify(args || [])
+  );
+  if (existing >= 0) {
+    const oldId = server.id;
+    server.id = servers[existing].id;
+    // Move the process entry from the temporary id to the persisted id
+    const proc = stdioProcesses.get(oldId);
+    if (proc) {
+      stdioProcesses.delete(oldId);
+      stdioProcesses.set(server.id, proc);
+    }
+    servers[existing] = server;
+  } else {
+    servers.push(server);
+  }
+  saveServers(servers);
+
+  return server;
+}
+
+/**
+ * Stop a running STDIO MCP server process
+ */
+export function stopStdioServer(serverId: string): boolean {
+  const entry = stdioProcesses.get(serverId);
+  if (!entry) return false;
+
+  // Reject all pending
+  for (const [, { reject }] of entry.pending) {
+    reject(new Error('STDIO server stopped'));
+  }
+  entry.pending.clear();
+
+  entry.process.kill();
+  stdioProcesses.delete(serverId);
+  return true;
+}
+
+/**
+ * Auto-connect all STDIO servers that have autoConnect=true
+ */
+export async function connectStdioServers(): Promise<void> {
+  const servers = loadServers();
+  for (const server of servers) {
+    if (server.transport !== 'stdio' || !server.autoConnect) continue;
+    if (stdioProcesses.has(server.id)) continue; // already running
+
+    try {
+      spawnStdioProcess(server);
+
+      await stdioCall(server.id, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'calliope-cli', version: '0.8.20' },
+      });
+
+      // Refresh tools
+      const toolsResult = await stdioCall(server.id, 'tools/list', {}) as
+        { tools?: MCPTool[] } | undefined;
+      const tools = (toolsResult && toolsResult.tools) ? toolsResult.tools : [];
+
+      server.tools = tools;
+      server.status = 'connected';
+      server.lastConnected = new Date().toISOString();
+    } catch {
+      server.status = 'error';
+      stopStdioServer(server.id);
+    }
+  }
+  saveServers(servers);
 }

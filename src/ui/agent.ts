@@ -606,6 +606,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         continue; // Loop again to get continuation
       }
       completedNaturally = true;
+
+      // Auto-save full message history for session persistence
+      storage.saveMessageHistory(ctx.llmMessages.current);
+
       break;
 
     } catch (error) {
