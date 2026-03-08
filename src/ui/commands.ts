@@ -562,30 +562,178 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       const roleArg = parts.includes('--role') ? parts[parts.indexOf('--role') + 1] : undefined;
 
       if (!agentName) {
-        // Show usage with smart recommendations
+        // Interactive wizard — show guided step-by-step builder
         const executors = await getAvailableExecutors();
         const providers = config.getConfiguredProviders();
-        const recommendations: string[] = [];
-        if (providers.includes('anthropic')) recommendations.push('  For code review/reasoning: --engine claude-sdk --provider anthropic --model claude-sonnet-4-20250514');
-        if (providers.includes('openai')) recommendations.push('  For versatile tasks: --engine openai-sdk --provider openai --model gpt-4o');
-        if (providers.includes('google')) recommendations.push('  For research/context: --engine google-adk --provider google --model gemini-2.0-flash');
-        if (providers.includes('ollama')) recommendations.push('  For local/private: --engine cli --provider ollama --model devstral');
-        if (providers.includes('groq')) recommendations.push('  For speed: --engine cli --provider groq --model llama-3.3-70b-versatile');
 
-        ctx.addMessage('system', `Usage: /build-agent <name> [--engine X] [--provider X] [--model X] [--role X]
+        // Engine descriptions
+        const engineDescriptions: Record<string, string> = {
+          'cli': 'Built-in CLI agent loop (works with all providers, most flexible)',
+          'claude-sdk': 'Anthropic Claude SDK (native tool use, streaming, best for Anthropic models)',
+          'openai-sdk': 'OpenAI SDK (function calling, JSON mode, best for OpenAI models)',
+          'google-adk': 'Google ADK (grounding, search, best for Gemini models)',
+        };
 
-Available engines: ${executors.join(', ')}
-Configured providers: ${providers.join(', ')}
+        // Provider-to-engine recommendations
+        const providerEngineMap: Record<string, string> = {
+          anthropic: 'claude-sdk',
+          openai: 'openai-sdk',
+          google: 'google-adk',
+          together: 'cli',
+          openrouter: 'cli',
+          groq: 'cli',
+          fireworks: 'cli',
+          mistral: 'cli',
+          ollama: 'cli',
+          bedrock: 'cli',
+        };
 
-Recommended configurations:
-${recommendations.join('\n') || '  Configure API keys first (run calliope --setup)'}
+        // Common roles
+        const roles = [
+          { name: 'coder', desc: 'Writes and refactors code' },
+          { name: 'reviewer', desc: 'Reviews code for bugs, style, and security' },
+          { name: 'architect', desc: 'Designs system architecture and APIs' },
+          { name: 'researcher', desc: 'Gathers information and summarizes findings' },
+          { name: 'qa-engineer', desc: 'Writes tests and validates correctness' },
+          { name: 'devops', desc: 'Infrastructure, CI/CD, and deployment' },
+          { name: 'writer', desc: 'Documentation, READMEs, and technical writing' },
+          { name: 'analyst', desc: 'Data analysis and insights' },
+        ];
 
-Example:
-  /build-agent code-reviewer --engine claude-sdk --provider anthropic --model claude-sonnet-4-20250514 --role reviewer
+        const lines: string[] = [];
+        lines.push('=== Build Agent Wizard ===');
+        lines.push('');
 
-After creation, customize instructions in .calliope/agents/${agentName || '<name>'}.yaml`);
+        // Step 1: Engine
+        lines.push('STEP 1: Choose an engine');
+        lines.push('The engine determines how the agent executes (SDK backend or CLI loop).');
+        lines.push('');
+        for (const eng of ['cli', 'claude-sdk', 'openai-sdk', 'google-adk']) {
+          const available = executors.includes(eng);
+          const marker = available ? '[installed]' : '[not installed]';
+          lines.push(`  ${eng}  ${marker}`);
+          lines.push(`    ${engineDescriptions[eng] || ''}`);
+        }
+        lines.push('');
+        if (executors.length === 1) {
+          lines.push('  Recommendation: Only "cli" is available. Install SDK packages for more options.');
+          lines.push('  Run /install-agents to see what can be installed.');
+        } else {
+          lines.push(`  Available on this system: ${executors.join(', ')}`);
+        }
+        lines.push('');
+
+        // Step 2: Provider
+        lines.push('STEP 2: Choose a provider');
+        lines.push('The provider determines which API your agent calls.');
+        lines.push('');
+        if (providers.length === 0) {
+          lines.push('  No providers configured! Run calliope --setup to add API keys.');
+        } else {
+          for (const p of providers) {
+            const recEngine = providerEngineMap[p] || 'cli';
+            const model = DEFAULT_MODELS[p] || 'auto';
+            lines.push(`  ${p}  (best with --engine ${recEngine}, default model: ${model})`);
+          }
+        }
+        lines.push('');
+
+        // Step 3: Model
+        lines.push('STEP 3: Choose a model');
+        lines.push('Each provider has a default model. Override with --model if needed.');
+        lines.push('');
+        if (providers.length > 0) {
+          for (const p of providers) {
+            lines.push(`  ${p}: ${DEFAULT_MODELS[p] || 'auto'}`);
+          }
+          lines.push('');
+          lines.push('  Tip: Run /models to see all available models for your providers.');
+        }
+        lines.push('');
+
+        // Step 4: Role
+        lines.push('STEP 4: Set a role');
+        lines.push('The role labels what this agent specializes in. Common roles:');
+        lines.push('');
+        for (const r of roles) {
+          lines.push(`  ${r.name.padEnd(14)} ${r.desc}`);
+        }
+        lines.push('');
+        lines.push('  You can also use any custom role name.');
+        lines.push('');
+
+        // Step 5: Instructions
+        lines.push('STEP 5: Write instructions (after creation)');
+        lines.push('After creating the agent, edit its YAML file to add detailed instructions.');
+        lines.push('');
+        lines.push('  Template:');
+        lines.push('    instructions: |');
+        lines.push('      You are a specialized {role} agent.');
+        lines.push('      Your focus areas: ...');
+        lines.push('      When reviewing code: ...');
+        lines.push('      Output format: ...');
+        lines.push('');
+
+        // Final command
+        lines.push('--- Ready to build? ---');
+        lines.push('');
+        if (providers.includes('anthropic') && executors.includes('claude-sdk')) {
+          lines.push('  /build-agent my-agent --engine claude-sdk --provider anthropic --role coder');
+        } else if (providers.includes('openai') && executors.includes('openai-sdk')) {
+          lines.push('  /build-agent my-agent --engine openai-sdk --provider openai --role coder');
+        } else if (providers.length > 0) {
+          const firstProvider = providers[0];
+          lines.push(`  /build-agent my-agent --engine cli --provider ${firstProvider} --role coder`);
+        } else {
+          lines.push('  /build-agent my-agent --engine cli --provider anthropic --role coder');
+        }
+        lines.push('');
+        lines.push('Add --model <model> to override the default model for the chosen provider.');
+
+        ctx.addMessage('system', lines.join('\n'));
+      } else if (!engineArg && !providerArg && !modelArg && !roleArg) {
+        // Name provided but no flags — show a concise personalized wizard
+        const executors = await getAvailableExecutors();
+        const providers = config.getConfiguredProviders();
+
+        const providerEngineMap: Record<string, string> = {
+          anthropic: 'claude-sdk', openai: 'openai-sdk', google: 'google-adk',
+          together: 'cli', openrouter: 'cli', groq: 'cli', fireworks: 'cli',
+          mistral: 'cli', ollama: 'cli', bedrock: 'cli',
+        };
+
+        const lines: string[] = [];
+        lines.push(`=== Building agent: ${agentName} ===`);
+        lines.push('');
+        lines.push('Choose your configuration:');
+        lines.push('');
+
+        // Show ready-to-run commands for each configured provider
+        let optionNum = 0;
+        for (const p of providers) {
+          const recEngine = providerEngineMap[p] || 'cli';
+          const engineAvailable = executors.includes(recEngine);
+          const engine = engineAvailable ? recEngine : 'cli';
+          const model = DEFAULT_MODELS[p] || 'auto';
+          optionNum++;
+          lines.push(`  Option ${optionNum}: ${p}`);
+          lines.push(`    /build-agent ${agentName} --engine ${engine} --provider ${p} --model ${model} --role coder`);
+          lines.push('');
+        }
+
+        if (optionNum === 0) {
+          lines.push('  No providers configured. Run calliope --setup to add API keys.');
+          lines.push(`  Or build with defaults: /build-agent ${agentName} --engine cli --provider anthropic --role coder`);
+        }
+
+        lines.push('Common roles: coder, reviewer, architect, researcher, qa-engineer, devops, writer');
+        lines.push('');
+        lines.push('Pick an option above and change --role to match your needs.');
+        lines.push(`After creation, customize instructions in .calliope/agents/${agentName}.yaml`);
+
+        ctx.addMessage('system', lines.join('\n'));
       } else {
-        // Build and save agent definition
+        // Build and save agent definition (flags provided)
         const newDef: AgentDefinition = {
           name: agentName,
           engine: (engineArg as import('../agents/types.js').TaskExecutor) || 'cli',
@@ -608,24 +756,105 @@ After creation, customize instructions in .calliope/agents/${agentName || '<name
       const modeArg = parts.includes('--mode') ? parts[parts.indexOf('--mode') + 1] : undefined;
 
       if (!teamNameArg) {
+        // Interactive wizard — guided team builder
         const teams = listTeamDefs(process.cwd());
         const agents = listAgentDefs(process.cwd());
-        ctx.addMessage('system', `Usage: /build-team <name> [--mode competitive|collaborative|consensus|overseer]
 
-Then add members with subsequent commands, or edit the YAML directly.
+        const lines: string[] = [];
+        lines.push('=== Build Team Wizard ===');
+        lines.push('');
 
-Available agents to compose into teams (${agents.length}):
-${agents.map(a => `  ${a.name} — ${a.engine}/${a.provider || 'auto'} [${a.role || 'any'}]`).join('\n')}
+        // Step 1: Available agents
+        lines.push('STEP 1: Review your available agents');
+        lines.push('Teams are composed of agent definitions. Here is what you have:');
+        lines.push('');
+        if (agents.length === 0) {
+          lines.push('  No agents defined yet!');
+          lines.push('  Create agents first: /build-agent (run without args for the wizard)');
+          lines.push('');
+        } else {
+          for (const a of agents) {
+            const src = (a as AgentDefinition & { _source?: string })._source === 'builtin' ? ' (built-in)' : '';
+            lines.push(`  ${a.name.padEnd(20)} engine: ${a.engine.padEnd(12)} provider: ${(a.provider || 'auto').padEnd(12)} role: ${a.role || 'any'}${src}`);
+          }
+          lines.push('');
+          lines.push(`  Total: ${agents.length} agents available`);
+          if (agents.length < 2) {
+            lines.push('  You need at least 2 agents for a team. Create more with /build-agent.');
+          }
+          lines.push('');
+        }
 
-Existing teams (${teams.length}):
-${teams.map(t => `  ${t.name} — ${t.mode}, ${t.members.length} members`).join('\n')}
+        // Step 2: Choose mode
+        lines.push('STEP 2: Choose a coordination mode');
+        lines.push('The mode determines how agents work together:');
+        lines.push('');
+        lines.push('  competitive');
+        lines.push('    All agents tackle the same task independently.');
+        lines.push('    The best response wins (scored by quality/relevance).');
+        lines.push('    Best for: code review, creative alternatives, getting multiple perspectives.');
+        lines.push('');
+        lines.push('  collaborative');
+        lines.push('    Agents work in a pipeline, each building on the previous output.');
+        lines.push('    First agent plans, next implements, last reviews.');
+        lines.push('    Best for: refactoring, multi-step tasks, plan-implement-review workflows.');
+        lines.push('');
+        lines.push('  consensus');
+        lines.push('    All agents must agree before a result is accepted.');
+        lines.push('    Disagreements trigger additional rounds of discussion.');
+        lines.push('    Best for: security audits, critical decisions, high-stakes analysis.');
+        lines.push('');
+        lines.push('  overseer');
+        lines.push('    A lead agent decomposes the task and delegates to workers.');
+        lines.push('    The overseer reviews and merges all results.');
+        lines.push('    Best for: complex projects, research, large feature implementation.');
+        lines.push('');
 
-Strategy recommendations:
-  Code review     → competitive mode (best answer wins)
-  Refactoring     → collaborative pipeline (plan → implement → review)
-  Security audit  → consensus mode (all must agree on findings)
-  Research        → parallel swarm (all investigate, merge results)
-  Complex project → overseer mode (lead decomposes, workers execute)`);
+        // Step 3: Strategy recommendations
+        lines.push('STEP 3: Pick a strategy based on your task');
+        lines.push('');
+        lines.push('  Task Type            Mode            Recommended Agents');
+        lines.push('  ─────────────────────────────────────────────────────────');
+        lines.push('  Code review          competitive     code-reviewer, qa-engineer');
+        lines.push('  Refactoring          collaborative   architect, coder, reviewer');
+        lines.push('  Security audit       consensus       security-analyst, code-reviewer, qa-engineer');
+        lines.push('  Research             overseer        researcher, analyst, writer');
+        lines.push('  Feature development  overseer        architect, coder, qa-engineer, reviewer');
+        lines.push('  Documentation        collaborative   researcher, writer');
+        lines.push('');
+
+        // Existing teams
+        if (teams.length > 0) {
+          lines.push('Existing teams:');
+          for (const t of teams) {
+            lines.push(`  ${t.name.padEnd(20)} mode: ${t.mode.padEnd(14)} members: ${t.members.length}`);
+          }
+          lines.push('');
+        }
+
+        // Final command
+        lines.push('--- Ready to build? ---');
+        lines.push('');
+        if (agents.length >= 2) {
+          const sampleAgents = agents.slice(0, 3).map(a => a.name).join(', ');
+          lines.push(`  /build-team my-team --mode collaborative`);
+          lines.push('');
+          lines.push(`  This will auto-compose a team from your available agents (${sampleAgents}${agents.length > 3 ? ', ...' : ''}).`);
+          lines.push('  After creation, edit the YAML to fine-tune members and settings.');
+        } else {
+          lines.push('  First, create at least 2 agents:');
+          lines.push('    /build-agent planner --engine cli --provider anthropic --role architect');
+          lines.push('    /build-agent coder --engine cli --provider anthropic --role coder');
+          lines.push('');
+          lines.push('  Then build a team:');
+          lines.push('    /build-team my-team --mode collaborative');
+        }
+        lines.push('');
+        lines.push('After creation, use the team with:');
+        lines.push('  /swarm --team <name> <prompt>');
+        lines.push('  spawn_agent team="<name>" prompt="..."');
+
+        ctx.addMessage('system', lines.join('\n'));
       } else {
         // Create a team with available agents
         const availableAgents = listAgentDefs(process.cwd());

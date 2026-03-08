@@ -211,11 +211,11 @@ class CouncilManager {
 
     if ((session.status as string) === 'cancelled') return;
 
-    // Phase 2: Cross-scoring
+    // Phase 2: Cross-scoring (LLM-based with heuristic fallback)
     session.status = 'scoring';
     session.updatedAt = new Date();
 
-    const scoringResults = this.crossScore(session);
+    const scoringResults = await this.crossScoreAsync(session, cwd);
     session.scores = scoringResults;
 
     // Phase 3: Select winner
@@ -423,11 +423,15 @@ class CouncilManager {
       cwd
     );
 
-    // Wait for swarm to complete (poll)
+    // Wait for swarm to complete (poll at 2s intervals).
+    // Timeout scales with maxRounds (each round ≈ 5 min), minimum 5 minutes,
+    // so large councils get proportionally more time to finish.
+    const timeoutMs = Math.max(5 * 60_000, session.config.maxRounds * 5 * 60_000);
+    const pollIntervalMs = 2000;
+    const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
     let attempts = 0;
-    const maxAttempts = 120; // 2 minutes at 1s intervals
     while (!['completed', 'failed', 'cancelled'].includes(swarmSession.status) && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
       attempts++;
     }
 
@@ -484,10 +488,72 @@ Review these results. Synthesize, correct errors, fill gaps, and produce the fin
   }
 
   /**
-   * Cross-score deliberations (each member implicitly scores others)
-   * Simple heuristic: longer, more detailed responses score higher
+   * LLM-based cross-scoring: spawns a scoring agent to evaluate responses.
+   * Returns null if LLM scoring fails (caller should fall back to heuristic).
    */
-  private crossScore(session: CouncilSession): Score[] {
+  private async llmCrossScore(session: CouncilSession, cwd?: string): Promise<Score[] | null> {
+    const entries = session.deliberations;
+    if (entries.length === 0) return null;
+
+    const responseSummaries = entries.map((entry, i) =>
+      `--- Response ${i + 1} (by ${entry.memberName}) ---\n${entry.response}`
+    ).join('\n\n');
+
+    const scoringPrompt = `You are an impartial judge evaluating ${entries.length} responses to the following prompt:
+
+"${session.prompt}"
+
+Here are the responses:
+
+${responseSummaries}
+
+Evaluate each response on correctness, completeness, and quality. Return ONLY a JSON array of scores (0-100), one per response, in the same order they were presented. Example for 3 responses: [85, 72, 90]
+
+Return ONLY the JSON array, no other text.`;
+
+    try {
+      const task = await orchestrator.spawnAgent(scoringPrompt, 'calliope', {
+        background: false,
+        priority: 'normal',
+        cwd,
+      });
+
+      const result = (task.result || '').trim();
+
+      // Extract JSON array from response (handle markdown fences, leading text, etc.)
+      const arrayMatch = result.match(/\[[\s\d,]+\]/);
+      if (!arrayMatch) return null;
+
+      const parsed = JSON.parse(arrayMatch[0]);
+      if (!Array.isArray(parsed) || parsed.length !== entries.length) return null;
+
+      // Validate all entries are numbers in range
+      const numericScores: number[] = parsed.map((v: unknown) => {
+        const n = Number(v);
+        if (isNaN(n)) throw new Error('non-numeric score');
+        return Math.max(0, Math.min(100, Math.round(n)));
+      });
+
+      const scores: Score[] = entries.map((entry, i) => {
+        entry.score = numericScores[i];
+        return {
+          scorerId: 'llm',
+          targetId: entry.memberId,
+          score: numericScores[i],
+          weight: 1.0,
+        };
+      });
+
+      return scores;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Heuristic cross-scoring fallback: scores based on response structure.
+   */
+  private heuristicCrossScore(session: CouncilSession): Score[] {
     const scores: Score[] = [];
     const entries = session.deliberations;
 
@@ -519,6 +585,22 @@ Review these results. Synthesize, correct errors, fill gaps, and produce the fin
     }
 
     return scores;
+  }
+
+  /**
+   * Cross-score deliberations (sync fallback for non-competitive callers).
+   */
+  private crossScore(session: CouncilSession): Score[] {
+    return this.heuristicCrossScore(session);
+  }
+
+  /**
+   * Async cross-scoring: tries LLM evaluation first, falls back to heuristics.
+   */
+  private async crossScoreAsync(session: CouncilSession, cwd?: string): Promise<Score[]> {
+    const llmScores = await this.llmCrossScore(session, cwd);
+    if (llmScores) return llmScores;
+    return this.heuristicCrossScore(session);
   }
 
   /**
