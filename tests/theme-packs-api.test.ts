@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import type { ThemePack, ThemeCategory } from '../src/hud/theme-packs/types.js';
 
 // We import the stateless query functions directly — they don't depend on
@@ -9,7 +9,12 @@ import {
   getPackCompanions,
 } from '../src/hud/theme-packs/api.js';
 
-import { THEME_PACKS } from '../src/hud/theme-packs/index.js';
+import { THEME_PACKS, loadThemePacks } from '../src/hud/theme-packs/index.js';
+
+// Load theme packs before all tests (requires @calliopelabs/cli-themes)
+beforeAll(async () => {
+  await loadThemePacks();
+});
 
 // ============================================================================
 // listThemePacks
@@ -148,6 +153,8 @@ describe('applyThemePack', () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const indexMod = await import('../src/hud/theme-packs/index.js');
+    await indexMod.loadThemePacks();
     const mod = await import('../src/hud/theme-packs/api.js');
     applyThemePack = mod.applyThemePack;
     getCurrentPack = mod.getCurrentPack;
@@ -205,6 +212,8 @@ describe('getCurrentPack', () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const indexMod = await import('../src/hud/theme-packs/index.js');
+    await indexMod.loadThemePacks();
     const mod = await import('../src/hud/theme-packs/api.js');
     applyThemePack = mod.applyThemePack;
     getCurrentPack = mod.getCurrentPack;
@@ -233,6 +242,8 @@ describe('getCompanionMode', () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const indexMod = await import('../src/hud/theme-packs/index.js');
+    await indexMod.loadThemePacks();
     const mod = await import('../src/hud/theme-packs/api.js');
     applyThemePack = mod.applyThemePack;
     getCompanionMode = mod.getCompanionMode;
@@ -266,6 +277,8 @@ describe('setCompanionMode', () => {
 
   beforeEach(async () => {
     vi.resetModules();
+    const indexMod = await import('../src/hud/theme-packs/index.js');
+    await indexMod.loadThemePacks();
     const mod = await import('../src/hud/theme-packs/api.js');
     applyThemePack = mod.applyThemePack;
     setCompanionMode = mod.setCompanionMode;
@@ -319,9 +332,9 @@ describe('populateLegacyRegistries', () => {
     COMPANIONS = companionsMod.COMPANIONS;
   });
 
-  it('should populate SKINS with theme pack skins', () => {
+  it('should populate SKINS with theme pack skins', async () => {
     const skinsBefore = Object.keys(SKINS).length;
-    populateLegacyRegistries();
+    await populateLegacyRegistries();
     const skinsAfter = Object.keys(SKINS).length;
     // Should have added at least some new skins (those not already present)
     expect(skinsAfter).toBeGreaterThanOrEqual(skinsBefore);
@@ -329,37 +342,37 @@ describe('populateLegacyRegistries', () => {
     expect(SKINS['mario']).toBeDefined();
   });
 
-  it('should populate PALETTES with theme pack palettes', () => {
+  it('should populate PALETTES with theme pack palettes', async () => {
     const palettesBefore = Object.keys(PALETTES).length;
-    populateLegacyRegistries();
+    await populateLegacyRegistries();
     const palettesAfter = Object.keys(PALETTES).length;
     expect(palettesAfter).toBeGreaterThanOrEqual(palettesBefore);
   });
 
-  it('should populate COMPANIONS with theme pack companions', () => {
+  it('should populate COMPANIONS with theme pack companions', async () => {
     const companionsBefore = Object.keys(COMPANIONS).length;
-    populateLegacyRegistries();
+    await populateLegacyRegistries();
     const companionsAfter = Object.keys(COMPANIONS).length;
     expect(companionsAfter).toBeGreaterThanOrEqual(companionsBefore);
   });
 
-  it('should be idempotent (calling twice does not duplicate entries)', () => {
-    populateLegacyRegistries();
+  it('should be idempotent (calling twice does not duplicate entries)', async () => {
+    await populateLegacyRegistries();
     const skinsCount = Object.keys(SKINS).length;
     const palettesCount = Object.keys(PALETTES).length;
     const companionsCount = Object.keys(COMPANIONS).length;
 
-    populateLegacyRegistries();
+    await populateLegacyRegistries();
     expect(Object.keys(SKINS).length).toBe(skinsCount);
     expect(Object.keys(PALETTES).length).toBe(palettesCount);
     expect(Object.keys(COMPANIONS).length).toBe(companionsCount);
   });
 
-  it('should not overwrite pre-existing registry entries', () => {
+  it('should not overwrite pre-existing registry entries', async () => {
     // If a skin already exists, populateLegacyRegistries should not replace it
     const existingSkin = SKINS['clean'];
     expect(existingSkin).toBeDefined();
-    populateLegacyRegistries();
+    await populateLegacyRegistries();
     expect(SKINS['clean']).toBe(existingSkin);
   });
 });

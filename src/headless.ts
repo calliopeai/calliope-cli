@@ -77,8 +77,8 @@ function now(): string {
 
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const outputMode = options.outputMode || 'json';
-  const provider = options.provider || config.get('defaultProvider');
-  const model = options.model || config.get('defaultModel');
+  const provider = options.provider || (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
+  const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
   const persona: AgentPersona = options.persona || config.get('persona');
   const maxIterations = options.maxIterations || config.get('maxIterations');
   const cwd = options.cwd || process.cwd();

@@ -40,11 +40,33 @@ const SAFE_ENV_VARS = [
 ];
 
 /**
+ * Provider-to-env-var mapping for calliope subagent provider routing
+ */
+const PROVIDER_ENV_VARS: Record<string, string> = {
+  anthropic: 'ANTHROPIC_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  google: 'GOOGLE_API_KEY',
+  openrouter: 'OPENROUTER_API_KEY',
+  together: 'TOGETHER_API_KEY',
+  groq: 'GROQ_API_KEY',
+  fireworks: 'FIREWORKS_API_KEY',
+  mistral: 'MISTRAL_API_KEY',
+  ollama: 'OLLAMA_BASE_URL',
+  ai21: 'AI21_API_KEY',
+  huggingface: 'HUGGINGFACE_API_KEY',
+  litellm: 'LITELLM_BASE_URL',
+  bedrock: 'BEDROCK_API_KEY',
+};
+
+/**
  * Get environment variables for an agent.
  * Only passes safe system vars + the specific API key for this agent type.
  * Prevents credential leakage (e.g., Anthropic key leaking to Gemini sub-agent).
+ *
+ * For calliope subagents, also passes CALLIOPE_PROVIDER and CALLIOPE_MODEL
+ * to control which provider/model the subagent uses.
  */
-function getAgentEnv(agentType: SubAgentType): Record<string, string> {
+function getAgentEnv(task: SubAgentTask): Record<string, string> {
   const env: Record<string, string> = {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
@@ -58,9 +80,28 @@ function getAgentEnv(agentType: SubAgentType): Record<string, string> {
   }
 
   // Only pass the API key this specific agent needs
-  const agentConfig = AGENT_CLI_MAP[agentType];
+  const agentConfig = AGENT_CLI_MAP[task.agent];
   if (agentConfig && process.env[agentConfig.envVar]) {
     env[agentConfig.envVar] = process.env[agentConfig.envVar]!;
+  }
+
+  // For calliope subagents, pass provider/model selection and the required API key
+  if (task.agent === 'calliope') {
+    if (task.provider) {
+      env['CALLIOPE_PROVIDER'] = task.provider;
+      // Also pass the API key for the selected provider
+      const providerEnvVar = PROVIDER_ENV_VARS[task.provider];
+      if (providerEnvVar && process.env[providerEnvVar]) {
+        env[providerEnvVar] = process.env[providerEnvVar]!;
+      }
+      // For ollama, also pass base URL
+      if (task.provider === 'ollama' && process.env['OLLAMA_BASE_URL']) {
+        env['OLLAMA_BASE_URL'] = process.env['OLLAMA_BASE_URL']!;
+      }
+    }
+    if (task.model) {
+      env['CALLIOPE_MODEL'] = task.model;
+    }
   }
 
   return env;
@@ -76,7 +117,7 @@ export async function* executeAgent(
   timeout: number = 15 * 60 * 1000 // 15 minutes default
 ): AsyncIterable<AgentEvent> {
   const { command, args } = getAgentCLI(task.agent);
-  const env = getAgentEnv(task.agent);
+  const env = getAgentEnv(task);
 
   // Emit start event
   yield {

@@ -42,7 +42,7 @@ describe('CircuitBreaker', () => {
   describe('initialization', () => {
     it('should start with all breakers closed', () => {
       const statuses = breaker.getStatus();
-      expect(statuses).toHaveLength(5);
+      expect(statuses).toHaveLength(6);
       for (const status of statuses) {
         expect(status.state).toBe('closed');
         expect(status.tripCount).toBe(0);

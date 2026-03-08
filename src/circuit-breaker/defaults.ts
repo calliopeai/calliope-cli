@@ -29,5 +29,9 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
     'stall': {
       maxIdleIterations: 5,
     },
+    'wall-clock': {
+      maxSessionDurationMs: 0,                  // 0 = no session cap
+      maxIterationDurationMs: 10 * 60 * 1000,   // 10 minutes per iteration
+    },
   },
 };

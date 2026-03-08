@@ -41,6 +41,8 @@ export interface SubAgentTask {
   error?: string;
   pid?: number;
   swarmId?: string;
+  model?: string;
+  provider?: string;
   createdAt: Date;
   updatedAt: Date;
   startedAt?: Date;
@@ -119,7 +121,7 @@ export const DEFAULT_ORCHESTRATOR_CONFIG: OrchestratorConfig = {
 export const AGENT_CLI_MAP: Record<SubAgentType, { command: string; args: string[]; envVar: string }> = {
   calliope: {
     command: 'calliope',
-    args: [],  // sub-agents should respect confirmation prompts
+    args: ['--headless', '--god-mode'],
     envVar: 'ANTHROPIC_API_KEY'  // calliope uses anthropic by default
   },
   claude: {

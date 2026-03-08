@@ -347,14 +347,14 @@ describe('executeAgtermTool - spawn_agent', () => {
     expect(result.result).toContain('API rate limited');
   });
 
-  it('should default agent to claude when not specified', async () => {
+  it('should default agent to calliope when not specified', async () => {
     const agentDetection = await import('../src/agterm/agent-detection.js');
-    vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
+    vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['calliope']);
 
     await executeAgtermTool(makeTool('spawn_agent', { prompt: 'test' }), cwd);
 
     expect(orchestrator.spawnAgent).toHaveBeenCalledWith(
-      'test', 'claude', expect.objectContaining({ background: false, priority: 'normal' })
+      'test', 'calliope', expect.objectContaining({ background: false, priority: 'normal' })
     );
   });
 
@@ -376,7 +376,7 @@ describe('executeAgtermTool - spawn_agent', () => {
 
   it('should parse boolean background from string "false"', async () => {
     const agentDetection = await import('../src/agterm/agent-detection.js');
-    vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
+    vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['calliope']);
 
     await executeAgtermTool(makeTool('spawn_agent', {
       prompt: 'test',
@@ -384,7 +384,7 @@ describe('executeAgtermTool - spawn_agent', () => {
     }), cwd);
 
     expect(orchestrator.spawnAgent).toHaveBeenCalledWith(
-      'test', 'claude', expect.objectContaining({ background: false })
+      'test', 'calliope', expect.objectContaining({ background: false })
     );
   });
 });

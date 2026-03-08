@@ -36,6 +36,8 @@ Agent descriptions:
 Options:
 - background: true = returns immediately with taskId, false = waits for completion
 - priority: critical > high > normal > low (affects queue ordering)
+- provider: Override the provider (e.g., ollama, anthropic, openai, google) — calliope agent only
+- model: Override the model (e.g., devstral, llama3.3, gpt-4o) — calliope agent only
 
 Use check_agent with the taskId to monitor background tasks.`;
 }
@@ -70,6 +72,14 @@ export function getAgtermTools(): Tool[] {
             type: 'string',
             description: 'Task priority for queue ordering. Default: normal',
             enum: ['low', 'normal', 'high', 'critical'],
+          },
+          provider: {
+            type: 'string',
+            description: 'Override provider for calliope subagents (e.g., ollama, anthropic, openai, google)',
+          },
+          model: {
+            type: 'string',
+            description: 'Override model for calliope subagents (e.g., devstral, llama3.3, gpt-4o)',
           },
         },
         required: ['prompt'],
@@ -285,9 +295,11 @@ export async function executeAgtermTool(
     switch (name) {
       case 'spawn_agent': {
         const prompt = String(args.prompt || '');
-        const agent = (args.agent as SubAgentType) || 'claude';
+        const agent = (args.agent as SubAgentType) || 'calliope';
         const background = args.background === 'true' || args.background === true;
         const priority = (args.priority as TaskPriority) || 'normal';
+        const model = args.model ? String(args.model) : undefined;
+        const provider = args.provider ? String(args.provider) : undefined;
 
         if (!prompt) {
           return {
@@ -314,6 +326,8 @@ export async function executeAgtermTool(
             background,
             priority,
             cwd,
+            model,
+            provider,
           });
 
           if (background) {

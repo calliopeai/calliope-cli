@@ -14,7 +14,8 @@ export type BreakerType =
   | 'cost-runaway'
   | 'infinite-loop'
   | 'token-burn'
-  | 'stall';
+  | 'stall'
+  | 'wall-clock';
 
 export type BreakerState = 'closed' | 'open' | 'half-open';
 
@@ -47,12 +48,18 @@ export interface StallThresholds {
   maxIdleIterations: number;    // Iterations with no tool calls or content
 }
 
+export interface WallClockThresholds {
+  maxSessionDurationMs: number;    // Max wall-clock time per session (0 = no cap)
+  maxIterationDurationMs: number;  // Max wall-clock time per single iteration (default: 10 min)
+}
+
 export type BreakerThresholds =
   | RepeatedFailureThresholds
   | CostRunawayThresholds
   | InfiniteLoopThresholds
   | TokenBurnThresholds
-  | StallThresholds;
+  | StallThresholds
+  | WallClockThresholds;
 
 // ============================================================================
 // Events & Status
@@ -85,6 +92,7 @@ export interface CircuitBreakerConfig {
     'infinite-loop': InfiniteLoopThresholds;
     'token-burn': TokenBurnThresholds;
     'stall': StallThresholds;
+    'wall-clock': WallClockThresholds;
   };
 }
 

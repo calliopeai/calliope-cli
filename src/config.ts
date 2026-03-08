@@ -46,6 +46,7 @@ export interface CalliopeConfig {
   // Agent settings
   persona: AgentPersona;
   maxIterations: number;
+  maxIterationTime: number;   // Max seconds per iteration (0 = no limit, default: 600)
   fancyOutput: boolean;
 
   // Session settings
@@ -94,6 +95,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   defaultProvider: 'auto',
   persona: 'calliope',
   maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
+  maxIterationTime: 600,  // 10 minutes per iteration (seconds, 0 = no limit)
   fancyOutput: true,
   autoSaveHistory: true,
   autoUpgrade: true,
@@ -161,6 +163,7 @@ const config = new Conf<CalliopeConfig>({
     bedrockBaseUrl: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'muse', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
+    maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
     fancyOutput: { type: 'boolean' },
     autoSaveHistory: { type: 'boolean' },
     workspaceRoot: { type: 'string' },

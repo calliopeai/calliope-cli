@@ -30,6 +30,8 @@ import type { SmartRoutingConfig } from '../smart-router.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall } from '../types.js';
 import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
+import { IterationLedger } from '../iteration-ledger.js';
+import { shouldCheckpoint, createCheckpoint } from '../auto-checkpoint.js';
 
 // ============================================================================
 // Agent Context Interface
@@ -46,6 +48,9 @@ export interface AgentContext {
   actualModel: string;
   stats: SessionStats;
   agtermEnabled: boolean;
+
+  // Iteration Ledger
+  ledger?: IterationLedger;
 
   // Circuit Breaker & Smart Routing
   circuitBreaker?: CircuitBreaker;
@@ -202,7 +207,18 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
    Consider: /summarize compact | /clear | shorter messages`);
   }
 
+  // Inject failed approaches into context so the agent avoids repeating mistakes
+  if (ctx.ledger) {
+    const failedMsg = ctx.ledger.getFailedApproachesMessage();
+    if (failedMsg) {
+      ctx.llmMessages.current.push({ role: 'user', content: failedMsg });
+    }
+  }
+
   for (let i = 0; i < maxIterations; i++) {
+    // Start ledger tracking for this iteration
+    ctx.ledger?.startIteration(i + 1);
+
     // Safety check at start of each iteration - context may have grown from tool results
     if (i > 0) {
       const iterContextTokens = ctx.estimateContextTokens();
@@ -285,6 +301,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           outputTokens: s.outputTokens + response.usage!.outputTokens,
           cost: s.cost + usageCost,
         }));
+        // Record in iteration ledger
+        ctx.ledger?.recordTokens(response.usage.inputTokens, response.usage.outputTokens, usageCost);
         // Persist cost to storage
         storage.recordCost(usageCost, ctx.actualProvider, ctx.sessionRef.current?.id);
 
@@ -362,7 +380,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           };
 
           // Check blocking conditions
-          if (ctx.mode === 'plan' && toolCall.name !== 'think' && toolCall.name !== 'ask_question' && toolCall.name !== 'create_plan') {
+          const PLAN_MODE_ALLOWED = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
+          if (ctx.mode === 'plan' && !PLAN_MODE_ALLOWED.has(toolCall.name)) {
             preCheck.blocked = true;
             preCheck.blockReason = 'plan mode';
             preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
@@ -394,8 +413,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
           preChecks.push(preCheck);
 
-          // Add blocked tool results to LLM messages
+          // Record blocked tools in ledger and add to LLM messages
           if (preCheck.blocked) {
+            ctx.ledger?.recordAction(toolCall.name, args, 'blocked', preCheck.blockReason);
             ctx.llmMessages.current.push({
               role: 'tool',
               content: preCheck.blockContent!,
@@ -455,6 +475,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             for (const result of results) {
               const toolCall = result.toolCall;
               const args = toolCall.arguments as Record<string, unknown>;
+
+              // Record in iteration ledger
+              ctx.ledger?.recordAction(
+                toolCall.name,
+                args,
+                result.error ? 'error' : 'ok',
+                result.error || undefined,
+              );
 
               // Execute post-tool hooks
               hooks.executeHooks('post-tool', {
@@ -528,6 +556,13 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               }
 
               ctx.debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
+              // Auto-checkpoint before destructive operations
+              if (shouldCheckpoint(toolCall.name, args)) {
+                const hash = createCheckpoint(toolCall.name, args);
+                if (hash) {
+                  ctx.debugLog('checkpoint', `auto-checkpoint ${hash} before ${toolCall.name}`);
+                }
+              }
               // Stream shell output in real-time (#15)
               const shellStreamCallback = toolCall.name === 'shell' ? (chunk: string) => {
                 ctx.setActivityState({
@@ -539,6 +574,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               } : undefined;
               const result = await executeTool(toolCall, process.cwd(), 60000, shellStreamCallback);
               ctx.debugLog('tools', 'DONE', toolCall.name);
+
+              // Record in iteration ledger
+              ctx.ledger?.recordAction(
+                toolCall.name,
+                args,
+                result.isError ? 'error' : 'ok',
+                result.isError ? result.result : undefined,
+              );
 
               // Execute post-tool hooks
               hooks.executeHooks('post-tool', {
@@ -604,6 +647,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             }
           }
         }
+        ctx.ledger?.endIteration();
         if (completedNaturally) break; // ask_question pauses for user input (#42)
         continue;
       }
@@ -626,6 +670,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       }
       completedNaturally = true;
 
+      // End iteration ledger entry
+      ctx.ledger?.endIteration('success');
+
       // Auto-save full message history for session persistence
       storage.saveMessageHistory(ctx.llmMessages.current);
 
@@ -635,6 +682,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.setThinkingState(null);
       ctx.setActivityState(null);
       ctx.setStreamingResponse('');
+
+      // End iteration ledger entry with error
+      ctx.ledger?.endIteration('error');
 
       // Format error with provider context for better suggestions
       setMood('error');

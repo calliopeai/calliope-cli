@@ -37,7 +37,21 @@ export function detectAgents(): AgentCLIInfo[] {
   for (const [type, config] of Object.entries(AGENT_CLI_MAP)) {
     const agentType = type as SubAgentType;
     const exists = commandExists(config.command);
-    const hasKey = hasEnvVar(config.envVar);
+
+    // Calliope works with any provider, not just Anthropic
+    let hasKey: boolean;
+    if (agentType === 'calliope') {
+      hasKey = hasEnvVar('ANTHROPIC_API_KEY') ||
+        hasEnvVar('OPENAI_API_KEY') ||
+        hasEnvVar('GOOGLE_API_KEY') ||
+        hasEnvVar('OLLAMA_BASE_URL') ||
+        hasEnvVar('OPENROUTER_API_KEY') ||
+        hasEnvVar('TOGETHER_API_KEY') ||
+        hasEnvVar('GROQ_API_KEY') ||
+        hasEnvVar('MISTRAL_API_KEY');
+    } else {
+      hasKey = hasEnvVar(config.envVar);
+    }
 
     let available = exists && hasKey;
     let reason: string | undefined;
@@ -45,7 +59,9 @@ export function detectAgents(): AgentCLIInfo[] {
     if (!exists) {
       reason = `${config.command} not found in PATH`;
     } else if (!hasKey) {
-      reason = `${config.envVar} not set`;
+      reason = agentType === 'calliope'
+        ? 'No API keys or Ollama configured'
+        : `${config.envVar} not set`;
     }
 
     agents.push({

@@ -13,6 +13,7 @@ import { chatAnthropic } from './anthropic.js';
 import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
+import { chatOllama } from './ollama.js';
 
 /**
  * Get available providers based on configured API keys
@@ -103,6 +104,8 @@ export async function chat(
       case 'ai21':
       case 'huggingface':
       case 'ollama':
+        response = await chatOllama(messages, tools, actualModel, onToken);
+        break;
       case 'litellm':
       case 'bedrock':
         response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);

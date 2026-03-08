@@ -195,8 +195,8 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
   const { populateLegacyRegistries } = await import('./hud/theme-packs/api.js');
   const { applyCompanion } = await import('./companions.js');
 
-  // Populate legacy registries from theme packs
-  populateLegacyRegistries();
+  // Populate legacy registries from theme packs (optional @calliopelabs/cli-themes)
+  await populateLegacyRegistries();
 
   const skinName = envSkin || config.get('activeSkin') || 'clean';
   const paletteName = envPalette || config.get('activePalette') || 'default';

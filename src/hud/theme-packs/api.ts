@@ -2,11 +2,12 @@
  * Theme Pack API
  *
  * Functions to apply, list, and manage theme packs.
+ * Theme packs are loaded from @calliopelabs/cli-themes (optional dependency).
  * Also populates legacy SKINS/PALETTES/COMPANIONS registries.
  */
 
 import type { ThemePack, ThemeCategory } from './types.js';
-import { THEME_PACKS } from './index.js';
+import { THEME_PACKS, loadThemePacks, hasThemePacks } from './index.js';
 import { SKINS } from '../skins.js';
 import { PALETTES } from '../palettes.js';
 import { applySkin, applyPalette, getCurrentSkin } from '../api.js';
@@ -115,6 +116,11 @@ export function getPackCompanions(packName: string): string[] {
   return names;
 }
 
+/**
+ * Check if theme packs are available.
+ */
+export { hasThemePacks } from './index.js';
+
 // ============================================================================
 // Legacy Registry Population
 // ============================================================================
@@ -122,12 +128,16 @@ export function getPackCompanions(packName: string): string[] {
 let populated = false;
 
 /**
- * Populate SKINS, PALETTES, and COMPANIONS from all registered theme packs.
- * Called once at startup to ensure backward compatibility.
+ * Load theme packs from @calliopelabs/cli-themes and populate
+ * SKINS, PALETTES, and COMPANIONS registries.
+ * No-op if the themes package is not installed.
  */
-export function populateLegacyRegistries(): void {
+export async function populateLegacyRegistries(): Promise<void> {
   if (populated) return;
   populated = true;
+
+  const available = await loadThemePacks();
+  if (!available) return;
 
   for (const pack of Object.values(THEME_PACKS)) {
     // Register skin

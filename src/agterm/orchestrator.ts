@@ -66,6 +66,8 @@ class AgentOrchestrator {
       priority?: TaskPriority;
       background?: boolean;
       cwd?: string;
+      model?: string;
+      provider?: string;
     } = {}
   ): Promise<SubAgentTask> {
     // Validate agent availability
@@ -129,6 +131,8 @@ class AgentOrchestrator {
       parentId: options.parentId,
       depth,
       childIds: [],
+      model: options.model,
+      provider: options.provider,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

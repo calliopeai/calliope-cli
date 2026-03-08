@@ -52,6 +52,7 @@ export class CircuitBreaker {
   private costWindow: Array<{ cost: number; timestamp: number }> = [];
   private toolCallHistory: string[] = []; // fingerprints
   private startTime: number;
+  private lastIterationStart = 0;
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
     // Deep clone defaults to avoid shared state between instances
@@ -64,19 +65,21 @@ export class CircuitBreaker {
         'infinite-loop': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['infinite-loop'] },
         'token-burn': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['token-burn'] },
         'stall': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['stall'] },
+        'wall-clock': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['wall-clock'] },
         ...(config?.breakers ? {
           ...(config.breakers['repeated-failure'] ? { 'repeated-failure': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['repeated-failure'], ...config.breakers['repeated-failure'] } } : {}),
           ...(config.breakers['cost-runaway'] ? { 'cost-runaway': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['cost-runaway'], ...config.breakers['cost-runaway'] } } : {}),
           ...(config.breakers['infinite-loop'] ? { 'infinite-loop': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['infinite-loop'], ...config.breakers['infinite-loop'] } } : {}),
           ...(config.breakers['token-burn'] ? { 'token-burn': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['token-burn'], ...config.breakers['token-burn'] } } : {}),
           ...(config.breakers['stall'] ? { 'stall': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['stall'], ...config.breakers['stall'] } } : {}),
+          ...(config.breakers['wall-clock'] ? { 'wall-clock': { ...DEFAULT_CIRCUIT_BREAKER_CONFIG.breakers['wall-clock'], ...config.breakers['wall-clock'] } } : {}),
         } : {}),
       },
     };
     this.startTime = Date.now();
 
     // Initialize all breakers to closed
-    const types: BreakerType[] = ['repeated-failure', 'cost-runaway', 'infinite-loop', 'token-burn', 'stall'];
+    const types: BreakerType[] = ['repeated-failure', 'cost-runaway', 'infinite-loop', 'token-burn', 'stall', 'wall-clock'];
     for (const type of types) {
       this.states.set(type, 'closed');
       this.tripCounts.set(type, 0);
@@ -105,6 +108,7 @@ export class CircuitBreaker {
       () => this.checkInfiniteLoop(data),
       () => this.checkTokenBurn(data),
       () => this.checkStall(data),
+      () => this.checkWallClock(data),
     ];
 
     for (const check of checks) {
@@ -162,7 +166,7 @@ export class CircuitBreaker {
    * Get status of all breakers.
    */
   getStatus(): BreakerStatus[] {
-    const types: BreakerType[] = ['repeated-failure', 'cost-runaway', 'infinite-loop', 'token-burn', 'stall'];
+    const types: BreakerType[] = ['repeated-failure', 'cost-runaway', 'infinite-loop', 'token-burn', 'stall', 'wall-clock'];
     return types.map(type => ({
       type,
       state: this.states.get(type) || 'closed',
@@ -282,6 +286,9 @@ export class CircuitBreaker {
       case 'stall':
         this.idleCount = 0;
         break;
+      case 'wall-clock':
+        this.lastIterationStart = 0;
+        break;
     }
   }
 
@@ -293,6 +300,7 @@ export class CircuitBreaker {
     this.costWindow = [];
     this.toolCallHistory = [];
     this.startTime = Date.now();
+    this.lastIterationStart = 0;
   }
 
   // ============================================================================
@@ -449,6 +457,46 @@ export class CircuitBreaker {
         { idleCount: this.idleCount, limit },
       );
     }
+
+    return { tripped: false };
+  }
+
+  private checkWallClock(_data: IterationData): BreakerCheckResult {
+    const type: BreakerType = 'wall-clock';
+    if (this.states.get(type) === 'open') return { tripped: false };
+
+    const thresholds = this.config.breakers[type];
+    const multiplier = this.getThresholdMultiplier(type);
+    const now = Date.now();
+
+    // Check session duration (0 = no cap)
+    if (thresholds.maxSessionDurationMs > 0) {
+      const sessionDuration = now - this.startTime;
+      const sessionLimit = Math.ceil(thresholds.maxSessionDurationMs * multiplier);
+      if (sessionDuration >= sessionLimit) {
+        const minutes = Math.round(sessionDuration / 60_000);
+        const limitMinutes = Math.round(sessionLimit / 60_000);
+        return this.trip(type,
+          `Session running for ${minutes} minutes, exceeded limit of ${limitMinutes} minutes.`,
+          { sessionDurationMs: sessionDuration, limitMs: sessionLimit },
+        );
+      }
+    }
+
+    // Check iteration duration (using timestamp from iteration data vs last check)
+    if (this.lastIterationStart > 0) {
+      const iterDuration = now - this.lastIterationStart;
+      const iterLimit = Math.ceil(thresholds.maxIterationDurationMs * multiplier);
+      if (iterDuration >= iterLimit) {
+        const seconds = Math.round(iterDuration / 1000);
+        const limitSeconds = Math.round(iterLimit / 1000);
+        return this.trip(type,
+          `Single iteration took ${seconds}s, exceeded limit of ${limitSeconds}s.`,
+          { iterationDurationMs: iterDuration, limitMs: iterLimit },
+        );
+      }
+    }
+    this.lastIterationStart = now;
 
     return { tripped: false };
   }

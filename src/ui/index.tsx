@@ -28,6 +28,7 @@ import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg }
 import { HUDFrame } from './frame.js';
 import { getCurrentCompanion, applyCompanion } from '../companions.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
+import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
 
@@ -162,8 +163,10 @@ function TerminalChat() {
 
   // Config state
   // Use lazy initializers to avoid calling config.get() on every render
-  const [provider, setProvider] = useState<LLMProvider>(() => config.get('defaultProvider'));
-  const [model, setModel] = useState<string | undefined>(() => config.get('defaultModel'));
+  const [provider, setProvider] = useState<LLMProvider>(() =>
+    (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider'));
+  const [model, setModel] = useState<string | undefined>(() =>
+    process.env.CALLIOPE_MODEL || config.get('defaultModel'));
   const [persona, setPersona] = useState<AgentPersona>(() => config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
@@ -283,8 +286,16 @@ function TerminalChat() {
   const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
   const [smartRouteActive, setSmartRouteActive] = useState<boolean>(() => config.get('smartRoutingEnabled') ?? false);
   const [breakerHealth, setBreakerHealth] = useState<'ok' | 'warning' | 'tripped'>('ok');
+  const ledgerRef = useRef<IterationLedger>(new IterationLedger());
   const circuitBreakerRef = useRef<CircuitBreaker>(
-    config.get('circuitBreakersEnabled') !== false ? new CircuitBreaker() : null as unknown as CircuitBreaker
+    config.get('circuitBreakersEnabled') !== false ? (() => {
+      const iterTimeSec = config.get('maxIterationTime');
+      const cb = new CircuitBreaker();
+      if (typeof iterTimeSec === 'number' && iterTimeSec > 0) {
+        cb.adjust('wall-clock', { maxIterationDurationMs: iterTimeSec * 1000 });
+      }
+      return cb;
+    })() : null as unknown as CircuitBreaker
   );
   const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
     ...getDefaultSmartRoutingConfig(),
@@ -418,6 +429,7 @@ function TerminalChat() {
     actualModel,
     stats,
     agtermEnabled: moduleAgtermEnabled,
+    ledger: ledgerRef.current,
     circuitBreaker: circuitBreakerRef.current || undefined,
     smartRouteActive,
     smartRoutingConfig: smartRoutingConfigRef.current,
