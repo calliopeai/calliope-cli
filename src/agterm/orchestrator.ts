@@ -9,10 +9,12 @@ import type {
   SubAgentTask,
   SubAgentType,
   TaskPriority,
+  TaskExecutor,
   OrchestratorConfig,
 } from './types.js';
 import { DEFAULT_ORCHESTRATOR_CONFIG } from './types.js';
 import { executeAgent, cancelTask as cancelBackendTask } from './cli-backend.js';
+import { executeSdkAgent } from './sdk-backend.js';
 import { isAgentAvailable } from './agent-detection.js';
 
 /**
@@ -68,6 +70,9 @@ class AgentOrchestrator {
       cwd?: string;
       model?: string;
       provider?: string;
+      executor?: TaskExecutor;
+      systemPrompt?: string;
+      timeout?: number;
     } = {}
   ): Promise<SubAgentTask> {
     // Validate agent availability
@@ -126,6 +131,7 @@ class AgentOrchestrator {
       id: randomUUID(),
       prompt,
       agent,
+      executor: options.executor || 'cli',
       status: 'pending',
       priority: options.priority || 'normal',
       parentId: options.parentId,
@@ -133,6 +139,8 @@ class AgentOrchestrator {
       childIds: [],
       model: options.model,
       provider: options.provider,
+      systemPrompt: options.systemPrompt,
+      timeout: options.timeout,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -355,7 +363,15 @@ class AgentOrchestrator {
     try {
       let result = '';
 
-      for await (const event of executeAgent(task, cwd, this.config.taskTimeout)) {
+      // Per-task timeout overrides global config (0 = no timeout)
+      const taskTimeout = task.timeout || this.config.taskTimeout;
+
+      // Select executor: SDK backends run in-process, CLI backend spawns a process
+      const eventSource = task.executor === 'cli'
+        ? executeAgent(task, cwd, taskTimeout)
+        : executeSdkAgent(task, cwd, taskTimeout);
+
+      for await (const event of eventSource) {
         if (event.type === 'text' && event.content) {
           result += event.content;
         } else if (event.type === 'error') {

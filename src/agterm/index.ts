@@ -103,3 +103,61 @@ export {
 } from './council-types.js';
 
 export { councilManager } from './council.js';
+
+// SDK Backend
+export type { TaskExecutor } from './types.js';
+export {
+  isClaudeSdkAvailable,
+  isOpenaiSdkAvailable,
+  isGoogleAdkAvailable,
+  getAvailableExecutors,
+  executeSdkAgent,
+} from './sdk-backend.js';
+
+// Installer
+export {
+  getInstallableItems,
+  getInstallReport,
+  installItem,
+  installAllMissing,
+} from './installer.js';
+export type { InstallableItem } from './installer.js';
+
+// Dynamic Tools
+export type { DynamicTool } from './dynamic-tools.js';
+export {
+  dynamicToolRegistry,
+  getDynamicToolDefs,
+  isDynamicTool,
+  executeDynamicTool,
+  executeMetaTool,
+  DYNAMIC_TOOL_NAMES,
+} from './dynamic-tools.js';
+
+// Agent Config
+export type {
+  AgentDefinition,
+  TeamDefinition,
+  TeamMember,
+  ResolvedTeam,
+  ResolvedTeamMember,
+} from './agent-config-types.js';
+
+export {
+  getAgent,
+  getTeam,
+  listAgentDefs,
+  listTeamDefs,
+  resolveTeam,
+  loadAgentDefinitions,
+  loadTeamDefinitions,
+  scaffoldAgentsDir,
+  saveAgentDef,
+  saveTeamDef,
+  mapEngineToAgentType,
+} from './agent-config-loader.js';
+
+export {
+  BUILTIN_AGENTS,
+  BUILTIN_TEAMS,
+} from './agent-config-presets.js';

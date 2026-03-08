@@ -26,12 +26,18 @@ export type SubAgentTaskStatus =
 export type TaskPriority = 'low' | 'normal' | 'high' | 'critical';
 
 /**
+ * Executor backend for running sub-agent tasks
+ */
+export type TaskExecutor = 'cli' | 'claude-sdk' | 'openai-sdk' | 'google-adk';
+
+/**
  * Sub-agent task representation
  */
 export interface SubAgentTask {
   id: string;
   prompt: string;
   agent: SubAgentType;
+  executor: TaskExecutor;
   status: SubAgentTaskStatus;
   priority: TaskPriority;
   parentId?: string;
@@ -43,6 +49,10 @@ export interface SubAgentTask {
   swarmId?: string;
   model?: string;
   provider?: string;
+  /** System prompt / instructions from agent definition */
+  systemPrompt?: string;
+  /** Per-task timeout override in milliseconds */
+  timeout?: number;
   createdAt: Date;
   updatedAt: Date;
   startedAt?: Date;
@@ -63,7 +73,7 @@ export interface OrchestratorConfig {
   maxChildrenPerTask: number;
   /** Maximum total sub-agents (default: 20) */
   maxTotalSubAgents: number;
-  /** Task timeout in milliseconds (default: 5 minutes) */
+  /** Task timeout in milliseconds (default: 15 minutes) */
   taskTimeout: number;
   /** Allow sub-agents to spawn more sub-agents */
   allowNestedSubAgents: boolean;

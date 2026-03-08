@@ -8,11 +8,14 @@ import type { Tool, ToolCall, ToolResult } from '../types.js';
 import { orchestrator } from './orchestrator.js';
 import { swarmManager } from './swarm.js';
 import { getAvailableAgents, detectAgents } from './agent-detection.js';
-import type { SubAgentType, TaskPriority } from './types.js';
+import type { SubAgentType, TaskPriority, TaskExecutor } from './types.js';
+import { getAvailableExecutors } from './sdk-backend.js';
+import { getAgent, getTeam, listAgentDefs, listTeamDefs, mapEngineToAgentType } from './agent-config-loader.js';
 import type { DecompositionStrategy, AggregationStrategy } from './swarm-types.js';
 import { councilManager } from './council.js';
 import type { CouncilMode } from './council-types.js';
 import { COUNCIL_TEMPLATES } from './council-types.js';
+import { getDynamicToolDefs, isDynamicTool, executeDynamicTool, DYNAMIC_TOOL_NAMES, executeMetaTool, dynamicToolRegistry } from './dynamic-tools.js';
 
 /**
  * Build dynamic tool description with available agents
@@ -38,6 +41,10 @@ Options:
 - priority: critical > high > normal > low (affects queue ordering)
 - provider: Override the provider (e.g., ollama, anthropic, openai, google) — calliope agent only
 - model: Override the model (e.g., devstral, llama3.3, gpt-4o) — calliope agent only
+- executor: Backend to use: cli (default, spawns process), claude-sdk (in-process Claude Agent SDK), openai-sdk (in-process OpenAI Agents JS), google-adk (in-process Google ADK)
+
+SDK executors run in-process (faster, no CLI spawn overhead) and support all providers.
+Install optional: npm install @anthropic-ai/claude-agent-sdk @openai/agents @google/adk
 
 Use check_agent with the taskId to monitor background tasks.`;
 }
@@ -47,7 +54,13 @@ Use check_agent with the taskId to monitor background tasks.`;
  * Returns tools dynamically based on available agents
  */
 export function getAgtermTools(): Tool[] {
+  // Dynamic tools: meta-tools (create/list/remove) + user-created tools
+  const dynamicMeta = getDynamicToolDefs();
+  const dynamicUserTools = dynamicToolRegistry.getToolDefinitions();
+
   return [
+    ...dynamicMeta,
+    ...dynamicUserTools,
     {
       name: 'spawn_agent',
       description: buildSpawnAgentDescription(),
@@ -80,6 +93,19 @@ export function getAgtermTools(): Tool[] {
           model: {
             type: 'string',
             description: 'Override model for calliope subagents (e.g., devstral, llama3.3, gpt-4o)',
+          },
+          executor: {
+            type: 'string',
+            description: 'Execution backend: cli (default), claude-sdk (Claude Agent SDK), openai-sdk (OpenAI Agents JS), google-adk (Google ADK)',
+            enum: ['cli', 'claude-sdk', 'openai-sdk', 'google-adk'],
+          },
+          agentDef: {
+            type: 'string',
+            description: 'Name of a defined agent from .calliope/agents/ (overrides provider/model/executor with agent definition values)',
+          },
+          timeout: {
+            type: 'number',
+            description: 'Task timeout in milliseconds (overrides global default)',
           },
         },
         required: ['prompt'],
@@ -169,6 +195,10 @@ Aggregation:
             description: 'Use smart routing to select best agent per subtask (default: false)',
             enum: ['true', 'false'],
           },
+          team: {
+            type: 'string',
+            description: 'Name of a team definition from .calliope/agents/teams/ (auto-configures strategy, workers, and coordination)',
+          },
         },
         required: ['prompt'],
       },
@@ -230,6 +260,10 @@ Use a template name to auto-configure members and mode.`,
             description: 'Coordination mode (if not using template)',
             enum: ['competitive', 'collaborative', 'consensus', 'overseer'],
           },
+          team: {
+            type: 'string',
+            description: 'Name of a team definition from .calliope/agents/teams/ (auto-configures members, mode, and settings)',
+          },
         },
         required: ['prompt'],
       },
@@ -268,13 +302,13 @@ Use a template name to auto-configure members and mode.`,
 /**
  * AGTerm tool names for quick lookup
  */
-export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm', 'start_council', 'check_council', 'cancel_council'];
+export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm', 'start_council', 'check_council', 'cancel_council', ...DYNAMIC_TOOL_NAMES];
 
 /**
  * Check if a tool name is an agterm tool
  */
 export function isAgtermTool(name: string): boolean {
-  return AGTERM_TOOL_NAMES.includes(name);
+  return AGTERM_TOOL_NAMES.includes(name) || isDynamicTool(name);
 }
 
 /**
@@ -286,6 +320,16 @@ export async function executeAgtermTool(
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
 
+  // Handle dynamic tool meta-tools (create/list/remove)
+  if ((DYNAMIC_TOOL_NAMES as readonly string[]).includes(name)) {
+    return executeMetaTool(toolCall, cwd);
+  }
+
+  // Handle user-created dynamic tools
+  if (isDynamicTool(name)) {
+    return executeDynamicTool(toolCall, cwd);
+  }
+
   // Set the working directory for the orchestrator
   orchestrator.setCwd(cwd);
 
@@ -295,11 +339,14 @@ export async function executeAgtermTool(
     switch (name) {
       case 'spawn_agent': {
         const prompt = String(args.prompt || '');
-        const agent = (args.agent as SubAgentType) || 'calliope';
+        let agent = (args.agent as SubAgentType) || 'calliope';
         const background = args.background === 'true' || args.background === true;
         const priority = (args.priority as TaskPriority) || 'normal';
-        const model = args.model ? String(args.model) : undefined;
-        const provider = args.provider ? String(args.provider) : undefined;
+        let model = args.model ? String(args.model) : undefined;
+        let provider = args.provider ? String(args.provider) : undefined;
+        let executor = (args.executor as TaskExecutor) || 'cli';
+        let systemPrompt: string | undefined;
+        let taskTimeout: number | undefined = args.timeout ? Number(args.timeout) : undefined;
 
         if (!prompt) {
           return {
@@ -309,16 +356,37 @@ export async function executeAgtermTool(
           };
         }
 
-        // Check agent availability
-        const availableAgents = getAvailableAgents();
-        if (!availableAgents.includes(agent)) {
-          const agentInfo = detectAgents().find(a => a.type === agent);
-          const reason = agentInfo?.reason || 'not installed or configured';
-          return {
-            toolCallId: id,
-            result: `Error: Agent '${agent}' is not available (${reason}).\nAvailable agents: ${availableAgents.join(', ') || 'none'}`,
-            isError: true,
-          };
+        // Resolve agent definition if provided
+        if (args.agentDef) {
+          const def = getAgent(String(args.agentDef), cwd);
+          if (!def) {
+            return {
+              toolCallId: id,
+              result: `Error: Agent definition '${args.agentDef}' not found.\nAvailable: ${listAgentDefs(cwd).map(a => a.name).join(', ')}`,
+              isError: true,
+            };
+          }
+          // Agent def values are defaults — explicit params override
+          systemPrompt = def.instructions;
+          executor = (args.executor as TaskExecutor) || def.engine || executor;
+          model = model || def.model;
+          provider = provider || def.provider;
+          agent = (args.agent as SubAgentType) || mapEngineToAgentType(def.engine, def.provider);
+          if (!taskTimeout && def.limits?.timeout) taskTimeout = def.limits.timeout;
+        }
+
+        // For SDK executors, agent availability check is different (runs in-process)
+        if (executor === 'cli') {
+          const availableAgents = getAvailableAgents();
+          if (!availableAgents.includes(agent)) {
+            const agentInfo = detectAgents().find(a => a.type === agent);
+            const reason = agentInfo?.reason || 'not installed or configured';
+            return {
+              toolCallId: id,
+              result: `Error: Agent '${agent}' is not available (${reason}).\nAvailable agents: ${availableAgents.join(', ') || 'none'}`,
+              isError: true,
+            };
+          }
         }
 
         try {
@@ -328,6 +396,9 @@ export async function executeAgtermTool(
             cwd,
             model,
             provider,
+            executor,
+            systemPrompt,
+            timeout: taskTimeout,
           });
 
           if (background) {
@@ -425,7 +496,10 @@ ${task.error || task.result || '(no output)'}`;
           `  Max Depth Used: ${stats.maxDepthUsed}`,
         ];
 
-        result = `Available Agents:\n${agentLines.join('\n')}\n\nOrchestrator Stats:\n${statsLines.join('\n')}`;
+        const executors = await getAvailableExecutors();
+        const executorLines = executors.map(e => `  ${e}: ✓ Ready`);
+
+        result = `Available Agents:\n${agentLines.join('\n')}\n\nExecutor Backends:\n${executorLines.join('\n')}\n\nOrchestrator Stats:\n${statsLines.join('\n')}`;
         break;
       }
 
@@ -543,10 +617,40 @@ Use check_swarm("${session.id}") to monitor progress.`;
         }
 
         const template = args.template as string | undefined;
+        const teamName = args.team as string | undefined;
 
         try {
           let session;
-          if (template && COUNCIL_TEMPLATES[template]) {
+          if (teamName) {
+            // Resolve team definition
+            const resolvedTeam = getTeam(teamName, cwd);
+            if (!resolvedTeam) {
+              return {
+                toolCallId: id,
+                result: `Error: Team '${teamName}' not found.\nAvailable: ${listTeamDefs(cwd).map(t => t.name).join(', ')}`,
+                isError: true,
+              };
+            }
+            const { randomUUID: uuid } = await import('crypto');
+            const members = resolvedTeam.members.map(m => ({
+              id: uuid(),
+              name: m.name,
+              agent: m.agent,
+              role: m.role,
+              weight: m.weight,
+            }));
+            const councilConfig = {
+              mode: resolvedTeam.mode,
+              members,
+              ...(resolvedTeam.council?.tieBreaker && { tieBreaker: resolvedTeam.council.tieBreaker }),
+              ...(resolvedTeam.council?.maxRounds && { maxRounds: resolvedTeam.council.maxRounds }),
+              ...(resolvedTeam.council?.consensusThreshold && { consensusThreshold: resolvedTeam.council.consensusThreshold }),
+            };
+            const effectivePrompt = resolvedTeam.promptPrefix
+              ? `${resolvedTeam.promptPrefix}\n\n${prompt}`
+              : prompt;
+            session = await councilManager.startCouncil(effectivePrompt, councilConfig, cwd);
+          } else if (template && COUNCIL_TEMPLATES[template]) {
             session = await councilManager.startFromTemplate(template, prompt, cwd);
           } else {
             const mode = (args.mode as CouncilMode) || 'competitive';

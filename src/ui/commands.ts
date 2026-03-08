@@ -19,7 +19,8 @@ import * as skills from '../skills.js';
 import * as modelRouter from '../model-router.js';
 import * as summarization from '../summarization.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
-import { getAgentStatusReport, swarmManager, councilManager, COUNCIL_TEMPLATES } from '../agterm/index.js';
+import { getAgentStatusReport, swarmManager, councilManager, COUNCIL_TEMPLATES, getInstallReport, installItem, installAllMissing, listAgentDefs, listTeamDefs, getAgent, getTeam, scaffoldAgentsDir, saveAgentDef, getAvailableExecutors } from '../agterm/index.js';
+import type { AgentDefinition } from '../agterm/index.js';
 import type { DecompositionStrategy, AggregationStrategy, CouncilMode } from '../agterm/index.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
@@ -196,7 +197,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
 --- Multi-Agent ---
   /agents                    - Sub-agent status (--agterm mode)
   /swarm [start|status]      - Parallel task decomposition
-  /council [start|status]    - Multi-agent deliberation
+  /council [start|status]    - Multi-agent coordination
   /loop [prompt] [n]         - Iterative agent loop
   /cancel-loop               - Stop running loop (/stop)
 
@@ -445,13 +446,227 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       ctx.addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
       break;
 
-    case '/agents':
+    case '/agents': {
       if (!ctx.agtermEnabled) {
         ctx.addMessage('system', 'AGTerm mode not enabled. Start with --agterm flag to unlock multi-agent features.');
-      } else {
+        break;
+      }
+      const sub = parts[1];
+      if (!sub) {
         ctx.addMessage('system', getAgentStatusReport());
+      } else if (sub === 'defs' || sub === 'list') {
+        const defs = listAgentDefs(process.cwd());
+        if (defs.length === 0) {
+          ctx.addMessage('system', 'No agent definitions loaded. Run /agents init to create examples.');
+        } else {
+          const lines = defs.map(d => {
+            const src = d._source || 'unknown';
+            return `  ${d.name} — ${d.engine}/${d.provider || 'auto'}/${d.model || 'default'} [${src}]${d.description ? `\n    ${d.description}` : ''}`;
+          });
+          ctx.addMessage('system', `Agent Definitions (${defs.length}):\n${lines.join('\n')}`);
+        }
+      } else if (sub === 'teams') {
+        const teams = listTeamDefs(process.cwd());
+        if (teams.length === 0) {
+          ctx.addMessage('system', 'No team definitions loaded. Run /agents init to create examples.');
+        } else {
+          const lines = teams.map(t => {
+            const src = t._source || 'unknown';
+            return `  ${t.name} — ${t.mode}, ${t.members.length} members [${src}]${t.description ? `\n    ${t.description}` : ''}`;
+          });
+          ctx.addMessage('system', `Team Definitions (${teams.length}):\n${lines.join('\n')}`);
+        }
+      } else if (sub === 'init') {
+        const result = scaffoldAgentsDir(process.cwd());
+        if (result.created.length > 0) {
+          ctx.addMessage('system', `Created .calliope/agents/ with examples:\n${result.created.map(f => `  ${f}`).join('\n')}`);
+        } else {
+          ctx.addMessage('system', '.calliope/agents/ already exists.');
+        }
+      } else if (sub === 'show') {
+        const name = parts[2];
+        if (!name) {
+          ctx.addMessage('system', 'Usage: /agents show <name>');
+        } else {
+          const agentDef = getAgent(name, process.cwd());
+          const teamDef = getTeam(name, process.cwd());
+          if (agentDef) {
+            const lines = [
+              `Agent: ${agentDef.name}`,
+              agentDef.description ? `Description: ${agentDef.description}` : '',
+              `Engine: ${agentDef.engine}`,
+              `Provider: ${agentDef.provider || 'auto'}`,
+              `Model: ${agentDef.model || 'default'}`,
+              agentDef.role ? `Role: ${agentDef.role}` : '',
+              agentDef.weight !== undefined ? `Weight: ${agentDef.weight}` : '',
+              agentDef.instructions ? `Instructions:\n  ${agentDef.instructions.split('\n').join('\n  ')}` : '',
+              `Source: ${agentDef._source || 'unknown'}`,
+              agentDef._filePath ? `File: ${agentDef._filePath}` : '',
+            ].filter(Boolean);
+            ctx.addMessage('system', lines.join('\n'));
+          } else if (teamDef) {
+            const lines = [
+              `Team: ${teamDef.name}`,
+              teamDef.description ? `Description: ${teamDef.description}` : '',
+              `Mode: ${teamDef.mode}`,
+              `Members (${teamDef.members.length}):`,
+              ...teamDef.members.map(m => `  ${m.name} — ${m.engine}/${m.provider || 'auto'}/${m.model || 'default'} [${m.role || 'no role'}] w=${m.weight}`),
+            ].filter(Boolean);
+            ctx.addMessage('system', lines.join('\n'));
+          } else {
+            ctx.addMessage('system', `No agent or team found with name '${name}'.`);
+          }
+        }
+      } else {
+        ctx.addMessage('system', `Unknown subcommand: ${sub}\nUsage: /agents [defs|teams|init|show <name>]`);
       }
       break;
+    }
+
+    case '/install-agents': {
+      // /install-agents [name] — install missing agent CLIs and SDK backends
+      const target = parts[1];
+      if (target) {
+        ctx.addMessage('system', `Installing ${target}...`);
+        const result = installItem(target);
+        ctx.addMessage('system', result.success
+          ? `✓ ${target} installed successfully.`
+          : `✗ ${result.output}`);
+      } else if (parts.includes('--all')) {
+        ctx.addMessage('system', 'Installing all missing agents and SDK backends...');
+        const result = await installAllMissing();
+        const lines: string[] = [];
+        if (result.installed.length > 0) {
+          lines.push(`✓ Installed: ${result.installed.join(', ')}`);
+        }
+        if (result.failed.length > 0) {
+          lines.push(`✗ Failed:\n  ${result.failed.join('\n  ')}`);
+        }
+        if (result.installed.length === 0 && result.failed.length === 0) {
+          lines.push('Everything is already installed!');
+        }
+        ctx.addMessage('system', lines.join('\n'));
+      } else {
+        const report = await getInstallReport();
+        ctx.addMessage('system', `${report}\n\nUsage:\n  /install-agents <name>   Install a specific agent or SDK\n  /install-agents --all    Install everything missing`);
+      }
+      break;
+    }
+
+    case '/build-agent': {
+      // Interactive agent definition builder
+      // Parse inline args: /build-agent [name] [--engine X] [--provider X] [--model X]
+      const agentName = parts[1] && !parts[1].startsWith('--') ? parts[1] : undefined;
+      const engineArg = parts.includes('--engine') ? parts[parts.indexOf('--engine') + 1] : undefined;
+      const providerArg = parts.includes('--provider') ? parts[parts.indexOf('--provider') + 1] : undefined;
+      const modelArg = parts.includes('--model') ? parts[parts.indexOf('--model') + 1] : undefined;
+      const roleArg = parts.includes('--role') ? parts[parts.indexOf('--role') + 1] : undefined;
+
+      if (!agentName) {
+        // Show usage with smart recommendations
+        const executors = await getAvailableExecutors();
+        const providers = config.getConfiguredProviders();
+        const recommendations: string[] = [];
+        if (providers.includes('anthropic')) recommendations.push('  For code review/reasoning: --engine claude-sdk --provider anthropic --model claude-sonnet-4-20250514');
+        if (providers.includes('openai')) recommendations.push('  For versatile tasks: --engine openai-sdk --provider openai --model gpt-4o');
+        if (providers.includes('google')) recommendations.push('  For research/context: --engine google-adk --provider google --model gemini-2.0-flash');
+        if (providers.includes('ollama')) recommendations.push('  For local/private: --engine cli --provider ollama --model devstral');
+        if (providers.includes('groq')) recommendations.push('  For speed: --engine cli --provider groq --model llama-3.3-70b-versatile');
+
+        ctx.addMessage('system', `Usage: /build-agent <name> [--engine X] [--provider X] [--model X] [--role X]
+
+Available engines: ${executors.join(', ')}
+Configured providers: ${providers.join(', ')}
+
+Recommended configurations:
+${recommendations.join('\n') || '  Configure API keys first (run calliope --setup)'}
+
+Example:
+  /build-agent code-reviewer --engine claude-sdk --provider anthropic --model claude-sonnet-4-20250514 --role reviewer
+
+After creation, customize instructions in .calliope/agents/${agentName || '<name>'}.yaml`);
+      } else {
+        // Build and save agent definition
+        const newDef: AgentDefinition = {
+          name: agentName,
+          engine: (engineArg as import('../agterm/types.js').TaskExecutor) || 'cli',
+          provider: providerArg,
+          model: modelArg,
+          role: roleArg,
+          weight: 1.0,
+          instructions: `You are a specialized agent (${roleArg || agentName}). Complete assigned tasks thoroughly.`,
+          limits: { timeout: 600000 },
+        };
+        const filePath = saveAgentDef(process.cwd(), newDef);
+        ctx.addMessage('system', `Agent '${agentName}' created: ${filePath}\n\nEdit the file to customize instructions and settings.\nUse with: spawn_agent agentDef="${agentName}"`);
+      }
+      break;
+    }
+
+    case '/build-team': {
+      // Interactive team builder
+      const teamNameArg = parts[1] && !parts[1].startsWith('--') ? parts[1] : undefined;
+      const modeArg = parts.includes('--mode') ? parts[parts.indexOf('--mode') + 1] : undefined;
+
+      if (!teamNameArg) {
+        const teams = listTeamDefs(process.cwd());
+        const agents = listAgentDefs(process.cwd());
+        ctx.addMessage('system', `Usage: /build-team <name> [--mode competitive|collaborative|consensus|overseer]
+
+Then add members with subsequent commands, or edit the YAML directly.
+
+Available agents to compose into teams (${agents.length}):
+${agents.map(a => `  ${a.name} — ${a.engine}/${a.provider || 'auto'} [${a.role || 'any'}]`).join('\n')}
+
+Existing teams (${teams.length}):
+${teams.map(t => `  ${t.name} — ${t.mode}, ${t.members.length} members`).join('\n')}
+
+Strategy recommendations:
+  Code review     → competitive mode (best answer wins)
+  Refactoring     → collaborative pipeline (plan → implement → review)
+  Security audit  → consensus mode (all must agree on findings)
+  Research        → parallel swarm (all investigate, merge results)
+  Complex project → overseer mode (lead decomposes, workers execute)`);
+      } else {
+        // Create a team with available agents
+        const availableAgents = listAgentDefs(process.cwd());
+        const mode = (modeArg || 'collaborative') as import('../agterm/council-types.js').CouncilMode;
+
+        // Auto-compose a reasonable team from available agent definitions
+        const memberAgents = availableAgents
+          .filter(a => a._source !== 'builtin' || ['code-reviewer', 'architect', 'qa-engineer', 'researcher'].includes(a.name))
+          .slice(0, 4);
+
+        if (memberAgents.length < 2) {
+          ctx.addMessage('system', `Need at least 2 agent definitions to build a team.\nCreate agents first with /build-agent <name>, then compose them with /build-team.`);
+        } else {
+          const { saveTeamDef } = await import('../agterm/index.js');
+          const teamDef: import('../agterm/index.js').TeamDefinition = {
+            name: teamNameArg,
+            description: `${teamNameArg} team`,
+            mode,
+            members: memberAgents.map(a => ({ agent: a.name, role: a.role, weight: a.weight })),
+            swarm: { strategy: 'parallel', aggregation: 'structured', maxWorkers: 3 },
+            council: { maxRounds: 2, consensusThreshold: 0.67 },
+          };
+          const filePath = saveTeamDef(process.cwd(), teamDef);
+          ctx.addMessage('system', `Team '${teamNameArg}' created: ${filePath}
+
+Members:
+${memberAgents.map(a => `  ${a.name} [${a.role || 'any'}]`).join('\n')}
+
+Mode: ${mode}
+
+Use with:
+  /swarm --team ${teamNameArg} <prompt>
+  /council --team ${teamNameArg} <prompt>
+  spawn_agent team="${teamNameArg}" prompt="..."
+
+Edit the YAML to customize members, strategy, and coordination settings.`);
+        }
+      }
+      break;
+    }
 
     case '/set': {
       // /set <key> <value>
