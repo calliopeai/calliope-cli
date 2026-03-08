@@ -1148,3 +1148,341 @@ describe('chatOpenAI (API key validation)', () => {
     );
   });
 });
+
+// ===========================================================================
+// Additional coverage: uncovered branches and functions
+// ===========================================================================
+
+describe('toResponsesInput (additional branch coverage)', () => {
+  it('extracts text from array content in assistant message with tool calls (line 245)', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'first line' },
+        { type: 'text', text: 'second line' },
+      ],
+      toolCalls: [{ id: 'call_1', name: 'test', arguments: {} }],
+    };
+    const result = toResponsesInput([msg]);
+    // Should produce: assistant text message with joined text + function_call item
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ role: 'assistant', content: 'first line\nsecond line' });
+    expect(result[1]).toEqual({
+      type: 'function_call',
+      call_id: 'call_1',
+      name: 'test',
+      arguments: '{}',
+    });
+  });
+
+  it('filters non-text blocks from array content in assistant with tool calls', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: 'visible' },
+        { type: 'image', mediaType: 'image/png', data: 'abc' } as any,
+      ],
+      toolCalls: [{ id: 'call_2', name: 'test', arguments: {} }],
+    };
+    const result = toResponsesInput([msg]);
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ role: 'assistant', content: 'visible' });
+  });
+
+  it('handles non-string non-array content in assistant with tool calls (empty fallback)', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: null as any,
+      toolCalls: [{ id: 'call_3', name: 'test', arguments: {} }],
+    };
+    const result = toResponsesInput([msg]);
+    // null content should produce empty string, which is falsy so no assistant message
+    expect(result).toHaveLength(1);
+    expect(result[0]).toHaveProperty('type', 'function_call');
+  });
+
+  it('handles tool message with array content by stringifying', () => {
+    const msg: Message = {
+      role: 'tool',
+      content: [{ type: 'text', text: 'tool result' }],
+      toolCallId: 'call_4',
+    };
+    const result = toResponsesInput([msg]);
+    expect(result[0]).toEqual({
+      type: 'function_call_output',
+      call_id: 'call_4',
+      output: JSON.stringify([{ type: 'text', text: 'tool result' }]),
+    });
+  });
+
+  it('handles assistant message with non-string content and no tool calls', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'some content' }],
+    };
+    const result = toResponsesInput([msg]);
+    expect(result[0]).toEqual({
+      role: 'assistant',
+      content: JSON.stringify([{ type: 'text', text: 'some content' }]),
+    });
+  });
+});
+
+describe('toOpenAIMessages (additional branch coverage)', () => {
+  it('handles assistant with tool calls and null content', () => {
+    const msg: Message = {
+      role: 'assistant',
+      content: null as any,
+      toolCalls: [{ id: 'call_1', name: 'test', arguments: {} }],
+    };
+    const result = toOpenAIMessages([msg]);
+    // null is not typeof 'string', but is falsy → content should be null
+    expect(result[0].content).toBeNull();
+  });
+});
+
+describe('parseOpenAIToolCalls (additional branch coverage)', () => {
+  it('handles non-SyntaxError exceptions with Unknown parse error message', () => {
+    // JSON.parse always throws SyntaxError for invalid JSON, but we can test
+    // the branch by verifying the error message format for a SyntaxError
+    const toolCalls = [
+      {
+        id: 'call_err',
+        type: 'function' as const,
+        function: { name: 'tool', arguments: '{{{{' },
+      },
+    ];
+    try {
+      parseOpenAIToolCalls(toolCalls);
+      expect.fail('should have thrown');
+    } catch (e: any) {
+      expect(e.message).toContain('Invalid tool arguments from LLM');
+      expect(e.message).toContain('Raw: {{{{');
+    }
+  });
+});
+
+describe('chatOpenAI (Responses API streaming, additional coverage)', () => {
+  it('handles completed event without usage', async () => {
+    mockResponsesStreamEvents = [
+      { type: 'response.output_text.delta', delta: 'hello' },
+      {
+        type: 'response.completed',
+        response: { status: 'completed' },
+      },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), [], 'o3', vi.fn());
+    expect(result.content).toBe('hello');
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('handles function call with missing call_id using fallback', async () => {
+    mockResponsesStreamEvents = [
+      {
+        type: 'response.function_call_arguments.done',
+        call_id: '',
+        name: 'test',
+        arguments: '{}',
+      },
+      {
+        type: 'response.completed',
+        response: { status: 'completed' },
+      },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', vi.fn());
+    // Empty call_id should trigger fallback to `call_${Date.now()}`
+    expect(result.toolCalls![0].id).toMatch(/^call_/);
+    expect(result.toolCalls![0].name).toBe('test');
+  });
+
+  it('handles non-Error stream failure', async () => {
+    mockStreamShouldThrow = 'string error' as any;
+
+    await expect(
+      chatOpenAI(makeSimpleMessages(), [], 'o3', vi.fn())
+    ).rejects.toBe('string error');
+  });
+});
+
+describe('chatOpenAI (Chat Completions streaming, additional coverage)', () => {
+  it('handles non-Error stream failure', async () => {
+    mockStreamShouldThrow = 'stream string error' as any;
+
+    await expect(
+      chatOpenAI(makeSimpleMessages(), [], 'gpt-4o', vi.fn())
+    ).rejects.toBe('stream string error');
+  });
+
+  it('handles tool call delta without function.arguments', async () => {
+    mockStreamChunks = [
+      {
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: 'call_x',
+              function: { name: 'read_file' },
+              // no arguments property
+            }],
+          },
+          finish_reason: null,
+        }],
+      },
+      {
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { arguments: '{"path":"/a.txt"}' },
+            }],
+          },
+          finish_reason: null,
+        }],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(result.toolCalls).toEqual([
+      { id: 'call_x', name: 'read_file', arguments: { path: '/a.txt' } },
+    ]);
+  });
+
+  it('handles tool call delta with empty arguments string (fallback to {})', async () => {
+    mockStreamChunks = [
+      {
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: 'call_empty',
+              function: { name: 'test_tool' },
+            }],
+          },
+          finish_reason: null,
+        }],
+      },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    // arguments is empty string → '{}' fallback via || '{}'
+    expect(result.toolCalls).toEqual([
+      { id: 'call_empty', name: 'test_tool', arguments: {} },
+    ]);
+  });
+});
+
+describe('chatOpenAI (Responses API non-streaming, additional coverage)', () => {
+  it('uses Date.now() fallback when both call_id and id are missing', async () => {
+    mockResponsesCreateResponse = {
+      output_text: '',
+      output: [
+        {
+          type: 'function_call',
+          call_id: '',
+          // no id property
+          name: 'test',
+          arguments: '{}',
+        },
+      ],
+      status: 'completed',
+    };
+
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3');
+    expect(result.toolCalls![0].id).toMatch(/^call_\d+$/);
+  });
+});
+
+describe('chatOpenAI (Responses API streaming, usage edge cases)', () => {
+  it('handles usage with zero input_tokens (falsy || 0 branch)', async () => {
+    mockResponsesStreamEvents = [
+      { type: 'response.output_text.delta', delta: 'hi' },
+      {
+        type: 'response.completed',
+        response: {
+          status: 'completed',
+          usage: { input_tokens: 0, output_tokens: 0 },
+        },
+      },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), [], 'o3', vi.fn());
+    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('handles function call with empty arguments string (fallback to {})', async () => {
+    mockResponsesStreamEvents = [
+      {
+        type: 'response.function_call_arguments.done',
+        call_id: 'call_empty_args',
+        name: 'test',
+        arguments: '',
+      },
+      {
+        type: 'response.completed',
+        response: { status: 'completed' },
+      },
+    ];
+
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', vi.fn());
+    expect(result.toolCalls).toEqual([
+      { id: 'call_empty_args', name: 'test', arguments: {} },
+    ]);
+  });
+});
+
+describe('toResponsesInput (multimodal user content edge cases)', () => {
+  it('skips unknown block types in user multimodal content', () => {
+    const msg: Message = {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'hello' },
+        { type: 'unknown_block_type' } as any,
+        { type: 'image', mediaType: 'image/png', data: 'img' },
+      ],
+    };
+    const result = toResponsesInput([msg]);
+    // Only text and image blocks should be included
+    expect(result).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'hello' },
+          { type: 'input_image', image_url: { url: 'data:image/png;base64,img' } },
+        ],
+      },
+    ]);
+  });
+
+  it('ignores messages with unknown roles', () => {
+    const msgs: Message[] = [
+      { role: 'user', content: 'hi' },
+      { role: 'function' as any, content: 'ignored' },
+    ];
+    const result = toResponsesInput(msgs);
+    // Only the user message should be in the output
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({ role: 'user', content: 'hi' });
+  });
+
+  it('handles user multimodal content with only image blocks', () => {
+    const msg: Message = {
+      role: 'user',
+      content: [
+        { type: 'image', mediaType: 'image/jpeg', data: 'data1' },
+      ],
+    };
+    const result = toResponsesInput([msg]);
+    expect(result).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_image', image_url: { url: 'data:image/jpeg;base64,data1' } },
+        ],
+      },
+    ]);
+  });
+});

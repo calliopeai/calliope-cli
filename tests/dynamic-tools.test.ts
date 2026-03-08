@@ -333,6 +333,49 @@ describe('DynamicToolRegistry', () => {
       expect(result.result).toBe('node_output');
     });
 
+    it('executes code-based tool (python)', async () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'python_test',
+        command: undefined,
+        code: 'print("python_output")',
+        language: 'python',
+      }));
+      const result = await dynamicToolRegistry.execute(
+        makeTool('python_test', {}),
+        tmpDir,
+      );
+      expect(result.result).toBe('python_output');
+    });
+
+    it('executes code-based tool defaulting to bash when language is undefined', async () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'default_lang_test',
+        command: undefined,
+        code: 'echo "default_bash"',
+        language: undefined,
+      }));
+      const result = await dynamicToolRegistry.execute(
+        makeTool('default_lang_test', {}),
+        tmpDir,
+      );
+      expect(result.result).toBe('default_bash');
+    });
+
+    it('throws for unsupported language in code execution', async () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'ruby_test',
+        command: undefined,
+        code: 'puts "hello"',
+        language: 'ruby' as any,
+      }));
+      const result = await dynamicToolRegistry.execute(
+        makeTool('ruby_test', {}),
+        tmpDir,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.result).toContain('Unsupported language');
+    });
+
     it('returns error when tool has neither command nor code', async () => {
       dynamicToolRegistry.register(makeDynamicTool({
         name: 'empty_tool',
@@ -345,6 +388,19 @@ describe('DynamicToolRegistry', () => {
       );
       expect(result.isError).toBe(true);
       expect(result.result).toContain('neither');
+    });
+
+    it('returns error when command execution fails', async () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'fail_test',
+        command: 'exit 1',
+      }));
+      const result = await dynamicToolRegistry.execute(
+        makeTool('fail_test', {}),
+        tmpDir,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.result).toContain('Error executing dynamic tool');
     });
   });
 
@@ -419,6 +475,61 @@ describe('DynamicToolRegistry', () => {
 
     it('load handles missing directory gracefully', () => {
       expect(() => dynamicToolRegistry.load('/nonexistent/path')).not.toThrow();
+    });
+
+    it('save handles non-existent tools directory during cleanup', () => {
+      // Register a non-persistent tool and save — the tools dir won't be created
+      // but the cleanup section should not crash
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'session_only',
+        persistent: false,
+      }));
+      expect(() => dynamicToolRegistry.save(tmpDir)).not.toThrow();
+      const toolsDir = path.join(tmpDir, '.calliope', 'tools');
+      // Tools dir should still be created even if nothing persistent
+      expect(fs.existsSync(toolsDir)).toBe(true);
+    });
+
+    it('save ignores non-JSON files when cleaning up', () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'persistent_tool',
+        persistent: true,
+      }));
+      dynamicToolRegistry.save(tmpDir);
+
+      // Place a non-JSON file in the tools directory
+      const toolsDir = path.join(tmpDir, '.calliope', 'tools');
+      fs.writeFileSync(path.join(toolsDir, 'readme.txt'), 'not a tool');
+
+      // Save again — should not crash and should leave non-JSON file alone
+      dynamicToolRegistry.save(tmpDir);
+      expect(fs.existsSync(path.join(toolsDir, 'readme.txt'))).toBe(true);
+    });
+
+    it('load ignores non-JSON files in tools directory', () => {
+      dynamicToolRegistry.register(makeDynamicTool({
+        name: 'persistent_tool',
+        persistent: true,
+      }));
+      dynamicToolRegistry.save(tmpDir);
+
+      // Place a non-JSON file in the tools directory
+      const toolsDir = path.join(tmpDir, '.calliope', 'tools');
+      fs.writeFileSync(path.join(toolsDir, 'readme.txt'), 'not a tool');
+
+      dynamicToolRegistry.reset();
+      dynamicToolRegistry.load(tmpDir);
+      // Should load only the JSON tool, not crash on .txt
+      expect(dynamicToolRegistry.get('persistent_tool')).toBeDefined();
+    });
+
+    it('load skips malformed JSON files gracefully', () => {
+      const toolsDir = path.join(tmpDir, '.calliope', 'tools');
+      fs.mkdirSync(toolsDir, { recursive: true });
+      fs.writeFileSync(path.join(toolsDir, 'bad_tool.json'), '{invalid json!!!');
+
+      expect(() => dynamicToolRegistry.load(tmpDir)).not.toThrow();
+      expect(dynamicToolRegistry.get('bad_tool')).toBeUndefined();
     });
   });
 });
@@ -499,6 +610,38 @@ describe('executeMetaTool', () => {
       expect(result.result).toContain('reserved');
     });
 
+    it('creates a tool with code instead of command', async () => {
+      const result = await executeMetaTool(
+        makeTool('create_tool', {
+          name: 'code_tool',
+          description: 'A code tool',
+          parameters: '{}',
+          code: 'echo hello',
+          language: 'bash',
+        }),
+        tmpDir,
+      );
+      expect(result.isError).toBeUndefined();
+      expect(result.result).toContain('created successfully');
+      const tool = dynamicToolRegistry.get('code_tool');
+      expect(tool).toBeDefined();
+      expect(tool!.code).toBe('echo hello');
+      expect(tool!.command).toBeUndefined();
+    });
+
+    it('defaults parameters to empty object when not provided', async () => {
+      const result = await executeMetaTool(
+        makeTool('create_tool', {
+          name: 'no_params',
+          description: 'No params provided',
+          command: 'echo hi',
+        }),
+        tmpDir,
+      );
+      expect(result.isError).toBeUndefined();
+      expect(result.result).toContain('created successfully');
+    });
+
     it('returns error for invalid name', async () => {
       const result = await executeMetaTool(
         makeTool('create_tool', {
@@ -511,6 +654,18 @@ describe('executeMetaTool', () => {
       );
       expect(result.isError).toBe(true);
       expect(result.result).toContain('Invalid tool name');
+    });
+
+    it('handles missing name and description arguments', async () => {
+      const result = await executeMetaTool(
+        makeTool('create_tool', {
+          parameters: '{}',
+          command: 'echo hi',
+        }),
+        tmpDir,
+      );
+      // Empty string name should fail validation
+      expect(result.isError).toBe(true);
     });
   });
 
@@ -553,6 +708,15 @@ describe('executeMetaTool', () => {
     it('returns error for non-existent tool', async () => {
       const result = await executeMetaTool(
         makeTool('remove_tool', { name: 'nonexistent' }),
+        tmpDir,
+      );
+      expect(result.isError).toBe(true);
+      expect(result.result).toContain('not found');
+    });
+
+    it('handles missing name argument gracefully', async () => {
+      const result = await executeMetaTool(
+        makeTool('remove_tool', {}),
         tmpDir,
       );
       expect(result.isError).toBe(true);
