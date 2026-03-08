@@ -24,11 +24,10 @@ vi.mock('../src/config.js', () => ({
 vi.mock('@anthropic-ai/sdk', () => ({ default: vi.fn() }));
 vi.mock('@google/generative-ai', () => ({ GoogleGenerativeAI: vi.fn() }));
 vi.mock('openai', () => {
-  return {
-    default: vi.fn().mockImplementation(() => ({
-      models: { list: vi.fn().mockResolvedValue({ data: [] }) },
-    })),
-  };
+  const MockOpenAI = vi.fn().mockImplementation(function (this: any) {
+    this.models = { list: vi.fn().mockResolvedValue({ data: [] }) };
+  });
+  return { default: MockOpenAI };
 });
 vi.mock('@inquirer/prompts', () => ({ select: vi.fn() }));
 
@@ -1033,5 +1032,1173 @@ describe('edge cases', () => {
 
     const models = await getAvailableModels('together');
     expect(models).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// getAvailableModels — OpenAI
+// ===========================================================================
+
+describe('getAvailableModels - openai', () => {
+  it('should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('openai');
+    const models = await getAvailableModels('openai');
+    expect(models).toEqual([]);
+  });
+
+  it('should filter for chat-compatible GPT and reasoning models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openai');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'gpt-4o' },
+            { id: 'gpt-4o-mini' },
+            { id: 'gpt-4-turbo-preview' },
+            { id: 'gpt-3.5-turbo' },
+            { id: 'o1-preview' },
+            { id: 'o3-mini' },
+            { id: 'o4-mini' },
+            { id: 'gpt-5-preview' },
+            { id: 'text-embedding-ada-002' },
+            { id: 'whisper-1' },
+            { id: 'tts-1' },
+            { id: 'dall-e-3' },
+            { id: 'davinci-002' },
+            { id: 'babbage-002' },
+            { id: 'chatgpt-4o-latest' },
+            { id: 'text-davinci-003' },
+            { id: 'code-davinci-002' },
+            { id: 'text-moderation-latest' },
+            { id: 'random-non-chat-model' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('openai');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('gpt-4o');
+    expect(ids).toContain('gpt-4o-mini');
+    expect(ids).toContain('gpt-4-turbo-preview');
+    expect(ids).toContain('gpt-3.5-turbo');
+    expect(ids).toContain('o1-preview');
+    expect(ids).toContain('o3-mini');
+    expect(ids).toContain('o4-mini');
+    expect(ids).toContain('gpt-5-preview');
+    // Filtered out
+    expect(ids).not.toContain('text-embedding-ada-002');
+    expect(ids).not.toContain('whisper-1');
+    expect(ids).not.toContain('tts-1');
+    expect(ids).not.toContain('dall-e-3');
+    expect(ids).not.toContain('davinci-002');
+    expect(ids).not.toContain('babbage-002');
+    expect(ids).not.toContain('chatgpt-4o-latest');
+    expect(ids).not.toContain('text-davinci-003');
+    expect(ids).not.toContain('code-davinci-002');
+    expect(ids).not.toContain('text-moderation-latest');
+    expect(ids).not.toContain('random-non-chat-model');
+  });
+
+  it('should assign correct OpenAI model descriptions', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openai');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'gpt-5-preview' },
+            { id: 'o4-mini-2025' },
+            { id: 'o3-pro-2025' },
+            { id: 'o3-mini-2025' },
+            { id: 'o3-2025' },
+            { id: 'o1-preview' },
+            { id: 'gpt-4o-mini' },
+            { id: 'gpt-4-turbo-preview' },
+            { id: 'gpt-4-0613' },
+            { id: 'gpt-3.5-turbo' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('openai');
+    const byId = (id: string) => models.find(m => m.id === id);
+
+    expect(byId('gpt-5-preview')?.description).toContain('reasoning');
+    expect(byId('o4-mini-2025')?.description).toContain('reasoning');
+    expect(byId('o3-pro-2025')?.description).toContain('reasoning');
+    expect(byId('o3-mini-2025')?.description).toContain('reasoning');
+    expect(byId('o3-2025')?.description).toContain('reasoning');
+    expect(byId('o1-preview')?.description).toContain('Reasoning');
+    expect(byId('gpt-4o-mini')?.description).toContain('Flagship');
+    expect(byId('gpt-4-turbo-preview')?.description).toContain('multimodal');
+    expect(byId('gpt-4-0613')?.description).toContain('intelligence');
+    expect(byId('gpt-3.5-turbo')?.description).toContain('inexpensive');
+  });
+
+  it('should return generic description for unknown OpenAI model', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openai');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [{ id: 'gpt-future-model' }],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('openai');
+    expect(models[0].description).toBe('OpenAI language model');
+  });
+
+  it('should sort models alphabetically', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openai');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'gpt-4o' },
+            { id: 'gpt-3.5-turbo' },
+            { id: 'gpt-4o-mini' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('openai');
+    expect(models[0].id).toBe('gpt-3.5-turbo');
+    expect(models[1].id).toBe('gpt-4o');
+    expect(models[2].id).toBe('gpt-4o-mini');
+  });
+});
+
+// ===========================================================================
+// getAvailableModels — Groq
+// ===========================================================================
+
+describe('getAvailableModels - groq', () => {
+  it('should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('groq');
+    const models = await getAvailableModels('groq');
+    expect(models).toEqual([]);
+  });
+
+  it('should filter out whisper models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('groq');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'llama-3.3-70b-versatile' },
+            { id: 'mixtral-8x7b-32768' },
+            { id: 'whisper-large-v3' },
+            { id: 'distil-whisper-large-v3-en' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('groq');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('llama-3.3-70b-versatile');
+    expect(ids).toContain('mixtral-8x7b-32768');
+    expect(ids).not.toContain('whisper-large-v3');
+    expect(ids).not.toContain('distil-whisper-large-v3-en');
+  });
+
+  it('should set description to "High-speed inference model"', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('groq');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [{ id: 'llama-3.3-70b-versatile' }],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('groq');
+    expect(models[0].description).toBe('High-speed inference model');
+  });
+});
+
+// ===========================================================================
+// getAvailableModels — Mistral
+// ===========================================================================
+
+describe('getAvailableModels - mistral', () => {
+  it('should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('mistral');
+    const models = await getAvailableModels('mistral');
+    expect(models).toEqual([]);
+  });
+
+  it('should filter out mistral-embed and assign descriptions', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('mistral');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'mistral-large-latest' },
+            { id: 'mistral-medium-latest' },
+            { id: 'mistral-small-latest' },
+            { id: 'mistral-embed' },
+            { id: 'open-mistral-nemo' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('mistral');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('mistral-large-latest');
+    expect(ids).toContain('mistral-medium-latest');
+    expect(ids).toContain('mistral-small-latest');
+    expect(ids).toContain('open-mistral-nemo');
+    expect(ids).not.toContain('mistral-embed');
+
+    const large = models.find(m => m.id === 'mistral-large-latest');
+    expect(large?.description).toContain('capable');
+
+    const medium = models.find(m => m.id === 'mistral-medium-latest');
+    expect(medium?.description).toContain('Balanced');
+
+    const small = models.find(m => m.id === 'mistral-small-latest');
+    expect(small?.description).toContain('efficient');
+
+    const nemo = models.find(m => m.id === 'open-mistral-nemo');
+    expect(nemo?.description).toBe('Mistral language model');
+  });
+});
+
+// ===========================================================================
+// getAvailableModels — AI21, HuggingFace, Fireworks (OpenAI-compatible)
+// ===========================================================================
+
+describe('getAvailableModels - openai-compatible providers', () => {
+  it('ai21: should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('ai21');
+    const models = await getAvailableModels('ai21');
+    expect(models).toEqual([]);
+  });
+
+  it('ai21: should filter out embed models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('ai21');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'jamba-1.5-large' },
+            { id: 'jamba-1.5-mini' },
+            { id: 'jamba-embed-v1' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('ai21');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('jamba-1.5-large');
+    expect(ids).toContain('jamba-1.5-mini');
+    expect(ids).not.toContain('jamba-embed-v1');
+  });
+
+  it('huggingface: should filter out embed, whisper, stable-diffusion, and flux models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('huggingface');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'meta-llama/Llama-3-70b' },
+            { id: 'sentence-transformers/all-MiniLM-embed' },
+            { id: 'openai/whisper-large' },
+            { id: 'stabilityai/stable-diffusion-xl' },
+            { id: 'black-forest-labs/flux-1' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('huggingface');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('meta-llama/Llama-3-70b');
+    expect(ids).not.toContain('sentence-transformers/all-MiniLM-embed');
+    expect(ids).not.toContain('openai/whisper-large');
+    expect(ids).not.toContain('stabilityai/stable-diffusion-xl');
+    expect(ids).not.toContain('black-forest-labs/flux-1');
+  });
+
+  it('fireworks: should filter out embed, whisper, stable-diffusion, and flux models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('fireworks');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'accounts/fireworks/models/llama-v3-70b' },
+            { id: 'accounts/fireworks/models/nomic-embed-text' },
+            { id: 'accounts/fireworks/models/whisper-v3' },
+            { id: 'accounts/fireworks/models/stable-diffusion-xl' },
+            { id: 'accounts/fireworks/models/flux-1-dev' },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('fireworks');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('accounts/fireworks/models/llama-v3-70b');
+    expect(ids).not.toContain('accounts/fireworks/models/nomic-embed-text');
+    expect(ids).not.toContain('accounts/fireworks/models/whisper-v3');
+    expect(ids).not.toContain('accounts/fireworks/models/stable-diffusion-xl');
+    expect(ids).not.toContain('accounts/fireworks/models/flux-1-dev');
+  });
+});
+
+// ===========================================================================
+// Together model descriptions
+// ===========================================================================
+
+describe('together model descriptions', () => {
+  it('should assign correct descriptions based on model ID', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('together');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        { id: 'meta-llama/llama-3-70b-chat', type: 'chat' },
+        { id: 'mistralai/mixtral-8x7b', type: 'chat' },
+        { id: 'qwen/qwen2-72b', type: 'chat' },
+        { id: 'some-org/random-model', type: 'chat' },
+      ]),
+    });
+
+    const models = await getAvailableModels('together');
+    const byId = (id: string) => models.find(m => m.id === id);
+
+    expect(byId('meta-llama/llama-3-70b-chat')?.description).toContain('Llama');
+    expect(byId('mistralai/mixtral-8x7b')?.description).toContain('mixture-of-experts');
+    expect(byId('qwen/qwen2-72b')?.description).toContain('Qwen');
+    expect(byId('some-org/random-model')?.description).toBe('Open source language model');
+  });
+
+  it('should include pricing when available', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('together');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ([
+        { id: 'model-with-pricing', type: 'chat', pricing: { input: 0.2, output: 0.6 } },
+        { id: 'model-no-pricing', type: 'chat' },
+      ]),
+    });
+
+    const models = await getAvailableModels('together');
+    const withPricing = models.find(m => m.id === 'model-with-pricing');
+    const noPricing = models.find(m => m.id === 'model-no-pricing');
+
+    expect(withPricing?.pricing?.input).toBe(0.2);
+    expect(withPricing?.pricing?.output).toBe(0.6);
+    expect(noPricing?.pricing).toBeUndefined();
+  });
+});
+
+// ===========================================================================
+// selectModelInteractively
+// ===========================================================================
+
+describe('selectModelInteractively', () => {
+  it('should return null when no models found', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('anthropic');
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    const result = await selectModelInteractively('anthropic');
+    expect(result).toBeNull();
+  });
+
+  it('should return selected model from interactive prompt', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockResolvedValueOnce('claude-sonnet-4-20250514');
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    const result = await selectModelInteractively('anthropic');
+    expect(result).toBe('claude-sonnet-4-20250514');
+  });
+
+  it('should return null when user cancels', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockResolvedValueOnce(null);
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    const result = await selectModelInteractively('anthropic');
+    expect(result).toBeNull();
+  });
+
+  it('should return null when select throws an error', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-sonnet-4-20250514', display_name: 'Claude Sonnet 4' },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockRejectedValueOnce(new Error('user interrupted'));
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    const result = await selectModelInteractively('anthropic');
+    expect(result).toBeNull();
+  });
+
+  it('should format choices with context length and pricing', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openrouter');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'openai/gpt-4o',
+            name: 'GPT-4o',
+            context_length: 128000,
+            architecture: { output_modalities: ['text'] },
+            pricing: { prompt: '0.000005', completion: '0.000015' },
+          },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockImplementation(async (opts: any) => {
+      // Verify the choices are formatted correctly
+      const firstChoice = opts.choices[0];
+      expect(firstChoice.name).toContain('128K tokens');
+      expect(firstChoice.name).toContain('$');
+      return 'openai/gpt-4o';
+    });
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    await selectModelInteractively('openrouter');
+  });
+
+  it('should format context length as M tokens for 1M+', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('google');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash', inputTokenLimit: 1048576 },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockImplementation(async (opts: any) => {
+      const firstChoice = opts.choices[0];
+      expect(firstChoice.name).toContain('M tokens');
+      return 'gemini-2.0-flash';
+    });
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    await selectModelInteractively('google');
+  });
+
+  it('should format model choice with no contextLength and no pricing', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('groq');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [{ id: 'llama-3.3-70b-versatile' }],
+        }),
+      };
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockImplementation(async (opts: any) => {
+      const firstChoice = opts.choices[0];
+      // Should just be the name, no context length or pricing suffix
+      expect(firstChoice.name).toBe('llama-3.3-70b-versatile');
+      return 'llama-3.3-70b-versatile';
+    });
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    await selectModelInteractively('groq');
+  });
+});
+
+// ===========================================================================
+// OpenRouter name-based filtering (flux, imagen, stable-diffusion, whisper)
+// ===========================================================================
+
+describe('OpenRouter name-based model filtering', () => {
+  it('should filter out flux, imagen, stable-diffusion, whisper models by name', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openrouter');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'good/text-model', name: 'Good Model' },
+          { id: 'org/flux-pro', name: 'Flux Pro' },
+          { id: 'org/imagen-3', name: 'Imagen 3' },
+          { id: 'org/stable-diffusion-xl', name: 'SDXL' },
+          { id: 'org/whisper-large', name: 'Whisper' },
+          { id: 'org/dall-e-3', name: 'DALL-E 3' },
+          { id: 'org/embed-v2', name: 'Embed' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('openrouter');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('good/text-model');
+    expect(ids).not.toContain('org/flux-pro');
+    expect(ids).not.toContain('org/imagen-3');
+    expect(ids).not.toContain('org/stable-diffusion-xl');
+    expect(ids).not.toContain('org/whisper-large');
+    expect(ids).not.toContain('org/dall-e-3');
+    expect(ids).not.toContain('org/embed-v2');
+  });
+
+  it('should filter by modality field when no output_modalities', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openrouter');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'image-model', name: 'Image Model', architecture: { modality: 'image', output_modalities: [] } },
+          { id: 'audio-model', name: 'Audio Model', architecture: { modality: 'audio', output_modalities: [] } },
+          { id: 'embedding-model', name: 'Embedding Model', architecture: { modality: 'embedding', output_modalities: [] } },
+          { id: 'text-model', name: 'Text Model', architecture: { modality: 'text', output_modalities: [] } },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('openrouter');
+    const ids = models.map(m => m.id);
+    expect(ids).not.toContain('image-model');
+    expect(ids).not.toContain('audio-model');
+    expect(ids).not.toContain('embedding-model');
+    expect(ids).toContain('text-model');
+  });
+});
+
+// ===========================================================================
+// Bedrock context length helper
+// ===========================================================================
+
+describe('Bedrock context length via gateway', () => {
+  it('should assign correct context lengths to Bedrock models from gateway', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com/v1');
+    vi.mocked(config.getApiKey).mockReturnValue('key');
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'anthropic.claude-3-sonnet-20240229-v1:0' },
+          { id: 'meta.llama3-1-70b-instruct-v1:0' },
+          { id: 'mistral.mistral-large-2407-v1:0' },
+          { id: 'cohere.command-r-plus-v1:0' },
+          { id: 'amazon.titan-text-premier-v1:0' },
+          { id: 'amazon.titan-text-express-v1' },
+          { id: 'some.unknown-model-v1' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('bedrock');
+    const byId = (id: string) => models.find(m => m.id === id);
+
+    expect(byId('anthropic.claude-3-sonnet-20240229-v1:0')?.contextLength).toBe(200000);
+    expect(byId('meta.llama3-1-70b-instruct-v1:0')?.contextLength).toBe(128000);
+    expect(byId('mistral.mistral-large-2407-v1:0')?.contextLength).toBe(128000);
+    expect(byId('cohere.command-r-plus-v1:0')?.contextLength).toBe(128000);
+    expect(byId('amazon.titan-text-premier-v1:0')?.contextLength).toBe(32000);
+    expect(byId('amazon.titan-text-express-v1')?.contextLength).toBe(8192);
+    expect(byId('some.unknown-model-v1')?.contextLength).toBe(32000);
+  });
+
+  it('should construct correct gateway URL without /v1 suffix', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com');
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ id: 'anthropic.claude-3-sonnet' }] }),
+    });
+
+    await getAvailableModels('bedrock');
+    expect(mockFetch).toHaveBeenCalledWith('https://gw.com/v1/models', { headers: {} });
+  });
+
+  it('should construct correct gateway URL with /v1 suffix', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com/v1');
+    vi.mocked(config.getApiKey).mockReturnValue('my-key');
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ data: [{ id: 'anthropic.claude-3-sonnet' }] }),
+    });
+
+    await getAvailableModels('bedrock');
+    expect(mockFetch).toHaveBeenCalledWith('https://gw.com/v1/models', {
+      headers: { Authorization: 'Bearer my-key' },
+    });
+  });
+
+  it('should assign correct Bedrock descriptions for all model families', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com');
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'anthropic.claude-3-opus-v1' },
+          { id: 'anthropic.claude-3-sonnet-v1' },
+          { id: 'anthropic.claude-3-haiku-v1' },
+          { id: 'amazon.titan-text-v1' },
+          { id: 'meta.llama3-70b-v1' },
+          { id: 'mistral.mistral-7b-v1' },
+          { id: 'cohere.command-r-v1' },
+          { id: 'some.other-model-v1' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('bedrock');
+    const byId = (id: string) => models.find(m => m.id === id);
+
+    expect(byId('anthropic.claude-3-opus-v1')?.description).toContain('Most capable');
+    expect(byId('anthropic.claude-3-sonnet-v1')?.description).toContain('Balanced');
+    expect(byId('anthropic.claude-3-haiku-v1')?.description).toContain('Fast');
+    expect(byId('amazon.titan-text-v1')?.description).toContain('Titan');
+    expect(byId('meta.llama3-70b-v1')?.description).toContain('Llama');
+    expect(byId('mistral.mistral-7b-v1')?.description).toContain('Mistral');
+    expect(byId('cohere.command-r-v1')?.description).toContain('Cohere');
+    expect(byId('some.other-model-v1')?.description).toBe('AWS Bedrock model');
+  });
+
+  it('should fall back to static list when gateway returns non-ok', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com');
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
+
+    const models = await getAvailableModels('bedrock');
+    // Should get static fallback models
+    expect(models.length).toBeGreaterThan(0);
+    expect(models.some(m => m.id.includes('claude'))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Bedrock incompatible model patterns
+// ===========================================================================
+
+describe('Bedrock incompatible model patterns', () => {
+  it('should filter stability and titan-embed models', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com');
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('bedrock');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'anthropic.claude-3-sonnet-v1' },
+          { id: 'stability.stable-diffusion-xl-v1' },
+          { id: 'amazon.titan-embed-text-v1' },
+          { id: 'some-embed-model' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('bedrock');
+    const ids = models.map(m => m.id);
+    expect(ids).toContain('anthropic.claude-3-sonnet-v1');
+    expect(ids).not.toContain('stability.stable-diffusion-xl-v1');
+    expect(ids).not.toContain('amazon.titan-embed-text-v1');
+    expect(ids).not.toContain('some-embed-model');
+  });
+});
+
+// ===========================================================================
+// formatSize edge cases
+// ===========================================================================
+
+describe('formatSize (via Ollama model descriptions)', () => {
+  it('should format KB sizes', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'tiny-model:latest', size: 512000 }],
+      }),
+    });
+
+    const models = await getAvailableModels('ollama');
+    expect(models[0].description).toContain('KB');
+  });
+
+  it('should format MB sizes', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'small-model:latest', size: 52428800 }],
+      }),
+    });
+
+    const models = await getAvailableModels('ollama');
+    expect(models[0].description).toContain('MB');
+  });
+
+  it('should format TB sizes', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'huge-model:latest', size: 1099511627776 }],
+      }),
+    });
+
+    const models = await getAvailableModels('ollama');
+    expect(models[0].description).toContain('TB');
+  });
+
+  it('should include parameter_size when available', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'model:latest', size: 4000000000, details: { parameter_size: '70B', family: 'llama' } }],
+      }),
+    });
+
+    const models = await getAvailableModels('ollama');
+    expect(models[0].description).toContain('70B');
+  });
+
+  it('should omit parameter_size when not available', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [{ name: 'model:latest', size: 4000000000 }],
+      }),
+    });
+
+    const models = await getAvailableModels('ollama');
+    expect(models[0].description).toContain('GB');
+    expect(models[0].description).not.toContain('(');
+  });
+});
+
+// ===========================================================================
+// getOllamaFallbackModel — additional preference order tests
+// ===========================================================================
+
+describe('getOllamaFallbackModel - preference order', () => {
+  it('should prefer llama3.1 over llama3', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'llama3:latest', size: 4000000000 },
+          { name: 'llama3.1:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('llama3.1:latest');
+  });
+
+  it('should prefer qwen3 over qwen2.5', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'qwen2.5:latest', size: 4000000000 },
+          { name: 'qwen3:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('qwen3:latest');
+  });
+
+  it('should find deepseek model', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'deepseek-coder:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('deepseek-coder:latest');
+  });
+
+  it('should find codellama model', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'codellama:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('codellama:latest');
+  });
+
+  it('should find gemma model when no higher priority available', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'gemma:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('gemma:latest');
+  });
+
+  it('should find gemma2 model', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'gemma2:latest', size: 4000000000 },
+        ],
+      }),
+    });
+
+    const result = await getOllamaFallbackModel();
+    expect(result).toBe('gemma2:latest');
+  });
+});
+
+// ===========================================================================
+// Ollama API error status
+// ===========================================================================
+
+describe('getAvailableModels - ollama API errors', () => {
+  it('should return [] when Ollama returns non-ok status', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('ollama');
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    const models = await getAvailableModels('ollama');
+    expect(models).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// LiteLLM API error status
+// ===========================================================================
+
+describe('getAvailableModels - litellm API errors', () => {
+  it('should return [] when LiteLLM returns non-ok status', async () => {
+    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
+    clearModelCache('litellm');
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+
+    const models = await getAvailableModels('litellm');
+    expect(models).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Anthropic model without display_name (formatModelName branch)
+// ===========================================================================
+
+describe('formatModelName (via Anthropic API)', () => {
+  it('should generate a readable name when no display_name provided', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-opus-4-5-20251101' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('anthropic');
+    // formatModelName converts dashes to spaces and capitalizes
+    expect(models[0].name).toBeDefined();
+    expect(models[0].name!.length).toBeGreaterThan(0);
+    // Should contain "Claude" (from the id transformation)
+    expect(models[0].name).toContain('Claude');
+  });
+
+  it('should use display_name when provided', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-sonnet-4-20250514', display_name: 'My Custom Name' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('anthropic');
+    expect(models[0].name).toBe('My Custom Name');
+  });
+
+  it('should handle generic Claude model ID for description', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('anthropic');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-unknown-variant-20250514' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('anthropic');
+    expect(models[0].description).toBe('Claude language model');
+  });
+});
+
+// ===========================================================================
+// Google model with no description or inputTokenLimit
+// ===========================================================================
+
+describe('getAvailableModels - google edge cases', () => {
+  it('should handle models with no description or inputTokenLimit', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('google');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.0-flash' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('google');
+    expect(models[0].description).toBe('Google Gemini model');
+    expect(models[0].contextLength).toBe(1048576);
+  });
+
+  it('should handle non-ok Google API response', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('google');
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
+
+    const models = await getAvailableModels('google');
+    // Should return fallback models
+    expect(models.length).toBeGreaterThan(0);
+  });
+
+  it('should use displayName when available', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('google');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('google');
+    expect(models[0].name).toBe('Gemini 2.0 Flash');
+  });
+
+  it('should use model name as fallback when no displayName', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('google');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.0-flash' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('google');
+    expect(models[0].name).toBe('gemini-2.0-flash');
+  });
+});
+
+// ===========================================================================
+// OpenRouter no API key
+// ===========================================================================
+
+describe('getAvailableModels - openrouter no key', () => {
+  it('should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('openrouter');
+    const models = await getAvailableModels('openrouter');
+    expect(models).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// Together no API key
+// ===========================================================================
+
+describe('getAvailableModels - together no key', () => {
+  it('should return [] when no API key', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue(undefined);
+    clearModelCache('together');
+    const models = await getAvailableModels('together');
+    expect(models).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// selectModelInteractively with small token context (< 1000)
+// ===========================================================================
+
+describe('selectModelInteractively - small token formatting', () => {
+  it('should format small context as raw token count', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openrouter');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'test/tiny-model',
+            name: 'Tiny Model',
+            context_length: 512,
+            architecture: { output_modalities: ['text'] },
+          },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockImplementation(async (opts: any) => {
+      const firstChoice = opts.choices[0];
+      expect(firstChoice.name).toContain('512 tokens');
+      return 'test/tiny-model';
+    });
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    await selectModelInteractively('openrouter');
+  });
+});
+
+// ===========================================================================
+// selectModelInteractively - pricing with only input or only output
+// ===========================================================================
+
+describe('selectModelInteractively - partial pricing', () => {
+  it('should show only input price when output is zero', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openrouter');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: 'test/input-only',
+            name: 'Input Only',
+            architecture: { output_modalities: ['text'] },
+            pricing: { prompt: '0.000005', completion: '0' },
+          },
+        ],
+      }),
+    });
+
+    const { select } = await import('@inquirer/prompts');
+    vi.mocked(select).mockImplementation(async (opts: any) => {
+      const firstChoice = opts.choices[0];
+      expect(firstChoice.name).toContain('$');
+      return 'test/input-only';
+    });
+
+    const { selectModelInteractively } = await import('../src/model-detection.js');
+    await selectModelInteractively('openrouter');
   });
 });
