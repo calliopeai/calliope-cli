@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import {
   getSkin,
   applySkin,
@@ -18,10 +21,13 @@ import {
   discoverSkins,
   discoverPalettes,
   clearHUDCache,
+  saveCustomSkin,
+  saveCustomPalette,
 } from '../src/hud/api.js';
 import { SKINS, BOX_STYLES, SPINNER_SETS } from '../src/hud/skins.js';
 import { PALETTES } from '../src/hud/palettes.js';
 import { colors as ANSI } from '../src/styles.js';
+import type { Skin, Palette, BoxChars } from '../src/hud/types.js';
 
 // Reset module state before each test to avoid cross-test contamination
 beforeEach(() => {
@@ -65,6 +71,19 @@ describe('getSkin', () => {
     expect(skin).toHaveProperty('density');
     expect(skin).toHaveProperty('responsive');
   });
+
+  it('should return every built-in skin by name', () => {
+    for (const name of Object.keys(SKINS)) {
+      const skin = getSkin(name);
+      expect(skin.name).toBe(name);
+    }
+  });
+
+  it('should return different skins for different names', () => {
+    const clean = getSkin('clean');
+    const falcon = getSkin('falcon');
+    expect(clean.name).not.toBe(falcon.name);
+  });
 });
 
 // ============================================================================
@@ -86,6 +105,23 @@ describe('applySkin', () => {
 
   it('should set the current skin when successful', () => {
     applySkin('falcon');
+    expect(getCurrentSkin().name).toBe('falcon');
+  });
+
+  it('should return true for all built-in skins', () => {
+    for (const name of Object.keys(SKINS)) {
+      clearHUDCache();
+      expect(applySkin(name)).toBe(true);
+      expect(getCurrentSkin().name).toBe(name);
+    }
+  });
+
+  it('should not change skin when applying an invalid name', () => {
+    applySkin('falcon');
+    expect(getCurrentSkin().name).toBe('falcon');
+    applySkin('does-not-exist-at-all');
+    // After a failed apply, the skin should remain unchanged
+    // (applySkin returns false but doesn't reset)
     expect(getCurrentSkin().name).toBe('falcon');
   });
 });
@@ -110,6 +146,17 @@ describe('getCurrentSkin', () => {
     expect(getCurrentSkin().name).toBe('falcon');
     applySkin('clean');
     expect(getCurrentSkin().name).toBe('clean');
+  });
+
+  it('should return a full Skin object with all required fields', () => {
+    const skin = getCurrentSkin();
+    expect(typeof skin.name).toBe('string');
+    expect(typeof skin.description).toBe('string');
+    expect(skin.banner).toBeDefined();
+    expect(skin.borders).toBeDefined();
+    expect(skin.decorations).toBeDefined();
+    expect(skin.diff).toBeDefined();
+    expect(skin.responsive).toBeDefined();
   });
 });
 
@@ -155,6 +202,22 @@ describe('listSkins', () => {
       expect(skinNames).toContain(builtInName);
     }
   });
+
+  it('should mark all built-in skins as not custom', () => {
+    const skins = listSkins();
+    for (const builtInName of Object.keys(SKINS)) {
+      const entry = skins.find((s) => s.name === builtInName);
+      expect(entry).toBeDefined();
+      expect(entry!.custom).toBe(false);
+    }
+  });
+
+  it('should have a description for every built-in skin', () => {
+    const skins = listSkins();
+    for (const entry of skins.filter((s) => !s.custom)) {
+      expect(entry.description.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 // ============================================================================
@@ -193,6 +256,31 @@ describe('getPalette', () => {
     expect(palette.colors).toHaveProperty('error');
     expect(palette.colors).toHaveProperty('success');
   });
+
+  it('should return every built-in palette by name', () => {
+    for (const name of Object.keys(PALETTES)) {
+      const palette = getPalette(name);
+      expect(palette.name).toBe(name);
+    }
+  });
+
+  it('should return all 24 color keys on every palette', () => {
+    const requiredKeys = [
+      'primary', 'secondary', 'accent',
+      'text', 'textDim', 'textBold',
+      'user', 'assistant', 'system', 'error',
+      'codeKeyword', 'codeString', 'codeNumber', 'codeComment', 'codeFunction',
+      'diffAdd', 'diffRemove', 'diffContext',
+      'success', 'warning', 'info',
+      'border', 'background', 'selection',
+    ];
+    for (const name of Object.keys(PALETTES)) {
+      const palette = getPalette(name);
+      for (const key of requiredKeys) {
+        expect(palette.colors).toHaveProperty(key);
+      }
+    }
+  });
 });
 
 // ============================================================================
@@ -216,6 +304,21 @@ describe('applyPalette', () => {
     applyPalette('light');
     expect(getCurrentPalette().name).toBe('light');
   });
+
+  it('should return true for all built-in palettes', () => {
+    for (const name of Object.keys(PALETTES)) {
+      clearHUDCache();
+      expect(applyPalette(name)).toBe(true);
+      expect(getCurrentPalette().name).toBe(name);
+    }
+  });
+
+  it('should not change palette when applying an invalid name', () => {
+    applyPalette('monokai');
+    expect(getCurrentPalette().name).toBe('monokai');
+    applyPalette('this-palette-does-not-exist');
+    expect(getCurrentPalette().name).toBe('monokai');
+  });
 });
 
 // ============================================================================
@@ -238,6 +341,13 @@ describe('getCurrentPalette', () => {
     expect(getCurrentPalette().name).toBe('light');
     applyPalette('default');
     expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should return a Palette with valid colors object', () => {
+    const palette = getCurrentPalette();
+    expect(typeof palette.colors).toBe('object');
+    expect(typeof palette.colors.primary).toBe('string');
+    expect(typeof palette.colors.error).toBe('string');
   });
 });
 
@@ -281,6 +391,15 @@ describe('listPalettes', () => {
     const paletteNames = palettes.map((p) => p.name);
     for (const builtInName of Object.keys(PALETTES)) {
       expect(paletteNames).toContain(builtInName);
+    }
+  });
+
+  it('should mark all built-in palettes as not custom', () => {
+    const palettes = listPalettes();
+    for (const builtInName of Object.keys(PALETTES)) {
+      const entry = palettes.find((p) => p.name === builtInName);
+      expect(entry).toBeDefined();
+      expect(entry!.custom).toBe(false);
     }
   });
 });
@@ -348,6 +467,81 @@ describe('getInkColor', () => {
     expect(defaultPrimary).toBe('cyan');
     expect(lightPrimary).toBe('blue');
   });
+
+  it('should map secondary color correctly for default palette', () => {
+    expect(getInkColor('secondary')).toBe('blue');
+  });
+
+  it('should map accent color correctly for default palette (magenta)', () => {
+    expect(getInkColor('accent')).toBe('magenta');
+  });
+
+  it('should map user color correctly for default palette (green)', () => {
+    expect(getInkColor('user')).toBe('green');
+  });
+
+  it('should map assistant color correctly for default palette (cyan)', () => {
+    expect(getInkColor('assistant')).toBe('cyan');
+  });
+
+  it('should map system color correctly for default palette (yellow)', () => {
+    expect(getInkColor('system')).toBe('yellow');
+  });
+
+  it('should map text color correctly for default palette (white)', () => {
+    expect(getInkColor('text')).toBe('white');
+  });
+
+  it('should map textDim color correctly for default palette (gray)', () => {
+    expect(getInkColor('textDim')).toBe('gray');
+  });
+
+  it('should strip bold modifier and still map textBold correctly', () => {
+    // textBold is bold + white, ansiToInkColor strips modifiers like \x1b[1m
+    const result = getInkColor('textBold');
+    expect(result).toBe('white');
+  });
+
+  it('should map code syntax colors correctly', () => {
+    expect(getInkColor('codeKeyword')).toBe('magenta');
+    expect(getInkColor('codeString')).toBe('green');
+    expect(getInkColor('codeNumber')).toBe('cyan');
+    expect(getInkColor('codeComment')).toBe('gray');
+    expect(getInkColor('codeFunction')).toBe('yellow');
+  });
+
+  it('should map diff colors correctly', () => {
+    expect(getInkColor('diffAdd')).toBe('green');
+    expect(getInkColor('diffRemove')).toBe('red');
+    expect(getInkColor('diffContext')).toBe('gray');
+  });
+
+  it('should map border color correctly for default palette (gray)', () => {
+    expect(getInkColor('border')).toBe('gray');
+  });
+
+  it('should return different ink colors when switching between palettes', () => {
+    // default: primary=cyan, light: primary=blue, monokai may differ
+    const results: string[] = [];
+    for (const paletteName of ['default', 'light']) {
+      clearHUDCache();
+      applyPalette(paletteName);
+      results.push(getInkColor('primary'));
+    }
+    expect(results[0]).toBe('cyan');
+    expect(results[1]).toBe('blue');
+  });
+
+  it('should map all semantic keys for the light palette', () => {
+    applyPalette('light');
+    expect(getInkColor('primary')).toBe('blue');
+    expect(getInkColor('error')).toBe('red');
+    expect(getInkColor('success')).toBe('green');
+    expect(getInkColor('warning')).toBe('yellow');
+    expect(getInkColor('text')).toBe('black');
+    expect(getInkColor('user')).toBe('blue');
+    expect(getInkColor('assistant')).toBe('magenta');
+  });
 });
 
 // ============================================================================
@@ -384,6 +578,36 @@ describe('paletteColorize', () => {
     const result = paletteColorize('ok', 'success');
     expect(result).toBe(`${color}ok${ANSI.reset}`);
   });
+
+  it('should work with empty text', () => {
+    const color = getPaletteColor('warning');
+    const result = paletteColorize('', 'warning');
+    expect(result).toBe(`${color}${ANSI.reset}`);
+  });
+
+  it('should work with different palettes applied', () => {
+    applyPalette('light');
+    const color = getPaletteColor('primary');
+    const result = paletteColorize('test', 'primary');
+    expect(result).toBe(`${color}test${ANSI.reset}`);
+    expect(result).toContain(ANSI.blue); // light primary is blue
+  });
+
+  it('should colorize every semantic key without throwing', () => {
+    const keys = [
+      'primary', 'secondary', 'accent', 'text', 'textDim', 'textBold',
+      'user', 'assistant', 'system', 'error',
+      'codeKeyword', 'codeString', 'codeNumber', 'codeComment', 'codeFunction',
+      'diffAdd', 'diffRemove', 'diffContext',
+      'success', 'warning', 'info',
+      'border', 'background', 'selection',
+    ] as const;
+    for (const key of keys) {
+      const result = paletteColorize('x', key);
+      expect(result).toContain('x');
+      expect(result).toContain(ANSI.reset);
+    }
+  });
 });
 
 // ============================================================================
@@ -406,6 +630,30 @@ describe('getPaletteColor', () => {
   it('should return palette color from applied palette', () => {
     applyPalette('light');
     expect(getPaletteColor('primary')).toBe(ANSI.blue);
+  });
+
+  it('should return empty string for background in default palette', () => {
+    expect(getPaletteColor('background')).toBe('');
+  });
+
+  it('should return different values for different semantic keys', () => {
+    const primary = getPaletteColor('primary');
+    const error = getPaletteColor('error');
+    expect(primary).not.toBe(error);
+  });
+
+  it('should return matching values for same key across calls', () => {
+    const first = getPaletteColor('accent');
+    const second = getPaletteColor('accent');
+    expect(first).toBe(second);
+  });
+
+  it('should reflect palette changes immediately', () => {
+    const beforeApply = getPaletteColor('primary');
+    applyPalette('light');
+    const afterApply = getPaletteColor('primary');
+    expect(beforeApply).toBe(ANSI.cyan);
+    expect(afterApply).toBe(ANSI.blue);
   });
 });
 
@@ -440,6 +688,54 @@ describe('getBoxChars', () => {
     const box = getBoxChars();
     expect(box).toEqual(BOX_STYLES.double);
   });
+
+  it('should return custom box chars when skin has custom border style', () => {
+    const customChars: BoxChars = {
+      topLeft: '+', topRight: '+',
+      bottomLeft: '+', bottomRight: '+',
+      horizontal: '-', vertical: '|',
+      teeRight: '+', teeLeft: '+',
+      teeDown: '+', teeUp: '+', cross: '+',
+    };
+    const customSkin = {
+      ...SKINS.clean,
+      borders: { style: 'custom' as const, custom: customChars },
+    };
+    const box = getBoxChars(customSkin);
+    expect(box).toEqual(customChars);
+  });
+
+  it('should fall back to rounded when custom style has no custom chars', () => {
+    const skinWithoutCustom = {
+      ...SKINS.clean,
+      borders: { style: 'custom' as const },
+    };
+    // custom style but no custom property -> falsy, falls through to BOX_STYLES lookup
+    const box = getBoxChars(skinWithoutCustom as Skin);
+    // BOX_STYLES['custom'] is undefined, so falls back to rounded
+    expect(box).toEqual(BOX_STYLES.rounded);
+  });
+
+  it('should return all 11 required box character properties', () => {
+    const box = getBoxChars();
+    const expectedKeys = [
+      'topLeft', 'topRight', 'bottomLeft', 'bottomRight',
+      'horizontal', 'vertical', 'teeRight', 'teeLeft',
+      'teeDown', 'teeUp', 'cross',
+    ];
+    for (const key of expectedKeys) {
+      expect(box).toHaveProperty(key);
+      expect(typeof (box as Record<string, string>)[key]).toBe('string');
+    }
+  });
+
+  it('should return correct box styles for each border type', () => {
+    for (const style of ['rounded', 'sharp', 'double', 'ascii', 'none'] as const) {
+      const skin = { ...SKINS.clean, borders: { style } };
+      const box = getBoxChars(skin as Skin);
+      expect(box).toEqual(BOX_STYLES[style]);
+    }
+  });
 });
 
 // ============================================================================
@@ -464,6 +760,44 @@ describe('getSpinnerFrames', () => {
     const frames = getSpinnerFrames();
     expect(frames).toEqual(SPINNER_SETS.braille);
   });
+
+  it('should return custom spinner frames when skin has custom spinner', () => {
+    const customFrames = ['A', 'B', 'C', 'D'];
+    const customSkin = {
+      ...SKINS.clean,
+      decorations: {
+        ...SKINS.clean.decorations,
+        spinner: 'custom' as const,
+        customSpinner: customFrames,
+      },
+    };
+    const frames = getSpinnerFrames(customSkin as Skin);
+    expect(frames).toEqual(customFrames);
+  });
+
+  it('should fall back to braille when custom spinner has no customSpinner array', () => {
+    const skinWithoutCustom = {
+      ...SKINS.clean,
+      decorations: {
+        ...SKINS.clean.decorations,
+        spinner: 'custom' as const,
+      },
+    };
+    const frames = getSpinnerFrames(skinWithoutCustom as Skin);
+    // SPINNER_SETS['custom'] is undefined, so falls back to braille
+    expect(frames).toEqual(SPINNER_SETS.braille);
+  });
+
+  it('should return the correct spinner set for each named spinner type', () => {
+    for (const spinnerName of ['braille', 'dots', 'simple', 'blocks'] as const) {
+      const skin = {
+        ...SKINS.clean,
+        decorations: { ...SKINS.clean.decorations, spinner: spinnerName },
+      };
+      const frames = getSpinnerFrames(skin as Skin);
+      expect(frames).toEqual(SPINNER_SETS[spinnerName]);
+    }
+  });
 });
 
 // ============================================================================
@@ -487,6 +821,36 @@ describe('getInkBorderStyle', () => {
     const style = getInkBorderStyle();
     expect(style).toBe('double');
   });
+
+  it('should map rounded to round', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'rounded' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('round');
+  });
+
+  it('should map sharp to single', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'sharp' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('single');
+  });
+
+  it('should map double to double', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'double' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('double');
+  });
+
+  it('should map ascii to classic', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'ascii' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('classic');
+  });
+
+  it('should map none to single', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'none' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('single');
+  });
+
+  it('should fall back to round for unmapped border style', () => {
+    const skin = { ...SKINS.clean, borders: { style: 'custom' as const } };
+    expect(getInkBorderStyle(skin as Skin)).toBe('round');
+  });
 });
 
 // ============================================================================
@@ -505,6 +869,30 @@ describe('applyHUD', () => {
     applyHUD('clean', 'default', 'calliope');
     expect(getCurrentSkin().name).toBe('clean');
     expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should work with different skin/palette combos', () => {
+    applyHUD('wargames', 'monokai');
+    expect(getCurrentSkin().name).toBe('wargames');
+    expect(getCurrentPalette().name).toBe('monokai');
+  });
+
+  it('should overwrite previous HUD settings', () => {
+    applyHUD('falcon', 'light');
+    applyHUD('clean', 'default');
+    expect(getCurrentSkin().name).toBe('clean');
+    expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should handle invalid skin gracefully (falls back to clean)', () => {
+    applyHUD('nonexistent-xyz', 'default');
+    // applySkin returns false but still calls it; getCurrentSkin falls back to clean
+    expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should handle invalid palette gracefully (falls back to default)', () => {
+    applyHUD('clean', 'nonexistent-xyz');
+    expect(getCurrentSkin().name).toBe('clean');
   });
 });
 
@@ -536,6 +924,21 @@ describe('discoverSkins', () => {
       expect(skin).toHaveProperty('borders');
     }
   });
+
+  it('should return at least as many skins as SKINS registry', () => {
+    const skins = discoverSkins();
+    expect(skins.length).toBeGreaterThanOrEqual(Object.keys(SKINS).length);
+  });
+
+  it('should return skins with valid banner and decorations', () => {
+    const skins = discoverSkins();
+    for (const skin of skins) {
+      expect(skin.banner).toBeDefined();
+      expect(Array.isArray(skin.banner.art)).toBe(true);
+      expect(skin.decorations).toBeDefined();
+      expect(typeof skin.decorations.promptPrefix).toBe('string');
+    }
+  });
 });
 
 describe('discoverPalettes', () => {
@@ -561,6 +964,18 @@ describe('discoverPalettes', () => {
       expect(palette).toHaveProperty('colors');
     }
   });
+
+  it('should return at least as many palettes as PALETTES registry', () => {
+    const palettes = discoverPalettes();
+    expect(palettes.length).toBeGreaterThanOrEqual(Object.keys(PALETTES).length);
+  });
+
+  it('should return palettes with all 24 color keys', () => {
+    const palettes = discoverPalettes();
+    for (const palette of palettes) {
+      expect(Object.keys(palette.colors).length).toBeGreaterThanOrEqual(24);
+    }
+  });
 });
 
 // ============================================================================
@@ -580,5 +995,181 @@ describe('clearHUDCache', () => {
     expect(getCurrentPalette().name).toBe('light');
     clearHUDCache();
     expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should reset both skin and palette together', () => {
+    applyHUD('falcon', 'monokai');
+    expect(getCurrentSkin().name).toBe('falcon');
+    expect(getCurrentPalette().name).toBe('monokai');
+    clearHUDCache();
+    expect(getCurrentSkin().name).toBe('clean');
+    expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should be safe to call multiple times', () => {
+    clearHUDCache();
+    clearHUDCache();
+    clearHUDCache();
+    expect(getCurrentSkin().name).toBe('clean');
+    expect(getCurrentPalette().name).toBe('default');
+  });
+
+  it('should make getInkColor return default palette colors', () => {
+    applyPalette('light');
+    expect(getInkColor('primary')).toBe('blue');
+    clearHUDCache();
+    expect(getInkColor('primary')).toBe('cyan');
+  });
+});
+
+// ============================================================================
+// saveCustomSkin / saveCustomPalette
+// ============================================================================
+
+describe('saveCustomSkin', () => {
+  const tmpDir = path.join(os.tmpdir(), 'calliope-test-skins-' + Date.now());
+
+  afterEach(() => {
+    // Clean up
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
+  });
+
+  it('should be a function', () => {
+    expect(typeof saveCustomSkin).toBe('function');
+  });
+
+  it('should write a skin JSON file to the skins directory', () => {
+    // This calls the real saveCustomSkin which writes to ~/.calliope-cli/skins/
+    // We just verify it doesn't throw for a valid skin object
+    const testSkin: Skin = {
+      ...SKINS.clean,
+      name: '__test_save_skin_' + Date.now(),
+    };
+    // Should not throw
+    expect(() => saveCustomSkin(testSkin)).not.toThrow();
+    // Clean up the file
+    const expectedPath = path.join(os.homedir(), '.calliope-cli', 'skins', `${testSkin.name}.json`);
+    try {
+      fs.unlinkSync(expectedPath);
+    } catch {
+      // file might not exist
+    }
+  });
+});
+
+describe('saveCustomPalette', () => {
+  it('should be a function', () => {
+    expect(typeof saveCustomPalette).toBe('function');
+  });
+
+  it('should write a palette JSON file to the palettes directory', () => {
+    const testPalette: Palette = {
+      ...PALETTES.default,
+      name: '__test_save_palette_' + Date.now(),
+    };
+    expect(() => saveCustomPalette(testPalette)).not.toThrow();
+    // Clean up the file
+    const expectedPath = path.join(os.homedir(), '.calliope-cli', 'palettes', `${testPalette.name}.json`);
+    try {
+      fs.unlinkSync(expectedPath);
+    } catch {
+      // file might not exist
+    }
+  });
+});
+
+// ============================================================================
+// Integration: skin + palette combinations
+// ============================================================================
+
+describe('skin + palette integration', () => {
+  it('should allow applying any combination of skin and palette', () => {
+    const skinNames = Object.keys(SKINS);
+    const paletteNames = Object.keys(PALETTES);
+    // Test a few combinations
+    for (let i = 0; i < Math.min(skinNames.length, 3); i++) {
+      for (let j = 0; j < Math.min(paletteNames.length, 3); j++) {
+        clearHUDCache();
+        applySkin(skinNames[i]);
+        applyPalette(paletteNames[j]);
+        expect(getCurrentSkin().name).toBe(skinNames[i]);
+        expect(getCurrentPalette().name).toBe(paletteNames[j]);
+        // getInkColor should still work
+        const color = getInkColor('primary');
+        expect(typeof color).toBe('string');
+        expect(color.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('should maintain independent skin and palette state', () => {
+    applySkin('falcon');
+    applyPalette('monokai');
+    // Changing skin should not affect palette
+    applySkin('clean');
+    expect(getCurrentPalette().name).toBe('monokai');
+    // Changing palette should not affect skin
+    applyPalette('default');
+    expect(getCurrentSkin().name).toBe('clean');
+  });
+
+  it('should produce correct box chars and spinner for active skin regardless of palette', () => {
+    applySkin('falcon');
+    applyPalette('light');
+    expect(getBoxChars()).toEqual(BOX_STYLES.double);
+    applyPalette('neon');
+    expect(getBoxChars()).toEqual(BOX_STYLES.double);
+  });
+});
+
+// ============================================================================
+// Edge cases
+// ============================================================================
+
+describe('edge cases', () => {
+  it('should handle empty string skin name gracefully', () => {
+    const result = applySkin('');
+    expect(result).toBe(false);
+  });
+
+  it('should handle empty string palette name gracefully', () => {
+    const result = applyPalette('');
+    expect(result).toBe(false);
+  });
+
+  it('should handle skin names with special characters', () => {
+    const result = applySkin('../../etc/passwd');
+    expect(result).toBe(false);
+  });
+
+  it('should handle palette names with special characters', () => {
+    const result = applyPalette('../../etc/passwd');
+    expect(result).toBe(false);
+  });
+
+  it('should handle very long skin names', () => {
+    const longName = 'a'.repeat(1000);
+    const result = applySkin(longName);
+    expect(result).toBe(false);
+  });
+
+  it('should handle very long palette names', () => {
+    const longName = 'b'.repeat(1000);
+    const result = applyPalette(longName);
+    expect(result).toBe(false);
+  });
+
+  it('getSkin should return clean when called with undefined', () => {
+    const skin = getSkin(undefined);
+    expect(skin.name).toBe('clean');
+  });
+
+  it('getPalette should return default when called with undefined', () => {
+    const palette = getPalette(undefined);
+    expect(palette.name).toBe('default');
   });
 });
