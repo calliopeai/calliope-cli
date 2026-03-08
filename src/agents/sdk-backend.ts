@@ -1,5 +1,5 @@
 /**
- * AGTerm SDK Backend
+ * Calliope Agents — SDK Backend
  *
  * In-process agent executors using Claude Agent SDK, OpenAI Agents JS, and Google ADK.
  * All are optional dependencies — gracefully degrade to CLI backend if absent.

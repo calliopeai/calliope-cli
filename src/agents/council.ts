@@ -1,5 +1,5 @@
 /**
- * AGTerm Council Manager
+ * Calliope Agents — Council Manager
  *
  * Coordinates groups of agents deliberating on a shared goal.
  * Supports competitive, collaborative, consensus, and overseer modes.
@@ -573,10 +573,10 @@ Review these results. Synthesize, correct errors, fill gaps, and produce the fin
    */
   formatSessionStatus(session: CouncilSession): string {
     const lines: string[] = [
-      `Council: ${session.id.slice(0, 8)}`,
+      `Coordination: ${session.id.slice(0, 8)}`,
       `Mode: ${session.config.mode}`,
       `Status: ${session.status}`,
-      `Members: ${session.config.members.map(m => `${m.name} (${m.agent})`).join(', ')}`,
+      `Agents: ${session.config.members.map(m => `${m.name} (${m.agent})`).join(', ')}`,
       `Round: ${session.round}`,
     ];
 

@@ -1,5 +1,5 @@
 /**
- * AGTerm Agent Detection
+ * Calliope Agents — Agent Detection
  *
  * Detect which agent CLIs are installed and available.
  */

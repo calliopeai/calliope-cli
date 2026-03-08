@@ -9,8 +9,8 @@ import type {
   Vote,
   Score,
   TieBreaker,
-} from '../src/agterm/council-types.js';
-import { DEFAULT_COUNCIL_CONFIG, COUNCIL_TEMPLATES } from '../src/agterm/council-types.js';
+} from '../src/agents/council-types.js';
+import { DEFAULT_COUNCIL_CONFIG, COUNCIL_TEMPLATES } from '../src/agents/council-types.js';
 
 // ============================================================================
 // Council Types
@@ -216,20 +216,20 @@ describe('Council Modes', () => {
 
 describe('Council Tool Integration', () => {
   it('should include council tools in AGTERM_TOOL_NAMES', async () => {
-    const { AGTERM_TOOL_NAMES } = await import('../src/agterm/tools.js');
+    const { AGTERM_TOOL_NAMES } = await import('../src/agents/tools.js');
     expect(AGTERM_TOOL_NAMES).toContain('start_council');
     expect(AGTERM_TOOL_NAMES).toContain('check_council');
     expect(AGTERM_TOOL_NAMES).toContain('cancel_council');
   });
 
-  it('should have 10 total agterm tools', async () => {
-    const { getAgtermTools } = await import('../src/agterm/tools.js');
+  it('should have 14 total agent tools', async () => {
+    const { getAgtermTools } = await import('../src/agents/tools.js');
     const tools = getAgtermTools();
-    expect(tools.length).toBe(10);
+    expect(tools.length).toBe(14);
   });
 
   it('should have start_council tool with correct parameters', async () => {
-    const { getAgtermTools } = await import('../src/agterm/tools.js');
+    const { getAgtermTools } = await import('../src/agents/tools.js');
     const tools = getAgtermTools();
     const startTool = tools.find(t => t.name === 'start_council');
 
@@ -241,7 +241,7 @@ describe('Council Tool Integration', () => {
   });
 
   it('should have check_council tool', async () => {
-    const { getAgtermTools } = await import('../src/agterm/tools.js');
+    const { getAgtermTools } = await import('../src/agents/tools.js');
     const tools = getAgtermTools();
     const tool = tools.find(t => t.name === 'check_council');
     expect(tool).toBeDefined();
@@ -249,7 +249,7 @@ describe('Council Tool Integration', () => {
   });
 
   it('should have cancel_council tool', async () => {
-    const { getAgtermTools } = await import('../src/agterm/tools.js');
+    const { getAgtermTools } = await import('../src/agents/tools.js');
     const tools = getAgtermTools();
     const tool = tools.find(t => t.name === 'cancel_council');
     expect(tool).toBeDefined();

@@ -1,5 +1,5 @@
 /**
- * AGTerm Multi-Agent Module
+ * Calliope Agents — Multi-Agent Module
  *
  * Provides sub-agent orchestration capabilities.
  */
@@ -50,6 +50,7 @@ export {
   AGTERM_TOOL_NAMES,
   isAgtermTool,
   executeAgtermTool,
+  setCommandDispatcher,
 } from './tools.js';
 
 // Swarm

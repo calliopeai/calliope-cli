@@ -1,7 +1,7 @@
 /**
- * Extended tests for src/agterm/tools.ts
+ * Extended tests for src/agents/tools.ts
  *
- * Covers executeAgtermTool dispatch for all 10 tools, error handling,
+ * Covers executeAgtermTool dispatch for all 14 tools, error handling,
  * input validation, result formatting, and integration with mocked
  * orchestrator, swarmManager, and councilManager singletons.
  */
@@ -13,14 +13,14 @@ import {
   AGTERM_TOOL_NAMES,
   isAgtermTool,
   executeAgtermTool,
-} from '../src/agterm/tools.js';
-import { orchestrator } from '../src/agterm/orchestrator.js';
-import { swarmManager } from '../src/agterm/swarm.js';
-import { councilManager } from '../src/agterm/council.js';
-import { COUNCIL_TEMPLATES } from '../src/agterm/council-types.js';
-import type { SubAgentTask, SubAgentTaskStatus, TaskPriority } from '../src/agterm/types.js';
-import type { SwarmSession, SwarmConfig, SwarmStatus, DecompositionStrategy, AggregationStrategy } from '../src/agterm/swarm-types.js';
-import type { CouncilSession, CouncilConfig, CouncilStatus, CouncilMode, CouncilMember } from '../src/agterm/council-types.js';
+} from '../src/agents/tools.js';
+import { orchestrator } from '../src/agents/orchestrator.js';
+import { swarmManager } from '../src/agents/swarm.js';
+import { councilManager } from '../src/agents/council.js';
+import { COUNCIL_TEMPLATES } from '../src/agents/council-types.js';
+import type { SubAgentTask, SubAgentTaskStatus, TaskPriority } from '../src/agents/types.js';
+import type { SwarmSession, SwarmConfig, SwarmStatus, DecompositionStrategy, AggregationStrategy } from '../src/agents/swarm-types.js';
+import type { CouncilSession, CouncilConfig, CouncilStatus, CouncilMode, CouncilMember } from '../src/agents/council-types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -140,18 +140,20 @@ afterEach(() => {
 // ===========================================================================
 
 describe('getAgtermTools - tool definitions', () => {
-  it('should return exactly 10 tools', () => {
+  it('should return exactly 14 tools', () => {
     const tools = getAgtermTools();
-    expect(tools).toHaveLength(10);
+    expect(tools).toHaveLength(14);
   });
 
   it('should have correct names for all tools', () => {
     const tools = getAgtermTools();
     const names = tools.map(t => t.name);
     expect(names).toEqual([
+      'create_tool', 'list_dynamic_tools', 'remove_tool',
       'spawn_agent', 'check_agent', 'list_agents', 'cancel_agent',
       'start_swarm', 'check_swarm', 'cancel_swarm',
       'start_council', 'check_council', 'cancel_council',
+      'run_command',
     ]);
   });
 
@@ -228,8 +230,8 @@ describe('isAgtermTool - comprehensive', () => {
 // ===========================================================================
 
 describe('AGTERM_TOOL_NAMES', () => {
-  it('should contain 10 tool names', () => {
-    expect(AGTERM_TOOL_NAMES).toHaveLength(10);
+  it('should contain 14 tool names', () => {
+    expect(AGTERM_TOOL_NAMES).toHaveLength(14);
   });
 
   it('should include swarm tools', () => {
@@ -252,7 +254,7 @@ describe('AGTERM_TOOL_NAMES', () => {
 describe('executeAgtermTool - spawn_agent', () => {
   it('should set cwd on orchestrator', async () => {
     // Mock agent detection
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
     vi.spyOn(agentDetection, 'detectAgents').mockReturnValue([]);
 
@@ -273,7 +275,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should error when agent is not available', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue([]);
     vi.spyOn(agentDetection, 'detectAgents').mockReturnValue([{
       type: 'claude',
@@ -294,7 +296,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should return background result with task ID', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
 
     const bgTask = makeTask({ id: 'bg-task-id', status: 'queued', priority: 'high' });
@@ -314,7 +316,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should return foreground completed result', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
 
     const completedTask = makeTask({ status: 'completed', result: 'Done analyzing' });
@@ -331,7 +333,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should return foreground failed result', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['gemini']);
 
     const failedTask = makeTask({ agent: 'gemini', status: 'failed', error: 'API rate limited', result: undefined });
@@ -348,7 +350,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should default agent to calliope when not specified', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['calliope']);
 
     await executeAgtermTool(makeTool('spawn_agent', { prompt: 'test' }), cwd);
@@ -359,7 +361,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should handle orchestrator.spawnAgent throwing an error', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['claude']);
 
     vi.mocked(orchestrator.spawnAgent).mockRejectedValue(new Error('Queue is full'));
@@ -375,7 +377,7 @@ describe('executeAgtermTool - spawn_agent', () => {
   });
 
   it('should parse boolean background from string "false"', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'getAvailableAgents').mockReturnValue(['calliope']);
 
     await executeAgtermTool(makeTool('spawn_agent', {
@@ -474,7 +476,7 @@ describe('executeAgtermTool - check_agent', () => {
 
 describe('executeAgtermTool - list_agents', () => {
   it('should return agent availability and orchestrator stats', async () => {
-    const agentDetection = await import('../src/agterm/agent-detection.js');
+    const agentDetection = await import('../src/agents/agent-detection.js');
     vi.spyOn(agentDetection, 'detectAgents').mockReturnValue([
       { type: 'claude', command: 'claude', args: ['--print'], envVar: 'ANTHROPIC_API_KEY', available: true },
       { type: 'gemini', command: 'gemini', args: [], envVar: 'GOOGLE_API_KEY', available: false, reason: 'GOOGLE_API_KEY not set' },
@@ -715,7 +717,7 @@ describe('executeAgtermTool - start_council', () => {
     }), cwd);
 
     expect(result.isError).toBeUndefined();
-    expect(result.result).toContain('Council started');
+    expect(result.result).toContain('Coordinated swarm started');
     expect(result.result).toContain('council-tmpl');
     expect(result.result).toContain('competitive');
     expect(result.result).toContain('Template: code-review');
@@ -745,7 +747,7 @@ describe('executeAgtermTool - start_council', () => {
     }), cwd);
 
     expect(result.isError).toBeUndefined();
-    expect(result.result).toContain('Council started');
+    expect(result.result).toContain('Coordinated swarm started');
     expect(result.result).toContain('council-custom');
     expect(result.result).not.toContain('Template:');
     expect(councilManager.startCouncil).toHaveBeenCalledWith(
@@ -772,7 +774,7 @@ describe('executeAgtermTool - start_council', () => {
 
     const result = await executeAgtermTool(makeTool('start_council', { prompt: 'test' }), cwd);
     expect(result.isError).toBe(true);
-    expect(result.result).toContain('Error starting council');
+    expect(result.result).toContain('Error starting coordination');
     expect(result.result).toContain('No agents configured');
   });
 });
@@ -859,7 +861,7 @@ describe('executeAgtermTool - unknown tool', () => {
   it('should return error for unknown agterm tool', async () => {
     const result = await executeAgtermTool(makeTool('unknown_agterm_tool', {}), cwd);
     expect(result.isError).toBe(true);
-    expect(result.result).toContain('Unknown agterm tool: unknown_agterm_tool');
+    expect(result.result).toContain('Unknown agent tool: unknown_agterm_tool');
   });
 });
 

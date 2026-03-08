@@ -1,5 +1,5 @@
 /**
- * AGTerm Orchestrator
+ * Calliope Agents — Orchestrator
  *
  * Task queue management with depth limiting and priority ordering.
  */

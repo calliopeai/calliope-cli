@@ -1,5 +1,5 @@
 /**
- * AGTerm Council Types
+ * Calliope Agents — Council Types
  *
  * Type definitions for agent councils: groups of agents deliberating
  * on a shared goal with multiple coordination modes.

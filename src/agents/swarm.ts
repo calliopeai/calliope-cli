@@ -1,5 +1,5 @@
 /**
- * AGTerm Swarm Manager
+ * Calliope Agents — Swarm Manager
  *
  * Orchestrates swarm mode: overseer decomposes tasks, dispatches to parallel
  * workers via the orchestrator, and aggregates results.

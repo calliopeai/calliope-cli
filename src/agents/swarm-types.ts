@@ -1,5 +1,5 @@
 /**
- * AGTerm Swarm Types
+ * Calliope Agents — Swarm Types
  *
  * Type definitions for swarm mode: overseer-driven task decomposition,
  * parallel worker dispatch, and result aggregation.

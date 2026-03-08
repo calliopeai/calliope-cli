@@ -1,5 +1,5 @@
 /**
- * AGTerm Multi-Agent Types
+ * Calliope Agents — Multi-Agent Types
  *
  * Type definitions for sub-agent orchestration.
  */

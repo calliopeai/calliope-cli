@@ -1,5 +1,5 @@
 /**
- * AGTerm Decomposer
+ * Calliope Agents — Decomposer
  *
  * Decomposes a high-level task into subtasks using the overseer agent.
  * Supports parallel, sequential, map-reduce, and pipeline strategies.

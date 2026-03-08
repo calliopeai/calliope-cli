@@ -4,15 +4,15 @@ import type {
   CouncilConfig,
   CouncilMember,
   DeliberationEntry,
-} from '../src/agterm/council-types.js';
-import { DEFAULT_COUNCIL_CONFIG, COUNCIL_TEMPLATES } from '../src/agterm/council-types.js';
-import type { SubAgentTask, AgentEvent } from '../src/agterm/types.js';
+} from '../src/agents/council-types.js';
+import { DEFAULT_COUNCIL_CONFIG, COUNCIL_TEMPLATES } from '../src/agents/council-types.js';
+import type { SubAgentTask, AgentEvent } from '../src/agents/types.js';
 
 // ============================================================================
 // Mock external dependencies
 // ============================================================================
 
-vi.mock('../src/agterm/agent-detection.js', () => ({
+vi.mock('../src/agents/agent-detection.js', () => ({
   isAgentAvailable: vi.fn(() => true),
   detectAgents: vi.fn(() => []),
   getAvailableAgents: vi.fn(() => ['claude', 'gemini', 'codex', 'calliope']),
@@ -23,7 +23,7 @@ vi.mock('../src/agterm/agent-detection.js', () => ({
 
 const mockCancelTask = vi.fn(() => true);
 
-vi.mock('../src/agterm/cli-backend.js', () => ({
+vi.mock('../src/agents/cli-backend.js', () => ({
   executeAgent: vi.fn(async function* (task: SubAgentTask): AsyncIterable<AgentEvent> {
     yield {
       type: 'text' as const,
@@ -45,7 +45,7 @@ vi.mock('../src/agterm/cli-backend.js', () => ({
 }));
 
 // Mock swarm manager for overseer mode
-vi.mock('../src/agterm/swarm.js', () => ({
+vi.mock('../src/agents/swarm.js', () => ({
   swarmManager: {
     startSwarm: vi.fn(async () => ({
       id: 'mock-swarm',
@@ -62,10 +62,10 @@ vi.mock('../src/agterm/swarm.js', () => ({
 }));
 
 // Import after mocks
-import { councilManager } from '../src/agterm/council.js';
-import { orchestrator } from '../src/agterm/orchestrator.js';
-import { executeAgent } from '../src/agterm/cli-backend.js';
-import { swarmManager } from '../src/agterm/swarm.js';
+import { councilManager } from '../src/agents/council.js';
+import { orchestrator } from '../src/agents/orchestrator.js';
+import { executeAgent } from '../src/agents/cli-backend.js';
+import { swarmManager } from '../src/agents/swarm.js';
 
 function resetExecuteAgentMock(): void {
   vi.mocked(executeAgent).mockImplementation(async function* (task: SubAgentTask) {
@@ -340,7 +340,7 @@ describe('Competitive Mode', () => {
     // When executeAgent throws, orchestrator catches it and sets task.status='failed'.
     // But spawnAgent still resolves, so council sees task.result || '(no response)'.
     // To get 'Error:' in the deliberation, spawnAgent itself must throw, e.g. agent unavailable.
-    const { isAgentAvailable } = await import('../src/agterm/agent-detection.js');
+    const { isAgentAvailable } = await import('../src/agents/agent-detection.js');
     let callCount = 0;
     vi.mocked(isAgentAvailable).mockImplementation(() => {
       callCount++;
@@ -494,7 +494,7 @@ describe('Collaborative Mode', () => {
   it('should handle errors in collaborative members gracefully', async () => {
     // To get 'Error:' in a deliberation, spawnAgent must throw (not just executeAgent).
     // Use isAgentAvailable to make the first member's spawn fail.
-    const { isAgentAvailable } = await import('../src/agterm/agent-detection.js');
+    const { isAgentAvailable } = await import('../src/agents/agent-detection.js');
     let callCount = 0;
     vi.mocked(isAgentAvailable).mockImplementation(() => {
       callCount++;
@@ -894,7 +894,7 @@ describe('Cross-Scoring Heuristics', () => {
 
   it('should penalize error responses', async () => {
     // To get 'Error:' in a deliberation, spawnAgent must throw.
-    const { isAgentAvailable } = await import('../src/agterm/agent-detection.js');
+    const { isAgentAvailable } = await import('../src/agents/agent-detection.js');
     let callCount = 0;
     vi.mocked(isAgentAvailable).mockImplementation(() => {
       callCount++;
@@ -1034,10 +1034,10 @@ describe('Session Status Formatting', () => {
     });
 
     const output = councilManager.formatSessionStatus(session);
-    expect(output).toContain('Council:');
+    expect(output).toContain('Coordination:');
     expect(output).toContain('Mode: competitive');
     expect(output).toContain('Status:');
-    expect(output).toContain('Members:');
+    expect(output).toContain('Agents:');
     expect(output).toContain('Round: 1');
   });
 

@@ -1,5 +1,5 @@
 /**
- * AGTerm CLI Backend
+ * Calliope Agents — CLI Backend
  *
  * Process spawning and execution for sub-agents.
  */

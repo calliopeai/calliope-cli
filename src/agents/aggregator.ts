@@ -1,5 +1,5 @@
 /**
- * AGTerm Aggregator
+ * Calliope Agents — Aggregator
  *
  * Aggregates results from completed swarm subtasks using various strategies.
  */

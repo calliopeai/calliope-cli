@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { SubAgentTask, SubAgentType, TaskPriority, AgentEvent } from '../src/agterm/types.js';
-import { DEFAULT_ORCHESTRATOR_CONFIG } from '../src/agterm/types.js';
+import type { SubAgentTask, SubAgentType, TaskPriority, AgentEvent } from '../src/agents/types.js';
+import { DEFAULT_ORCHESTRATOR_CONFIG } from '../src/agents/types.js';
 
 // ============================================================================
 // Mock external dependencies
 // ============================================================================
 
 // Mock agent-detection: always report agents as available
-vi.mock('../src/agterm/agent-detection.js', () => ({
+vi.mock('../src/agents/agent-detection.js', () => ({
   isAgentAvailable: vi.fn(() => true),
   detectAgents: vi.fn(() => []),
   getAvailableAgents: vi.fn(() => ['claude', 'gemini', 'codex', 'calliope']),
@@ -19,7 +19,7 @@ vi.mock('../src/agterm/agent-detection.js', () => ({
 // Mock cli-backend: simulate agent execution without spawning processes
 const mockCancelTask = vi.fn(() => true);
 
-vi.mock('../src/agterm/cli-backend.js', () => ({
+vi.mock('../src/agents/cli-backend.js', () => ({
   executeAgent: vi.fn(async function* (task: SubAgentTask, _cwd: string, _timeout: number): AsyncIterable<AgentEvent> {
     yield {
       type: 'text' as const,
@@ -41,9 +41,9 @@ vi.mock('../src/agterm/cli-backend.js', () => ({
 }));
 
 // Import after mocks
-import { orchestrator } from '../src/agterm/orchestrator.js';
-import { executeAgent } from '../src/agterm/cli-backend.js';
-import { isAgentAvailable } from '../src/agterm/agent-detection.js';
+import { orchestrator } from '../src/agents/orchestrator.js';
+import { executeAgent } from '../src/agents/cli-backend.js';
+import { isAgentAvailable } from '../src/agents/agent-detection.js';
 
 /**
  * Restore the default mock for executeAgent (completes immediately with result).

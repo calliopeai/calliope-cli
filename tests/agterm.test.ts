@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import type { SubAgentTask, SubAgentType, TaskPriority } from '../src/agterm/types.js';
-import { DEFAULT_ORCHESTRATOR_CONFIG, AGENT_CLI_MAP } from '../src/agterm/types.js';
-import { getAgtermTools, AGTERM_TOOL_NAMES, isAgtermTool } from '../src/agterm/tools.js';
+import type { SubAgentTask, SubAgentType, TaskPriority } from '../src/agents/types.js';
+import { DEFAULT_ORCHESTRATOR_CONFIG, AGENT_CLI_MAP } from '../src/agents/types.js';
+import { getAgtermTools, AGTERM_TOOL_NAMES, isAgtermTool } from '../src/agents/tools.js';
 
 describe('AGTerm Types', () => {
   describe('DEFAULT_ORCHESTRATOR_CONFIG', () => {
@@ -63,9 +63,9 @@ describe('AGTerm Tools', () => {
   });
 
   describe('getAgtermTools', () => {
-    it('should return 10 tools', () => {
+    it('should return 14 tools', () => {
       const tools = getAgtermTools();
-      expect(tools.length).toBe(10);
+      expect(tools.length).toBe(14);
     });
 
     it('should have spawn_agent tool with correct parameters', () => {

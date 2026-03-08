@@ -3,15 +3,15 @@ import type {
   SwarmSession,
   SwarmSubtask,
   SwarmConfig,
-} from '../src/agterm/swarm-types.js';
-import { DEFAULT_SWARM_CONFIG } from '../src/agterm/swarm-types.js';
-import type { SubAgentTask, AgentEvent } from '../src/agterm/types.js';
+} from '../src/agents/swarm-types.js';
+import { DEFAULT_SWARM_CONFIG } from '../src/agents/swarm-types.js';
+import type { SubAgentTask, AgentEvent } from '../src/agents/types.js';
 
 // ============================================================================
 // Mock external dependencies
 // ============================================================================
 
-vi.mock('../src/agterm/agent-detection.js', () => ({
+vi.mock('../src/agents/agent-detection.js', () => ({
   isAgentAvailable: vi.fn(() => true),
   detectAgents: vi.fn(() => []),
   getAvailableAgents: vi.fn(() => ['claude', 'gemini', 'codex', 'calliope']),
@@ -22,7 +22,7 @@ vi.mock('../src/agterm/agent-detection.js', () => ({
 
 const mockCancelTask = vi.fn(() => true);
 
-vi.mock('../src/agterm/cli-backend.js', () => ({
+vi.mock('../src/agents/cli-backend.js', () => ({
   executeAgent: vi.fn(async function* (task: SubAgentTask): AsyncIterable<AgentEvent> {
     yield {
       type: 'text' as const,
@@ -70,9 +70,9 @@ vi.mock('../src/config.js', () => ({
 }));
 
 // Import after mocks
-import { swarmManager } from '../src/agterm/swarm.js';
-import { orchestrator } from '../src/agterm/orchestrator.js';
-import { executeAgent } from '../src/agterm/cli-backend.js';
+import { swarmManager } from '../src/agents/swarm.js';
+import { orchestrator } from '../src/agents/orchestrator.js';
+import { executeAgent } from '../src/agents/cli-backend.js';
 import { smartRoute } from '../src/smart-router.js';
 
 function resetExecuteAgentMock(): void {

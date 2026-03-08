@@ -1,5 +1,5 @@
 /**
- * AGTerm Agent & SDK Installer
+ * Calliope Agents — Agent & SDK Installer
  *
  * Detects missing agent CLIs and SDK backends, provides install commands,
  * and can run installations directly.

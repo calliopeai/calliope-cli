@@ -10,7 +10,7 @@ import * as path from 'path';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
 import * as nativeSandbox from './sandbox-native.js';
-import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agterm/index.js';
+import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agents/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
@@ -225,11 +225,11 @@ export const TOOLS: Tool[] = [
 
 /**
  * Get all available tools
- * Includes agterm tools when agtermEnabled is true
+ * Includes agent tools when agentEnabled is true
  */
-export function getTools(agtermEnabled: boolean = false): Tool[] {
+export function getTools(agentEnabled: boolean = false): Tool[] {
   const pluginTools = getPluginTools();
-  if (agtermEnabled) {
+  if (agentEnabled) {
     return [...TOOLS, ...getAgtermTools(), ...pluginTools];
   }
   return [...TOOLS, ...pluginTools];
@@ -270,7 +270,7 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
 
-  // Handle agterm tools
+  // Handle agent tools
   if (isAgtermTool(name)) {
     return executeAgtermTool(toolCall, cwd);
   }

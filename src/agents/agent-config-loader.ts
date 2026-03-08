@@ -400,7 +400,7 @@ swarm:
   aggregation: structured
   maxWorkers: 3
 
-# Council settings (for /council --team my-team)
+# Coordination settings (for /coordinate --team my-team)
 council:
   maxRounds: 2
   consensusThreshold: 0.67

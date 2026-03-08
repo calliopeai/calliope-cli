@@ -5,8 +5,8 @@ import type {
   SwarmConfig,
   DecompositionStrategy,
   AggregationStrategy,
-} from '../src/agterm/swarm-types.js';
-import { DEFAULT_SWARM_CONFIG } from '../src/agterm/swarm-types.js';
+} from '../src/agents/swarm-types.js';
+import { DEFAULT_SWARM_CONFIG } from '../src/agents/swarm-types.js';
 import {
   buildDecompositionPrompt,
   parseDecompositionResponse,
@@ -14,8 +14,8 @@ import {
   getReadySubtasks,
   allSubtasksDone,
   hasFailedSubtasks,
-} from '../src/agterm/decomposer.js';
-import { aggregateResults, buildAggregationPrompt } from '../src/agterm/aggregator.js';
+} from '../src/agents/decomposer.js';
+import { aggregateResults, buildAggregationPrompt } from '../src/agents/aggregator.js';
 
 // ============================================================================
 // Swarm Types

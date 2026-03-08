@@ -55,8 +55,8 @@ const skipPermissions = args.includes('--god-mode') ||
 // Check for legacy UI flag
 const useLegacyUI = args.includes('--legacy');
 
-// Check for AGTerm mode (multi-agent orchestration)
-const agtermEnabled = args.includes('--agterm') || args.includes('-a');
+// Check for multi-agent orchestration mode
+const agtermEnabled = args.includes('--agents') || args.includes('--agterm') || args.includes('-a');
 
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
@@ -147,9 +147,9 @@ async function main(): Promise<void> {
     console.log();
   }
 
-  // Show notice if agterm mode enabled
+  // Show notice if agents mode enabled
   if (agtermEnabled) {
-    console.log(`${colors.cyan}🤖 AGTERM MODE ENABLED${colors.reset}`);
+    console.log(`${colors.cyan}🤖 AGENTS MODE${colors.reset}`);
     console.log(`${colors.dim}   Multi-agent orchestration active. Use /agents to see available sub-agents.${colors.reset}`);
     console.log();
   }
@@ -251,8 +251,8 @@ ${bold('OPTIONS')}
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
-  -a, --agterm      Enable multi-agent orchestration mode
-                    Unlock spawn_agent, check_agent tools
+  -a, --agents      Enable multi-agent orchestration mode
+                    Unlock spawn_agent, swarm, coordination tools
   --legacy          Use legacy readline UI instead of ink
   --headless        Headless mode (JSON/text output, no TTY)
   --batch           Alias for --headless

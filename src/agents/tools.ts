@@ -1,5 +1,5 @@
 /**
- * AGTerm Tools
+ * Calliope Agents — Tools
  *
  * Tool definitions for spawn_agent, check_agent, and list_agents.
  */
@@ -50,7 +50,7 @@ Use check_agent with the taskId to monitor background tasks.`;
 }
 
 /**
- * Get agterm tool definitions
+ * Get agent tool definitions
  * Returns tools dynamically based on available agents
  */
 export function getAgtermTools(): Tool[] {
@@ -233,22 +233,22 @@ Aggregation:
     },
     {
       name: 'start_council',
-      description: `Start an agent council where multiple agents deliberate on a shared goal.
+      description: `Start a coordinated agent swarm where multiple agents work toward a shared objective.
 
-Modes:
-- competitive: All respond independently, cross-score, highest wins
-- collaborative: Sequential building (A → B improves A → C improves B)
-- consensus: Deliberate → vote → supermajority or repeat
-- overseer: Lead decomposes via swarm, reviews results, final call
+Coordination Modes:
+- competitive: Agents work independently, best result wins
+- collaborative: Pipeline — each agent builds on and executes from previous work
+- consensus: Agents propose, vote, then ALL execute the winning approach
+- overseer: Lead decomposes, delegates subtasks, reviews and coordinates completion
 
 Templates: ${Object.keys(COUNCIL_TEMPLATES).join(', ')}
-Use a template name to auto-configure members and mode.`,
+Use a template name to auto-configure agents and mode.`,
       parameters: {
         type: 'object',
         properties: {
           prompt: {
             type: 'string',
-            description: 'The topic for the council to deliberate on',
+            description: 'The objective for the agent swarm to work on',
           },
           template: {
             type: 'string',
@@ -270,7 +270,7 @@ Use a template name to auto-configure members and mode.`,
     },
     {
       name: 'check_council',
-      description: 'Check the status of a council session. Shows deliberation progress and results.',
+      description: 'Check the status of a coordinated agent swarm. Shows progress and results.',
       parameters: {
         type: 'object',
         properties: {
@@ -284,7 +284,7 @@ Use a template name to auto-configure members and mode.`,
     },
     {
       name: 'cancel_council',
-      description: 'Cancel a running council session.',
+      description: 'Cancel a running coordinated agent swarm.',
       parameters: {
         type: 'object',
         properties: {
@@ -296,23 +296,67 @@ Use a template name to auto-configure members and mode.`,
         required: ['sessionId'],
       },
     },
+    {
+      name: 'run_command',
+      description: `Execute a Calliope CLI slash command programmatically. This lets you use your own capabilities:
+
+Available commands:
+- /swarm <task> — Decompose and parallelize a task
+- /swarm coord <objective> — Start coordinated multi-agent team
+- /agents — Show agent status
+- /agents defs — List agent definitions
+- /agents teams — List team definitions
+- /agents init — Scaffold .calliope/agents/
+- /build-agent <name> — Create an agent definition
+- /build-team <name> — Create a team definition
+- /install-agents — Install missing agent CLIs/SDKs
+- /scope — Show current file scope
+- /find <query> — Search the codebase
+- /branch — Git branch management
+
+The command runs as if the user typed it. Output is returned as the tool result.`,
+      parameters: {
+        type: 'object',
+        properties: {
+          command: {
+            type: 'string',
+            description: 'The slash command to execute, e.g. "/swarm coord review this codebase --mode competitive"',
+          },
+        },
+        required: ['command'],
+      },
+    },
   ];
 }
 
 /**
- * AGTerm tool names for quick lookup
+ * Calliope Agents — tool names for quick lookup
  */
-export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm', 'start_council', 'check_council', 'cancel_council', ...DYNAMIC_TOOL_NAMES];
+export const AGTERM_TOOL_NAMES = ['spawn_agent', 'check_agent', 'list_agents', 'cancel_agent', 'start_swarm', 'check_swarm', 'cancel_swarm', 'start_council', 'check_council', 'cancel_council', 'run_command', ...DYNAMIC_TOOL_NAMES];
 
 /**
- * Check if a tool name is an agterm tool
+ * Command dispatcher — set by the UI layer so the agent can invoke slash commands.
+ * Returns the command output as a string.
+ */
+let commandDispatcher: ((command: string) => Promise<string>) | null = null;
+
+export function setCommandDispatcher(dispatcher: (command: string) => Promise<string>): void {
+  commandDispatcher = dispatcher;
+}
+
+export function getCommandDispatcher(): ((command: string) => Promise<string>) | null {
+  return commandDispatcher;
+}
+
+/**
+ * Check if a tool name is an agent tool
  */
 export function isAgtermTool(name: string): boolean {
   return AGTERM_TOOL_NAMES.includes(name) || isDynamicTool(name);
 }
 
 /**
- * Execute an agterm tool
+ * Execute an agent tool
  */
 export async function executeAgtermTool(
   toolCall: ToolCall,
@@ -664,17 +708,17 @@ Use check_swarm("${session.id}") to monitor progress.`;
             session = await councilManager.startCouncil(prompt, { mode, members }, cwd);
           }
 
-          result = `Council started.
+          result = `Coordinated swarm started.
 Session ID: ${session.id}
 Mode: ${session.config.mode}
-Members: ${session.config.members.map(m => m.name).join(', ')}${template ? `\nTemplate: ${template}` : ''}
+Agents: ${session.config.members.map(m => m.name).join(', ')}${template ? `\nTemplate: ${template}` : ''}
 Status: ${session.status}
 
 Use check_council("${session.id}") to monitor progress.`;
         } catch (err) {
           return {
             toolCallId: id,
-            result: `Error starting council: ${err instanceof Error ? err.message : String(err)}`,
+            result: `Error starting coordination: ${err instanceof Error ? err.message : String(err)}`,
             isError: true,
           };
         }
@@ -723,10 +767,58 @@ Use check_council("${session.id}") to monitor progress.`;
         break;
       }
 
+      case 'run_command': {
+        const command = String(args.command || '').trim();
+        if (!command) {
+          return {
+            toolCallId: id,
+            result: 'Error: command is required',
+            isError: true,
+          };
+        }
+
+        if (!command.startsWith('/')) {
+          return {
+            toolCallId: id,
+            result: 'Error: command must start with / (e.g., /swarm, /agents, /build-agent)',
+            isError: true,
+          };
+        }
+
+        // Block dangerous commands the agent shouldn't self-invoke
+        const blocked = ['/exit', '/quit', '/clear', '/unstick'];
+        if (blocked.some(b => command.startsWith(b))) {
+          return {
+            toolCallId: id,
+            result: `Error: command "${command.split(' ')[0]}" cannot be invoked by the agent.`,
+            isError: true,
+          };
+        }
+
+        if (!commandDispatcher) {
+          return {
+            toolCallId: id,
+            result: 'Error: command dispatcher not initialized. This tool requires the full CLI environment.',
+            isError: true,
+          };
+        }
+
+        try {
+          result = await commandDispatcher(command);
+        } catch (err) {
+          return {
+            toolCallId: id,
+            result: `Error executing command: ${err instanceof Error ? err.message : String(err)}`,
+            isError: true,
+          };
+        }
+        break;
+      }
+
       default:
         return {
           toolCallId: id,
-          result: `Unknown agterm tool: ${name}`,
+          result: `Unknown agent tool: ${name}`,
           isError: true,
         };
     }
