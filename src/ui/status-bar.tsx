@@ -14,6 +14,7 @@ import { getModelContextLimit } from '../model-detection.js';
 import { Separator } from './components.js';
 import { getMoodText, getCurrentCompanion } from '../companions.js';
 import { getInkColor } from '../hud/api.js';
+import { getGitStatus } from '../git-status.js';
 import type { SessionStats } from './types.js';
 
 // ============================================================================
@@ -67,6 +68,10 @@ export function StatusBar({
 
   const isNarrow = termWidth < 80;
 
+  // Git status (cached, only computed when not narrow)
+  const gitInfo = !isNarrow ? getGitStatus() : null;
+  const gitBranch = gitInfo?.branch ?? null;
+
   return (
     <Box flexDirection="column">
       <Separator />
@@ -82,6 +87,7 @@ export function StatusBar({
         </>}
         {' │ '}
         {formatCost(stats.cost)}
+        {gitBranch ? <>{' │ '}<Text dimColor>{gitBranch}{gitInfo!.dirty ? '*' : ''}</Text></> : null}
         {breakerHealth ? <>{' │ '}{healthIndicator}</> : null}
         {smartRouteActive ? <>{' │ '}<Text color={accentColor}>SMART</Text></> : null}
         {isNarrow ? null : <>
