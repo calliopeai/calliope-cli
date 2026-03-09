@@ -92,6 +92,16 @@ export const SLASH_COMMANDS = [
   '/approve',
   '/sandbox',
   '/banner',
+  '/bg',
+  '/jobs',
+  '/job',
+  '/cancel',
+  '/clear-jobs',
+  '/recordings',
+  '/recording',
+  '/delete-recording',
+  '/serve',
+  '/serve-stop',
 ];
 
 // Commands that take a path argument (for file tab completion)

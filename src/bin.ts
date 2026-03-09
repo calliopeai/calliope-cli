@@ -61,6 +61,9 @@ const agtermEnabled = args.includes('--agents') || args.includes('--agterm') || 
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
 
+// Check for API server flag
+const useApiServer = args.includes('--serve') || args.includes('--api');
+
 // HUD environment variable overrides
 const envSkin = process.env.CALLIOPE_SKIN;
 const envPalette = process.env.CALLIOPE_PALETTE;
@@ -212,6 +215,18 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
     agtermEnabled: options.agtermEnabled ?? agtermEnabled,
   };
 
+  // Start API server if --serve/--api flag is set
+  if (useApiServer) {
+    const { startApiServer } = await import('./api-server.js');
+    const port = 3100;
+    try {
+      const info = await startApiServer({ port, host: '127.0.0.1' });
+      console.log(`${colors.dim}  API server: http://${info.host}:${info.port}${colors.reset}`);
+    } catch (err) {
+      console.error(`API server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
     const { runHeadless } = await import('./headless.js');
@@ -253,6 +268,7 @@ ${bold('OPTIONS')}
                     Enables unrestricted autonomous execution
   -a, --agents      Enable multi-agent orchestration mode
                     Unlock spawn_agent, swarm, coordination tools
+  --serve, --api    Start API server on port 3100 (localhost)
   --legacy          Use legacy readline UI instead of ink
   --headless        Headless mode (JSON/text output, no TTY)
   --batch           Alias for --headless
