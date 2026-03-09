@@ -628,13 +628,13 @@ async function getLiteLLMModels(): Promise<ModelInfo[]> {
 }
 
 /**
- * Get Bedrock models (via gateway/proxy or fallback to known models)
+ * Get Bedrock models — dynamic discovery via AWS APIs, gateway, or minimal fallback
  */
 async function getBedrockModels(): Promise<ModelInfo[]> {
   const baseUrl = config.getBaseUrl('bedrock');
   const apiKey = config.getApiKey('bedrock');
 
-  // Try to list models from the gateway if available
+  // 1. Try gateway/proxy model listing (OpenAI-compatible)
   if (baseUrl) {
     try {
       const modelsUrl = baseUrl.endsWith('/v1') ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
@@ -655,32 +655,133 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
           }));
       }
     } catch {
-      // Fall through to static list
+      // Fall through to native discovery
     }
   }
 
-  // Fallback to known Bedrock models — global inference IDs first, then regional
-  return [
-    // Global inference models (cross-region, recommended)
-    { id: 'us.anthropic.claude-opus-4-20250514-v1:0', name: 'Claude Opus 4 (Global)', description: 'Most capable model for complex tasks', contextLength: 200000 },
-    { id: 'us.anthropic.claude-sonnet-4-20250514-v1:0', name: 'Claude Sonnet 4 (Global)', description: 'Balanced intelligence and speed', contextLength: 200000 },
-    { id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', name: 'Claude Haiku 4.5 (Global)', description: 'Fast and affordable', contextLength: 200000 },
-    { id: 'us.anthropic.claude-3-5-haiku-20241022-v1:0', name: 'Claude 3.5 Haiku (Global)', description: 'Previous gen fast model', contextLength: 200000 },
-    { id: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2 (Global)', description: 'Previous gen balanced model', contextLength: 200000 },
-    { id: 'us.meta.llama3-3-70b-instruct-v1:0', name: 'Llama 3.3 70B (Global)', description: 'Meta\'s latest large model', contextLength: 128000 },
-    { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro (Global)', description: 'Amazon\'s capable model', contextLength: 300000 },
-    { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite (Global)', description: 'Amazon\'s fast affordable model', contextLength: 300000 },
-    // Regional models (legacy)
-    { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2 (Bedrock)', description: 'Balanced intelligence and speed', contextLength: 200000 },
-    { id: 'anthropic.claude-3-opus-20240229-v1:0', name: 'Claude 3 Opus (Bedrock)', description: 'Most capable for complex tasks', contextLength: 200000 },
-    { id: 'anthropic.claude-3-haiku-20240307-v1:0', name: 'Claude 3 Haiku (Bedrock)', description: 'Fast and affordable', contextLength: 200000 },
-    { id: 'amazon.titan-text-premier-v1:0', name: 'Amazon Titan Text Premier', description: 'Amazon\'s flagship text model', contextLength: 32000 },
-    { id: 'amazon.titan-text-express-v1', name: 'Amazon Titan Text Express', description: 'Fast Amazon text model', contextLength: 8192 },
-    { id: 'meta.llama3-1-70b-instruct-v1:0', name: 'Llama 3.1 70B (Bedrock)', description: 'Meta\'s large instruction model', contextLength: 128000 },
-    { id: 'meta.llama3-1-8b-instruct-v1:0', name: 'Llama 3.1 8B (Bedrock)', description: 'Meta\'s efficient model', contextLength: 128000 },
-    { id: 'mistral.mistral-large-2407-v1:0', name: 'Mistral Large (Bedrock)', description: 'Mistral\'s most capable model', contextLength: 128000 },
-    { id: 'cohere.command-r-plus-v1:0', name: 'Command R+ (Bedrock)', description: 'Cohere\'s flagship model', contextLength: 128000 },
-  ];
+  // 2. Try native AWS ListFoundationModels API
+  try {
+    const hasNativeCreds = !!(
+      (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
+      process.env.AWS_PROFILE ||
+      (await import('fs')).existsSync((await import('path')).join((await import('os')).homedir(), '.aws', 'credentials'))
+    );
+    if (hasNativeCreds) {
+      const nativeModels = await discoverBedrockModelsNative();
+      if (nativeModels.length > 0) return nativeModels;
+    }
+  } catch {
+    // Fall through to minimal fallback
+  }
+
+  // 3. No hardcoded fallback — the default model from types.ts is used when list is empty
+  return [];
+}
+
+/**
+ * Discover Bedrock models using the native AWS ListFoundationModels API.
+ * Uses SigV4 signing from the bedrock provider — no AWS SDK needed.
+ */
+async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
+  const { createHash, createHmac } = await import('crypto');
+  const { join } = await import('path');
+  const { homedir } = await import('os');
+  const { existsSync, readFileSync } = await import('fs');
+
+  // Resolve credentials (same logic as bedrock.ts)
+  let accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
+  let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
+  let sessionToken = process.env.AWS_SESSION_TOKEN;
+
+  if (!accessKeyId || !secretAccessKey) {
+    const profile = process.env.AWS_PROFILE || config.get('awsProfile') || 'default';
+    const credPath = join(homedir(), '.aws', 'credentials');
+    if (existsSync(credPath)) {
+      const content = readFileSync(credPath, 'utf-8');
+      const sections: Record<string, Record<string, string>> = {};
+      let section = '';
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        const secMatch = trimmed.match(/^\[(.+)\]$/);
+        if (secMatch) { section = secMatch[1]; sections[section] = {}; continue; }
+        const kvMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
+        if (kvMatch && section) sections[section][kvMatch[1].trim()] = kvMatch[2].trim();
+      }
+      const cred = sections[profile];
+      if (cred?.aws_access_key_id) {
+        accessKeyId = cred.aws_access_key_id;
+        secretAccessKey = cred.aws_secret_access_key || '';
+        sessionToken = cred.aws_session_token;
+      }
+    }
+  }
+
+  if (!accessKeyId || !secretAccessKey) return [];
+
+  const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || config.get('awsRegion') || 'us-east-1';
+  const host = `bedrock.${region}.amazonaws.com`;
+  const url = `https://${host}/foundation-models?byOutputModality=TEXT&byInferenceType=ON_DEMAND`;
+
+  // SigV4 sign
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+  const dateStamp = amzDate.slice(0, 8);
+  const sha256Fn = (d: string) => createHash('sha256').update(d).digest('hex');
+  const hmacFn = (k: string | Buffer, d: string) => createHmac('sha256', k).update(d).digest();
+
+  const headers: Record<string, string> = {
+    'host': host,
+    'x-amz-date': amzDate,
+  };
+  if (sessionToken) headers['x-amz-security-token'] = sessionToken;
+
+  const parsedUrl = new URL(url);
+  const signedHeaderKeys = Object.keys(headers).map(k => k.toLowerCase()).sort();
+  const signedHeaders = signedHeaderKeys.join(';');
+  const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${headers[k].trim()}`).join('\n') + '\n';
+  const payloadHash = sha256Fn('');
+
+  const canonicalRequest = ['GET', parsedUrl.pathname, parsedUrl.search.slice(1), canonicalHeaders, signedHeaders, payloadHash].join('\n');
+  const credentialScope = `${dateStamp}/${region}/bedrock/aws4_request`;
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256Fn(canonicalRequest)].join('\n');
+
+  const kDate = hmacFn('AWS4' + secretAccessKey, dateStamp);
+  const kRegion = hmacFn(kDate, region);
+  const kService = hmacFn(kRegion, 'bedrock');
+  const signingKey = hmacFn(kService, 'aws4_request');
+  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+  headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const response = await fetch(url, { headers });
+  if (!response.ok) return [];
+
+  const data = await response.json() as {
+    modelSummaries?: Array<{
+      modelId: string;
+      modelName?: string;
+      providerName?: string;
+      inputModalities?: string[];
+      outputModalities?: string[];
+      responseStreamingSupported?: boolean;
+    }>;
+  };
+
+  if (!data.modelSummaries) return [];
+
+  return data.modelSummaries
+    .filter(m => {
+      // Only text-in/text-out models that support streaming
+      if (!m.outputModalities?.includes('TEXT')) return false;
+      if (!m.inputModalities?.includes('TEXT')) return false;
+      return isCompatibleModel(m.modelId, 'bedrock');
+    })
+    .map(m => ({
+      id: m.modelId,
+      name: m.modelName || m.modelId,
+      description: `${m.providerName || 'Unknown'} — ${getBedrockModelDescription(m.modelId)}`,
+      contextLength: getBedrockContextLength(m.modelId),
+    }));
 }
 
 function getBedrockModelDescription(modelId: string): string {
