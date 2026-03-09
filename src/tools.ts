@@ -14,6 +14,8 @@ import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agents/index.
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
+import { applySkin, applyPalette, listSkins, listPalettes } from './hud/api.js';
+import { listCompanions } from './companions.js';
 
 /**
  * Available tools for the agent
@@ -196,6 +198,63 @@ export const TOOLS: Tool[] = [
         },
       },
       required: ['operation'],
+    },
+  },
+  {
+    name: 'configure',
+    description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, companions, or any preference through natural conversation. Always use action "list" first if you need to show available options.
+
+CONFIGURABLE SETTINGS:
+- defaultProvider: AI provider (anthropic, google, openai, together, openrouter, groq, fireworks, mistral, ollama, ai21, huggingface, litellm, bedrock, auto)
+- defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-20250514", "gemini-2.0-flash", "gpt-4o")
+- persona: Agent persona style (calliope, muse, minimal)
+- maxIterations: Max agent loop iterations (0 = unlimited)
+- maxIterationTime: Max seconds per iteration (0 = no limit, default: 600)
+- fancyOutput: Enable rich formatting (true/false)
+- autoSaveHistory: Auto-save session history (true/false)
+- autoUpgrade: Check for updates on startup (true/false)
+- collapseTools: Auto-collapse tool output (true/false)
+- collapseThinking: Auto-collapse think blocks (true/false)
+- toolDisplayLimit: Show last N tools expanded (0 = all)
+- layout: UI layout (classic, response-top, response-bottom, split, zen, focus, dashboard, minimal)
+- density: Display density (normal, compact)
+- activeSkin: Terminal skin/theme name (use action "list" category "skins" to see options)
+- activePalette: Color palette name (use action "list" category "palettes" to see options)
+- activeCompanion: AI companion personality (use action "list" category "companions" to see options)
+- companionIntensity: Companion personality level (professional, immersive)
+- useEmojis: Show emojis in UI (true/false)
+- diffStyle: Diff display format (inline, unified, side-by-side)
+- borderStyle: UI border style (rounded, sharp, double, ascii, none)
+- bannerStyle: Startup banner (full, compact, none)
+- circuitBreakersEnabled: Safety circuit breakers (true/false)
+- sandboxMode: Code execution sandbox (auto, native, docker, off)
+- smartRoutingEnabled: Dynamic model routing (true/false)
+- smartRoutingCostSensitivity: Cost vs quality (0-1, 0=best quality, 1=cheapest)
+- recordSessions: Record session audit logs (true/false)
+- recordingRetentionDays: Auto-delete old recordings after N days (0 = keep forever)`,
+    parameters: {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          description: 'Action to perform: "get" reads a setting, "set" changes a setting, "list" shows available options for a category',
+          enum: ['get', 'set', 'list'],
+        },
+        key: {
+          type: 'string',
+          description: 'Config key name (for get/set actions)',
+        },
+        value: {
+          type: 'string',
+          description: 'New value to set (for set action). Use "true"/"false" for booleans, numbers as strings.',
+        },
+        category: {
+          type: 'string',
+          description: 'Category to list options for (for list action): skins, palettes, companions, providers, layouts, all',
+          enum: ['skins', 'palettes', 'companions', 'providers', 'layouts', 'all'],
+        },
+      },
+      required: ['action'],
     },
   },
   {
@@ -386,6 +445,136 @@ export async function executeTool(
         }
         const gitArgs = typeof args.args === 'string' ? args.args : '';
         result = await executeGit(args.operation, gitArgs, cwd);
+        break;
+      }
+
+      case 'configure': {
+        const action = args.action as string;
+        if (!action || !['get', 'set', 'list'].includes(action)) {
+          return { toolCallId: id, result: 'Error: action must be "get", "set", or "list"', isError: true };
+        }
+
+        if (action === 'list') {
+          const category = (args.category as string) || 'all';
+          const sections: string[] = [];
+
+          if (category === 'skins' || category === 'all') {
+            const skins = listSkins();
+            const current = config.get('activeSkin');
+            sections.push('SKINS (activeSkin):\n' + skins.map(s =>
+              `  ${s.name === current ? '→ ' : '  '}${s.name} - ${s.description}`
+            ).join('\n'));
+          }
+          if (category === 'palettes' || category === 'all') {
+            const palettes = listPalettes();
+            const current = config.get('activePalette');
+            sections.push('PALETTES (activePalette):\n' + palettes.map(p =>
+              `  ${p.name === current ? '→ ' : '  '}${p.name} - ${p.description}`
+            ).join('\n'));
+          }
+          if (category === 'companions' || category === 'all') {
+            const companions = listCompanions();
+            const current = config.get('activeCompanion');
+            sections.push('COMPANIONS (activeCompanion):\n' + companions.map(c =>
+              `  ${c.name === current ? '→ ' : '  '}${c.name} - ${c.description}`
+            ).join('\n'));
+          }
+          if (category === 'providers' || category === 'all') {
+            const providers = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'ai21', 'huggingface', 'litellm', 'bedrock', 'auto'];
+            const current = config.get('defaultProvider');
+            sections.push('PROVIDERS (defaultProvider):\n' + providers.map(p =>
+              `  ${p === current ? '→ ' : '  '}${p}`
+            ).join('\n'));
+          }
+          if (category === 'layouts' || category === 'all') {
+            const layouts = ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'];
+            const current = config.get('layout');
+            sections.push('LAYOUTS (layout):\n' + layouts.map(l =>
+              `  ${l === current ? '→ ' : '  '}${l}`
+            ).join('\n'));
+          }
+
+          if (category === 'all') {
+            // Also show current key settings
+            const currentSettings = [
+              `density: ${config.get('density')}`,
+              `companionIntensity: ${config.get('companionIntensity')}`,
+              `useEmojis: ${config.get('useEmojis')}`,
+              `diffStyle: ${config.get('diffStyle')}`,
+              `borderStyle: ${config.get('borderStyle')}`,
+              `bannerStyle: ${config.get('bannerStyle')}`,
+              `sandboxMode: ${config.get('sandboxMode')}`,
+              `smartRoutingEnabled: ${config.get('smartRoutingEnabled')}`,
+              `defaultModel: ${config.get('defaultModel') || '(auto)'}`,
+            ];
+            sections.push('CURRENT SETTINGS:\n' + currentSettings.map(s => `  ${s}`).join('\n'));
+          }
+
+          result = sections.join('\n\n');
+          break;
+        }
+
+        if (action === 'get') {
+          const key = args.key as string;
+          if (!key) {
+            return { toolCallId: id, result: 'Error: key is required for get action', isError: true };
+          }
+          const val = config.get(key as keyof import('./config.js').CalliopeConfig);
+          result = `${key} = ${JSON.stringify(val)}`;
+          break;
+        }
+
+        // action === 'set'
+        const key = args.key as string;
+        const rawValue = args.value as string;
+        if (!key) {
+          return { toolCallId: id, result: 'Error: key is required for set action', isError: true };
+        }
+        if (rawValue === undefined || rawValue === null) {
+          return { toolCallId: id, result: 'Error: value is required for set action', isError: true };
+        }
+
+        // Don't allow setting API keys through the tool (security)
+        if (key.endsWith('ApiKey')) {
+          return { toolCallId: id, result: 'Error: API keys cannot be set through conversation. Use /keys command or environment variables.', isError: true };
+        }
+
+        // Parse the value to the correct type
+        let parsedValue: unknown = rawValue;
+        if (rawValue === 'true') parsedValue = true;
+        else if (rawValue === 'false') parsedValue = false;
+        else if (/^\d+(\.\d+)?$/.test(rawValue)) parsedValue = Number(rawValue);
+
+        try {
+          // Special handling for HUD settings that need apply functions
+          if (key === 'activeSkin') {
+            const success = applySkin(rawValue);
+            if (!success) {
+              return { toolCallId: id, result: `Error: skin "${rawValue}" not found. Use action "list" category "skins" to see available skins.`, isError: true };
+            }
+            result = `Skin changed to "${rawValue}"`;
+            break;
+          }
+          if (key === 'activePalette') {
+            const success = applyPalette(rawValue);
+            if (!success) {
+              return { toolCallId: id, result: `Error: palette "${rawValue}" not found. Use action "list" category "palettes" to see available palettes.`, isError: true };
+            }
+            result = `Palette changed to "${rawValue}"`;
+            break;
+          }
+          if (key === 'activeCompanion') {
+            config.set('activeCompanion', rawValue);
+            result = `Companion changed to "${rawValue}"`;
+            break;
+          }
+
+          // Generic config set
+          config.set(key as keyof import('./config.js').CalliopeConfig, parsedValue as never);
+          result = `Set ${key} = ${JSON.stringify(parsedValue)}`;
+        } catch (err) {
+          return { toolCallId: id, result: `Error setting ${key}: ${err instanceof Error ? err.message : String(err)}`, isError: true };
+        }
         break;
       }
 
