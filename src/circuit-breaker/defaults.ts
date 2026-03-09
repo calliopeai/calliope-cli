@@ -23,8 +23,8 @@ export const DEFAULT_CIRCUIT_BREAKER_CONFIG: CircuitBreakerConfig = {
       detectOscillation: true,    // Detect A-B-A-B patterns
     },
     'token-burn': {
-      maxTokensPerIteration: 50_000,
-      maxTotalTokens: 2_000_000,
+      maxTokensPerIteration: 200_000,
+      maxTotalTokens: 5_000_000,
     },
     'stall': {
       maxIdleIterations: 5,

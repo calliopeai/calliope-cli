@@ -298,6 +298,12 @@ function TerminalChat() {
       if (typeof iterTimeSec === 'number' && iterTimeSec > 0) {
         cb.adjust('wall-clock', { maxIterationDurationMs: iterTimeSec * 1000 });
       }
+      // Local/free providers: disable cost breaker, relax token limits
+      const prov = config.get('defaultProvider');
+      if (prov === 'ollama' || prov === 'litellm') {
+        cb.adjust('cost-runaway', { maxSessionCost: 999999, maxCostPerMinute: 999999 });
+        cb.adjust('token-burn', { maxTokensPerIteration: 500_000, maxTotalTokens: 20_000_000 });
+      }
       return cb;
     })() : null as unknown as CircuitBreaker
   );
