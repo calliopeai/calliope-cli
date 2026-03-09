@@ -35,6 +35,29 @@ import { shouldCheckpoint, createCheckpoint } from '../auto-checkpoint.js';
 import { recordEvent } from '../terminal-recording.js';
 
 // ============================================================================
+// Tool Result Truncation
+// ============================================================================
+
+/**
+ * Truncate tool result content to fit within available context.
+ * For small models (< 16K), aggressively cap tool output to prevent context overflow.
+ */
+function truncateToolResult(content: string, modelLimit: number): string {
+  // Scale max tool result size based on model context
+  // Small models: 25% of context, large models: up to 50K chars
+  const maxChars = modelLimit < 8000 ? Math.floor(modelLimit * 0.6)   // ~2.4K chars for 4K model
+    : modelLimit < 16000 ? Math.floor(modelLimit * 0.8)               // ~12K chars for 16K model
+    : modelLimit < 32000 ? 20000
+    : 50000;
+
+  if (content.length <= maxChars) return content;
+
+  const half = Math.floor(maxChars / 2);
+  const trimmed = content.slice(0, half) + `\n\n... [truncated ${content.length - maxChars} chars] ...\n\n` + content.slice(-half);
+  return trimmed;
+}
+
+// ============================================================================
 // Agent Context Interface
 // ============================================================================
 
@@ -182,12 +205,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   const modelLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, effectiveModel || ctx.actualModel);
   let contextPercentage = (currentContextTokens / modelLimit) * 100;
 
+  // Adaptive preserveRecent: small models keep fewer messages to leave room for output
+  const preserveRecent = modelLimit < 8000 ? 2 : modelLimit < 16000 ? 4 : modelLimit < 32000 ? 6 : modelLimit < 64000 ? 10 : 15;
+
   // Auto-compact if we're over 75% capacity to prevent API errors
   if (contextPercentage > 75) {
     ctx.addMessage('system', `🔄 Context at ${Math.round(contextPercentage)}% - auto-compacting to prevent errors...`);
     const result = summarization.summarizeConversation(ctx.llmMessages.current, {
       maxTokens: Math.floor(modelLimit * 0.7), // Target 70% of limit after compaction
-      preserveRecent: 15,
+      preserveRecent,
     });
     if (result.summarizedCount > 0) {
       ctx.llmMessages.current = result.messages;
@@ -232,7 +258,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.addMessage('system', `🔄 Context grew to ${Math.round(iterContextPercentage)}% - auto-compacting...`);
         const result = summarization.summarizeConversation(ctx.llmMessages.current, {
           maxTokens: Math.floor(modelLimit * 0.7),
-          preserveRecent: 15,
+          preserveRecent,
         });
         if (result.summarizedCount > 0) {
           ctx.llmMessages.current = result.messages;
@@ -513,7 +539,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
               ctx.llmMessages.current.push({
                 role: 'tool',
-                content: result.error ? `Error: ${result.error}` : result.result,
+                content: truncateToolResult(result.error ? `Error: ${result.error}` : result.result, modelLimit),
                 toolCallId: toolCall.id,
               });
             }
@@ -649,7 +675,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               if (toolCall.name !== 'ask_question') {
                 ctx.llmMessages.current.push({
                   role: 'tool',
-                  content: result.result,
+                  content: truncateToolResult(result.result, modelLimit),
                   toolCallId: toolCall.id,
                 });
               }

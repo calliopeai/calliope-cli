@@ -11,7 +11,7 @@ import type { Message, Tool, LLMResponse, LLMProvider, TextContent } from '../ty
 export const MAX_TOKENS = 8192;
 export const MIN_OUTPUT_TOKENS = 1024; // Minimum output tokens to request
 export const CONTEXT_BUFFER_PERCENT = 0.08; // 8% of context as safety buffer
-export const CONTEXT_BUFFER_MIN = 5000; // Minimum 5k buffer
+export const CONTEXT_BUFFER_MIN = 1024; // Minimum buffer (scales with context size)
 
 /** Maximum allowed content length (1MB) to prevent memory issues */
 export const MAX_CONTENT_LENGTH = 1024 * 1024;

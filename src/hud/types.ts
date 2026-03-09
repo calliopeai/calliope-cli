@@ -159,6 +159,8 @@ export interface SkinAnimations {
   processingSpinner?: string[];
   /** Custom pulse for streaming state */
   streamingPulse?: string[];
+  /** Thinking animation pattern style */
+  thinkingStyle?: 'wave' | 'neural' | 'circuit' | 'dna' | 'pulse-bar' | 'orbit' | 'cascade' | 'minimal';
 }
 
 export interface PaletteColors {

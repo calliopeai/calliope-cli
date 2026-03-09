@@ -42,7 +42,7 @@ import type {
   ConversationSnapshot, Bookmark, PromptTemplate, SessionInfo,
 } from './types.js';
 import { ErrorBoundary } from './error-boundary.js';
-import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator } from './components.js';
+import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator, StateTransition } from './components.js';
 import { MessageHistory } from './messages.js';
 import {
   ModelSelector, SessionSelector, UpgradePrompt, ComplexityWarning,
@@ -99,6 +99,26 @@ function TerminalChat() {
   const [thinkingState, setThinkingState] = useState<ThinkingState | null>(null);
   const [streamingResponse, setStreamingResponse] = useState<string>('');
   const [activityState, setActivityState] = useState<ActivityState | null>(null);
+
+  // State transition tracking
+  const prevProcessingState = useRef<'idle' | 'thinking' | 'streaming' | 'done'>('idle');
+  const [transition, setTransition] = useState<{ from: string; to: string } | null>(null);
+
+  useEffect(() => {
+    const current: 'idle' | 'thinking' | 'streaming' | 'done' =
+      isProcessing && thinkingState && !streamingResponse ? 'thinking' :
+      isProcessing && streamingResponse ? 'streaming' :
+      !isProcessing && prevProcessingState.current !== 'idle' ? 'done' : 'idle';
+
+    if (current !== prevProcessingState.current) {
+      const from = prevProcessingState.current;
+      // Only show transitions for meaningful state changes
+      if (from !== 'idle' || current !== 'idle') {
+        setTransition({ from, to: current });
+      }
+      prevProcessingState.current = current;
+    }
+  }, [isProcessing, thinkingState, streamingResponse]);
 
   // Input history for up/down arrow navigation
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -803,11 +823,18 @@ function TerminalChat() {
     </Box>
   ) : null;
 
-  // Thinking/Processing indicator component
+  // Thinking/Processing indicator component with state transitions
   const ProcessingBox = (
     <>
+      {transition && (
+        <StateTransition
+          from={transition.from as 'idle' | 'thinking' | 'streaming' | 'done'}
+          to={transition.to as 'idle' | 'thinking' | 'streaming' | 'done'}
+          onComplete={() => setTransition(null)}
+        />
+      )}
       {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
-      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response..." />}
+      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response" />}
       {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
     </>
   );

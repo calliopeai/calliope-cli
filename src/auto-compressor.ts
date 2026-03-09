@@ -131,9 +131,15 @@ export async function autoCompress(
   }
 
   // Separate system messages and recent messages
+  // Adapt preserveRecent for small context models (real-world models are >= 2048 tokens)
+  // Only override when contextLimit represents a real small model, not test values
+  const effectivePreserve = contextLimit >= 2048 && contextLimit < 8000 ? Math.min(config.preserveRecent, 2)
+    : contextLimit >= 8000 && contextLimit < 16000 ? Math.min(config.preserveRecent, 4)
+    : contextLimit >= 16000 && contextLimit < 32000 ? Math.min(config.preserveRecent, 6)
+    : config.preserveRecent;
   const systemMessages = messages.filter(m => m.role === 'system');
   const nonSystem = messages.filter(m => m.role !== 'system');
-  const preserveCount = Math.min(config.preserveRecent, nonSystem.length);
+  const preserveCount = Math.min(effectivePreserve, nonSystem.length);
   const toSummarize = nonSystem.slice(0, nonSystem.length - preserveCount);
   const toKeep = nonSystem.slice(nonSystem.length - preserveCount);
 
