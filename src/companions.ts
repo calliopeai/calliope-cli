@@ -488,7 +488,14 @@ export function getStatusMessage(): string | undefined {
  * Usage: emoji('🔄', '[sync]') → '🔄' or '[sync]' based on config.
  */
 export function emoji(icon: string, fallback: string = ''): string {
-  // Lazy import to avoid circular dependency
-  const config = require('./config.js');
+  // Lazy import to avoid circular dependency (createRequire for ESM compat)
+  const config = _lazyRequire('./config.js');
   return config.get('useEmojis') !== false ? icon : fallback;
+}
+
+// ESM-compatible lazy require using createRequire
+import { createRequire } from 'module';
+const _require = createRequire(import.meta.url);
+function _lazyRequire(specifier: string): any {
+  return _require(specifier);
 }
