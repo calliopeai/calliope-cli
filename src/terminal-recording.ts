@@ -58,8 +58,10 @@ export function isRecordingEnabled(): boolean {
 export function startRecording(metadata?: Recording['metadata']): string | null {
   if (!recordingEnabled) return null;
 
-  // Auto-rotate old recordings on startup
-  cleanupRecordings();
+  // Auto-rotate only if retention is explicitly configured
+  if (retentionDaysConfig > 0) {
+    cleanupRecordings();
+  }
 
   const id = `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   activeRecording = {
@@ -182,8 +184,8 @@ function formatMs(ms: number): string {
   return `${mins}:${String(s).padStart(2, '0')}`;
 }
 
-/** Set retention days for auto-cleanup */
-let retentionDaysConfig = 30;
+/** Set retention days for auto-cleanup (0 = no auto-cleanup) */
+let retentionDaysConfig = 0;
 export function setRetentionDays(days: number): void {
   retentionDaysConfig = days;
 }

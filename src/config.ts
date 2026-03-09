@@ -88,7 +88,7 @@ export interface CalliopeConfig {
   // Session Lifecycle
   sessionTimeoutMs?: number;  // Idle timeout in ms (0 or undefined = disabled)
   recordSessions: boolean;    // Record session events as audit log (default: true)
-  recordingRetentionDays: number;  // Auto-delete recordings older than N days (default: 30)
+  recordingRetentionDays: number;  // Auto-delete recordings older than N days (0 = keep forever, default: 0)
 
   // Profiles
   profiles?: Record<string, Profile>;
@@ -123,7 +123,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   smartRoutingEnabled: false,
   smartRoutingCostSensitivity: 0.3,
   recordSessions: true,
-  recordingRetentionDays: 30,
+  recordingRetentionDays: 0,
 };
 
 // Pre-migrate config file before Conf validates schema
@@ -195,7 +195,7 @@ const config = new Conf<CalliopeConfig>({
     smartRoutingEnabled: { type: 'boolean' },
     smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
     recordSessions: { type: 'boolean' },
-    recordingRetentionDays: { type: 'number', minimum: 1 },
+    recordingRetentionDays: { type: 'number', minimum: 0 },
   },
 });
 
