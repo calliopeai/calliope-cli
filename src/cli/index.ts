@@ -18,6 +18,10 @@ import type { CLIOptions, CLIState } from './types.js';
 import { COMMANDS, debugLog } from './types.js';
 import { handleCommand, setStartLoop } from './commands.js';
 import { runAgent, startLoop } from './agent.js';
+import * as recording from '../terminal-recording.js';
+import * as sessionTimeout from '../session-timeout.js';
+import * as idleEviction from '../idle-eviction.js';
+import { isTmux, getTmuxInfo } from '../tmux.js';
 
 // Wire startLoop into commands (avoids circular import)
 setStartLoop(startLoop);
@@ -82,6 +86,43 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     debugLog('session-start hook failed:', err instanceof Error ? err.message : err);
   });
 
+  // Start session recording
+  const actualProvider = selectProvider(state.provider);
+  recording.startRecording({
+    provider: actualProvider,
+    model: state.model || DEFAULT_MODELS[actualProvider],
+    cwd: state.cwd,
+  });
+
+  // Configure session timeout (opt-in via config)
+  const timeoutMs = config.get('sessionTimeoutMs');
+  if (timeoutMs) {
+    sessionTimeout.configureTimeout({
+      enabled: true,
+      idleTimeoutMs: typeof timeoutMs === 'number' ? timeoutMs : 2 * 60 * 60 * 1000,
+    });
+    sessionTimeout.onTimeout((type) => {
+      if (type === 'warning') {
+        console.log(color(`\u23f1\ufe0f  Session timeout in ${sessionTimeout.formatTimeRemaining()}`, 'yellow'));
+      } else {
+        console.log(color('\ud83d\udeaa Session timeout. Exiting...', 'red'));
+        recording.stopRecording();
+        process.exit(0);
+      }
+    });
+  }
+
+  // Start idle eviction monitor
+  idleEviction.configureEviction({ enabled: true });
+
+  // Log tmux context
+  if (isTmux()) {
+    const tmuxInfo = getTmuxInfo();
+    if (tmuxInfo) {
+      debugLog(`tmux: session=${tmuxInfo.session}, windows=${tmuxInfo.windows}, panes=${tmuxInfo.panes}`);
+    }
+  }
+
   // Setup readline
   const rl = readline.createInterface({
     input: process.stdin,
@@ -137,6 +178,11 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
         return;
       }
 
+      // Record activity for timeout/eviction and audit log
+      sessionTimeout.recordActivity();
+      idleEviction.recordActivity();
+      recording.recordEvent('input', input);
+
       if (input.startsWith('/')) {
         await handleCommand(input, state, rl);
         if (state.running) promptUser();
@@ -150,6 +196,9 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
 
   // Handle Ctrl+C
   rl.on('close', () => {
+    recording.stopRecording();
+    sessionTimeout.clearTimers();
+    idleEviction.stopMonitor();
     console.log();
     console.log(color(`  ${getCurrentCompanion().farewell}`, 'cyan'));
     console.log();

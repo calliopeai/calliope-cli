@@ -31,6 +31,10 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
+import * as recording from '../terminal-recording.js';
+import * as sessionTimeout from '../session-timeout.js';
+import * as idleEviction from '../idle-eviction.js';
+import { isTmux, getTmuxInfo } from '../tmux.js';
 
 // Sub-module imports
 import type {
@@ -361,6 +365,46 @@ function TerminalChat() {
         debugLog('hooks', 'session-start hook failed:', err instanceof Error ? err.message : err);
       });
 
+      // Start session recording (audit log)
+      recording.startRecording({
+        provider: selectProvider(provider),
+        model: model || DEFAULT_MODELS[selectProvider(provider)],
+        cwd: cwdMem,
+      });
+
+      // Configure session timeout (opt-in via config)
+      const timeoutMs = config.get('sessionTimeoutMs');
+      if (timeoutMs) {
+        sessionTimeout.configureTimeout({
+          enabled: true,
+          idleTimeoutMs: typeof timeoutMs === 'number' ? timeoutMs : 2 * 60 * 60 * 1000,
+        });
+        sessionTimeout.onTimeout((type) => {
+          if (type === 'warning') {
+            addMessage('system', `\u23f1\ufe0f  Session will timeout in ${sessionTimeout.formatTimeRemaining()}`);
+          } else {
+            addMessage('system', '\ud83d\udeaa Session timeout. Saving and exiting...');
+            storage.saveMessageHistory(llmMessages.current);
+          }
+        });
+      }
+
+      // Start idle eviction monitor
+      idleEviction.configureEviction({ enabled: true });
+      idleEviction.onEviction((action) => {
+        if (action === 'auto-save') {
+          storage.saveMessageHistory(llmMessages.current);
+        }
+      });
+
+      // Log tmux context if applicable
+      if (isTmux()) {
+        const info = getTmuxInfo();
+        if (info) {
+          debugLog('tmux', `session=${info.session}, windows=${info.windows}, panes=${info.panes}`);
+        }
+      }
+
       // Load templates from storage
       const savedTemplates = storage.getTemplates();
       if (savedTemplates.length > 0) {
@@ -559,6 +603,11 @@ function TerminalChat() {
   const handleSubmit = useCallback(async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || isProcessing) return;
+
+    // Record activity for timeout/eviction and audit log
+    sessionTimeout.recordActivity();
+    idleEviction.recordActivity();
+    recording.recordEvent('input', trimmed);
 
     // Add to history for up/down arrow navigation
     addToHistory(trimmed);
@@ -1156,4 +1205,9 @@ export async function startInkCLI(options: { skipPermissions?: boolean; agtermEn
     patchConsole: true,  // Prevent console.log during session from mixing with Ink
   });
   await waitUntilExit();
+
+  // Session cleanup
+  recording.stopRecording();
+  sessionTimeout.clearTimers();
+  idleEviction.stopMonitor();
 }

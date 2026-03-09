@@ -85,6 +85,9 @@ export interface CalliopeConfig {
   smartRoutingEnabled: boolean;
   smartRoutingCostSensitivity: number;  // 0-1: 0 = best quality, 1 = cheapest
 
+  // Session Lifecycle
+  sessionTimeoutMs?: number;  // Idle timeout in ms (0 or undefined = disabled)
+
   // Profiles
   profiles?: Record<string, Profile>;
   activeProfile?: string;

@@ -17,6 +17,7 @@ import { getSpinnerFrames, getBoxChars } from '../hud/api.js';
 import { getToolLabel, getThinkingPhrase } from '../companions.js';
 import type { CLIState } from './types.js';
 import { debugLog } from './types.js';
+import { recordEvent } from '../terminal-recording.js';
 
 /**
  * Start caffeinate to prevent system sleep during long operations (macOS).
@@ -119,12 +120,14 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
           }
 
           printToolCall(toolCall);
+          recordEvent('tool_call', toolCall.name, { name: toolCall.name, arguments: toolCall.arguments as Record<string, unknown> });
           const isShell = toolCall.name === 'shell';
           const streamCallback = isShell ? (chunk: string) => {
             process.stdout.write(`${c.dim}${chunk}${c.reset}`);
           } : undefined;
           const result = await executeTool(toolCall, state.cwd, 60000, streamCallback);
           if (isShell) process.stdout.write('\n');
+          recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
           printToolResult(toolCall.name, result.result);
 
           hooks.executeHooks('post-tool', {
@@ -154,6 +157,7 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
       });
 
       finalResponse = response.content;
+      recordEvent('output', response.content.slice(0, 5000));
       console.log();
       console.log(`${color('✧', 'cyan')} ${color('Calliope:', 'dim')}`);
       console.log();
