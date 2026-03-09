@@ -21,7 +21,8 @@ describe('git-status', () => {
   // ========================================================================
 
   describe('getGitBranch', () => {
-    it('returns current branch name in a real git repo', () => {
+    // CI uses detached HEAD, so branch is null
+    it.skipIf(!!process.env.CI)('returns current branch name in a real git repo', () => {
       // Invalidate cache by calling with a unique temp dir first
       const td = mkdtempSync(join(tmpdir(), 'git-invalidate-'));
       getGitStatus(td);
@@ -49,7 +50,8 @@ describe('git-status', () => {
   // ========================================================================
 
   describe('getGitStatus', () => {
-    it('returns branch, dirty, ahead, behind for a real git repo', () => {
+    // CI uses detached HEAD, so branch is null not string
+    it.skipIf(!!process.env.CI)('returns branch, dirty, ahead, behind for a real git repo', () => {
       // Invalidate cache by switching cwd
       const td = mkdtempSync(join(tmpdir(), 'git-invalidate-'));
       getGitStatus(td);
@@ -84,7 +86,7 @@ describe('git-status', () => {
       }
     });
 
-    it('returns the correct branch name', () => {
+    it.skipIf(!!process.env.CI)('returns the correct branch name', () => {
       // Invalidate cache
       const td = mkdtempSync(join(tmpdir(), 'git-invalidate-'));
       getGitStatus(td);
