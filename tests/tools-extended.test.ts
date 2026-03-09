@@ -104,7 +104,9 @@ describe('create_plan tool', () => {
 // execute_code tool - input validation edge cases
 // ===========================================================================
 
-describe('execute_code tool - edge cases', () => {
+// Docker sandbox not available in CI (permission denied on /workspace/)
+const describeCode = process.env.CI ? describe.skip : describe;
+describeCode('execute_code tool - edge cases', () => {
   it('should reject language missing from enum', async () => {
     const result = await executeTool(makeTool('execute_code', { language: 'go', code: 'fmt.Println("hi")' }), tmpDir);
     expect(result.isError).toBe(true);
@@ -134,8 +136,7 @@ describe('execute_code tool - edge cases', () => {
     expect(result.result).toContain('hello from sandbox');
   });
 
-  // Node execute_code uses Docker sandbox which isn't available in CI
-  it.skipIf(!!process.env.CI)('should execute node code and return output', async () => {
+  it('should execute node code and return output', async () => {
     const result = await executeTool(makeTool('execute_code', {
       language: 'node',
       code: 'console.log("node output")',
