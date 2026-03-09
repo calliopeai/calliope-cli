@@ -86,8 +86,10 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     debugLog('session-start hook failed:', err instanceof Error ? err.message : err);
   });
 
-  // Start session recording
+  // Start session recording — respects config
   const actualProvider = selectProvider(state.provider);
+  recording.setRecordingEnabled(config.get('recordSessions') !== false);
+  recording.setRetentionDays(config.get('recordingRetentionDays') || 30);
   recording.startRecording({
     provider: actualProvider,
     model: state.model || DEFAULT_MODELS[actualProvider],

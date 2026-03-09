@@ -117,7 +117,9 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     { role: 'user', content: prompt },
   ];
 
-  // Start session recording
+  // Start session recording — respects config
+  recording.setRecordingEnabled(config.get('recordSessions') !== false);
+  recording.setRetentionDays(config.get('recordingRetentionDays') || 30);
   recording.startRecording({
     provider: selectProvider(provider),
     model: model || DEFAULT_MODELS[selectProvider(provider)],

@@ -32,6 +32,7 @@ export interface Recording {
 // Recording state
 let activeRecording: Recording | null = null;
 let recordingStartMs = 0;
+let recordingEnabled = true;
 
 // Storage directory
 function getRecordingsDir(): string {
@@ -43,8 +44,23 @@ function getRecordingsDir(): string {
   return dir;
 }
 
-/** Start a new recording */
-export function startRecording(metadata?: Recording['metadata']): string {
+/** Enable or disable recording globally */
+export function setRecordingEnabled(enabled: boolean): void {
+  recordingEnabled = enabled;
+}
+
+/** Check if recording is enabled */
+export function isRecordingEnabled(): boolean {
+  return recordingEnabled;
+}
+
+/** Start a new recording. Returns id, or null if recording is disabled. */
+export function startRecording(metadata?: Recording['metadata']): string | null {
+  if (!recordingEnabled) return null;
+
+  // Auto-rotate old recordings on startup
+  cleanupRecordings();
+
   const id = `rec-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   activeRecording = {
     id,
@@ -166,8 +182,14 @@ function formatMs(ms: number): string {
   return `${mins}:${String(s).padStart(2, '0')}`;
 }
 
+/** Set retention days for auto-cleanup */
+let retentionDaysConfig = 30;
+export function setRetentionDays(days: number): void {
+  retentionDaysConfig = days;
+}
+
 /** Clean up old recordings (older than retentionDays) */
-export function cleanupRecordings(retentionDays = 30): number {
+export function cleanupRecordings(retentionDays = retentionDaysConfig): number {
   const dir = getRecordingsDir();
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60 * 1000;
   let cleaned = 0;
