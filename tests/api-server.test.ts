@@ -258,7 +258,7 @@ describe('API Server', () => {
 
     it('includes CORS header', async () => {
       const { headers } = await request('/api/health');
-      expect(headers['access-control-allow-origin']).toBe('*');
+      expect(headers['access-control-allow-origin']).toBe('http://localhost:3100');
     });
   });
 
@@ -361,7 +361,7 @@ describe('API Server', () => {
     it('returns 204 with CORS headers', async () => {
       const { status, headers } = await request('/api/health', 'OPTIONS');
       expect(status).toBe(204);
-      expect(headers['access-control-allow-origin']).toBe('*');
+      expect(headers['access-control-allow-origin']).toBe('http://localhost:3100');
       expect(headers['access-control-allow-methods']).toBe('GET, POST, DELETE');
       expect(headers['access-control-allow-headers']).toBe('Content-Type');
     });

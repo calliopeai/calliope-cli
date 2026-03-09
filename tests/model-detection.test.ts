@@ -709,16 +709,13 @@ describe('getAvailableModels - litellm', () => {
 // ===========================================================================
 
 describe('getAvailableModels - bedrock', () => {
-  it('should return static fallback models when no base URL', async () => {
+  it('should return empty array when no base URL', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
     vi.mocked(config.getApiKey).mockReturnValue(undefined);
     clearModelCache('bedrock');
 
     const models = await getAvailableModels('bedrock');
-    expect(models.length).toBeGreaterThan(0);
-    expect(models.some(m => m.id.includes('claude'))).toBe(true);
-    expect(models.some(m => m.id.includes('titan'))).toBe(true);
-    expect(models.some(m => m.id.includes('llama'))).toBe(true);
+    expect(models).toEqual([]);
   });
 
   it('should fetch from gateway when base URL is configured', async () => {
@@ -743,14 +740,14 @@ describe('getAvailableModels - bedrock', () => {
     expect(models.some(m => m.id.includes('embed'))).toBe(false);
   });
 
-  it('should fall back to static list when gateway fails', async () => {
+  it('should return empty array when gateway fails', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue('https://my-gateway.com/v1');
     vi.mocked(config.getApiKey).mockReturnValue('gw-key');
     clearModelCache('bedrock');
     mockFetch.mockRejectedValueOnce(new Error('gateway down'));
 
     const models = await getAvailableModels('bedrock');
-    expect(models.length).toBeGreaterThan(0);
+    expect(models).toEqual([]);
   });
 });
 
@@ -1732,16 +1729,14 @@ describe('Bedrock context length via gateway', () => {
     expect(byId('some.other-model-v1')?.description).toBe('AWS Bedrock model');
   });
 
-  it('should fall back to static list when gateway returns non-ok', async () => {
+  it('should return empty array when gateway returns non-ok', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com');
     vi.mocked(config.getApiKey).mockReturnValue(undefined);
     clearModelCache('bedrock');
     mockFetch.mockResolvedValueOnce({ ok: false, status: 403 });
 
     const models = await getAvailableModels('bedrock');
-    // Should get static fallback models
-    expect(models.length).toBeGreaterThan(0);
-    expect(models.some(m => m.id.includes('claude'))).toBe(true);
+    expect(models).toEqual([]);
   });
 });
 

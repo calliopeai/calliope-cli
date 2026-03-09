@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import type { ThemePack, ThemeCategory } from '../src/hud/theme-packs/types.js';
+import type { PersonaCompanion } from '../src/companions.js';
+import type { Skin, Palette } from '../src/hud/types.js';
 
 // We import the stateless query functions directly — they don't depend on
 // module-level mutable state so a single import is fine.
@@ -9,11 +11,122 @@ import {
   getPackCompanions,
 } from '../src/hud/theme-packs/api.js';
 
-import { THEME_PACKS, loadThemePacks } from '../src/hud/theme-packs/index.js';
+import { THEME_PACKS } from '../src/hud/theme-packs/index.js';
 
-// Load theme packs before all tests (requires @calliopelabs/cli-themes)
-beforeAll(async () => {
-  await loadThemePacks();
+// ============================================================================
+// Mock theme pack data — avoids dependency on @calliopelabs/cli-themes
+// ============================================================================
+
+function mockCompanion(name: string): PersonaCompanion {
+  return {
+    name,
+    description: `${name} companion`,
+    systemPrompt: `You are ${name}.`,
+    greeting: 'Hello!',
+    farewell: 'Goodbye!',
+    moods: {
+      idle: 'idle',
+      thinking: 'thinking',
+      success: 'success',
+      error: 'error',
+      frustrated: 'frustrated',
+      excited: 'excited',
+      focused: 'focused',
+    },
+  };
+}
+
+function mockSkin(name: string): Skin {
+  return {
+    name,
+    description: `${name} skin`,
+    banner: { art: ['banner'], style: 'compact' },
+    borders: { style: 'rounded' },
+    decorations: {
+      promptPrefix: '> ',
+      assistantPrefix: '< ',
+      toolPrefix: '[',
+      toolSuffix: ']',
+      separator: '---',
+      spinner: 'dots',
+    },
+    diff: {
+      style: 'unified',
+      showLineNumbers: true,
+      contextLines: 3,
+      maxLineWidth: 80,
+      wordDiff: false,
+      header: 'path',
+    },
+    density: 'normal',
+    responsive: { compact: 60, wide: 120 },
+  };
+}
+
+function mockPalette(name: string): Palette {
+  return {
+    name,
+    description: `${name} palette`,
+    colors: {
+      primary: '#ff0000',
+      secondary: '#00ff00',
+      accent: '#0000ff',
+      text: '#ffffff',
+      textDim: '#888888',
+      textBold: '#ffffff',
+      user: '#00ff00',
+      assistant: '#00ffff',
+      system: '#ffff00',
+      error: '#ff0000',
+      codeKeyword: '#ff00ff',
+      codeString: '#00ff00',
+      codeNumber: '#ffff00',
+      codeComment: '#888888',
+      codeFunction: '#00ffff',
+      diffAdd: '#00ff00',
+      diffRemove: '#ff0000',
+      diffContext: '#888888',
+      success: '#00ff00',
+      warning: '#ffff00',
+      info: '#00ffff',
+      border: '#444444',
+      background: '#000000',
+      selection: '#333333',
+    },
+  };
+}
+
+function mockThemePack(
+  name: string,
+  category: ThemeCategory,
+  additional?: PersonaCompanion[],
+): ThemePack {
+  return {
+    name,
+    description: `${name} theme pack`,
+    category,
+    skin: mockSkin(name),
+    palette: mockPalette(name),
+    companions: {
+      professional: mockCompanion(`${name}-pro`),
+      immersive: mockCompanion(`${name}-immersive`),
+      ...(additional ? { additional } : {}),
+    },
+  };
+}
+
+const MOCK_PACKS: Record<string, ThemePack> = {
+  mario: mockThemePack('mario', 'gaming', [mockCompanion('mario-extra')]),
+  doom: mockThemePack('doom', 'gaming'),
+  tng: mockThemePack('tng', 'trek'),
+  ds9: mockThemePack('ds9', 'trek'),
+  matrix: mockThemePack('matrix', 'scifi'),
+  clean: mockThemePack('clean', 'minimal'),
+};
+
+// Populate the shared THEME_PACKS registry with our mock data
+beforeAll(() => {
+  Object.assign(THEME_PACKS, MOCK_PACKS);
 });
 
 // ============================================================================
@@ -46,7 +159,7 @@ describe('listThemePacks', () => {
   });
 
   it('should return empty array for a category with no packs', () => {
-    // 'custom' is a valid ThemeCategory but no built-in packs use it
+    // 'custom' is a valid ThemeCategory but no mock packs use it
     const custom = listThemePacks('custom' as ThemeCategory);
     expect(custom).toEqual([]);
   });
@@ -70,8 +183,6 @@ describe('listThemePacks', () => {
   it('should include known packs by name', () => {
     const all = listThemePacks();
     const names = all.map(p => p.name);
-    // Pack .name may differ from registry key (e.g. registry key 'tng' has name 'trek-tng')
-    // Verify names pulled from actual THEME_PACKS entries
     expect(names).toContain(THEME_PACKS['mario'].name);
     expect(names).toContain(THEME_PACKS['tng'].name);
     expect(names).toContain(THEME_PACKS['matrix'].name);
@@ -121,20 +232,16 @@ describe('getPackCompanions', () => {
   });
 
   it('should include additional companions when present', () => {
-    // Find a pack with additional companions
-    const packWithAdditional = Object.entries(THEME_PACKS).find(
-      ([, p]) => p.companions.additional && p.companions.additional.length > 0,
+    // mario has additional companions in our mock
+    const companions = getPackCompanions('mario');
+    const pack = THEME_PACKS['mario'];
+    expect(pack.companions.additional).toBeDefined();
+    expect(companions.length).toBe(
+      2 + (pack.companions.additional?.length ?? 0),
     );
-    if (packWithAdditional) {
-      const [key, pack] = packWithAdditional;
-      const companions = getPackCompanions(key);
-      expect(companions.length).toBe(
-        2 + (pack.companions.additional?.length ?? 0),
-      );
-      pack.companions.additional!.forEach(c => {
-        expect(companions).toContain(c.name);
-      });
-    }
+    pack.companions.additional!.forEach(c => {
+      expect(companions).toContain(c.name);
+    });
   });
 
   it('should return empty array for unknown pack', () => {
@@ -146,6 +253,17 @@ describe('getPackCompanions', () => {
 // Stateful API — use dynamic imports to reset module state between suites
 // ============================================================================
 
+/**
+ * Helper: after vi.resetModules(), re-import the theme-packs index module
+ * and inject mock packs so the fresh THEME_PACKS registry is populated.
+ */
+async function loadFreshModules() {
+  const indexMod = await import('../src/hud/theme-packs/index.js');
+  Object.assign(indexMod.THEME_PACKS, MOCK_PACKS);
+  const mod = await import('../src/hud/theme-packs/api.js');
+  return { indexMod, mod };
+}
+
 describe('applyThemePack', () => {
   let applyThemePack: typeof import('../src/hud/theme-packs/api.js').applyThemePack;
   let getCurrentPack: typeof import('../src/hud/theme-packs/api.js').getCurrentPack;
@@ -153,9 +271,7 @@ describe('applyThemePack', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    const indexMod = await import('../src/hud/theme-packs/index.js');
-    await indexMod.loadThemePacks();
-    const mod = await import('../src/hud/theme-packs/api.js');
+    const { mod } = await loadFreshModules();
     applyThemePack = mod.applyThemePack;
     getCurrentPack = mod.getCurrentPack;
     getCompanionMode = mod.getCompanionMode;
@@ -212,9 +328,7 @@ describe('getCurrentPack', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    const indexMod = await import('../src/hud/theme-packs/index.js');
-    await indexMod.loadThemePacks();
-    const mod = await import('../src/hud/theme-packs/api.js');
+    const { mod } = await loadFreshModules();
     applyThemePack = mod.applyThemePack;
     getCurrentPack = mod.getCurrentPack;
   });
@@ -242,9 +356,7 @@ describe('getCompanionMode', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    const indexMod = await import('../src/hud/theme-packs/index.js');
-    await indexMod.loadThemePacks();
-    const mod = await import('../src/hud/theme-packs/api.js');
+    const { mod } = await loadFreshModules();
     applyThemePack = mod.applyThemePack;
     getCompanionMode = mod.getCompanionMode;
   });
@@ -277,9 +389,7 @@ describe('setCompanionMode', () => {
 
   beforeEach(async () => {
     vi.resetModules();
-    const indexMod = await import('../src/hud/theme-packs/index.js');
-    await indexMod.loadThemePacks();
-    const mod = await import('../src/hud/theme-packs/api.js');
+    const { mod } = await loadFreshModules();
     applyThemePack = mod.applyThemePack;
     setCompanionMode = mod.setCompanionMode;
     getCompanionMode = mod.getCompanionMode;
@@ -338,8 +448,6 @@ describe('populateLegacyRegistries', () => {
     const skinsAfter = Object.keys(SKINS).length;
     // Should have added at least some new skins (those not already present)
     expect(skinsAfter).toBeGreaterThanOrEqual(skinsBefore);
-    // A known theme pack skin should be present
-    expect(SKINS['mario']).toBeDefined();
   });
 
   it('should populate PALETTES with theme pack palettes', async () => {

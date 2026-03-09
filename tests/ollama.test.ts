@@ -500,7 +500,7 @@ describe('chatOllama', () => {
       // First call: 400 tool error → adds to toolUnsupportedModels
       vi.mocked(fetch)
         .mockResolvedValueOnce(mockFetchResponse(
-          { error: 'tool not supported' },
+          { error: 'does not support tools' },
           false,
           400
         ) as Response)
@@ -770,7 +770,7 @@ describe('chatOllama', () => {
 
       // First call: 400 with tool error
       vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(
-        { error: 'tool calling not supported' },
+        { error: 'does not support tools' },
         false,
         400
       ) as Response);
@@ -794,10 +794,10 @@ describe('chatOllama', () => {
     it('known tool-unsupported model skips tools on subsequent calls', async () => {
       const knownUnsupported = 'known-unsupported-model';
 
-      // First: trigger tool error to add to set
+      // First: trigger tool error to add to map
       vi.mocked(fetch)
         .mockResolvedValueOnce(mockFetchResponse(
-          { error: 'function not supported' },
+          { error: 'does not support tools' },
           false,
           400
         ) as Response)
@@ -920,14 +920,10 @@ describe('chatOllama', () => {
 
   describe('isToolError detection', () => {
     const toolErrorStrings = [
-      'tool calling not supported',
-      'function not available',
-      'invalid request: tools not supported',
-      'bad request: cannot use tools',
-      'TOOL ERROR',
-      'Function calling failed',
-      'Invalid Request format',
-      'Bad Request',
+      'does not support tools',
+      'invalid tool_calls format',
+      'tools are not supported',
+      'unknown field: tool in request',
     ];
 
     for (const errStr of toolErrorStrings) {

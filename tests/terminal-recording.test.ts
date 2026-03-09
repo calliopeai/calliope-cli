@@ -248,6 +248,17 @@ describe('listRecordings', () => {
     const id2 = startRecording();
     stopRecording();
 
+    // Patch saved files to have distinct startTimes so sort order is deterministic
+    const dir = path.join(tmpDir, '.calliope-cli', 'recordings');
+    const file1 = path.join(dir, `${id1}.json`);
+    const file2 = path.join(dir, `${id2}.json`);
+    const data1 = JSON.parse(fs.readFileSync(file1, 'utf-8'));
+    const data2 = JSON.parse(fs.readFileSync(file2, 'utf-8'));
+    data1.startTime = '2025-01-01T00:00:00.000Z';
+    data2.startTime = '2025-01-02T00:00:00.000Z';
+    fs.writeFileSync(file1, JSON.stringify(data1));
+    fs.writeFileSync(file2, JSON.stringify(data2));
+
     const list = listRecordings();
     // The second recording should appear first (newest)
     expect(list[0].id).toBe(id2);

@@ -29,8 +29,8 @@ describe('CircuitBreaker', () => {
       expect(config.breakers['cost-runaway'].maxSessionCost).toBe(5.0);
       expect(config.breakers['cost-runaway'].maxCostPerMinute).toBe(1.0);
       expect(config.breakers['infinite-loop'].maxIdenticalInWindow).toBe(3);
-      expect(config.breakers['token-burn'].maxTokensPerIteration).toBe(50_000);
-      expect(config.breakers['token-burn'].maxTotalTokens).toBe(2_000_000);
+      expect(config.breakers['token-burn'].maxTokensPerIteration).toBe(200_000);
+      expect(config.breakers['token-burn'].maxTotalTokens).toBe(5_000_000);
       expect(config.breakers['stall'].maxIdleIterations).toBe(5);
     });
 
@@ -225,23 +225,23 @@ describe('CircuitBreaker', () => {
     it('should trip on excessive per-iteration tokens', () => {
       const result = breaker.check({
         iteration: 1,
-        inputTokens: 30000,
-        outputTokens: 25000,
+        inputTokens: 120000,
+        outputTokens: 100000,
       });
       expect(result.tripped).toBe(true);
       expect(result.breaker).toBe('token-burn');
     });
 
     it('should trip on cumulative token burn', () => {
-      // Each iteration uses 45K tokens (under 50K per-iteration limit)
-      // 2M / 45K = ~44.4, so iteration 45 should trip
+      // Each iteration uses 180K tokens (under 200K per-iteration limit)
+      // 5M / 180K = ~27.8, so iteration 28 should trip
       let tripped = false;
       let tripResult;
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 35; i++) {
         const result = breaker.check({
           iteration: i + 1,
-          inputTokens: 25000,
-          outputTokens: 20000,
+          inputTokens: 100000,
+          outputTokens: 80000,
           content: `Response ${i}`,
         });
         if (result.tripped && result.breaker === 'token-burn') {
@@ -252,8 +252,8 @@ describe('CircuitBreaker', () => {
       }
       expect(tripped).toBe(true);
       expect(tripResult!.breaker).toBe('token-burn');
-      // Should trip around iteration 45
-      expect(breaker.getTrackingStats().totalTokens).toBeGreaterThan(2_000_000);
+      // Should trip around iteration 28
+      expect(breaker.getTrackingStats().totalTokens).toBeGreaterThan(5_000_000);
     });
   });
 
