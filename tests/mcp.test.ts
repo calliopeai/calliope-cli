@@ -1640,3 +1640,906 @@ describe('MCPTool schema handling', () => {
     expect(Object.keys(tools[0].parameters.properties)).toHaveLength(3);
   });
 });
+
+// ============================================================================
+// fetchManifest – fallback path (root URL after 404) edge cases
+// ============================================================================
+
+describe('fetchManifest fallback path edge cases', () => {
+  it('should reject when root URL fallback response exceeds Content-Length limit', async () => {
+    let callCount = 0;
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      callCount++;
+      const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+      mockReq.destroy = vi.fn();
+
+      if (callCount === 1) {
+        // First call (well-known) returns 404
+        const mock404 = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mock404.statusCode = 404;
+        mock404.headers = {};
+        process.nextTick(() => cb(mock404));
+      } else {
+        // Second call (root) has huge Content-Length
+        const mockRoot = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mockRoot.statusCode = 200;
+        mockRoot.headers = { 'content-length': String(20 * 1024 * 1024) };
+        process.nextTick(() => cb(mockRoot));
+      }
+      return mockReq;
+    });
+
+    await expect(fetchManifest('https://example.com/mcp')).rejects.toThrow('too large');
+  });
+
+  it('should reject when root URL fallback streamed data exceeds size limit', async () => {
+    let callCount = 0;
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      callCount++;
+      const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+      mockReq.destroy = vi.fn();
+
+      if (callCount === 1) {
+        const mock404 = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mock404.statusCode = 404;
+        mock404.headers = {};
+        process.nextTick(() => cb(mock404));
+      } else {
+        const mockRoot = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mockRoot.statusCode = 200;
+        mockRoot.headers = {};
+        process.nextTick(() => {
+          cb(mockRoot);
+          const bigChunk = Buffer.alloc(6 * 1024 * 1024, 'x');
+          mockRoot.emit('data', bigChunk);
+          mockRoot.emit('data', bigChunk); // Total 12MB > 10MB limit
+        });
+      }
+      return mockReq;
+    });
+
+    await expect(fetchManifest('https://example.com/mcp')).rejects.toThrow('exceeded size limit');
+  });
+
+  it('should reject when root URL fallback returns invalid JSON', async () => {
+    let callCount = 0;
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      callCount++;
+      const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+      mockReq.destroy = vi.fn();
+
+      if (callCount === 1) {
+        const mock404 = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mock404.statusCode = 404;
+        mock404.headers = {};
+        process.nextTick(() => cb(mock404));
+      } else {
+        const mockRoot = createMockResponse(200, 'not json!!!');
+        process.nextTick(() => cb(mockRoot));
+      }
+      return mockReq;
+    });
+
+    await expect(fetchManifest('https://example.com/mcp')).rejects.toThrow('Invalid MCP manifest');
+  });
+
+  it('should reject when root URL fallback has network error', async () => {
+    let callCount = 0;
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      callCount++;
+      const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+      mockReq.destroy = vi.fn();
+
+      if (callCount === 1) {
+        const mock404 = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mock404.statusCode = 404;
+        mock404.headers = {};
+        process.nextTick(() => cb(mock404));
+      } else {
+        process.nextTick(() => mockReq.emit('error', new Error('ECONNRESET')));
+      }
+      return mockReq;
+    });
+
+    await expect(fetchManifest('https://example.com/mcp')).rejects.toThrow('ECONNRESET');
+  });
+
+  it('should reject when root URL fallback times out', async () => {
+    let callCount = 0;
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      callCount++;
+      const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+      mockReq.destroy = vi.fn();
+
+      if (callCount === 1) {
+        const mock404 = new EventEmitter() as EventEmitter & {
+          statusCode: number;
+          headers: Record<string, string>;
+        };
+        mock404.statusCode = 404;
+        mock404.headers = {};
+        process.nextTick(() => cb(mock404));
+      } else {
+        process.nextTick(() => mockReq.emit('timeout'));
+      }
+      return mockReq;
+    });
+
+    await expect(fetchManifest('https://example.com/mcp')).rejects.toThrow('Request timed out');
+  });
+
+  it('should handle string chunks in the well-known response data event', async () => {
+    const manifest = makeManifest({ name: 'String Chunk Server' });
+    const mockReq = new EventEmitter() as EventEmitter & { destroy: () => void };
+    mockReq.destroy = vi.fn();
+
+    mockHttpsGet.mockImplementation((_url: string, _opts: unknown, cb: (res: unknown) => void) => {
+      const res = new EventEmitter() as EventEmitter & {
+        statusCode: number;
+        headers: Record<string, string>;
+      };
+      res.statusCode = 200;
+      res.headers = {};
+      // Override on to emit string chunks (not Buffer)
+      const origOn = res.on.bind(res);
+      let dataListenerAttached = false;
+      res.on = function(event: string, listener: (...args: unknown[]) => void) {
+        origOn(event, listener);
+        if (event === 'data' && !dataListenerAttached) {
+          dataListenerAttached = true;
+          setTimeout(() => {
+            res.emit('data', JSON.stringify(manifest)); // string, not Buffer
+            res.emit('end');
+          }, 5);
+        }
+        return res;
+      } as typeof res.on;
+      process.nextTick(() => cb(res));
+      return mockReq;
+    });
+
+    const result = await fetchManifest('https://example.com/mcp');
+    expect(result.name).toBe('String Chunk Server');
+  });
+});
+
+// ============================================================================
+// mcpCall – additional edge cases (via executeMCPTool)
+// ============================================================================
+
+describe('mcpCall edge cases', () => {
+  it('should handle streaming data exceeding size limit during chunks', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_1234567890_strmsv',
+      transport: 'http',
+      url: 'https://test-mcp.example.com/rpc',
+      tools: [makeMCPTool({ name: 'search' })],
+    });
+    saveServers([server]);
+
+    const mockReq = createMockRequest();
+
+    mockHttpsRequest.mockImplementation((_opts: unknown, cb: (res: unknown) => void) => {
+      const res = new EventEmitter() as EventEmitter & {
+        statusCode: number;
+        headers: Record<string, string>;
+      };
+      res.statusCode = 200;
+      res.headers = {}; // No content-length header
+      process.nextTick(() => {
+        cb(res);
+        // Emit chunks that exceed MAX_RESPONSE_SIZE (50MB)
+        const bigChunk = Buffer.alloc(30 * 1024 * 1024, 'x');
+        res.emit('data', bigChunk);
+        res.emit('data', bigChunk); // Total 60MB > 50MB limit
+      });
+      return mockReq;
+    });
+
+    const result = await executeMCPTool('mcp_strmsv_search', { query: 'test' });
+    expect(result).toContain('Error: MCP call failed');
+    expect(result).toContain('exceeded size limit');
+  });
+
+  it('should handle JSON-RPC error with no message field', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_1234567890_nomsrv',
+      transport: 'http',
+      url: 'https://test-mcp.example.com/rpc',
+      tools: [makeMCPTool({ name: 'search' })],
+    });
+    saveServers([server]);
+
+    const mockRes = createMockResponse(
+      200,
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        error: { code: -32600 }, // No message field
+      }),
+      {}
+    );
+    const mockReq = createMockRequest();
+
+    mockHttpsRequest.mockImplementation((_opts: unknown, cb: (res: unknown) => void) => {
+      process.nextTick(() => cb(mockRes));
+      return mockReq;
+    });
+
+    const result = await executeMCPTool('mcp_nomsrv_search', { query: 'test' });
+    expect(result).toContain('Error: MCP call failed');
+    expect(result).toContain('MCP error');
+  });
+
+  it('should handle non-Error exceptions in executeMCPTool catch block', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_1234567890_nersrv',
+      transport: 'http',
+      url: 'https://test-mcp.example.com/rpc',
+      tools: [makeMCPTool({ name: 'search' })],
+    });
+    saveServers([server]);
+
+    const mockReq = createMockRequest();
+    mockHttpsRequest.mockImplementation((_opts: unknown, _cb: unknown) => {
+      process.nextTick(() => {
+        mockReq.emit('error', 'plain string error');
+      });
+      return mockReq;
+    });
+
+    const result = await executeMCPTool('mcp_nersrv_search', { query: 'test' });
+    expect(result).toContain('Error: MCP call failed');
+    expect(result).toContain('plain string error');
+  });
+});
+
+// ============================================================================
+// spawnStdioProcess – child process error handler
+// ============================================================================
+
+describe('spawnStdioProcess error handling', () => {
+  it('should reject all pending requests on child process error event', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_child_error',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', `
+        // Wait a bit then crash
+        setTimeout(() => {
+          throw new Error('simulated crash');
+        }, 100);
+      `],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    // Add pending requests
+    const promise1 = new Promise<unknown>((resolve, reject) => {
+      entry.pending.set(1, { resolve, reject });
+    });
+    const promise2 = new Promise<unknown>((resolve, reject) => {
+      entry.pending.set(2, { resolve, reject });
+    });
+
+    // Wait for process to exit (which rejects pending)
+    await expect(promise1).rejects.toThrow();
+    await expect(promise2).rejects.toThrow();
+  });
+
+  it('should reject all pending requests on child process spawn error', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_spawn_error',
+      transport: 'stdio',
+      command: 'cat',
+      args: [],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    const promise1 = new Promise<unknown>((resolve, reject) => {
+      entry.pending.set(1, { resolve, reject });
+    });
+
+    // Simulate the 'error' event on the child process
+    entry.process.emit('error', new Error('spawn ENOENT'));
+
+    await expect(promise1).rejects.toThrow('STDIO process error: spawn ENOENT');
+    expect(entry.pending.size).toBe(0);
+
+    // Clean up - process may still be alive since 'error' was simulated
+    try { entry.process.kill(); } catch {}
+  });
+
+  it('should handle empty lines in stdout gracefully', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_empty_lines',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', `
+        process.stdout.write('\\n\\n\\n');
+        process.stdout.write('  \\n');
+        setTimeout(() => process.exit(0), 100);
+      `],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    await new Promise(r => setTimeout(r, 200));
+    // No errors should have occurred, pending should be empty
+    expect(entry.pending.size).toBe(0);
+  });
+});
+
+// ============================================================================
+// stdioCall – timeout and write error paths
+// ============================================================================
+
+describe('stdioCall edge cases', () => {
+  it('should reject on timeout after 30s', async () => {
+    vi.useFakeTimers();
+
+    const server = makeMCPServer({
+      id: 'mcp_timeout_test',
+      transport: 'stdio',
+      command: 'cat',
+      args: [],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    const callPromise = stdioCall('mcp_timeout_test', 'tools/call', { name: 'test' });
+
+    // Attach the rejection handler BEFORE advancing timers to prevent unhandled rejection
+    const resultPromise = callPromise.catch((e: Error) => e);
+
+    // Advance timers past the 30s timeout
+    await vi.advanceTimersByTimeAsync(31000);
+
+    const error = await resultPromise;
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toBe('STDIO call timed out');
+
+    entry.process.kill();
+    vi.useRealTimers();
+  });
+
+  it('should reject on stdin write error', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_write_err',
+      transport: 'stdio',
+      command: 'cat',
+      args: [],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    // Override stdin.write to simulate a write error
+    const origWrite = entry.process.stdin!.write.bind(entry.process.stdin!);
+    entry.process.stdin!.write = ((_data: unknown, cb: (err: Error | null | undefined) => void) => {
+      process.nextTick(() => cb(new Error('write broken')));
+      return true;
+    }) as typeof entry.process.stdin!.write;
+
+    await expect(
+      stdioCall('mcp_write_err', 'tools/call', { name: 'test' })
+    ).rejects.toThrow('Failed to write to STDIO');
+
+    // Restore and clean up
+    entry.process.stdin!.write = origWrite;
+    entry.process.kill();
+  });
+
+  it('should handle backpressure (write returns false)', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_backpressure',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', `
+        process.stdin.setEncoding('utf8');
+        let buf = '';
+        process.stdin.on('data', (chunk) => {
+          buf += chunk;
+          let idx;
+          while ((idx = buf.indexOf('\\n')) !== -1) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line) continue;
+            try {
+              const req = JSON.parse(line);
+              const resp = JSON.stringify({ jsonrpc: '2.0', id: req.id, result: 'bp_ok' });
+              process.stdout.write(resp + '\\n');
+            } catch {}
+          }
+        });
+      `],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    // Override write to return false (simulating backpressure) but still call the callback
+    const origWrite = entry.process.stdin!.write.bind(entry.process.stdin!);
+    let firstCall = true;
+    entry.process.stdin!.write = ((data: unknown, cb?: (err: Error | null | undefined) => void) => {
+      if (firstCall) {
+        firstCall = false;
+        // Call the real write but return false to trigger drain path
+        origWrite(data as string, cb as any);
+        // Emit drain after a short delay
+        process.nextTick(() => entry.process.stdin!.emit('drain'));
+        return false;
+      }
+      return origWrite(data as string, cb as any);
+    }) as typeof entry.process.stdin!.write;
+
+    const result = await stdioCall('mcp_backpressure', 'tools/call', { name: 'test' });
+    expect(result).toBe('bp_ok');
+
+    entry.process.stdin!.write = origWrite;
+    entry.process.kill();
+  });
+});
+
+// ============================================================================
+// registerStdioServer
+// ============================================================================
+
+describe('registerStdioServer', () => {
+  it('should register and initialize a STDIO server', async () => {
+    const server = await registerStdioServer('node', ['-e', `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result;
+            if (req.method === 'initialize') {
+              result = { capabilities: {} };
+            } else if (req.method === 'tools/list') {
+              result = { tools: [{ name: 'echo', description: 'Echo tool', inputSchema: { type: 'object', properties: { msg: { type: 'string' } } } }] };
+            } else {
+              result = 'ok';
+            }
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `]);
+
+    expect(server.status).toBe('connected');
+    expect(server.transport).toBe('stdio');
+    expect(server.tools).toHaveLength(1);
+    expect(server.tools[0].name).toBe('echo');
+    expect(server.name).toBe('node');
+
+    // Verify it was persisted
+    const servers = loadServers();
+    const found = servers.find(s => s.id === server.id);
+    expect(found).toBeDefined();
+    expect(found!.status).toBe('connected');
+
+    stopStdioServer(server.id);
+  });
+
+  it('should throw on initialization failure', async () => {
+    await expect(
+      registerStdioServer('node', ['-e', 'process.exit(1)'])
+    ).rejects.toThrow('Failed to initialize STDIO server');
+  });
+
+  it('should replace existing server with same command and args', async () => {
+    // First, pre-save a server with the same command and args
+    const existingServer = makeMCPServer({
+      id: 'mcp_existing_stdio',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', 'STDIO_REPLACE_TEST'],
+      status: 'disconnected',
+    });
+    saveServers([existingServer]);
+
+    // Now register - but it will fail because 'STDIO_REPLACE_TEST' is not valid JS
+    // Use a valid script instead and match args
+    const scriptCode = `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            if (req.method === 'tools/list') result = { tools: [] };
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `;
+
+    // Save with exact same args we'll use
+    const existing2 = makeMCPServer({
+      id: 'mcp_existing_stdio2',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', scriptCode],
+      status: 'disconnected',
+    });
+    saveServers([existing2]);
+
+    const server = await registerStdioServer('node', ['-e', scriptCode]);
+
+    // Should have reused the existing server's id
+    expect(server.id).toBe('mcp_existing_stdio2');
+    expect(server.status).toBe('connected');
+
+    const servers = loadServers();
+    const matches = servers.filter(s => s.transport === 'stdio' && s.command === 'node');
+    // Should be only 1 (replaced, not duplicated)
+    expect(matches).toHaveLength(1);
+
+    stopStdioServer(server.id);
+  });
+
+  it('should handle tools/list returning no tools property', async () => {
+    const server = await registerStdioServer('node', ['-e', `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            // Return empty object for tools/list (no 'tools' property)
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `]);
+
+    expect(server.tools).toEqual([]);
+    expect(server.status).toBe('connected');
+
+    stopStdioServer(server.id);
+  });
+
+  it('should pass autoConnect=false', async () => {
+    const server = await registerStdioServer('node', ['-e', `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            if (req.method === 'tools/list') result = { tools: [] };
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `], undefined, false);
+
+    expect(server.autoConnect).toBe(false);
+
+    stopStdioServer(server.id);
+  });
+
+  it('should pass env to STDIO server', async () => {
+    const server = await registerStdioServer('node', ['-e', `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            if (req.method === 'tools/list') result = { tools: [] };
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `], { MY_ENV: 'test_val' });
+
+    expect(server.status).toBe('connected');
+
+    stopStdioServer(server.id);
+  });
+});
+
+// ============================================================================
+// connectStdioServers
+// ============================================================================
+
+describe('connectStdioServers', () => {
+  it('should skip non-stdio servers', async () => {
+    saveServers([
+      makeMCPServer({ id: 'mcp_http_srv', transport: 'http', autoConnect: true }),
+    ]);
+
+    await connectStdioServers();
+
+    // Should not throw, just skip
+    const servers = loadServers();
+    expect(servers).toHaveLength(1);
+  });
+
+  it('should skip servers with autoConnect=false', async () => {
+    saveServers([
+      makeMCPServer({
+        id: 'mcp_no_auto',
+        transport: 'stdio',
+        command: 'cat',
+        autoConnect: false,
+      }),
+    ]);
+
+    await connectStdioServers();
+
+    // Should not have spawned anything
+    const stopped = stopStdioServer('mcp_no_auto');
+    expect(stopped).toBe(false);
+  });
+
+  it('should connect a valid STDIO server with autoConnect=true', async () => {
+    const scriptCode = `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            if (req.method === 'tools/list') {
+              result = { tools: [{ name: 'auto_tool', description: 'auto', inputSchema: { type: 'object', properties: {} } }] };
+            }
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `;
+
+    saveServers([
+      makeMCPServer({
+        id: 'mcp_auto_connect',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', scriptCode],
+        autoConnect: true,
+        status: 'disconnected',
+        tools: [],
+      }),
+    ]);
+
+    await connectStdioServers();
+
+    const servers = loadServers();
+    const server = servers.find(s => s.id === 'mcp_auto_connect');
+    expect(server).toBeDefined();
+    expect(server!.status).toBe('connected');
+    expect(server!.tools).toHaveLength(1);
+    expect(server!.tools[0].name).toBe('auto_tool');
+
+    stopStdioServer('mcp_auto_connect');
+  });
+
+  it('should set error status on failed STDIO server connection', async () => {
+    saveServers([
+      makeMCPServer({
+        id: 'mcp_auto_fail',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', 'process.exit(1)'],
+        autoConnect: true,
+        status: 'disconnected',
+      }),
+    ]);
+
+    await connectStdioServers();
+
+    const servers = loadServers();
+    const server = servers.find(s => s.id === 'mcp_auto_fail');
+    expect(server).toBeDefined();
+    expect(server!.status).toBe('error');
+  });
+
+  it('should skip already running servers', async () => {
+    const scriptCode = `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            let result = {};
+            if (req.method === 'tools/list') result = { tools: [] };
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result }) + '\\n');
+          } catch {}
+        }
+      });
+    `;
+
+    const server = makeMCPServer({
+      id: 'mcp_already_running',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', scriptCode],
+      autoConnect: true,
+    });
+    saveServers([server]);
+
+    // Spawn it first
+    spawnStdioProcess(server);
+
+    // connectStdioServers should skip it (already running)
+    await connectStdioServers();
+
+    stopStdioServer('mcp_already_running');
+  });
+
+  it('should handle tools/list returning undefined', async () => {
+    const scriptCode = `
+      process.stdin.setEncoding('utf8');
+      let buf = '';
+      process.stdin.on('data', (chunk) => {
+        buf += chunk;
+        let idx;
+        while ((idx = buf.indexOf('\\n')) !== -1) {
+          const line = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 1);
+          if (!line) continue;
+          try {
+            const req = JSON.parse(line);
+            // Return null result for tools/list
+            process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: req.id, result: null }) + '\\n');
+          } catch {}
+        }
+      });
+    `;
+
+    saveServers([
+      makeMCPServer({
+        id: 'mcp_null_tools',
+        transport: 'stdio',
+        command: 'node',
+        args: ['-e', scriptCode],
+        autoConnect: true,
+        status: 'disconnected',
+        tools: [],
+      }),
+    ]);
+
+    await connectStdioServers();
+
+    const servers = loadServers();
+    const server = servers.find(s => s.id === 'mcp_null_tools');
+    expect(server).toBeDefined();
+    expect(server!.status).toBe('connected');
+    expect(server!.tools).toEqual([]);
+
+    stopStdioServer('mcp_null_tools');
+  });
+});
+
+// ============================================================================
+// stopStdioServer – pending request rejection
+// ============================================================================
+
+describe('stopStdioServer pending rejection', () => {
+  it('should reject all pending requests with "STDIO server stopped"', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_stop_pending',
+      transport: 'stdio',
+      command: 'cat',
+      args: [],
+    });
+
+    const entry = spawnStdioProcess(server);
+
+    const promise1 = new Promise<unknown>((resolve, reject) => {
+      entry.pending.set(1, { resolve, reject });
+    });
+    const promise2 = new Promise<unknown>((resolve, reject) => {
+      entry.pending.set(2, { resolve, reject });
+    });
+
+    stopStdioServer('mcp_stop_pending');
+
+    await expect(promise1).rejects.toThrow('STDIO server stopped');
+    await expect(promise2).rejects.toThrow('STDIO server stopped');
+  });
+});
+
+// ============================================================================
+// executeMCPTool – STDIO transport success path
+// ============================================================================
+
+describe('executeMCPTool STDIO transport', () => {
+  it('should execute tool via STDIO transport and return result', async () => {
+    const server = makeMCPServer({
+      id: 'mcp_1234567890_stxsrv',
+      transport: 'stdio',
+      command: 'node',
+      args: ['-e', `
+        process.stdin.setEncoding('utf8');
+        let buf = '';
+        process.stdin.on('data', (chunk) => {
+          buf += chunk;
+          let idx;
+          while ((idx = buf.indexOf('\\n')) !== -1) {
+            const line = buf.slice(0, idx).trim();
+            buf = buf.slice(idx + 1);
+            if (!line) continue;
+            try {
+              const req = JSON.parse(line);
+              const resp = JSON.stringify({ jsonrpc: '2.0', id: req.id, result: { output: 'stdio_works' } });
+              process.stdout.write(resp + '\\n');
+            } catch {}
+          }
+        });
+      `],
+      tools: [makeMCPTool({ name: 'search' })],
+    });
+    saveServers([server]);
+
+    // Need to spawn the process since executeMCPTool looks it up
+    const entry = spawnStdioProcess(server);
+
+    const result = await executeMCPTool('mcp_stxsrv_search', { query: 'hello' });
+    const parsed = JSON.parse(result);
+    expect(parsed).toEqual({ output: 'stdio_works' });
+
+    entry.process.kill();
+  });
+});
