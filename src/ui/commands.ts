@@ -220,6 +220,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       break;
 
     case '/provider':
+    case '/providers':
     case '/p':
       if (parts[1]) {
         const p = parts[1].toLowerCase() as LLMProvider;
