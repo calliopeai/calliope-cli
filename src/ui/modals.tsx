@@ -285,9 +285,9 @@ export function SessionResumePrompt({
   onResume: () => void;
   onNew: () => void;
 }) {
-  useInput((input, key) => {
+  useInput((input) => {
     if (input === 'r' || input === 'R') onResume();
-    else if (input === 'n' || input === 'N' || key.escape) onNew();
+    else onNew();  // Any other key starts a new session
   });
 
   const timeAgo = (() => {
@@ -308,7 +308,7 @@ export function SessionResumePrompt({
       <Text>Last active: <Text dimColor>{timeAgo}</Text></Text>
       <Text>Messages: <Text dimColor>{session.messageCount}</Text></Text>
       <Text> </Text>
-      <Text><Text color="cyan">[R]</Text>esume session  <Text color="cyan">[N]</Text>ew session</Text>
+      <Text><Text color="cyan">[R]</Text>esume session  <Text dimColor>any other key = new session</Text></Text>
     </Box>
   );
 }
