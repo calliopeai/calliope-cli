@@ -534,9 +534,21 @@ export async function executeTool(
           return { toolCallId: id, result: 'Error: value is required for set action', isError: true };
         }
 
-        // Don't allow setting API keys through the tool (security)
-        if (key.endsWith('ApiKey')) {
-          return { toolCallId: id, result: 'Error: API keys cannot be set through conversation. Use /keys command or environment variables.', isError: true };
+        // Only allow setting safe keys through conversation (allowlist)
+        const SAFE_CONFIG_KEYS = new Set([
+          'defaultProvider', 'defaultModel', 'persona', 'maxIterations', 'maxIterationTime',
+          'fancyOutput', 'autoSaveHistory', 'autoUpgrade',
+          'collapseTools', 'collapseThinking', 'toolDisplayLimit',
+          'layout', 'density',
+          'activeSkin', 'activePalette', 'activeCompanion', 'activeThemePack',
+          'companionIntensity', 'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
+          'circuitBreakersEnabled', 'sandboxMode',
+          'smartRoutingEnabled', 'smartRoutingCostSensitivity',
+          'recordSessions', 'recordingRetentionDays',
+          'awsRegion', 'awsProfile',
+        ]);
+        if (!SAFE_CONFIG_KEYS.has(key)) {
+          return { toolCallId: id, result: `Error: "${key}" cannot be set through conversation. Use /keys command, environment variables, or edit the config file directly.`, isError: true };
         }
 
         // Parse the value to the correct type
@@ -564,6 +576,9 @@ export async function executeTool(
             break;
           }
           if (key === 'activeCompanion') {
+            if (!listCompanions().some(c => c.name === rawValue)) {
+              return { toolCallId: id, result: `Error: companion "${rawValue}" not found. Use action "list" category "companions" to see available companions.`, isError: true };
+            }
             config.set('activeCompanion', rawValue);
             result = `Companion changed to "${rawValue}"`;
             break;

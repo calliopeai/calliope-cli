@@ -89,7 +89,7 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   // Start session recording — respects config
   const actualProvider = selectProvider(state.provider);
   recording.setRecordingEnabled(config.get('recordSessions') !== false);
-  recording.setRetentionDays(config.get('recordingRetentionDays') || 30);
+  recording.setRetentionDays(config.get('recordingRetentionDays') ?? 0);
   recording.startRecording({
     provider: actualProvider,
     model: state.model || DEFAULT_MODELS[actualProvider],

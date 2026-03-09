@@ -127,7 +127,7 @@ export function broadcast(event: { type: string; data: unknown }): void {
 }
 
 function jsonReply(res: http.ServerResponse, status: number, body: JsonResponse): void {
-  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': 'http://localhost:3100' });
   res.end(JSON.stringify(body));
 }
 
@@ -178,16 +178,27 @@ export function startApiServer(opts?: Partial<ApiServerConfig>): Promise<{ port:
       // CORS preflight
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': 'http://localhost:3100',
           'Access-Control-Allow-Methods': 'GET, POST, DELETE',
           'Access-Control-Allow-Headers': 'Content-Type',
         });
         return res.end();
       }
 
+      const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
       let body = '';
-      req.on('data', chunk => { body += chunk; });
+      let bodyExceeded = false;
+      req.on('data', chunk => {
+        body += chunk;
+        if (body.length > MAX_BODY_SIZE) {
+          bodyExceeded = true;
+          req.destroy();
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Request body too large' }));
+        }
+      });
       req.on('end', () => {
+        if (bodyExceeded) return;
         const url = new URL(req.url || '/', `http://${host}:${port}`);
         handleRoute(req.method || 'GET', url.pathname, body, res);
       });

@@ -79,8 +79,9 @@ interface OllamaStreamChunk {
   eval_count?: number;
 }
 
-// Track which models don't support tools so we don't keep retrying
-const toolUnsupportedModels = new Set<string>();
+// Track which models don't support tools — expires after 10 calls to allow recovery
+const toolUnsupportedModels = new Map<string, number>();  // model -> remaining skip count
+const TOOL_SKIP_COUNT = 10;  // Retry tools after this many calls
 
 // ============================================================================
 // Message Conversion
@@ -152,6 +153,49 @@ function parseOllamaToolCalls(toolCalls?: OllamaToolCall[]): ToolCall[] {
   }));
 }
 
+/**
+ * Parse text-based tool calls from model output when structured tool calling isn't available.
+ * Handles XML-style: <function=name><parameter=key>value</parameter></function>
+ * Handles JSON-style: {"name": "tool", "arguments": {...}}
+ */
+function parseTextToolCalls(content: string): { toolCalls: ToolCall[]; cleanContent: string } {
+  const toolCalls: ToolCall[] = [];
+
+  // Match XML-style: <function=name><parameter=key>value</parameter>...</function>
+  const xmlPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
+  const paramPattern = /<parameter=(\w+)>([\s\S]*?)<\/parameter>/g;
+
+  let match;
+  while ((match = xmlPattern.exec(content)) !== null) {
+    const name = match[1];
+    const body = match[2];
+    const args: Record<string, unknown> = {};
+
+    let paramMatch;
+    paramPattern.lastIndex = 0;
+    while ((paramMatch = paramPattern.exec(body)) !== null) {
+      const value = paramMatch[2].trim();
+      // Try to parse as JSON, fall back to string
+      try {
+        args[paramMatch[1]] = JSON.parse(value);
+      } catch {
+        args[paramMatch[1]] = value;
+      }
+    }
+
+    toolCalls.push({
+      id: `call_${Date.now()}_${toolCalls.length}`,
+      name,
+      arguments: args,
+    });
+  }
+
+  // Strip matched XML tool calls from content
+  const cleanContent = content.replace(/<function=\w+>[\s\S]*?<\/function>/g, '').trim();
+
+  return { toolCalls, cleanContent };
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -166,10 +210,11 @@ function getBaseUrl(): string {
 
 function isToolError(errText: string): boolean {
   const lower = errText.toLowerCase();
-  return lower.includes('tool') ||
-    lower.includes('function') ||
-    lower.includes('invalid request') ||
-    lower.includes('bad request');
+  // Only match specific tool-related errors, not generic "bad request"
+  return lower.includes('does not support tools') ||
+    lower.includes('tool_calls') ||
+    lower.includes('tools are not supported') ||
+    lower.includes('unknown field') && lower.includes('tool');
 }
 
 // ============================================================================
@@ -183,12 +228,18 @@ export async function chatOllama(
   onToken?: StreamCallback
 ): Promise<LLMResponse> {
   const baseUrl = getBaseUrl();
-  const skipTools = toolUnsupportedModels.has(model);
+  const skipCount = toolUnsupportedModels.get(model) ?? 0;
+  const skipTools = skipCount > 0;
+  if (skipTools) {
+    // Decrement counter — eventually we'll retry with tools
+    toolUnsupportedModels.set(model, skipCount - 1);
+    if (skipCount <= 1) toolUnsupportedModels.delete(model);
+  }
   const ollamaTools = skipTools ? [] : toOllamaTools(tools);
   const ollamaMessages = toOllamaMessages(messages, skipTools);
 
   if (skipTools && tools.length > 0) {
-    debugLog(`ollama: skipping tools for ${model} (known unsupported)`);
+    debugLog(`ollama: skipping tools for ${model} (retry in ${skipCount - 1} calls)`);
   }
   debugLog(`ollama native request: model=${model}, tools=${ollamaTools.length}, stream=${!!onToken}`);
 
@@ -204,8 +255,8 @@ export async function chatOllama(
 
     // Tool-related error (400) — retry without tools
     if (ollamaTools.length > 0 && isToolError(errMsg)) {
-      debugLog(`ollama: model "${model}" rejected tools, retrying without tools`);
-      toolUnsupportedModels.add(model);
+      debugLog(`ollama: model "${model}" rejected tools, retrying without tools (will retry in ${TOOL_SKIP_COUNT} calls)`);
+      toolUnsupportedModels.set(model, TOOL_SKIP_COUNT);
       const cleanMessages = toOllamaMessages(messages, true);
       return doChat(baseUrl, model, cleanMessages, [], onToken);
     }
@@ -249,10 +300,21 @@ async function doChat(
     debugLog(`ollama: cold start for ${model} took ${Math.round(data.load_duration / 1_000_000_000)}s`);
   }
 
-  const toolCalls = parseOllamaToolCalls(data.message?.tool_calls);
+  let toolCalls = parseOllamaToolCalls(data.message?.tool_calls);
+  let responseContent = data.message?.content || '';
+
+  // Fallback: parse text-based tool calls if model output XML-style calls
+  if (toolCalls.length === 0 && responseContent.includes('<function=')) {
+    const parsed = parseTextToolCalls(responseContent);
+    if (parsed.toolCalls.length > 0) {
+      toolCalls = parsed.toolCalls;
+      responseContent = parsed.cleanContent;
+      debugLog(`ollama: parsed ${toolCalls.length} text-based tool call(s) from response`);
+    }
+  }
 
   return {
-    content: data.message?.content || '',
+    content: responseContent,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason: toolCalls.length > 0 ? 'tool_use' : 'stop',
     usage: {
@@ -304,6 +366,16 @@ async function streamResponse(
         if (chunk.prompt_eval_count) promptTokens = chunk.prompt_eval_count;
         if (chunk.eval_count) completionTokens = chunk.eval_count;
       }
+    }
+  }
+
+  // Fallback: parse text-based tool calls from streamed content
+  if (allToolCalls.length === 0 && content.includes('<function=')) {
+    const parsed = parseTextToolCalls(content);
+    if (parsed.toolCalls.length > 0) {
+      allToolCalls = parsed.toolCalls;
+      content = parsed.cleanContent;
+      debugLog(`ollama: parsed ${allToolCalls.length} text-based tool call(s) from stream`);
     }
   }
 

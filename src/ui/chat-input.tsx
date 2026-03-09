@@ -443,7 +443,7 @@ export function ChatInput({
       {(queuedCount ?? 0) > 0 && (
         <Box>
           <Text color={getInkColor('warning')}>📨 {queuedCount} queued</Text>
-          <Text dimColor> | !msg to send now</Text>
+          <Text dimColor> | #msg to send now</Text>
         </Box>
       )}
       <Box>

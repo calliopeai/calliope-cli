@@ -367,7 +367,7 @@ function TerminalChat() {
 
       // Start session recording (audit log) — respects config
       recording.setRecordingEnabled(config.get('recordSessions') !== false);
-      recording.setRetentionDays(config.get('recordingRetentionDays') || 30);
+      recording.setRetentionDays(config.get('recordingRetentionDays') ?? 0);
       recording.startRecording({
         provider: selectProvider(provider),
         model: model || DEFAULT_MODELS[selectProvider(provider)],

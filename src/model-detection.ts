@@ -659,8 +659,18 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
     }
   }
 
-  // Fallback to known Bedrock models
+  // Fallback to known Bedrock models — global inference IDs first, then regional
   return [
+    // Global inference models (cross-region, recommended)
+    { id: 'us.anthropic.claude-opus-4-20250514-v1:0', name: 'Claude Opus 4 (Global)', description: 'Most capable model for complex tasks', contextLength: 200000 },
+    { id: 'us.anthropic.claude-sonnet-4-20250514-v1:0', name: 'Claude Sonnet 4 (Global)', description: 'Balanced intelligence and speed', contextLength: 200000 },
+    { id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', name: 'Claude Haiku 4.5 (Global)', description: 'Fast and affordable', contextLength: 200000 },
+    { id: 'us.anthropic.claude-3-5-haiku-20241022-v1:0', name: 'Claude 3.5 Haiku (Global)', description: 'Previous gen fast model', contextLength: 200000 },
+    { id: 'us.anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2 (Global)', description: 'Previous gen balanced model', contextLength: 200000 },
+    { id: 'us.meta.llama3-3-70b-instruct-v1:0', name: 'Llama 3.3 70B (Global)', description: 'Meta\'s latest large model', contextLength: 128000 },
+    { id: 'us.amazon.nova-pro-v1:0', name: 'Amazon Nova Pro (Global)', description: 'Amazon\'s capable model', contextLength: 300000 },
+    { id: 'us.amazon.nova-lite-v1:0', name: 'Amazon Nova Lite (Global)', description: 'Amazon\'s fast affordable model', contextLength: 300000 },
+    // Regional models (legacy)
     { id: 'anthropic.claude-3-5-sonnet-20241022-v2:0', name: 'Claude 3.5 Sonnet v2 (Bedrock)', description: 'Balanced intelligence and speed', contextLength: 200000 },
     { id: 'anthropic.claude-3-opus-20240229-v1:0', name: 'Claude 3 Opus (Bedrock)', description: 'Most capable for complex tasks', contextLength: 200000 },
     { id: 'anthropic.claude-3-haiku-20240307-v1:0', name: 'Claude 3 Haiku (Bedrock)', description: 'Fast and affordable', contextLength: 200000 },

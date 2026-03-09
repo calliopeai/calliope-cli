@@ -42,6 +42,8 @@ export interface CalliopeConfig {
   litellmApiKey?: string;
   bedrockApiKey?: string;   // AWS Bedrock API key (for gateway/proxy auth)
   bedrockBaseUrl?: string;  // AWS Bedrock gateway/proxy URL
+  awsRegion?: string;       // AWS region for Bedrock (default: us-east-1)
+  awsProfile?: string;      // AWS named profile
 
   // Agent settings
   persona: AgentPersona;
@@ -168,6 +170,8 @@ const config = new Conf<CalliopeConfig>({
     litellmApiKey: { type: 'string' },
     bedrockApiKey: { type: 'string' },
     bedrockBaseUrl: { type: 'string' },
+    awsRegion: { type: 'string' },
+    awsProfile: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'muse', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
@@ -195,6 +199,7 @@ const config = new Conf<CalliopeConfig>({
     smartRoutingEnabled: { type: 'boolean' },
     smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
     recordSessions: { type: 'boolean' },
+    sessionTimeoutMs: { type: 'number', minimum: 0 },
     recordingRetentionDays: { type: 'number', minimum: 0 },
   },
 });
@@ -334,7 +339,7 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (config.get('ai21ApiKey') || process.env.AI21_API_KEY) providers.push('ai21');
   if (config.get('huggingfaceApiKey') || process.env.HUGGINGFACE_API_KEY) providers.push('huggingface');
   if (config.get('litellmBaseUrl') || process.env.LITELLM_BASE_URL) providers.push('litellm');
-  if (config.get('bedrockApiKey') || process.env.BEDROCK_API_KEY || config.get('bedrockBaseUrl') || process.env.BEDROCK_BASE_URL) providers.push('bedrock');
+  if (config.get('bedrockApiKey') || process.env.BEDROCK_API_KEY || config.get('bedrockBaseUrl') || process.env.BEDROCK_BASE_URL || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
 
   return providers;
 }

@@ -14,6 +14,7 @@ import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
 import { chatOllama } from './ollama.js';
+import { chatBedrock } from './bedrock.js';
 
 /**
  * Get available providers based on configured API keys
@@ -33,7 +34,7 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('ai21')) providers.push('ai21');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
   if (config.getBaseUrl('litellm')) providers.push('litellm');
-  if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) providers.push('bedrock');
+  if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
 
   return providers;
 }
@@ -47,7 +48,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
     if (preferred === 'ollama' || preferred === 'litellm') {
       if (config.getBaseUrl(preferred)) return preferred;
     } else if (preferred === 'bedrock') {
-      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) return preferred;
+      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return preferred;
     } else {
       const key = config.getApiKey(preferred);
       if (key) return preferred;
@@ -61,7 +62,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
     if (p === 'ollama' || p === 'litellm') {
       if (config.getBaseUrl(p)) return p;
     } else if (p === 'bedrock') {
-      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock')) return p;
+      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return p;
     } else if (config.getApiKey(p)) {
       return p;
     }
@@ -107,9 +108,19 @@ export async function chat(
         response = await chatOllama(messages, tools, actualModel, onToken);
         break;
       case 'litellm':
-      case 'bedrock':
         response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
         break;
+      case 'bedrock': {
+        const bedrockBase = config.getBaseUrl('bedrock');
+        if (bedrockBase) {
+          // Gateway/proxy mode (existing)
+          response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        } else {
+          // Native AWS mode
+          response = await chatBedrock(messages, tools, actualModel, onToken);
+        }
+        break;
+      }
       default:
         throw new Error(`Provider ${actualProvider} not implemented`);
     }

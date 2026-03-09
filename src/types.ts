@@ -99,7 +99,7 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   ai21: 'jamba-1.5-large',
   huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
-  bedrock: 'anthropic.claude-3-5-sonnet-20241022-v2:0',  // AWS Bedrock (via gateway/proxy)
+  bedrock: 'us.anthropic.claude-sonnet-4-20250514-v1:0',  // AWS Bedrock (native Converse API)
   auto: 'claude-sonnet-4-20250514',
 };
 
@@ -258,7 +258,16 @@ export const MODEL_PRICING: Record<string, { input: number; output: number }> = 
   'llama-3.1-8b-instant': { input: 0.05, output: 0.08 },
   // Together
   'meta-llama/Llama-3.3-70B-Instruct-Turbo': { input: 0.88, output: 0.88 },
-  // AWS Bedrock (same pricing as direct Anthropic)
+  // AWS Bedrock — global inference model IDs
+  'us.anthropic.claude-opus-4-20250514-v1:0': { input: 15, output: 75 },
+  'us.anthropic.claude-sonnet-4-20250514-v1:0': { input: 3, output: 15 },
+  'us.anthropic.claude-haiku-4-5-20251001-v1:0': { input: 0.8, output: 4 },
+  'us.anthropic.claude-3-5-sonnet-20241022-v2:0': { input: 3, output: 15 },
+  'us.anthropic.claude-3-5-haiku-20241022-v1:0': { input: 0.8, output: 4 },
+  'us.meta.llama3-3-70b-instruct-v1:0': { input: 0.99, output: 0.99 },
+  'us.amazon.nova-pro-v1:0': { input: 0.8, output: 3.2 },
+  'us.amazon.nova-lite-v1:0': { input: 0.06, output: 0.24 },
+  // AWS Bedrock — regional model IDs (legacy)
   'anthropic.claude-3-5-sonnet-20241022-v2:0': { input: 3, output: 15 },
   'anthropic.claude-3-opus-20240229-v1:0': { input: 15, output: 75 },
   'anthropic.claude-3-haiku-20240307-v1:0': { input: 0.25, output: 1.25 },
