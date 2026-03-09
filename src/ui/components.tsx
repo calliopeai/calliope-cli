@@ -312,7 +312,7 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
       <Box>
         <Text color={primaryColor}>{spinFrames[frame % spinFrames.length]}</Text>
         <Text color={primaryColor} bold> {displayStatus}</Text>
-        {state.iteration != null && state.maxIterations && (
+        {state.iteration != null && state.maxIterations && Number.isFinite(state.maxIterations) && (
           <Text dimColor> ({state.iteration}/{state.maxIterations})</Text>
         )}
         {elapsed > 0 && (
