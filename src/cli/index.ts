@@ -13,7 +13,7 @@ import * as memory from '../memory.js';
 import * as hooks from '../hooks.js';
 import { color } from '../styles.js';
 import { getCurrentSkin, paletteColorize } from '../hud/api.js';
-import { getCurrentCompanion } from '../companions.js';
+import { getCurrentCompanion, setEmojiConfig } from '../companions.js';
 import type { CLIOptions, CLIState } from './types.js';
 import { COMMANDS, debugLog } from './types.js';
 import { handleCommand, setStartLoop } from './commands.js';
@@ -25,6 +25,8 @@ import { isTmux, getTmuxInfo } from '../tmux.js';
 
 // Wire startLoop into commands (avoids circular import)
 setStartLoop(startLoop);
+// Wire emoji config (avoids circular dep: companions → config)
+setEmojiConfig(config);
 
 function getBanner(): string {
   const skin = getCurrentSkin();

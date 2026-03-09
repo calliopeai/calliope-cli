@@ -487,15 +487,18 @@ export function getStatusMessage(): string | undefined {
  * Returns emoji if useEmojis is enabled, otherwise returns fallback (default: empty string).
  * Usage: emoji('🔄', '[sync]') → '🔄' or '[sync]' based on config.
  */
+// Cached config reference for emoji() — set lazily on first call
+let _cachedConfig: { get: (key: string) => unknown } | null = null;
+
 export function emoji(icon: string, fallback: string = ''): string {
-  // Lazy import to avoid circular dependency (createRequire for ESM compat)
-  const config = _lazyRequire('./config.js');
-  return config.get('useEmojis') !== false ? icon : fallback;
+  if (!_cachedConfig) {
+    // Return icon by default before config is loaded (safe default)
+    return icon;
+  }
+  return _cachedConfig.get('useEmojis') !== false ? icon : fallback;
 }
 
-// ESM-compatible lazy require using createRequire
-import { createRequire } from 'module';
-const _require = createRequire(import.meta.url);
-function _lazyRequire(specifier: string): any {
-  return _require(specifier);
+/** Called once at startup to inject config reference, avoiding circular import */
+export function setEmojiConfig(config: { get: (key: any) => unknown }): void {
+  _cachedConfig = config;
 }

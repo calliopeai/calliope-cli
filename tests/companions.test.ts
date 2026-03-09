@@ -6,30 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import Module from 'module';
-import path from 'path';
-
-// ---------------------------------------------------------------------------
-// Patch require resolution so that require('./config.js') inside
-// src/companions.ts resolves to the .ts source (vitest doesn't auto-remap
-// CJS require() calls to .ts files).
-// ---------------------------------------------------------------------------
-const origResolveFilename = (Module as any)._resolveFilename;
-(Module as any)._resolveFilename = function (
-  request: string,
-  parent: any,
-  ...rest: any[]
-) {
-  if (
-    request === './config.js' &&
-    parent?.filename &&
-    parent.filename.includes('companions')
-  ) {
-    const dir = path.dirname(parent.filename);
-    return path.join(dir, 'config.ts');
-  }
-  return origResolveFilename.call(this, request, parent, ...rest);
-};
+import * as config from '../src/config.js';
 
 import {
   COMPANIONS,
@@ -46,6 +23,7 @@ import {
   getErrorPhrase,
   getStatusMessage,
   emoji,
+  setEmojiConfig,
   type PersonaCompanion,
   type MoodState,
 } from '../src/companions.js';
@@ -57,6 +35,8 @@ import {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  // Wire config into emoji() (same pattern as app entry points)
+  setEmojiConfig(config);
   // Reset current companion and mood to defaults
   applyCompanion('calliope');
   setMood('idle');

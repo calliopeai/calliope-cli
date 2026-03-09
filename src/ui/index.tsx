@@ -26,7 +26,7 @@ import type { ModelInfo } from '../model-detection.js';
 import { getCurrentSkin, getCurrentPalette, paletteColorize, applySkin, applyPalette } from '../hud/api.js';
 import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
 import { HUDFrame } from './frame.js';
-import { getCurrentCompanion, applyCompanion } from '../companions.js';
+import { getCurrentCompanion, applyCompanion, setEmojiConfig } from '../companions.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
@@ -59,6 +59,9 @@ import { handleCommand } from './commands.js';
 import type { CommandContext } from './commands.js';
 import { runAgentImpl, runLoopImpl, validateAndRepairMessagesImpl } from './agent.js';
 import type { AgentContext } from './agent.js';
+
+// Wire emoji config at module load (breaks circular dep: companions → config)
+setEmojiConfig(config);
 
 // Module-level state for agterm mode
 let moduleAgtermEnabled = false;
