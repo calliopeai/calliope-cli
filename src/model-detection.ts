@@ -559,13 +559,53 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
     }
 
     const data = await response.json() as { models: Array<{ name: string; size: number; details?: { parameter_size?: string; family?: string } }> };
-    return data.models
-      .filter(model => isCompatibleModel(model.name, 'ollama'))
-      .map((model) => ({
+    const models = data.models.filter(model => isCompatibleModel(model.name, 'ollama'));
+
+    // Query actual num_ctx for each model via /api/show
+    const results: ModelInfo[] = [];
+    for (const model of models) {
+      let contextLength: number | undefined;
+      try {
+        const showResp = await fetch(`${baseUrl}/api/show`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: model.name }),
+        });
+        if (showResp.ok) {
+          const showData = await showResp.json() as {
+            model_info?: Record<string, unknown>;
+            parameters?: string;
+          };
+          // Check model_info for context length keys
+          if (showData.model_info) {
+            const ctxKey = Object.keys(showData.model_info).find(k =>
+              k.includes('context_length') || k.includes('context_window')
+            );
+            if (ctxKey && typeof showData.model_info[ctxKey] === 'number') {
+              contextLength = showData.model_info[ctxKey] as number;
+            }
+          }
+          // Also check Modelfile parameters for num_ctx override
+          if (showData.parameters) {
+            const numCtxMatch = showData.parameters.match(/num_ctx\s+(\d+)/);
+            if (numCtxMatch) {
+              contextLength = parseInt(numCtxMatch[1], 10);
+            }
+          }
+        }
+      } catch {
+        // Skip — we'll use the default context limit
+      }
+
+      results.push({
         id: model.name,
         name: model.name,
         description: `Size: ${formatSize(model.size)}${model.details?.parameter_size ? ` (${model.details.parameter_size})` : ''}`,
-      }));
+        contextLength,
+      });
+    }
+
+    return results;
   } catch (error) {
     throw new Error(`Failed to connect to Ollama at ${baseUrl}. Is Ollama running? Try: ollama serve`);
   }

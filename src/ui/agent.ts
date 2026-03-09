@@ -196,11 +196,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.setContextTokens(currentContextTokens);
       ctx.addMessage('system', `✓ Compacted ${result.summarizedCount} messages. Now at ${Math.round(contextPercentage)}% (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K)`);
     } else {
-      // If compaction didn't help enough, warn user
+      // If compaction didn't help enough, force-trim old messages
       if (contextPercentage > 98) {
-        ctx.addMessage('error', `🚨 Context at ${Math.round(contextPercentage)}% - cannot proceed safely. Please use /clear or reduce message size.`);
-        ctx.setIsProcessing(false);
-        return;
+        const systemMsgs = ctx.llmMessages.current.filter(m => m.role === 'system');
+        const recentMsgs = ctx.llmMessages.current.filter(m => m.role !== 'system').slice(-5);
+        ctx.llmMessages.current = [...systemMsgs, ...recentMsgs];
+        currentContextTokens = ctx.estimateContextTokens();
+        contextPercentage = (currentContextTokens / modelLimit) * 100;
+        ctx.setContextTokens(currentContextTokens);
+        ctx.addMessage('system', `⚠️  Force-trimmed to last 5 messages (${Math.round(contextPercentage)}%). Use /clear for a full reset.`);
       }
     }
   } else if (contextPercentage > 65) {
