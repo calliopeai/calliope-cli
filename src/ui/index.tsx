@@ -620,6 +620,29 @@ function TerminalChat() {
       return;
     }
 
+    // ! prefix executes shell commands directly
+    if (trimmed.startsWith('!')) {
+      const shellCmd = trimmed.slice(1).trim();
+      if (shellCmd) {
+        addMessage('system', `$ ${shellCmd}`);
+        try {
+          const { execSync } = await import('child_process');
+          const output = execSync(shellCmd, {
+            cwd: process.cwd(),
+            encoding: 'utf-8',
+            timeout: 30000,
+            stdio: ['pipe', 'pipe', 'pipe'],
+            maxBuffer: 10 * 1024 * 1024,
+          }).trim();
+          addMessage('system', output || '(no output)');
+        } catch (err: unknown) {
+          const execErr = err as { stderr?: string; message?: string };
+          addMessage('error', execErr.stderr?.trim() || execErr.message || String(err));
+        }
+      }
+      return;
+    }
+
     // In hybrid mode, check for complex operations
     if (mode === 'hybrid') {
       const complexity = detectComplexity(trimmed);

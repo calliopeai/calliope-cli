@@ -218,9 +218,9 @@ export function ChatInput({
         return;
       }
 
-      // ! prefix sends directly: "!fix this now" interrupts and sends
-      if (key.return && currentValue.trim().startsWith('!') && onDirectSend) {
-        const msg = currentValue.trim().slice(1).trim(); // Remove ! prefix
+      // # prefix sends directly to LLM: "#fix this now" interrupts and sends
+      if (key.return && currentValue.trim().startsWith('#') && onDirectSend) {
+        const msg = currentValue.trim().slice(1).trim(); // Remove # prefix
         if (msg) {
           onDirectSend(msg);
           onSetEditingQueueIndex?.(null);
