@@ -406,10 +406,9 @@ describe('write_file tool - diff and edge cases', () => {
       path: filePath,
       content: lines.join('\n'),
     }), tmpDir);
-    expect(result.result).toContain('DIFF:NEW_FILE');
-    expect(result.result).toContain('Added 20 lines');
-    // Preview should be truncated at 10 lines
-    expect(result.result).toContain('new file truncated');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('[new file:');
+    expect(result.result).toContain('+');
   });
 
   it('should show additions in diff', async () => {
@@ -420,7 +419,7 @@ describe('write_file tool - diff and edge cases', () => {
       path: filePath,
       content: 'line1\nnew-line2\nline3-added',
     }), tmpDir);
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
     expect(result.result).toContain('+');
   });
 });
@@ -436,7 +435,8 @@ describe('read_file tool - edge cases', () => {
 
     const result = await executeTool(makeTool('read_file', { path: 'relative-test.txt' }), tmpDir);
     expect(result.isError).toBeUndefined();
-    expect(result.result).toBe('relative content');
+    expect(result.result).toContain('relative content');
+    expect(result.result).toContain('[file:');
   });
 
   it('should read empty file', async () => {
@@ -445,7 +445,8 @@ describe('read_file tool - edge cases', () => {
 
     const result = await executeTool(makeTool('read_file', { path: filePath }), tmpDir);
     expect(result.isError).toBeUndefined();
-    expect(result.result).toBe('');
+    // Empty file still gets the preview header
+    expect(result.result).toContain('[file:');
   });
 
   it('should read file with unicode content', async () => {
@@ -455,7 +456,7 @@ describe('read_file tool - edge cases', () => {
 
     const result = await executeTool(makeTool('read_file', { path: filePath }), tmpDir);
     expect(result.isError).toBeUndefined();
-    expect(result.result).toBe(content);
+    expect(result.result).toContain(content);
   });
 });
 

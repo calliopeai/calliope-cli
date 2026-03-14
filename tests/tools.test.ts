@@ -158,12 +158,13 @@ describe('ask_question tool', () => {
 // ===========================================================================
 
 describe('write_file tool', () => {
-  it('should create a new file and return DIFF:NEW_FILE', async () => {
+  it('should create a new file and return new file header', async () => {
     const filePath = path.join(tmpDir, 'hello.txt');
     const result = await executeTool(makeTool('write_file', { path: filePath, content: 'hello world' }), tmpDir);
 
     expect(result.isError).toBeUndefined();
-    expect(result.result).toContain('DIFF:NEW_FILE');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('[new file:');
     expect(fs.existsSync(filePath)).toBe(true);
     expect(fs.readFileSync(filePath, 'utf-8')).toBe('hello world');
   });
@@ -174,7 +175,8 @@ describe('write_file tool', () => {
 
     const result = await executeTool(makeTool('write_file', { path: filePath, content: 'new content' }), tmpDir);
     expect(result.isError).toBeUndefined();
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('---');
     expect(fs.readFileSync(filePath, 'utf-8')).toBe('new content');
   });
 
@@ -203,7 +205,7 @@ describe('write_file tool', () => {
     fs.writeFileSync(filePath, 'line1\nline2\nline3');
 
     const result = await executeTool(makeTool('write_file', { path: filePath, content: 'line1\nchanged\nline3' }), tmpDir);
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
     // The diff should contain some change indication
     expect(result.result).toMatch(/[\-\+]/);
   });
@@ -214,13 +216,14 @@ describe('write_file tool', () => {
 // ===========================================================================
 
 describe('read_file tool', () => {
-  it('should read an existing file', async () => {
+  it('should read an existing file and include preview header', async () => {
     const filePath = path.join(tmpDir, 'read-me.txt');
     fs.writeFileSync(filePath, 'file contents here');
 
     const result = await executeTool(makeTool('read_file', { path: filePath }), tmpDir);
     expect(result.isError).toBeUndefined();
-    expect(result.result).toBe('file contents here');
+    expect(result.result).toContain('[file:');
+    expect(result.result).toContain('file contents here');
   });
 
   it('should error when file does not exist', async () => {

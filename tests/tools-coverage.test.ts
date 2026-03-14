@@ -270,7 +270,8 @@ describe('path validation - edge cases', () => {
       tmpDir,
     );
     expect(result.isError).toBeUndefined();
-    expect(result.result).toBe('ok');
+    expect(result.result).toContain('ok');
+    expect(result.result).toContain('[file:');
   });
 
   it('should reject paths with .. that resolve outside scope', async () => {
@@ -296,11 +297,11 @@ describe('write_file - generateDiff details', () => {
       makeTool('write_file', { path: filePath, content: 'line1\nline4' }),
       tmpDir,
     );
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
     expect(result.result).toContain('-');
   });
 
-  it('should show "Added N lines" for purely added content', async () => {
+  it('should show additions for purely added content', async () => {
     const filePath = path.join(tmpDir, 'add.txt');
     fs.writeFileSync(filePath, 'line1');
 
@@ -308,12 +309,12 @@ describe('write_file - generateDiff details', () => {
       makeTool('write_file', { path: filePath, content: 'line1\nline2\nline3' }),
       tmpDir,
     );
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
     // Should show additions
     expect(result.result).toContain('+');
   });
 
-  it('should truncate diff at maxLines (20) for large changes', async () => {
+  it('should truncate diff at 50 lines for large changes', async () => {
     const filePath = path.join(tmpDir, 'bigchange.txt');
     const old = Array.from({ length: 50 }, (_, i) => `old-${i}`).join('\n');
     const newContent = Array.from({ length: 50 }, (_, i) => `new-${i}`).join('\n');
@@ -323,7 +324,7 @@ describe('write_file - generateDiff details', () => {
       makeTool('write_file', { path: filePath, content: newContent }),
       tmpDir,
     );
-    expect(result.result).toContain('more changes truncated');
+    expect(result.result).toContain('truncated');
   });
 
   it('should handle writing to file where old content cannot be read (large file)', async () => {
@@ -338,37 +339,35 @@ describe('write_file - generateDiff details', () => {
     );
     expect(result.isError).toBeUndefined();
     expect(fs.readFileSync(filePath, 'utf-8')).toBe('replaced');
-    // Since old content was too large to read, it should treat as new or have empty diff
-    // Based on code: oldContent stays '', isNewFile stays true -> shows NEW_FILE style
-    // Actually: fs.existsSync will be true, stats.isDirectory() false, but stats.size > 100*1024
-    // so oldContent stays '', isNewFile stays true... wait no: isNewFile defaults to true,
-    // but existsSync is true and then the try block skips reading since stats.size > 100*1024
-    // isNewFile stays true. So it generates a NEW_FILE diff.
-    expect(result.result).toContain('DIFF:');
+    // Since old content was too large to read, isNewFile stays true -> shows [new file:] style
+    expect(result.result).toContain('[wrote:');
   });
 
-  it('should handle new file with exactly 10 lines (no truncation message)', async () => {
+  it('should handle new file with exactly 10 lines', async () => {
     const filePath = path.join(tmpDir, 'exact10.txt');
     const lines = Array.from({ length: 10 }, (_, i) => `line ${i + 1}`);
     const result = await executeTool(
       makeTool('write_file', { path: filePath, content: lines.join('\n') }),
       tmpDir,
     );
-    expect(result.result).toContain('DIFF:NEW_FILE');
-    expect(result.result).toContain('Added 10 lines');
-    expect(result.result).not.toContain('new file truncated');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('[new file:');
+    expect(result.result).toContain('+line 1');
+    expect(result.result).not.toContain('truncated');
   });
 
-  it('should handle new file with 11 lines (shows truncation)', async () => {
-    const filePath = path.join(tmpDir, 'eleven.txt');
-    const lines = Array.from({ length: 11 }, (_, i) => `line ${i + 1}`);
+  it('should handle new file with 60 lines (shows truncation at 50)', async () => {
+    const filePath = path.join(tmpDir, 'sixty.txt');
+    const lines = Array.from({ length: 60 }, (_, i) => `line ${i + 1}`);
     const result = await executeTool(
       makeTool('write_file', { path: filePath, content: lines.join('\n') }),
       tmpDir,
     );
-    expect(result.result).toContain('DIFF:NEW_FILE');
-    expect(result.result).toContain('Added 11 lines');
-    expect(result.result).toContain('new file truncated');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('[new file:');
+    // Truncation notice for new files uses "... (N more lines)" format
+    expect(result.result).toContain('more lines');
+    expect(result.result).not.toContain('+line 51');
   });
 });
 
@@ -646,7 +645,7 @@ describe('create_plan tool - without reasoning', () => {
 // ===========================================================================
 
 describe('write_file - file unchanged', () => {
-  it('should return DIFF with zero changes when content is identical', async () => {
+  it('should return "File unchanged" when content is identical', async () => {
     const filePath = path.join(tmpDir, 'same.txt');
     const content = 'exact same content\nline 2\nline 3';
     fs.writeFileSync(filePath, content);
@@ -656,9 +655,7 @@ describe('write_file - file unchanged', () => {
       tmpDir,
     );
     expect(result.isError).toBeUndefined();
-    // generateDiff returns "Removed 0 lines" summary even for identical files
-    expect(result.result).toContain('DIFF:');
-    expect(result.result).toContain('0 line');
+    expect(result.result).toContain('unchanged');
   });
 });
 
@@ -762,17 +759,18 @@ describe('list_files - file type icons', () => {
 // ===========================================================================
 
 describe('write_file - diff statistics', () => {
-  it('should show "Modified N lines" for same-length files with changes', async () => {
+  it('should show changed lines for same-length files with modifications', async () => {
     const filePath = path.join(tmpDir, 'modify.txt');
     fs.writeFileSync(filePath, 'aaa\nbbb\nccc');
     const result = await executeTool(
       makeTool('write_file', { path: filePath, content: 'aaa\nBBB\nccc' }),
       tmpDir,
     );
-    expect(result.result).toContain('Modified');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toMatch(/[\-\+]/);
   });
 
-  it('should show "Removed N lines" for purely deleted content', async () => {
+  it('should show deletion lines for purely deleted content', async () => {
     const filePath = path.join(tmpDir, 'remove.txt');
     fs.writeFileSync(filePath, 'line1\nline2\nline3\nline4\nline5');
     // Removing two lines by making them shorter
@@ -780,7 +778,8 @@ describe('write_file - diff statistics', () => {
       makeTool('write_file', { path: filePath, content: 'line1\nline2\nline3' }),
       tmpDir,
     );
-    expect(result.result).toContain('DIFF:');
+    expect(result.result).toContain('[wrote:');
+    expect(result.result).toContain('-');
   });
 });
 
@@ -1062,21 +1061,17 @@ describe('configure tool', () => {
 // ===========================================================================
 
 describe('generateDiff via write_file', () => {
-  it('should show "Added N lines" for purely new content', async () => {
+  it('should show added lines for purely new content', async () => {
     const filePath = path.join(tmpDir, 'addlines.txt');
     fs.writeFileSync(filePath, 'line1');
     const result = await executeTool(
       makeTool('write_file', { path: filePath, content: 'line1\nline2\nline3\nline4' }),
       tmpDir,
     );
-    expect(result.result).toContain('Added');
+    expect(result.result).toContain('+line2');
   });
 
   it('should handle file with identical content', async () => {
-    // When old and new content are the same, generateDiff produces minimal output
-    // The "File unchanged" path requires diff.trim() === '' which doesn't happen
-    // with the current generateDiff implementation (always has summary line).
-    // Instead verify that writing same content does not produce "Added" or "Modified".
     const filePath = path.join(tmpDir, 'same.txt');
     const content = 'same content';
     fs.writeFileSync(filePath, content);
@@ -1085,11 +1080,11 @@ describe('generateDiff via write_file', () => {
       tmpDir,
     );
     expect(result.result).toBeDefined();
-    // The result will include DIFF: or File unchanged
-    expect(result.result).toMatch(/DIFF:|unchanged/);
+    // Identical content returns "File unchanged"
+    expect(result.result).toContain('unchanged');
   });
 
-  it('should truncate very long diffs', async () => {
+  it('should truncate very long diffs at 50 lines', async () => {
     const filePath = path.join(tmpDir, 'longdiff.txt');
     const oldContent = Array.from({ length: 30 }, (_, i) => `old line ${i}`).join('\n');
     const newContent = Array.from({ length: 30 }, (_, i) => `new line ${i}`).join('\n');

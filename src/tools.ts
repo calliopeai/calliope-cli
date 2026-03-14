@@ -16,6 +16,7 @@ import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
 import { applySkin, applyPalette, listSkins, listPalettes } from './hud/api.js';
 import { listCompanions } from './companions.js';
+import { generateDiff as generateFileDiff } from './diff.js';
 
 /**
  * Available tools for the agent
@@ -1026,7 +1027,18 @@ async function readFile(filePath: string, cwd: string): Promise<string> {
     throw new Error(`File too large (${Math.round(stats.size / 1024)}KB). Max 1MB.`);
   }
 
-  return fs.readFileSync(absPath, 'utf-8');
+  const content = fs.readFileSync(absPath, 'utf-8');
+
+  // Inline file preview header (#119)
+  const PREVIEW_CAP = 20;
+  const allLines = content.split('\n');
+  const totalLines = allLines.length;
+  const previewLines = allLines.slice(0, PREVIEW_CAP);
+  const header = `[file: ${filePath} \u2014 ${totalLines} line${totalLines !== 1 ? 's' : ''}]\n${'─'.repeat(40)}`;
+  const previewBody = previewLines.join('\n');
+  const footer = totalLines > PREVIEW_CAP ? `\n... (${totalLines - PREVIEW_CAP} more lines)` : '';
+
+  return `${header}\n${previewBody}${footer}\n\n${content}`;
 }
 
 /**
@@ -1138,22 +1150,36 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
 
   fs.writeFileSync(absPath, content);
 
-  // Generate diff output
+  // Generate diff output (#119)
+  const DIFF_CAP = 50;
+  const header = `[wrote: ${filePath}]\n${'─'.repeat(Math.min(filePath.length + 9, 60))}`;
   if (isNewFile) {
     const allLines = content.split('\n');
-    const lines = allLines.slice(0, 10);
-    const lineNumWidth = Math.max(4, allLines.length.toString().length);
-    const padNum = (n: number) => String(n).padStart(lineNumWidth, ' ');
-    const preview = lines.map((l, i) => `${padNum(i + 1)} +  ${l}`).join('\n');
-    const more = allLines.length > 10 ? '\n  ... (new file truncated)' : '';
-    return `DIFF:NEW_FILE:${absPath}\n⎿  Added ${allLines.length} lines\n${preview}${more}`;
+    const previewLines = allLines.slice(0, DIFF_CAP);
+    const diffLines = previewLines.map(l => `+${l}`);
+    const more = allLines.length > DIFF_CAP ? `\n... (${allLines.length - DIFF_CAP} more lines)` : '';
+    return `${header}\n[new file: ${filePath}]\n--- /dev/null\n+++ b/${filePath}\n${diffLines.join('\n')}${more}`;
   } else {
-    const diff = generateDiff(oldContent, content);
-    if (diff.trim()) {
-      return `DIFF:${absPath}\n${diff}`;
-    } else {
-      return `File unchanged: ${absPath}`;
+    const fileDiff = generateFileDiff(oldContent, content, filePath);
+    const diffParts: string[] = [
+      `--- a/${filePath}`,
+      `+++ b/${filePath}`,
+    ];
+    const diffLines = fileDiff.lines.filter(l => l.type !== 'header');
+    let lineCount = 0;
+    let truncated = false;
+    for (const line of diffLines) {
+      if (line.type === 'context') continue; // skip context for compact output
+      if (lineCount >= DIFF_CAP) { truncated = true; break; }
+      const prefix = line.type === 'add' ? '+' : '-';
+      diffParts.push(`${prefix}${line.content}`);
+      lineCount++;
     }
+    if (truncated) diffParts.push(`... (diff truncated at ${DIFF_CAP} lines)`);
+    if (lineCount === 0) {
+      return `File unchanged: ${filePath}`;
+    }
+    return `${header}\n${diffParts.join('\n')}`;
   }
 }
 
@@ -1474,6 +1500,35 @@ async function editFile(
 
   const content = fs.readFileSync(absPath, 'utf-8');
 
+  // Helper to build a compact edit diff from old_string/new_string (#119)
+  const buildEditDiff = (oldStr: string, newStr: string, fPath: string, count: number): string => {
+    const DIFF_CAP = 50;
+    const label = count === 1 ? '1 occurrence' : `${count} occurrences`;
+    const header = `[edited: ${fPath} — replaced ${label}]\n${'─'.repeat(Math.min(fPath.length + 10, 60))}`;
+    const oldLines = oldStr.split('\n');
+    const newLines = newStr.split('\n');
+    const diffParts: string[] = [
+      `--- a/${fPath}`,
+      `+++ b/${fPath}`,
+    ];
+    let lineCount = 0;
+    let truncated = false;
+    for (const line of oldLines) {
+      if (lineCount >= DIFF_CAP) { truncated = true; break; }
+      diffParts.push(`-${line}`);
+      lineCount++;
+    }
+    if (!truncated) {
+      for (const line of newLines) {
+        if (lineCount >= DIFF_CAP) { truncated = true; break; }
+        diffParts.push(`+${line}`);
+        lineCount++;
+      }
+    }
+    if (truncated) diffParts.push(`... (diff truncated at ${DIFF_CAP} lines)`);
+    return `${header}\n${diffParts.join('\n')}`;
+  };
+
   if (replaceAll) {
     const updated = content.replaceAll(oldString, newString);
     const count = (content.split(oldString).length - 1);
@@ -1481,7 +1536,7 @@ async function editFile(
       throw new Error(`old_string not found in file: ${absPath}`);
     }
     fs.writeFileSync(absPath, updated);
-    return `Edited ${absPath} (replaced ${count} occurrence${count !== 1 ? 's' : ''})`;
+    return buildEditDiff(oldString, newString, filePath, count);
   }
 
   // Count occurrences
@@ -1497,7 +1552,7 @@ async function editFile(
 
   const updated = content.replace(oldString, newString);
   fs.writeFileSync(absPath, updated);
-  return `Edited ${absPath} (replaced 1 occurrence)`;
+  return buildEditDiff(oldString, newString, filePath, 1);
 }
 
 /**
