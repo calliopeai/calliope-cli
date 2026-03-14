@@ -227,6 +227,24 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'glob',
+    description: 'Find files matching a glob pattern (e.g. **/*.ts, src/**/*.json). Returns paths relative to cwd, sorted.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'Glob pattern to match files against (e.g. **/*.ts, src/**/*.json)',
+        },
+        cwd: {
+          type: 'string',
+          description: 'Directory to search in (default: current working directory)',
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
     name: 'configure',
     description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, companions, or any preference through natural conversation. Always use action "list" first if you need to show available options.
 
@@ -641,6 +659,15 @@ export async function executeTool(
         }
         const replaceAll = args.replace_all === true;
         result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd);
+        break;
+      }
+
+      case 'glob': {
+        if (typeof args.pattern !== 'string') {
+          return { toolCallId: id, result: 'Error: pattern must be a string', isError: true };
+        }
+        const globCwd = typeof args.cwd === 'string' ? args.cwd : cwd;
+        result = await globFiles(args.pattern, globCwd);
         break;
       }
 
@@ -1434,5 +1461,107 @@ async function editFile(
   const updated = content.replace(oldString, newString);
   fs.writeFileSync(absPath, updated);
   return `Edited ${absPath} (replaced 1 occurrence)`;
+}
+
+/**
+ * Convert a glob pattern to a RegExp.
+ * Supports: *, **, ?, {a,b} syntax.
+ */
+function globToRegex(pattern: string): RegExp {
+  let regexStr = '';
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i];
+    if (ch === '*') {
+      if (pattern[i + 1] === '*') {
+        // ** matches any path segment including slashes
+        regexStr += '.*';
+        i += 2;
+        // Consume optional trailing slash
+        if (pattern[i] === '/') i++;
+      } else {
+        // * matches anything except /
+        regexStr += '[^/]*';
+        i++;
+      }
+    } else if (ch === '?') {
+      regexStr += '[^/]';
+      i++;
+    } else if (ch === '{') {
+      // {a,b,c} → (a|b|c)
+      const end = pattern.indexOf('}', i);
+      if (end === -1) {
+        regexStr += '\\{';
+        i++;
+      } else {
+        const options = pattern.slice(i + 1, end).split(',').map(s => s.replace(/[.+^$[\]\\(){}|]/g, '\\$&'));
+        regexStr += `(?:${options.join('|')})`;
+        i = end + 1;
+      }
+    } else if ('.+^$[]\\(){}|'.includes(ch)) {
+      regexStr += '\\' + ch;
+      i++;
+    } else {
+      regexStr += ch;
+      i++;
+    }
+  }
+  return new RegExp(`^${regexStr}$`);
+}
+
+/**
+ * Recursively walk a directory and collect all file paths relative to the base.
+ */
+function walkDir(dir: string, base: string, results: string[]): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    const relPath = path.relative(base, fullPath);
+    if (entry.isDirectory()) {
+      walkDir(fullPath, base, results);
+    } else {
+      results.push(relPath);
+    }
+  }
+}
+
+/**
+ * Find files matching a glob pattern.
+ */
+async function globFiles(pattern: string, searchCwd: string): Promise<string> {
+  const absCwd = path.isAbsolute(searchCwd)
+    ? path.resolve(searchCwd)
+    : path.resolve(searchCwd);
+
+  let exists = false;
+  try {
+    exists = fs.existsSync(absCwd) && fs.statSync(absCwd).isDirectory();
+  } catch {
+    exists = false;
+  }
+  if (!exists) {
+    throw new Error(`Directory not found: ${absCwd}`);
+  }
+
+  const regex = globToRegex(pattern);
+
+  const allFiles: string[] = [];
+  walkDir(absCwd, absCwd, allFiles);
+
+  // Normalize to forward slashes for matching (glob convention)
+  const matched = allFiles
+    .filter(f => regex.test(f.replace(/\\/g, '/')))
+    .sort();
+
+  if (matched.length === 0) {
+    return `No files matched pattern: ${pattern}`;
+  }
+
+  return matched.join('\n');
 }
 

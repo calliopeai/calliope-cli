@@ -157,3 +157,112 @@ describe('edit_file tool', () => {
     expect(result.result).toContain('new_string must be a string');
   });
 });
+
+// ===========================================================================
+// glob tool (#113)
+// ===========================================================================
+
+describe('glob tool', () => {
+  beforeEach(() => {
+    // Set up a small directory tree
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'src', 'nested'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'a.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'b.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'c.js'), '');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'd.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'e.json'), '');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'nested', 'f.ts'), '');
+  });
+
+  it('simple pattern: *.ts matches .ts files in root', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '*.ts', cwd: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('a.ts');
+    expect(result.result).toContain('b.ts');
+    expect(result.result).not.toContain('c.js');
+    // Root-level only
+    expect(result.result).not.toContain('d.ts');
+  });
+
+  it('recursive pattern: **/*.ts matches nested .ts files', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '**/*.ts', cwd: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('a.ts');
+    expect(result.result).toContain('b.ts');
+    // Nested files
+    const lines = result.result.split('\n');
+    const hasNested = lines.some(l => l.includes('d.ts') || l.includes('f.ts'));
+    expect(hasNested).toBe(true);
+    expect(result.result).not.toContain('c.js');
+  });
+
+  it('no matches: returns descriptive message', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '*.xyz', cwd: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('No files matched');
+  });
+
+  it('invalid/nonexistent cwd path: handled gracefully', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '*.ts', cwd: path.join(tmpDir, 'does-not-exist') }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('Error');
+  });
+
+  it('error: pattern must be a string', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: 42 }),
+      tmpDir,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('pattern must be a string');
+  });
+
+  it('results are sorted', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '*.ts', cwd: tmpDir }),
+      tmpDir,
+    );
+    const lines = result.result.split('\n').filter(Boolean);
+    const sorted = [...lines].sort();
+    expect(lines).toEqual(sorted);
+  });
+
+  it('? wildcard matches single character', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: '?.ts', cwd: tmpDir }),
+      tmpDir,
+    );
+    // a.ts and b.ts should match (single char before .ts)
+    expect(result.result).toContain('a.ts');
+    expect(result.result).toContain('b.ts');
+  });
+
+  it('{a,b} brace expansion matches multiple extensions', async () => {
+    const result = await executeTool(
+      makeTool('glob', { pattern: 'src/*.{ts,json}', cwd: tmpDir }),
+      tmpDir,
+    );
+    const lines = result.result.split('\n').filter(Boolean);
+    const hasTs = lines.some(l => l.endsWith('d.ts'));
+    const hasJson = lines.some(l => l.endsWith('e.json'));
+    expect(hasTs).toBe(true);
+    expect(hasJson).toBe(true);
+  });
+});
