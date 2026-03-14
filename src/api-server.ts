@@ -8,6 +8,7 @@
 
 import * as http from 'http';
 import * as config from './config.js';
+import { getOrCreateApiToken } from './config.js';
 import { getVersion } from './version-check.js';
 import { listJobs, getJob, formatJobsList, activeJobCount } from './background-jobs.js';
 import type { BackgroundJob } from './background-jobs.js';
@@ -118,6 +119,27 @@ function decodeWebSocketFrame(data: Buffer): string | null {
 let server: http.Server | null = null;
 const wsClients: WebSocketClient[] = [];
 
+// Bearer token for this server instance (set on startApiServer)
+let activeToken: string = '';
+
+/**
+ * Check if the request carries a valid Bearer token.
+ * Returns true if auth passes, false otherwise.
+ * The GET /api/health endpoint is exempt from auth.
+ */
+export function checkAuth(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  const url = new URL(req.url || '/', `http://127.0.0.1`);
+  // Health endpoint is public (unauthenticated)
+  if (req.method === 'GET' && url.pathname === '/api/health') return true;
+
+  const authHeader = req.headers['authorization'] || '';
+  const expected = `Bearer ${activeToken}`;
+  if (authHeader === expected) return true;
+
+  jsonReply(res, 401, { ok: false, error: 'Unauthorized: valid Bearer token required' });
+  return false;
+}
+
 // Event broadcast to WebSocket clients
 export function broadcast(event: { type: string; data: unknown }): void {
   const msg = JSON.stringify(event);
@@ -168,22 +190,28 @@ function handleRoute(method: string, pathname: string, _body: string, res: http.
 }
 
 /** Start the API server */
-export function startApiServer(opts?: Partial<ApiServerConfig>): Promise<{ port: number; host: string }> {
+export function startApiServer(opts?: Partial<ApiServerConfig & { token?: string }>): Promise<{ port: number; host: string; token: string }> {
   const port = opts?.port || 3100;
   const host = opts?.host || '127.0.0.1';
   const enableWs = opts?.enableWebSocket !== false;
 
+  // Use provided token (for testing) or get/generate persistent token from config
+  activeToken = opts?.token !== undefined ? opts.token : getOrCreateApiToken();
+
   return new Promise((resolve, reject) => {
     server = http.createServer((req, res) => {
-      // CORS preflight
+      // CORS preflight — always allowed without auth
       if (req.method === 'OPTIONS') {
         res.writeHead(204, {
           'Access-Control-Allow-Origin': 'http://localhost:3100',
           'Access-Control-Allow-Methods': 'GET, POST, DELETE',
-          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization',
         });
         return res.end();
       }
+
+      // Bearer token authentication
+      if (!checkAuth(req, res)) return;
 
       const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1MB
       let body = '';
@@ -240,7 +268,7 @@ export function startApiServer(opts?: Partial<ApiServerConfig>): Promise<{ port:
     }
 
     server.on('error', reject);
-    server.listen(port, host, () => resolve({ port, host }));
+    server.listen(port, host, () => resolve({ port, host, token: activeToken }));
   });
 }
 

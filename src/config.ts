@@ -92,6 +92,9 @@ export interface CalliopeConfig {
   recordSessions: boolean;    // Record session events as audit log (default: true)
   recordingRetentionDays: number;  // Auto-delete recordings older than N days (0 = keep forever, default: 0)
 
+  // API Server
+  apiToken?: string;  // Bearer token for --serve API server (auto-generated on first start)
+
   // Profiles
   profiles?: Record<string, Profile>;
   activeProfile?: string;
@@ -203,6 +206,7 @@ const config = new Conf<CalliopeConfig>({
     recordSessions: { type: 'boolean' },
     sessionTimeoutMs: { type: 'number', minimum: 0 },
     recordingRetentionDays: { type: 'number', minimum: 0 },
+    apiToken: { type: 'string' },
   },
 });
 
@@ -510,6 +514,20 @@ export function setActiveProfile(name: string | undefined): void {
  */
 export function getActiveProfile(): string | undefined {
   return config.get('activeProfile');
+}
+
+/**
+ * Get or generate the API server Bearer token.
+ * Generated once using crypto.randomUUID() and persisted in config.
+ */
+export function getOrCreateApiToken(): string {
+  let token = config.get('apiToken');
+  if (!token) {
+    const { randomUUID } = require('crypto') as typeof import('crypto');
+    token = randomUUID();
+    config.set('apiToken', token);
+  }
+  return token;
 }
 
 export default config;

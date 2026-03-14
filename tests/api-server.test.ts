@@ -7,6 +7,8 @@ import * as crypto from 'crypto';
 // Mock dependencies
 // ============================================================================
 
+const TEST_TOKEN = 'test-token-abc123';
+
 vi.mock('../src/config.js', () => ({
   get: vi.fn((key: string) => {
     const defaults: Record<string, string> = {
@@ -16,6 +18,7 @@ vi.mock('../src/config.js', () => ({
     };
     return defaults[key] ?? '';
   }),
+  getOrCreateApiToken: vi.fn(() => TEST_TOKEN),
 }));
 
 vi.mock('../src/version-check.js', () => ({
@@ -40,6 +43,7 @@ import {
   stopApiServer,
   isApiServerRunning,
   broadcast,
+  checkAuth,
 } from '../src/api-server.js';
 
 // ============================================================================
@@ -49,10 +53,24 @@ import {
 const TEST_PORT = 30000 + Math.floor(Math.random() * 20000);
 const TEST_HOST = '127.0.0.1';
 
-function request(path: string, method = 'GET', body?: string): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+function request(
+  path: string,
+  method = 'GET',
+  body?: string,
+  headers?: Record<string, string>,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
   return new Promise((resolve, reject) => {
     const req = http.request(
-      { hostname: TEST_HOST, port: TEST_PORT, path, method },
+      {
+        hostname: TEST_HOST,
+        port: TEST_PORT,
+        path,
+        method,
+        headers: {
+          Authorization: `Bearer ${TEST_TOKEN}`,
+          ...headers,
+        },
+      },
       (res) => {
         let body = '';
         res.on('data', (chunk) => { body += chunk; });
@@ -65,12 +83,35 @@ function request(path: string, method = 'GET', body?: string): Promise<{ status:
   });
 }
 
-function jsonRequest(path: string, method = 'GET'): Promise<{ status: number; headers: http.IncomingHttpHeaders; data: any }> {
-  return request(path, method).then(({ status, headers, body }) => ({
+function jsonRequest(
+  path: string,
+  method = 'GET',
+  headers?: Record<string, string>,
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; data: any }> {
+  return request(path, method, undefined, headers).then(({ status, headers, body }) => ({
     status,
     headers,
     data: JSON.parse(body),
   }));
+}
+
+/** Make a request WITHOUT auth header */
+function unauthRequest(
+  path: string,
+  method = 'GET',
+): Promise<{ status: number; headers: http.IncomingHttpHeaders; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      { hostname: TEST_HOST, port: TEST_PORT, path, method },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => resolve({ status: res.statusCode!, headers: res.headers, body }));
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
 }
 
 /** Create a raw WebSocket connection via TCP */
@@ -225,7 +266,7 @@ function connectRawUpgradeNoKey(port: number): Promise<boolean> {
 
 describe('API Server', () => {
   beforeAll(async () => {
-    await startApiServer({ port: TEST_PORT, host: TEST_HOST });
+    await startApiServer({ port: TEST_PORT, host: TEST_HOST, token: TEST_TOKEN });
   });
 
   afterAll(async () => {
@@ -243,7 +284,7 @@ describe('API Server', () => {
   });
 
   // --------------------------------------------------------------------------
-  // GET /api/health
+  // GET /api/health (public — no auth required)
   // --------------------------------------------------------------------------
 
   describe('GET /api/health', () => {
@@ -259,6 +300,13 @@ describe('API Server', () => {
     it('includes CORS header', async () => {
       const { headers } = await request('/api/health');
       expect(headers['access-control-allow-origin']).toBe('http://localhost:3100');
+    });
+
+    it('is accessible without auth token', async () => {
+      const { status, body } = await unauthRequest('/api/health');
+      expect(status).toBe(200);
+      const data = JSON.parse(body);
+      expect(data.ok).toBe(true);
     });
   });
 
@@ -363,12 +411,26 @@ describe('API Server', () => {
       expect(status).toBe(204);
       expect(headers['access-control-allow-origin']).toBe('http://localhost:3100');
       expect(headers['access-control-allow-methods']).toBe('GET, POST, DELETE');
-      expect(headers['access-control-allow-headers']).toBe('Content-Type');
+      expect(headers['access-control-allow-headers']).toContain('Authorization');
     });
 
     it('returns 204 for OPTIONS on any path', async () => {
       const { status } = await request('/any/path', 'OPTIONS');
       expect(status).toBe(204);
+    });
+
+    it('returns 204 for OPTIONS without auth header (preflight exempt)', async () => {
+      const { status } = await unauthRequest('/api/config', 'OPTIONS');
+      // OPTIONS is exempt from auth but we need raw request without auth
+      const raw = await new Promise<{ status: number }>((resolve, reject) => {
+        const req = http.request(
+          { hostname: TEST_HOST, port: TEST_PORT, path: '/api/config', method: 'OPTIONS' },
+          (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode! })); },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      expect(raw.status).toBe(204);
     });
   });
 
@@ -381,7 +443,7 @@ describe('API Server', () => {
       const { status, data } = await new Promise<{ status: number; data: any }>((resolve, reject) => {
         const req = http.request(
           { hostname: TEST_HOST, port: TEST_PORT, path: '/api/health', method: 'POST',
-            headers: { 'Content-Type': 'application/json' } },
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TEST_TOKEN}` } },
           (res) => {
             let body = '';
             res.on('data', (chunk) => { body += chunk; });
@@ -404,6 +466,84 @@ describe('API Server', () => {
   describe('broadcast', () => {
     it('does not throw when no clients are connected', () => {
       expect(() => broadcast({ type: 'test', data: { message: 'hello' } })).not.toThrow();
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Bearer token authentication
+  // --------------------------------------------------------------------------
+
+  describe('Bearer token auth', () => {
+    it('returns 401 when no auth header is provided', async () => {
+      const { status, body } = await unauthRequest('/api/config');
+      expect(status).toBe(401);
+      const data = JSON.parse(body);
+      expect(data.ok).toBe(false);
+      expect(data.error).toMatch(/Unauthorized/);
+    });
+
+    it('returns 401 when wrong token is provided', async () => {
+      const { status, body } = await unauthRequest('/api/version');
+      expect(status).toBe(401);
+      const data = JSON.parse(body);
+      expect(data.ok).toBe(false);
+    });
+
+    it('returns 401 for malformed Authorization header', async () => {
+      const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request(
+          { hostname: TEST_HOST, port: TEST_PORT, path: '/api/config',
+            headers: { Authorization: 'Basic dXNlcjpwYXNz' } },
+          (res) => {
+            let body = '';
+            res.on('data', c => { body += c; });
+            res.on('end', () => resolve({ status: res.statusCode!, body }));
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      expect(result.status).toBe(401);
+    });
+
+    it('returns 401 when token value is wrong', async () => {
+      const result = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = http.request(
+          { hostname: TEST_HOST, port: TEST_PORT, path: '/api/config',
+            headers: { Authorization: 'Bearer wrong-token' } },
+          (res) => {
+            let body = '';
+            res.on('data', c => { body += c; });
+            res.on('end', () => resolve({ status: res.statusCode!, body }));
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      expect(result.status).toBe(401);
+    });
+
+    it('allows requests with correct Bearer token', async () => {
+      const { status, data } = await jsonRequest('/api/config');
+      expect(status).toBe(200);
+      expect(data.ok).toBe(true);
+    });
+
+    it('/api/health is always accessible without token', async () => {
+      const { status, body } = await unauthRequest('/api/health');
+      expect(status).toBe(200);
+      const data = JSON.parse(body);
+      expect(data.ok).toBe(true);
+    });
+
+    it('/api/jobs requires auth', async () => {
+      const { status } = await unauthRequest('/api/jobs');
+      expect(status).toBe(401);
+    });
+
+    it('/api/version requires auth', async () => {
+      const { status } = await unauthRequest('/api/version');
+      expect(status).toBe(401);
     });
   });
 
@@ -619,13 +759,32 @@ describe('API Server', () => {
 });
 
 // ============================================================================
+// startApiServer return value (needs its own port to avoid conflicts)
+// ============================================================================
+
+describe('startApiServer return value', () => {
+  const retPort = TEST_PORT + 10;
+
+  afterEach(async () => {
+    await stopApiServer();
+  });
+
+  it('returns port, host, and token', async () => {
+    const result = await startApiServer({ port: retPort, host: TEST_HOST, token: 'my-test-token' });
+    expect(result.port).toBe(retPort);
+    expect(result.host).toBe(TEST_HOST);
+    expect(result.token).toBe('my-test-token');
+  });
+});
+
+// ============================================================================
 // Separate describe for stop/start lifecycle tests
 // ============================================================================
 
 describe('API Server lifecycle (stop/start)', () => {
   it('isApiServerRunning returns false after stop', async () => {
     const port = TEST_PORT + 1;
-    await startApiServer({ port, host: TEST_HOST });
+    await startApiServer({ port, host: TEST_HOST, token: TEST_TOKEN });
     expect(isApiServerRunning()).toBe(true);
 
     await stopApiServer();
@@ -640,10 +799,10 @@ describe('API Server lifecycle (stop/start)', () => {
 
   it('can start server again after stopping', async () => {
     const port = TEST_PORT + 2;
-    await startApiServer({ port, host: TEST_HOST });
+    await startApiServer({ port, host: TEST_HOST, token: TEST_TOKEN });
     expect(isApiServerRunning()).toBe(true);
 
-    // Verify it responds
+    // Verify it responds (health is public)
     const res = await new Promise<{ status: number }>((resolve, reject) => {
       const req = http.request(
         { hostname: TEST_HOST, port, path: '/api/health', method: 'GET' },
@@ -660,7 +819,7 @@ describe('API Server lifecycle (stop/start)', () => {
 
   it('stopApiServer closes connected WebSocket clients', async () => {
     const port = TEST_PORT + 3;
-    await startApiServer({ port, host: TEST_HOST });
+    await startApiServer({ port, host: TEST_HOST, token: TEST_TOKEN });
 
     const { socket } = await connectWebSocket(port);
 
@@ -686,7 +845,7 @@ describe('API Server with WebSocket disabled', () => {
   const wsDisabledPort = TEST_PORT + 4;
 
   beforeAll(async () => {
-    await startApiServer({ port: wsDisabledPort, host: TEST_HOST, enableWebSocket: false });
+    await startApiServer({ port: wsDisabledPort, host: TEST_HOST, enableWebSocket: false, token: TEST_TOKEN });
   });
 
   afterAll(async () => {
@@ -726,6 +885,34 @@ describe('API Server default options', () => {
     const result = await startApiServer();
     expect(result.port).toBe(3100);
     expect(result.host).toBe('127.0.0.1');
+    expect(result.token).toBe(TEST_TOKEN); // mock returns TEST_TOKEN
     expect(isApiServerRunning()).toBe(true);
+  });
+});
+
+// ============================================================================
+// checkAuth unit tests
+// ============================================================================
+
+describe('checkAuth (unit)', () => {
+  it('allows GET /api/health without any token', () => {
+    const req = {
+      method: 'GET',
+      url: '/api/health',
+      headers: {},
+    } as unknown as http.IncomingMessage;
+
+    const res = {
+      writeHead: vi.fn(),
+      end: vi.fn(),
+    } as unknown as http.ServerResponse;
+
+    // checkAuth reads activeToken which is set by startApiServer;
+    // Since we don't call startApiServer here, we test via the main describe suite
+    // This test just ensures /api/health passes without auth header
+    // The actual integration is tested above; here we test the exported function directly
+    const result = checkAuth(req, res);
+    expect(result).toBe(true);
+    expect((res.writeHead as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 });

@@ -253,6 +253,8 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
     try {
       const info = await startApiServer({ port, host: '127.0.0.1' });
       console.log(`${colors.dim}  API server: http://${info.host}:${info.port}${colors.reset}`);
+      console.log(`${colors.dim}  API token:  ${info.token}${colors.reset}`);
+      console.log(`${colors.dim}  Use: Authorization: Bearer ${info.token}${colors.reset}`);
     } catch (err) {
       console.error(`API server failed to start: ${err instanceof Error ? err.message : String(err)}`);
     }
