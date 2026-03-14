@@ -21,12 +21,16 @@ export interface CompatShim {
 }
 
 // ---------------------------------------------------------------------------
-// One-time warning flags
+// One-time tool-strip warnings (keyed by shim id)
+// Exported for test resets via resetToolWarnings()
 // ---------------------------------------------------------------------------
 
-let warnedAnythingLLMTools = false;
-let warnedJanTools = false;
-let warnedLocalAITools = false;
+const warnedShims = new Set<string>();
+
+/** Reset tool-strip warnings — for use in tests only. */
+export function resetToolWarnings(): void {
+  warnedShims.clear();
+}
 
 // ---------------------------------------------------------------------------
 // Shim implementations
@@ -39,7 +43,7 @@ const lmstudioShim: CompatShim = {
   supportsTools: true,
   supportsStreaming: true,
   detect(baseUrl: string): boolean {
-    return baseUrl.includes(':1234') || process.env.OPENAI_COMPAT_SHIM === 'lmstudio';
+    return baseUrl.includes(':1234');
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
@@ -57,16 +61,12 @@ const anythingllmShim: CompatShim = {
   supportsTools: false,
   supportsStreaming: true,
   detect(baseUrl: string): boolean {
-    return (
-      baseUrl.includes(':3001') ||
-      baseUrl.includes('/api/openai') ||
-      process.env.OPENAI_COMPAT_SHIM === 'anythingllm'
-    );
+    return baseUrl.includes(':3001') || baseUrl.includes('/api/openai');
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if ((result.tools || result.tool_choice) && !warnedAnythingLLMTools) {
-      warnedAnythingLLMTools = true;
+    if ((result.tools || result.tool_choice) && !warnedShims.has('anythingllm')) {
+      warnedShims.add('anythingllm');
       process.stderr.write(
         '[openai-compat] AnythingLLM does not support tool_calls — stripping tools and tool_choice\n'
       );
@@ -84,7 +84,7 @@ const vllmShim: CompatShim = {
   supportsTools: true,
   supportsStreaming: true,
   detect(baseUrl: string): boolean {
-    return baseUrl.includes(':8000') || process.env.OPENAI_COMPAT_SHIM === 'vllm';
+    return baseUrl.includes(':8000');
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
@@ -102,12 +102,12 @@ const janShim: CompatShim = {
   supportsTools: false,
   supportsStreaming: true,
   detect(baseUrl: string): boolean {
-    return baseUrl.includes(':1337') || process.env.OPENAI_COMPAT_SHIM === 'jan';
+    return baseUrl.includes(':1337');
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if ((result.tools || result.tool_choice) && !warnedJanTools) {
-      warnedJanTools = true;
+    if ((result.tools || result.tool_choice) && !warnedShims.has('jan')) {
+      warnedShims.add('jan');
       process.stderr.write(
         '[openai-compat] Jan does not support tool_calls — stripping tools and tool_choice\n'
       );
@@ -125,12 +125,12 @@ const localaiShim: CompatShim = {
   supportsTools: false,
   supportsStreaming: true,
   detect(baseUrl: string): boolean {
-    return baseUrl.includes(':8080') || process.env.OPENAI_COMPAT_SHIM === 'localai';
+    return baseUrl.includes(':8080');
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if ((result.tools || result.tool_choice) && !warnedLocalAITools) {
-      warnedLocalAITools = true;
+    if ((result.tools || result.tool_choice) && !warnedShims.has('localai')) {
+      warnedShims.add('localai');
       process.stderr.write(
         '[openai-compat] LocalAI does not support tool_calls — stripping tools and tool_choice\n'
       );

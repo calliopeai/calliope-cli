@@ -8,8 +8,8 @@
  * - supportsTools / supportsStreaming capability flags
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { detectShim } from '../src/providers/openai-compat-shims.js';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { detectShim, resetToolWarnings } from '../src/providers/openai-compat-shims.js';
 import type { CompatShim } from '../src/providers/openai-compat-shims.js';
 import type { ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions.js';
 
@@ -278,6 +278,7 @@ describe('anythingllm — transformRequest', () => {
 
   beforeEach(() => {
     savedEnv = saveAndClearShimEnv();
+    resetToolWarnings();
     process.env.OPENAI_COMPAT_SHIM = 'anythingllm';
     shim = detectShim('http://localhost:9999/v1');
   });
@@ -315,6 +316,16 @@ describe('anythingllm — transformRequest', () => {
     expect(result.tools).toBeUndefined();
     expect(result.tool_choice).toBeUndefined();
   });
+
+  it('warns to stderr on first tool strip, silent on second', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const tools = [{ type: 'function' as const, function: { name: 'f', parameters: {} } }];
+    shim.transformRequest(baseParams({ tools }));
+    shim.transformRequest(baseParams({ tools }));
+    const calls = stderrSpy.mock.calls.filter(([msg]) => String(msg).includes('AnythingLLM'));
+    expect(calls).toHaveLength(1);
+    stderrSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -327,6 +338,7 @@ describe('jan — transformRequest', () => {
 
   beforeEach(() => {
     savedEnv = saveAndClearShimEnv();
+    resetToolWarnings();
     process.env.OPENAI_COMPAT_SHIM = 'jan';
     shim = detectShim('http://localhost:9999/v1');
   });
@@ -352,6 +364,16 @@ describe('jan — transformRequest', () => {
     expect(result.model).toBe('mistral');
     expect(result.messages).toEqual(params.messages);
   });
+
+  it('warns to stderr on first tool strip, silent on second', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const tools = [{ type: 'function' as const, function: { name: 'f', parameters: {} } }];
+    shim.transformRequest(baseParams({ tools }));
+    shim.transformRequest(baseParams({ tools }));
+    const calls = stderrSpy.mock.calls.filter(([msg]) => String(msg).includes('Jan'));
+    expect(calls).toHaveLength(1);
+    stderrSpy.mockRestore();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -364,6 +386,7 @@ describe('localai — transformRequest', () => {
 
   beforeEach(() => {
     savedEnv = saveAndClearShimEnv();
+    resetToolWarnings();
     process.env.OPENAI_COMPAT_SHIM = 'localai';
     shim = detectShim('http://localhost:9999/v1');
   });
@@ -438,6 +461,16 @@ describe('localai — transformRequest', () => {
     expect(result.messages).toHaveLength(2);
     expect(result.messages[0].role).toBe('user');
     expect(result.messages[1].role).toBe('assistant');
+  });
+
+  it('warns to stderr on first tool strip, silent on second', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const tools = [{ type: 'function' as const, function: { name: 'f', parameters: {} } }];
+    shim.transformRequest(baseParams({ tools }));
+    shim.transformRequest(baseParams({ tools }));
+    const calls = stderrSpy.mock.calls.filter(([msg]) => String(msg).includes('LocalAI'));
+    expect(calls).toHaveLength(1);
+    stderrSpy.mockRestore();
   });
 });
 
