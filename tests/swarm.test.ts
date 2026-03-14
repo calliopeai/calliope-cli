@@ -543,3 +543,114 @@ describe('Swarm Robustness', () => {
     });
   });
 });
+
+// ============================================================================
+// Aggregator edge cases — uncovered branches
+// ============================================================================
+
+describe('aggregateResults - edge cases', () => {
+  const makeCompletedSubtask = (index: number, result: string, id?: string): SwarmSubtask => ({
+    id: id || `subtask-${index}`,
+    index,
+    prompt: `Task ${index + 1}`,
+    agent: 'claude',
+    priority: 'normal',
+    status: 'completed',
+    dependsOn: [],
+    attempts: 1,
+    maxAttempts: 3,
+    createdAt: new Date(),
+    result,
+  });
+
+  it('should not include header for single-subtask concatenation', () => {
+    // aggregateConcatenate: header only shown when subtasks.length > 1
+    const subtasks = [makeCompletedSubtask(0, 'Only result')];
+    const result = aggregateResults(subtasks, 'concatenate', 'Test');
+    expect(result).toBe('Only result');
+    expect(result).not.toContain('Subtask 1');
+    expect(result).not.toContain('##');
+  });
+
+  it('should use default (concatenate) for unknown strategy', () => {
+    const subtasks = [
+      makeCompletedSubtask(0, 'Result A'),
+      makeCompletedSubtask(1, 'Result B'),
+    ];
+    // Cast to bypass type checking
+    const result = aggregateResults(subtasks, 'unknown_strategy' as AggregationStrategy, 'Test');
+    expect(result).toContain('Result A');
+    expect(result).toContain('Result B');
+  });
+
+  it('should skip subtasks with null/undefined result in merge-dedupe', () => {
+    const subtasks: SwarmSubtask[] = [
+      makeCompletedSubtask(0, 'Line A'),
+      { ...makeCompletedSubtask(1, ''), result: undefined },  // no result
+    ];
+    const result = aggregateResults(subtasks, 'merge-dedupe', 'Test');
+    expect(result).toContain('Line A');
+    // Should not crash
+  });
+
+  it('should skip subtasks with no result in summarize', () => {
+    const subtasks: SwarmSubtask[] = [
+      makeCompletedSubtask(0, 'Real result'),
+      { ...makeCompletedSubtask(1, ''), result: undefined },
+    ];
+    const result = aggregateResults(subtasks, 'summarize', 'Review');
+    expect(result).toContain('Real result');
+  });
+
+  it('should skip subtasks with no result in structured', () => {
+    const subtasks: SwarmSubtask[] = [
+      makeCompletedSubtask(0, 'Structured content'),
+      { ...makeCompletedSubtask(1, ''), result: undefined },
+    ];
+    const result = aggregateResults(subtasks, 'structured', 'Build');
+    expect(result).toContain('Structured content');
+  });
+
+  it('should handle all-failed with unknown error', () => {
+    const subtasks: SwarmSubtask[] = [
+      {
+        id: 'fail-1', index: 0, prompt: 'Task', agent: 'claude', priority: 'normal',
+        status: 'failed', dependsOn: [], attempts: 1, maxAttempts: 3, createdAt: new Date(),
+        result: undefined, error: undefined,  // no error message
+      },
+    ];
+    const result = aggregateResults(subtasks, 'concatenate', 'Test');
+    expect(result).toContain('All subtasks failed');
+    expect(result).toContain('unknown error');
+  });
+
+  it('should include failed subtask with no error in failure summary', () => {
+    const subtasks: SwarmSubtask[] = [
+      makeCompletedSubtask(0, 'Good result'),
+      {
+        id: 'fail-1', index: 1, prompt: 'Bad task that is quite long for testing purposes',
+        agent: 'claude', priority: 'normal', status: 'failed', dependsOn: [],
+        attempts: 1, maxAttempts: 3, createdAt: new Date(),
+        result: undefined, error: undefined,  // no error
+      },
+    ];
+    const result = aggregateResults(subtasks, 'concatenate', 'Test');
+    expect(result).toContain('subtask(s) failed');
+    expect(result).toContain('unknown');
+  });
+
+  it('should sort completed subtasks by index in aggregation', () => {
+    // subtasks passed out of order
+    const subtasks = [
+      makeCompletedSubtask(2, 'Result C', 'c'),
+      makeCompletedSubtask(0, 'Result A', 'a'),
+      makeCompletedSubtask(1, 'Result B', 'b'),
+    ];
+    const result = aggregateResults(subtasks, 'concatenate', 'Test');
+    const aIdx = result.indexOf('Result A');
+    const bIdx = result.indexOf('Result B');
+    const cIdx = result.indexOf('Result C');
+    expect(aIdx).toBeLessThan(bIdx);
+    expect(bIdx).toBeLessThan(cIdx);
+  });
+});

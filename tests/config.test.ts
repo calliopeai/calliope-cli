@@ -5,7 +5,7 @@
  * isSetupComplete, markSetupComplete, resetConfig, profiles, and setMultiple.
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import config, {
   get,
   set,
@@ -352,5 +352,232 @@ describe('profiles', () => {
     // Setting a different profile should override
     setActiveProfile('smart');
     expect(getActiveProfile()).toBe('smart');
+  });
+
+  it('should return false when deleting a non-existent custom profile', () => {
+    expect(deleteProfile('does-not-exist-xyz')).toBe(false);
+  });
+});
+
+// ===========================================================================
+// getConfiguredProviders — all providers
+// ===========================================================================
+
+describe('getConfiguredProviders - all providers', () => {
+  it('should detect together from env var', () => {
+    process.env.TOGETHER_API_KEY = 'together-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('together');
+    delete process.env.TOGETHER_API_KEY;
+  });
+
+  it('should detect openrouter from env var', () => {
+    process.env.OPENROUTER_API_KEY = 'or-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('openrouter');
+    delete process.env.OPENROUTER_API_KEY;
+  });
+
+  it('should detect groq from env var', () => {
+    process.env.GROQ_API_KEY = 'groq-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('groq');
+    delete process.env.GROQ_API_KEY;
+  });
+
+  it('should detect fireworks from env var', () => {
+    process.env.FIREWORKS_API_KEY = 'fw-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('fireworks');
+    delete process.env.FIREWORKS_API_KEY;
+  });
+
+  it('should detect mistral from env var', () => {
+    process.env.MISTRAL_API_KEY = 'mistral-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('mistral');
+    delete process.env.MISTRAL_API_KEY;
+  });
+
+  it('should detect ai21 from env var', () => {
+    process.env.AI21_API_KEY = 'ai21-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('ai21');
+    delete process.env.AI21_API_KEY;
+  });
+
+  it('should detect huggingface from env var', () => {
+    process.env.HUGGINGFACE_API_KEY = 'hf-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('huggingface');
+    delete process.env.HUGGINGFACE_API_KEY;
+  });
+
+  it('should detect litellm from env var', () => {
+    process.env.LITELLM_BASE_URL = 'http://localhost:4000';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('litellm');
+    delete process.env.LITELLM_BASE_URL;
+  });
+
+  it('should detect bedrock from BEDROCK_API_KEY env var', () => {
+    process.env.BEDROCK_API_KEY = 'bedrock-key';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('bedrock');
+    delete process.env.BEDROCK_API_KEY;
+  });
+
+  it('should detect bedrock from BEDROCK_BASE_URL env var', () => {
+    process.env.BEDROCK_BASE_URL = 'https://bedrock.us-east-1.amazonaws.com';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('bedrock');
+    delete process.env.BEDROCK_BASE_URL;
+  });
+
+  it('should detect bedrock from AWS_ACCESS_KEY_ID env var', () => {
+    process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('bedrock');
+    delete process.env.AWS_ACCESS_KEY_ID;
+  });
+
+  it('should detect bedrock from AWS_PROFILE env var', () => {
+    process.env.AWS_PROFILE = 'default';
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('bedrock');
+    delete process.env.AWS_PROFILE;
+  });
+
+  it('should detect bedrock from config bedrockBaseUrl', () => {
+    set('bedrockBaseUrl', 'https://bedrock.us-east-1.amazonaws.com');
+    const providers = getConfiguredProviders();
+    expect(providers).toContain('bedrock');
+  });
+});
+
+// ===========================================================================
+// getApiKey — all providers
+// ===========================================================================
+
+describe('getApiKey - all providers', () => {
+  it('should return key for together', () => {
+    set('togetherApiKey', 'together-config-key');
+    expect(getApiKey('together')).toBe('together-config-key');
+  });
+
+  it('should return key for openrouter', () => {
+    set('openrouterApiKey', 'or-config-key');
+    expect(getApiKey('openrouter')).toBe('or-config-key');
+  });
+
+  it('should return key for groq', () => {
+    set('groqApiKey', 'groq-config-key');
+    expect(getApiKey('groq')).toBe('groq-config-key');
+  });
+
+  it('should return key for fireworks', () => {
+    set('fireworksApiKey', 'fw-config-key');
+    expect(getApiKey('fireworks')).toBe('fw-config-key');
+  });
+
+  it('should return key for mistral', () => {
+    set('mistralApiKey', 'mistral-config-key');
+    expect(getApiKey('mistral')).toBe('mistral-config-key');
+  });
+
+  it('should return base url for ollama (from env)', () => {
+    process.env.OLLAMA_BASE_URL = 'http://remote-ollama:11434';
+    expect(getApiKey('ollama')).toBe('http://remote-ollama:11434');
+    delete process.env.OLLAMA_BASE_URL;
+  });
+
+  it('should return key for ai21', () => {
+    set('ai21ApiKey', 'ai21-config-key');
+    expect(getApiKey('ai21')).toBe('ai21-config-key');
+  });
+
+  it('should return key for huggingface', () => {
+    set('huggingfaceApiKey', 'hf-config-key');
+    expect(getApiKey('huggingface')).toBe('hf-config-key');
+  });
+
+  it('should return key for litellm', () => {
+    set('litellmApiKey', 'litellm-config-key');
+    expect(getApiKey('litellm')).toBe('litellm-config-key');
+  });
+
+  it('should return key for bedrock', () => {
+    set('bedrockApiKey', 'bedrock-config-key');
+    expect(getApiKey('bedrock')).toBe('bedrock-config-key');
+  });
+
+  it('should prefer LITELLM_API_KEY env var over config', () => {
+    set('litellmApiKey', 'config-litellm-key');
+    process.env.LITELLM_API_KEY = 'env-litellm-key';
+    expect(getApiKey('litellm')).toBe('env-litellm-key');
+    delete process.env.LITELLM_API_KEY;
+  });
+
+  it('should prefer BEDROCK_API_KEY env var over config', () => {
+    set('bedrockApiKey', 'config-bedrock-key');
+    process.env.BEDROCK_API_KEY = 'env-bedrock-key';
+    expect(getApiKey('bedrock')).toBe('env-bedrock-key');
+    delete process.env.BEDROCK_API_KEY;
+  });
+});
+
+// ===========================================================================
+// getBaseUrl — bedrock provider
+// ===========================================================================
+
+describe('getBaseUrl - bedrock', () => {
+  it('should return undefined for bedrock when nothing configured', () => {
+    expect(getBaseUrl('bedrock')).toBeUndefined();
+  });
+
+  it('should prefer BEDROCK_BASE_URL env var', () => {
+    process.env.BEDROCK_BASE_URL = 'https://bedrock-gateway.company.com';
+    expect(getBaseUrl('bedrock')).toBe('https://bedrock-gateway.company.com');
+    delete process.env.BEDROCK_BASE_URL;
+  });
+
+  it('should fall back to config bedrockBaseUrl', () => {
+    set('bedrockBaseUrl', 'https://bedrock.us-west-2.amazonaws.com');
+    expect(getBaseUrl('bedrock')).toBe('https://bedrock.us-west-2.amazonaws.com');
+  });
+});
+
+// ===========================================================================
+// setMultiple — validateConfigValue edge cases
+// ===========================================================================
+
+describe('setMultiple - validateConfigValue coverage', () => {
+  it('should throw for BaseUrl with invalid URL string', () => {
+    expect(() => setMultiple({
+      ollamaBaseUrl: 'not-a-url',  // Invalid URL
+    })).toThrow('valid URL');
+  });
+
+  it('should accept valid BaseUrl', () => {
+    expect(() => setMultiple({
+      ollamaBaseUrl: 'http://localhost:11434',
+    })).not.toThrow();
+  });
+
+  it('should not throw for maxIterations at boundary value 0', () => {
+    expect(() => setMultiple({ maxIterations: 0 })).not.toThrow();
+    expect(get('maxIterations')).toBe(0);
+  });
+
+  it('should not throw for maxIterations at boundary value 1000000', () => {
+    expect(() => setMultiple({ maxIterations: 1000000 })).not.toThrow();
+  });
+
+  it('should throw for maxIterations above max in setMultiple', () => {
+    expect(() => setMultiple({ maxIterations: 1000001 })).toThrow('maxIterations');
+  });
+
+  it('should throw for empty ApiKey in setMultiple', () => {
+    expect(() => setMultiple({ anthropicApiKey: '' })).toThrow('non-empty string');
   });
 });

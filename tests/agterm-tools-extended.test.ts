@@ -909,3 +909,270 @@ describe('toolCallId propagation', () => {
     expect(result.toolCallId).toBe('err-call-id');
   });
 });
+
+// ===========================================================================
+// executeAgtermTool - run_command
+// ===========================================================================
+
+import { setCommandDispatcher, getCommandDispatcher } from '../src/agents/tools.js';
+
+describe('executeAgtermTool - run_command', () => {
+  beforeEach(() => {
+    // Ensure dispatcher is null at start of each test
+    setCommandDispatcher(null as unknown as (command: string) => Promise<string>);
+  });
+
+  afterEach(() => {
+    setCommandDispatcher(null as unknown as (command: string) => Promise<string>);
+  });
+
+  it('should error when command is empty', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: '' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('command is required');
+  });
+
+  it('should error when command is missing', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', {}), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('command is required');
+  });
+
+  it('should error when command does not start with /', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: 'swarm do stuff' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('command must start with /');
+  });
+
+  it('should error when command is blocked /exit', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/exit' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('cannot be invoked by the agent');
+  });
+
+  it('should error when command is blocked /quit', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/quit now' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('cannot be invoked by the agent');
+  });
+
+  it('should error when command is blocked /clear', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/clear' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('cannot be invoked by the agent');
+  });
+
+  it('should error when command is blocked /unstick', async () => {
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/unstick' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('cannot be invoked by the agent');
+  });
+
+  it('should error when commandDispatcher is not set', async () => {
+    // Dispatcher is null (set in beforeEach)
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/swarm test' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('command dispatcher not initialized');
+  });
+
+  it('should execute command when dispatcher is set', async () => {
+    setCommandDispatcher(async (cmd: string) => `Executed: ${cmd}`);
+
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/swarm analyze codebase' }), cwd);
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toBe('Executed: /swarm analyze codebase');
+  });
+
+  it('should return error when dispatcher throws', async () => {
+    setCommandDispatcher(async () => { throw new Error('Command failed'); });
+
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/agents' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('Error executing command');
+    expect(result.result).toContain('Command failed');
+  });
+
+  it('should trim whitespace from command', async () => {
+    setCommandDispatcher(async (cmd: string) => `ran: ${cmd}`);
+
+    const result = await executeAgtermTool(makeTool('run_command', { command: '  /swarm test  ' }), cwd);
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toBe('ran: /swarm test');
+  });
+
+  it('should handle non-Error thrown from dispatcher', async () => {
+    setCommandDispatcher(async () => { throw 'string error'; });
+
+    const result = await executeAgtermTool(makeTool('run_command', { command: '/agents' }), cwd);
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('string error');
+  });
+});
+
+// ===========================================================================
+// setCommandDispatcher / getCommandDispatcher
+// ===========================================================================
+
+describe('setCommandDispatcher / getCommandDispatcher', () => {
+  afterEach(() => {
+    setCommandDispatcher(null as unknown as (command: string) => Promise<string>);
+  });
+
+  it('getCommandDispatcher should return null when not set', () => {
+    setCommandDispatcher(null as unknown as (command: string) => Promise<string>);
+    expect(getCommandDispatcher()).toBeNull();
+  });
+
+  it('getCommandDispatcher should return the set dispatcher', () => {
+    const dispatcher = async (cmd: string) => `result: ${cmd}`;
+    setCommandDispatcher(dispatcher);
+    expect(getCommandDispatcher()).toBe(dispatcher);
+  });
+
+  it('dispatcher should be callable via getCommandDispatcher', async () => {
+    setCommandDispatcher(async (cmd) => `output for ${cmd}`);
+    const dispatcher = getCommandDispatcher();
+    expect(dispatcher).not.toBeNull();
+    const output = await dispatcher!('/agents');
+    expect(output).toBe('output for /agents');
+  });
+});
+
+// ===========================================================================
+// executeAgtermTool - spawn_agent with agentDef
+// ===========================================================================
+
+describe('executeAgtermTool - spawn_agent with agentDef', () => {
+  it('should return error when agentDef is not found', async () => {
+    const configLoader = await import('../src/agents/agent-config-loader.js');
+    vi.spyOn(configLoader, 'getAgent').mockReturnValue(null);
+    vi.spyOn(configLoader, 'listAgentDefs').mockReturnValue([]);
+
+    const result = await executeAgtermTool(makeTool('spawn_agent', {
+      prompt: 'do stuff',
+      agentDef: 'nonexistent-agent',
+    }), cwd);
+
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain("Agent definition 'nonexistent-agent' not found");
+  });
+
+  it('should use agent def settings when agentDef is found and executor is not cli', async () => {
+    const configLoader = await import('../src/agents/agent-config-loader.js');
+    vi.spyOn(configLoader, 'getAgent').mockReturnValue({
+      name: 'my-agent',
+      engine: 'claude-sdk' as const,
+      model: 'claude-sonnet-4-20250514',
+      provider: 'anthropic',
+      instructions: 'You are a specialized agent',
+      limits: { timeout: 60000 },
+    } as Parameters<typeof configLoader.getAgent>[0] extends string ? never : never);
+    vi.spyOn(configLoader, 'mapEngineToAgentType').mockReturnValue('calliope');
+
+    vi.mocked(orchestrator.spawnAgent).mockResolvedValue(makeTask({ status: 'completed', result: 'done' }));
+
+    const result = await executeAgtermTool(makeTool('spawn_agent', {
+      prompt: 'do something specialized',
+      agentDef: 'my-agent',
+    }), cwd);
+
+    expect(result.isError).toBeUndefined();
+    expect(orchestrator.spawnAgent).toHaveBeenCalledWith(
+      'do something specialized',
+      expect.any(String),
+      expect.objectContaining({
+        model: 'claude-sonnet-4-20250514',
+        provider: 'anthropic',
+        systemPrompt: 'You are a specialized agent',
+        timeout: 60000,
+      })
+    );
+  });
+});
+
+// ===========================================================================
+// executeAgtermTool - start_council with team
+// ===========================================================================
+
+describe('executeAgtermTool - start_council with team', () => {
+  it('should return error when team is not found', async () => {
+    const configLoader = await import('../src/agents/agent-config-loader.js');
+    vi.spyOn(configLoader, 'getTeam').mockReturnValue(null);
+    vi.spyOn(configLoader, 'listTeamDefs').mockReturnValue([]);
+
+    const result = await executeAgtermTool(makeTool('start_council', {
+      prompt: 'review this',
+      team: 'nonexistent-team',
+    }), cwd);
+
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain("Team 'nonexistent-team' not found");
+  });
+
+  it('should start council with team definition when team is found', async () => {
+    const configLoader = await import('../src/agents/agent-config-loader.js');
+    vi.spyOn(configLoader, 'getTeam').mockReturnValue({
+      name: 'code-review-team',
+      mode: 'competitive' as const,
+      members: [
+        { name: 'Reviewer A', agent: 'claude' as const, role: 'reviewer' as const, weight: 1.0 },
+        { name: 'Reviewer B', agent: 'gemini' as const, role: 'reviewer' as const, weight: 1.0 },
+      ],
+      promptPrefix: 'Please review carefully:',
+      council: {
+        tieBreaker: 'scoring' as const,
+        maxRounds: 3,
+        consensusThreshold: 0.67,
+      },
+    } as ReturnType<typeof configLoader.getTeam>);
+
+    vi.mocked(councilManager.startCouncil).mockResolvedValue(makeCouncilSession({
+      id: 'team-council-1',
+      status: 'deliberating',
+    }));
+
+    const result = await executeAgtermTool(makeTool('start_council', {
+      prompt: 'review this PR',
+      team: 'code-review-team',
+    }), cwd);
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('Coordinated swarm started');
+    // Should prefix prompt with team promptPrefix
+    expect(councilManager.startCouncil).toHaveBeenCalledWith(
+      expect.stringContaining('Please review carefully:'),
+      expect.objectContaining({ mode: 'competitive' }),
+      cwd,
+    );
+  });
+
+  it('should start council with team that has no promptPrefix', async () => {
+    const configLoader = await import('../src/agents/agent-config-loader.js');
+    vi.spyOn(configLoader, 'getTeam').mockReturnValue({
+      name: 'simple-team',
+      mode: 'collaborative' as const,
+      members: [
+        { name: 'Agent A', agent: 'claude' as const, role: 'worker' as const, weight: 1.0 },
+      ],
+      // No promptPrefix
+    } as ReturnType<typeof configLoader.getTeam>);
+
+    vi.mocked(councilManager.startCouncil).mockResolvedValue(makeCouncilSession({
+      id: 'simple-council',
+      status: 'deliberating',
+    }));
+
+    const result = await executeAgtermTool(makeTool('start_council', {
+      prompt: 'just do it',
+      team: 'simple-team',
+    }), cwd);
+
+    expect(result.isError).toBeUndefined();
+    // Without prefix, prompt should be passed as-is
+    expect(councilManager.startCouncil).toHaveBeenCalledWith(
+      'just do it',
+      expect.any(Object),
+      cwd,
+    );
+  });
+});

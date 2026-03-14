@@ -1,4 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import {
   fuzzyMatch,
   highlightMatches,
@@ -7,6 +10,9 @@ import {
   selectUp,
   selectDown,
   getSelected,
+  getAllFiles,
+  searchFiles,
+  searchWithHighlight,
 } from '../src/fuzzy-search.js';
 import type {
   SearchResult,
@@ -438,5 +444,219 @@ describe('getSelected', () => {
       options: {},
     };
     expect(getSelected(state)).toBeNull();
+  });
+});
+
+// ============================================================================
+// getAllFiles
+// ============================================================================
+
+describe('getAllFiles', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-fuzzy-'));
+    fs.writeFileSync(path.join(tmpDir, 'index.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'util.ts'), '');
+    fs.mkdirSync(path.join(tmpDir, 'src'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'main.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'src', 'helper.js'), '');
+    fs.mkdirSync(path.join(tmpDir, 'node_modules'));
+    fs.writeFileSync(path.join(tmpDir, 'node_modules', 'pkg.js'), '');
+    fs.writeFileSync(path.join(tmpDir, '.hidden'), '');
+    fs.mkdirSync(path.join(tmpDir, '.git'));
+    fs.writeFileSync(path.join(tmpDir, '.git', 'HEAD'), '');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should return all non-hidden files recursively', () => {
+    const files = getAllFiles(tmpDir);
+    expect(files.some(f => f === 'index.ts')).toBe(true);
+    expect(files.some(f => f.includes('main.ts'))).toBe(true);
+    expect(files.some(f => f.includes('helper.js'))).toBe(true);
+  });
+
+  it('should exclude node_modules by default', () => {
+    const files = getAllFiles(tmpDir);
+    expect(files.some(f => f.includes('node_modules'))).toBe(false);
+  });
+
+  it('should exclude .git by default', () => {
+    const files = getAllFiles(tmpDir);
+    expect(files.some(f => f.includes('.git'))).toBe(false);
+  });
+
+  it('should exclude hidden files by default', () => {
+    const files = getAllFiles(tmpDir);
+    expect(files.some(f => f === '.hidden')).toBe(false);
+  });
+
+  it('should include hidden files when includeHidden is true', () => {
+    const files = getAllFiles(tmpDir, { includeHidden: true });
+    expect(files.some(f => f === '.hidden')).toBe(true);
+  });
+
+  it('should filter by extension', () => {
+    const files = getAllFiles(tmpDir, { extensions: ['ts'] });
+    expect(files.every(f => f.endsWith('.ts'))).toBe(true);
+    expect(files.some(f => f.includes('helper.js'))).toBe(false);
+  });
+
+  it('should return relative paths', () => {
+    const files = getAllFiles(tmpDir);
+    expect(files.every(f => !path.isAbsolute(f))).toBe(true);
+  });
+
+  it('should handle non-existent directory gracefully', () => {
+    const files = getAllFiles('/nonexistent/path/xyz');
+    expect(files).toEqual([]);
+  });
+
+  it('should respect custom excludeDirs option', () => {
+    fs.mkdirSync(path.join(tmpDir, 'custom_skip'));
+    fs.writeFileSync(path.join(tmpDir, 'custom_skip', 'file.ts'), '');
+    const files = getAllFiles(tmpDir, { excludeDirs: ['custom_skip', 'node_modules', '.git'] });
+    expect(files.some(f => f.includes('custom_skip'))).toBe(false);
+  });
+});
+
+// ============================================================================
+// searchFiles
+// ============================================================================
+
+describe('searchFiles', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-fuzzy-'));
+    fs.writeFileSync(path.join(tmpDir, 'index.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'utils.ts'), '');
+    fs.mkdirSync(path.join(tmpDir, 'src'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'main.ts'), '');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should return matching files', () => {
+    const results = searchFiles(tmpDir, 'utils');
+    expect(results.some(r => r.relativePath === 'utils.ts')).toBe(true);
+  });
+
+  it('should return results sorted by score (descending)', () => {
+    const results = searchFiles(tmpDir, 'ts');
+    for (let i = 1; i < results.length; i++) {
+      expect(results[i - 1].score).toBeGreaterThanOrEqual(results[i].score);
+    }
+  });
+
+  it('should limit results to maxResults', () => {
+    // Create many files
+    for (let i = 0; i < 20; i++) {
+      fs.writeFileSync(path.join(tmpDir, `file${i}.ts`), '');
+    }
+    const results = searchFiles(tmpDir, 'file', { maxResults: 5 });
+    expect(results.length).toBeLessThanOrEqual(5);
+  });
+
+  it('should return empty when no files match', () => {
+    const results = searchFiles(tmpDir, 'zzz_no_match');
+    expect(results).toEqual([]);
+  });
+
+  it('should include path, relativePath, score, and matches', () => {
+    const results = searchFiles(tmpDir, 'index');
+    const result = results.find(r => r.relativePath === 'index.ts');
+    expect(result).toBeDefined();
+    expect(result?.path).toContain(tmpDir);
+    expect(typeof result?.score).toBe('number');
+    expect(Array.isArray(result?.matches)).toBe(true);
+  });
+});
+
+// ============================================================================
+// searchWithHighlight
+// ============================================================================
+
+describe('searchWithHighlight', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-fuzzy-'));
+    fs.writeFileSync(path.join(tmpDir, 'index.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'utils.ts'), '');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should return results with highlighted text', () => {
+    const results = searchWithHighlight(tmpDir, 'index');
+    expect(results.length).toBeGreaterThan(0);
+    const indexResult = results.find(r => r.path.includes('index.ts'));
+    expect(indexResult?.highlighted).toBeDefined();
+    expect(typeof indexResult?.score).toBe('number');
+  });
+
+  it('should include path in results', () => {
+    const results = searchWithHighlight(tmpDir, 'utils');
+    expect(results.some(r => r.path.includes('utils.ts'))).toBe(true);
+  });
+
+  it('should return empty array when no matches', () => {
+    const results = searchWithHighlight(tmpDir, 'zzz_no_match');
+    expect(results).toEqual([]);
+  });
+});
+
+// ============================================================================
+// updateSearch
+// ============================================================================
+
+describe('updateSearch', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-fuzzy-'));
+    fs.writeFileSync(path.join(tmpDir, 'test.ts'), '');
+    fs.writeFileSync(path.join(tmpDir, 'other.ts'), '');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('should return empty results for empty query', () => {
+    const state = createSearchState(tmpDir);
+    const updated = updateSearch(state, '');
+    expect(updated.results).toEqual([]);
+    expect(updated.query).toBe('');
+  });
+
+  it('should search and return results for non-empty query', () => {
+    const state = createSearchState(tmpDir);
+    const updated = updateSearch(state, 'test');
+    expect(updated.query).toBe('test');
+    expect(updated.results.some(r => r.relativePath === 'test.ts')).toBe(true);
+  });
+
+  it('should reset selectedIndex to 0 after update', () => {
+    let state = createSearchState(tmpDir);
+    state = updateSearch(state, 'test');
+    state = { ...state, selectedIndex: 1 };
+    const updated = updateSearch(state, 'other');
+    expect(updated.selectedIndex).toBe(0);
+  });
+
+  it('should preserve dir and options in updated state', () => {
+    const state = createSearchState(tmpDir, { extensions: ['ts'] });
+    const updated = updateSearch(state, 'test');
+    expect(updated.dir).toBe(tmpDir);
+    expect(updated.options.extensions).toEqual(['ts']);
   });
 });

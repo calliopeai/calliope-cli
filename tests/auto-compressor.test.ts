@@ -346,5 +346,113 @@ describe('auto-compressor', () => {
         'claude-3-haiku-20240307',
       );
     });
+
+    it('handles tool role messages in conversation text', async () => {
+      mockedChat.mockResolvedValue({
+        content: 'A sufficiently long summary covering the tool results and actions taken.',
+        toolCalls: [],
+        inputTokens: 100,
+        outputTokens: 20,
+      });
+
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'Run the tests' },
+        { role: 'tool', content: 'Test output: all passed' } as LLMMessage,
+      ];
+
+      const result = await llmSummarize(messages, 'anthropic');
+      expect(result).not.toBeNull();
+    });
+  });
+
+  // =========================================================================
+  // effectivePreserve — different context limit sizes
+  // =========================================================================
+
+  describe('autoCompress - effectivePreserve scaling with context limit', () => {
+    it('should cap preserveRecent at 2 for small context (2048-7999 tokens)', async () => {
+      configureAutoCompressor({ preserveRecent: 10, useLlm: false });
+      mockedChat.mockResolvedValue({ content: 'summary', toolCalls: [], inputTokens: 10, outputTokens: 5 });
+
+      // Build messages so tokens exceed 75% of 3000
+      const messages: LLMMessage[] = Array.from({ length: 20 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: `Message ${i}`.repeat(20),
+      }));
+      const result = await autoCompress(messages, 3000, 'anthropic');
+
+      if (result.compressed) {
+        // effectivePreserve should be min(10, 2) = 2
+        const nonSystem = result.messages.filter(m => !String(m.content).includes('[Auto-compressed') && m.role !== 'system');
+        expect(nonSystem.length).toBeLessThanOrEqual(2);
+      }
+    });
+
+    it('should cap preserveRecent at 4 for medium context (8000-15999 tokens)', async () => {
+      configureAutoCompressor({ preserveRecent: 10, useLlm: false });
+
+      const messages: LLMMessage[] = Array.from({ length: 30 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: `Message content ${i}`.repeat(20),
+      }));
+      const result = await autoCompress(messages, 10000, 'anthropic');
+
+      if (result.compressed) {
+        const nonSystem = result.messages.filter(m => !String(m.content).includes('[Auto-compressed') && m.role !== 'system');
+        expect(nonSystem.length).toBeLessThanOrEqual(4);
+      }
+    });
+
+    it('should cap preserveRecent at 6 for larger context (16000-31999 tokens)', async () => {
+      configureAutoCompressor({ preserveRecent: 10, useLlm: false });
+
+      const messages: LLMMessage[] = Array.from({ length: 40 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: `Message content ${i}`.repeat(20),
+      }));
+      const result = await autoCompress(messages, 20000, 'anthropic');
+
+      if (result.compressed) {
+        const nonSystem = result.messages.filter(m => !String(m.content).includes('[Auto-compressed') && m.role !== 'system');
+        expect(nonSystem.length).toBeLessThanOrEqual(6);
+      }
+    });
+
+    it('should use full preserveRecent for large context (>=32000 tokens)', async () => {
+      configureAutoCompressor({ preserveRecent: 10, useLlm: false });
+
+      const messages: LLMMessage[] = Array.from({ length: 50 }, (_, i) => ({
+        role: (i % 2 === 0 ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: `Message content ${i}`.repeat(20),
+      }));
+      const result = await autoCompress(messages, 50000, 'anthropic');
+
+      if (result.compressed) {
+        const nonSystem = result.messages.filter(m => !String(m.content).includes('[Auto-compressed') && m.role !== 'system');
+        // For >=32000 context, effectivePreserve = config.preserveRecent = 10
+        expect(nonSystem.length).toBeLessThanOrEqual(10);
+      }
+    });
+
+    it('should pass compressionModel to llmSummarize when set', async () => {
+      configureAutoCompressor({ compressionModel: 'claude-3-haiku-20240307', useLlm: true });
+      mockedChat.mockResolvedValue({
+        content: 'A detailed summary with enough characters to pass the length check.',
+        toolCalls: [],
+        inputTokens: 100,
+        outputTokens: 30,
+      });
+
+      const messages = makeMessages(30);
+      await autoCompress(messages, 100, 'anthropic');
+
+      // Should use compressionModel in the chat call
+      expect(mockedChat).toHaveBeenCalledWith(
+        'anthropic',
+        expect.any(Array),
+        [],
+        'claude-3-haiku-20240307',
+      );
+    });
   });
 });

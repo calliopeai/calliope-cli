@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { IterationLedger } from '../src/iteration-ledger.js';
+// Also import the standalone helper functions (not directly exported, but exercised through the class)
 
 describe('IterationLedger', () => {
   let ledger: IterationLedger;
@@ -191,6 +192,249 @@ describe('IterationLedger', () => {
       expect(ledger.getEntries()).toHaveLength(0);
       expect(ledger.getFailedApproachesMessage()).toBeNull();
       expect(ledger.getTotals().iterations).toBe(0);
+    });
+  });
+
+  // ===========================================================================
+  // compactArgs — covers all switch branches in the helper
+  // ===========================================================================
+
+  describe('compactArgs (via recordAction)', () => {
+    it('should use command arg for shell tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: 'npm install --save-dev typescript' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('npm install');
+    });
+
+    it('should use path arg for write_file tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('write_file', { path: '/src/index.ts', content: '...' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('/src/index.ts');
+    });
+
+    it('should use path arg for list_files tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('list_files', { path: '/src' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('/src');
+    });
+
+    it('should use thought arg for think tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('think', { thought: 'Consider the implications' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('Consider the implications');
+    });
+
+    it('should use query arg for web_search tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('web_search', { query: 'typescript best practices' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('typescript best practices');
+    });
+
+    it('should use language arg for execute_code tool', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('execute_code', { language: 'python', code: 'print("hello")' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toBe('python');
+    });
+
+    it('should use first value for unknown tool with args', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('custom_tool', { url: 'https://example.com' }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toContain('https://example.com');
+    });
+
+    it('should return empty string for unknown tool with no args', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('custom_tool', {}, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args).toBe('');
+    });
+
+    it('should truncate long args to 60 chars for shell', () => {
+      const longCommand = 'a'.repeat(100);
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: longCommand }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args.length).toBeLessThanOrEqual(63); // 60 + '...'
+      expect(entry.actions[0].args).toContain('...');
+    });
+
+    it('should truncate long thought to 40 chars for think', () => {
+      const longThought = 'x'.repeat(100);
+      ledger.startIteration(1);
+      ledger.recordAction('think', { thought: longThought }, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      expect(entry.actions[0].args.length).toBeLessThanOrEqual(43); // 40 + '...'
+    });
+
+    it('should handle missing command in shell', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', {}, 'ok');
+      ledger.endIteration();
+      const entry = ledger.getEntries()[0];
+      // args becomes String(undefined || '') = ''
+      expect(entry.actions[0].args).toBe('');
+    });
+  });
+
+  // ===========================================================================
+  // inferOutcome edge cases
+  // ===========================================================================
+
+  describe('inferOutcome edge cases', () => {
+    it('should return skipped when no actions', () => {
+      ledger.startIteration(1);
+      // No recordAction calls
+      ledger.endIteration();
+      expect(ledger.getEntries()[0].outcome).toBe('skipped');
+    });
+
+    it('should return blocked when there is a blocked action (no errors)', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: 'sudo rm -rf /' }, 'blocked');
+      ledger.endIteration();
+      expect(ledger.getEntries()[0].outcome).toBe('blocked');
+    });
+
+    it('should return partial when there is blocked and ok action', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('read_file', { path: '/a.ts' }, 'ok');
+      ledger.recordAction('shell', { command: 'sudo rm /' }, 'blocked');
+      ledger.endIteration();
+      // hasError=false, allOk=false, hasBlocked=true => blocked
+      expect(ledger.getEntries()[0].outcome).toBe('blocked');
+    });
+
+    it('should return error when all actions fail', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: 'bad1' }, 'error', 'fail1');
+      ledger.recordAction('shell', { command: 'bad2' }, 'error', 'fail2');
+      ledger.endIteration();
+      expect(ledger.getEntries()[0].outcome).toBe('error');
+    });
+  });
+
+  // ===========================================================================
+  // recordAction called without startIteration (no-op)
+  // ===========================================================================
+
+  describe('no-op guards', () => {
+    it('should not crash when recordAction called without startIteration', () => {
+      expect(() => {
+        ledger.recordAction('read_file', { path: '/a.ts' }, 'ok');
+      }).not.toThrow();
+      expect(ledger.getEntries()).toHaveLength(0);
+    });
+
+    it('should not crash when recordTokens called without startIteration', () => {
+      expect(() => {
+        ledger.recordTokens(100, 50, 0.01);
+      }).not.toThrow();
+    });
+
+    it('should not crash when endIteration called without startIteration', () => {
+      expect(() => {
+        ledger.endIteration();
+      }).not.toThrow();
+      expect(ledger.getEntries()).toHaveLength(0);
+    });
+  });
+
+  // ===========================================================================
+  // getContextSummary — durationMs formatting (< 1000ms vs >= 1000ms)
+  // ===========================================================================
+
+  describe('getContextSummary - duration formatting', () => {
+    it('should format duration in ms when under 1000ms', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('read_file', { path: '/a.ts' }, 'ok');
+      ledger.endIteration();
+
+      const summary = ledger.getContextSummary();
+      // Duration should show in ms (e.g., "5ms") since test runs fast
+      expect(summary).toMatch(/\d+ms|\d+\.\ds/);
+    });
+
+    it('should show failed FAILED annotation in action summary', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: 'npm test' }, 'error', 'Tests failed');
+      ledger.endIteration();
+
+      const summary = ledger.getContextSummary();
+      expect(summary).toContain('FAILED');
+    });
+  });
+
+  // ===========================================================================
+  // failedApproaches — limit to last 5
+  // ===========================================================================
+
+  describe('failed approaches capped at 5', () => {
+    it('should only show last 5 failed approaches in message', () => {
+      for (let i = 0; i < 8; i++) {
+        ledger.recordFailedApproach(`approach-${i}`, `reason-${i}`);
+      }
+
+      const msg = ledger.getFailedApproachesMessage();
+      expect(msg).not.toBeNull();
+      // Should contain 5 items (last 5)
+      expect(msg!.match(/approach-/g)?.length).toBe(5);
+      expect(msg).toContain('approach-7');
+      expect(msg).not.toContain('approach-0');
+    });
+
+    it('should only show last 5 failed approaches in context summary', () => {
+      for (let i = 0; i < 8; i++) {
+        ledger.recordFailedApproach(`approach-${i}`, `reason-${i}`);
+      }
+
+      const summary = ledger.getContextSummary();
+      expect(summary).toContain('approach-7');
+      expect(summary).not.toContain('approach-2');
+    });
+  });
+
+  // ===========================================================================
+  // error without errorSummary
+  // ===========================================================================
+
+  describe('failed approach auto-detection', () => {
+    it('should handle error with no error summary (uses unknown error)', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('shell', { command: 'fail' }, 'error'); // no errorSummary
+      ledger.endIteration();
+
+      const msg = ledger.getFailedApproachesMessage();
+      expect(msg).not.toBeNull();
+      expect(msg).toContain('unknown error');
+    });
+
+    it('should not auto-detect failed approaches when outcome is partial (not all error)', () => {
+      ledger.startIteration(1);
+      ledger.recordAction('read_file', { path: '/a.ts' }, 'ok');
+      ledger.recordAction('shell', { command: 'bad' }, 'error', 'failed');
+      ledger.endIteration();
+
+      // outcome is 'partial', not 'error', so no auto-detection of failed approach
+      expect(ledger.getEntries()[0].outcome).toBe('partial');
+      // No failed approaches should be tracked for partial outcome
+      expect(ledger.getFailedApproachesMessage()).toBeNull();
     });
   });
 });

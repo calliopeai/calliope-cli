@@ -5,7 +5,7 @@
  * Uses live git for real-repo tests, temp dirs for non-git scenarios.
  */
 
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -140,6 +140,11 @@ describe('git-status', () => {
     });
 
     it('cache is invalidated when cwd changes', () => {
+      // Invalidate any previous cache
+      const td = mkdtempSync(join(tmpdir(), 'git-invalidate-'));
+      getGitStatus(td);
+      rmSync(td, { recursive: true, force: true });
+
       const first = getGitStatus(process.cwd());
 
       const tempDir = mkdtempSync(join(tmpdir(), 'git-status-test-'));

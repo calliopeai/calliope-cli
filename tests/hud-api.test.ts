@@ -1173,3 +1173,370 @@ describe('edge cases', () => {
     expect(palette.name).toBe('default');
   });
 });
+
+// ============================================================================
+// Custom skin/palette validation via filesystem
+// ============================================================================
+
+describe('custom skin validation via getSkin', () => {
+  const hudDir = path.join(os.homedir(), '.calliope-cli');
+  const skinsDir = path.join(hudDir, 'skins');
+
+  function buildValidSkin(name: string): object {
+    return {
+      name,
+      description: 'A test custom skin',
+      banner: { art: ['Hello'], style: 'full' },
+      borders: { style: 'rounded' },
+      decorations: {
+        promptPrefix: '> ',
+        assistantPrefix: '< ',
+        toolPrefix: '[',
+        toolSuffix: ']',
+        separator: '---',
+        spinner: 'braille',
+      },
+      diff: { style: 'inline', showLineNumbers: true, contextLines: 3, maxLineWidth: 120, wordDiff: false },
+      density: 'normal',
+      responsive: { compact: 60, wide: 120 },
+    };
+  }
+
+  function buildValidPalette(name: string): object {
+    const color = '\x1b[36m';
+    return {
+      name,
+      description: 'A test custom palette',
+      colors: {
+        primary: color, secondary: color, accent: color,
+        text: color, textDim: color, textBold: color,
+        user: color, assistant: color, system: color, error: color,
+        codeKeyword: color, codeString: color, codeNumber: color, codeComment: color, codeFunction: color,
+        diffAdd: color, diffRemove: color, diffContext: color,
+        success: color, warning: color, info: color,
+        border: color, background: '', selection: color,
+      },
+    };
+  }
+
+  afterEach(() => {
+    clearHUDCache();
+  });
+
+  it('should load a valid custom skin from the skins directory', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_custom_valid_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    fs.writeFileSync(skinPath, JSON.stringify(buildValidSkin(skinName)));
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe(skinName);
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should fall back to clean when custom skin file has invalid JSON schema', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_custom_invalid_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    // Missing required fields — should fail validation
+    fs.writeFileSync(skinPath, JSON.stringify({ name: skinName }));
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe('clean'); // Fallback
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should fall back to clean when custom skin file is too large', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_custom_toobig_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    // Write > 1MB file
+    const bigData = JSON.stringify({ name: skinName, data: 'x'.repeat(1_100_000) });
+    fs.writeFileSync(skinPath, bigData);
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe('clean');
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should list custom skins alongside built-ins', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_list_custom_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    fs.writeFileSync(skinPath, JSON.stringify(buildValidSkin(skinName)));
+
+    try {
+      const skins = listSkins();
+      const custom = skins.find(s => s.name === skinName);
+      expect(custom).toBeDefined();
+      expect(custom!.custom).toBe(true);
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should not list invalid custom skin files in listSkins', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_invalid_list_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    // Invalid skin - missing banner
+    fs.writeFileSync(skinPath, JSON.stringify({ name: skinName, description: 'bad' }));
+
+    try {
+      const skins = listSkins();
+      const found = skins.find(s => s.name === skinName);
+      expect(found).toBeUndefined();
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should discover custom skins in discoverSkins', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_discover_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    fs.writeFileSync(skinPath, JSON.stringify(buildValidSkin(skinName)));
+
+    try {
+      const skins = discoverSkins();
+      const found = skins.find(s => s.name === skinName);
+      expect(found).toBeDefined();
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should handle skin with ANSI injection in banner art — strips OSC/CSI sequences', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_sanitize_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    const skinWithInjection = buildValidSkin(skinName) as Record<string, unknown>;
+    (skinWithInjection.banner as { art: string[] }).art = [
+      // OSC sequence that would set terminal title
+      '\x1b]0;hacked\x07Safe Text',
+    ];
+    fs.writeFileSync(skinPath, JSON.stringify(skinWithInjection));
+
+    try {
+      const skin = getSkin(skinName);
+      // If loaded, the OSC sequences should be stripped
+      if (skin.name === skinName) {
+        expect(skin.banner.art[0]).not.toContain('\x1b]');
+        expect(skin.banner.art[0]).toContain('Safe Text');
+      }
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should handle invalid banner art array with non-string elements', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_bad_banner_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    const badSkin = buildValidSkin(skinName) as Record<string, unknown>;
+    (badSkin.banner as Record<string, unknown>).art = [1, 2, 3]; // non-strings
+    fs.writeFileSync(skinPath, JSON.stringify(badSkin));
+
+    try {
+      const skin = getSkin(skinName);
+      // Non-string art array elements should fail validation
+      expect(skin.name).toBe('clean');
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should reject skin with invalid border style', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_bad_border_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    const badSkin = buildValidSkin(skinName) as Record<string, unknown>;
+    (badSkin.borders as Record<string, unknown>).style = 'invalid-style';
+    fs.writeFileSync(skinPath, JSON.stringify(badSkin));
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe('clean');
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should reject skin with invalid density', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_bad_density_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    const badSkin = buildValidSkin(skinName) as Record<string, unknown>;
+    badSkin.density = 'ultra-dense';
+    fs.writeFileSync(skinPath, JSON.stringify(badSkin));
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe('clean');
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should reject skin with invalid spinner type', () => {
+    fs.mkdirSync(skinsDir, { recursive: true });
+    const skinName = '__test_bad_spinner_' + Date.now();
+    const skinPath = path.join(skinsDir, `${skinName}.json`);
+    const badSkin = buildValidSkin(skinName) as Record<string, unknown>;
+    (badSkin.decorations as Record<string, unknown>).spinner = 'turbo-spin';
+    fs.writeFileSync(skinPath, JSON.stringify(badSkin));
+
+    try {
+      const skin = getSkin(skinName);
+      expect(skin.name).toBe('clean');
+    } finally {
+      try { fs.unlinkSync(skinPath); } catch { /* ignore */ }
+    }
+  });
+});
+
+describe('custom palette validation via getPalette', () => {
+  const hudDir = path.join(os.homedir(), '.calliope-cli');
+  const palettesDir = path.join(hudDir, 'palettes');
+
+  function buildValidPalette(name: string): object {
+    const color = '\x1b[36m';
+    return {
+      name,
+      description: 'A test custom palette',
+      colors: {
+        primary: color, secondary: color, accent: color,
+        text: color, textDim: color, textBold: color,
+        user: color, assistant: color, system: color, error: color,
+        codeKeyword: color, codeString: color, codeNumber: color, codeComment: color, codeFunction: color,
+        diffAdd: color, diffRemove: color, diffContext: color,
+        success: color, warning: color, info: color,
+        border: color, background: '', selection: color,
+      },
+    };
+  }
+
+  afterEach(() => {
+    clearHUDCache();
+  });
+
+  it('should load a valid custom palette from the palettes directory', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_valid_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    fs.writeFileSync(palettePath, JSON.stringify(buildValidPalette(paletteName)));
+
+    try {
+      const palette = getPalette(paletteName);
+      expect(palette.name).toBe(paletteName);
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should fall back to default when custom palette is invalid', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_invalid_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    // Missing required color keys
+    fs.writeFileSync(palettePath, JSON.stringify({ name: paletteName, description: 'bad', colors: {} }));
+
+    try {
+      const palette = getPalette(paletteName);
+      expect(palette.name).toBe('default');
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should list custom palettes alongside built-ins', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_list_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    fs.writeFileSync(palettePath, JSON.stringify(buildValidPalette(paletteName)));
+
+    try {
+      const palettes = listPalettes();
+      const custom = palettes.find(p => p.name === paletteName);
+      expect(custom).toBeDefined();
+      expect(custom!.custom).toBe(true);
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should discover custom palettes in discoverPalettes', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_discover_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    fs.writeFileSync(palettePath, JSON.stringify(buildValidPalette(paletteName)));
+
+    try {
+      const palettes = discoverPalettes();
+      const found = palettes.find(p => p.name === paletteName);
+      expect(found).toBeDefined();
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should reject palette missing required color keys', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_missingkeys_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    // Only has one color key instead of 24
+    fs.writeFileSync(palettePath, JSON.stringify({
+      name: paletteName,
+      description: 'test',
+      colors: { primary: '\x1b[36m' }, // missing all others
+    }));
+
+    try {
+      const palette = getPalette(paletteName);
+      expect(palette.name).toBe('default');
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should reject palette with non-object colors field', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_badcolors_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    fs.writeFileSync(palettePath, JSON.stringify({
+      name: paletteName,
+      description: 'bad',
+      colors: 'not-an-object',
+    }));
+
+    try {
+      const palette = getPalette(paletteName);
+      expect(palette.name).toBe('default');
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+
+  it('should handle palette file that is too large', () => {
+    fs.mkdirSync(palettesDir, { recursive: true });
+    const paletteName = '__test_pal_toobig_' + Date.now();
+    const palettePath = path.join(palettesDir, `${paletteName}.json`);
+    fs.writeFileSync(palettePath, 'x'.repeat(1_100_000));
+
+    try {
+      const palette = getPalette(paletteName);
+      expect(palette.name).toBe('default');
+    } finally {
+      try { fs.unlinkSync(palettePath); } catch { /* ignore */ }
+    }
+  });
+});
