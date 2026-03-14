@@ -686,13 +686,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
 
     case '/exit':
     case '/quit':
-      console.log();
-      console.log(color(`  ${getCurrentCompanion().farewell}`, 'cyan'));
-      console.log();
-      state.running = false;
-      rl.close();
       process.exit(0);
-      break;
 
     default:
       console.log(color(`Unknown command: ${cmd}. Type /help for help.`, 'red'));

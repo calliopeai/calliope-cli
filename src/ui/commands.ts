@@ -3019,11 +3019,7 @@ Requires --agents flag.`);
 
     case '/exit':
     case '/quit':
-      if (isApiServerRunning()) {
-        await stopApiServer();
-      }
-      ctx.exit();
-      break;
+      process.exit(0);
 
     default:
       ctx.addMessage('error', `Unknown command: ${command}. Type /help for help.`);

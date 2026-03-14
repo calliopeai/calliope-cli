@@ -203,9 +203,6 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     recording.stopRecording();
     sessionTimeout.clearTimers();
     idleEviction.stopMonitor();
-    console.log();
-    console.log(color(`  ${getCurrentCompanion().farewell}`, 'cyan'));
-    console.log();
     process.exit(0);
   });
 
