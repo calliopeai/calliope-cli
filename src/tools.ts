@@ -245,6 +245,32 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'grep',
+    description: 'Search file contents for a pattern. Returns matching lines with file path and line number.',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: {
+          type: 'string',
+          description: 'The regex or literal string pattern to search for',
+        },
+        path: {
+          type: 'string',
+          description: 'Directory or file to search in (default: ".")',
+        },
+        glob: {
+          type: 'string',
+          description: 'Filter files by glob pattern (e.g. "*.ts")',
+        },
+        case_insensitive: {
+          type: 'boolean',
+          description: 'If true, perform case-insensitive matching',
+        },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
     name: 'configure',
     description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, companions, or any preference through natural conversation. Always use action "list" first if you need to show available options.
 
@@ -668,6 +694,17 @@ export async function executeTool(
         }
         const globCwd = typeof args.cwd === 'string' ? args.cwd : cwd;
         result = await globFiles(args.pattern, globCwd);
+        break;
+      }
+
+      case 'grep': {
+        if (typeof args.pattern !== 'string') {
+          return { toolCallId: id, result: 'Error: pattern must be a string', isError: true };
+        }
+        const grepPath = typeof args.path === 'string' ? args.path : '.';
+        const grepGlob = typeof args.glob === 'string' ? args.glob : undefined;
+        const caseInsensitive = args.case_insensitive === true;
+        result = await grepFiles(args.pattern, grepPath, cwd, grepGlob, caseInsensitive);
         break;
       }
 
@@ -1563,5 +1600,98 @@ async function globFiles(pattern: string, searchCwd: string): Promise<string> {
   }
 
   return matched.join('\n');
+}
+
+/**
+ * Search file contents using a regex pattern (or literal string fallback).
+ */
+async function grepFiles(
+  pattern: string,
+  searchPath: string,
+  cwd: string,
+  globPattern: string | undefined,
+  caseInsensitive: boolean,
+): Promise<string> {
+  // Resolve search path relative to cwd
+  const absSearchPath = path.isAbsolute(searchPath)
+    ? path.resolve(searchPath)
+    : path.resolve(cwd, searchPath);
+
+  // Validate access
+  try {
+    validatePath(absSearchPath, cwd);
+  } catch {
+    throw new Error(`Access denied: ${searchPath} is outside allowed scope`);
+  }
+
+  if (!fs.existsSync(absSearchPath)) {
+    throw new Error(`Path not found: ${absSearchPath}`);
+  }
+
+  // Build the regex, fallback to literal if invalid
+  let regex: RegExp;
+  try {
+    regex = new RegExp(pattern, caseInsensitive ? 'i' : '');
+  } catch {
+    // Treat as literal string
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    regex = new RegExp(escaped, caseInsensitive ? 'i' : '');
+  }
+
+  // Collect files to search
+  let filesToSearch: string[];
+  const stat = fs.statSync(absSearchPath);
+  if (stat.isFile()) {
+    filesToSearch = [absSearchPath];
+  } else {
+    const all: string[] = [];
+    walkDir(absSearchPath, absSearchPath, all);
+    filesToSearch = all.map(f => path.join(absSearchPath, f));
+  }
+
+  // Apply glob filter if provided
+  if (globPattern) {
+    const globRegex = globToRegex(globPattern);
+    filesToSearch = filesToSearch.filter(f => {
+      const basename = path.basename(f);
+      return globRegex.test(basename) || globRegex.test(f.replace(/\\/g, '/'));
+    });
+  }
+
+  const results: string[] = [];
+  const MAX_RESULTS = 200;
+
+  for (const filePath of filesToSearch) {
+    if (results.length >= MAX_RESULTS) break;
+
+    let content: string;
+    try {
+      const fileStat = fs.statSync(filePath);
+      if (fileStat.size > 5 * 1024 * 1024) continue; // skip files > 5MB
+      content = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    const lines = content.split('\n');
+    const relPath = path.relative(cwd, filePath);
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      if (results.length >= MAX_RESULTS) break;
+      if (regex.test(lines[lineIdx])) {
+        results.push(`${relPath}:${lineIdx + 1}: ${lines[lineIdx]}`);
+      }
+    }
+  }
+
+  if (results.length === 0) {
+    return 'No matches found';
+  }
+
+  let output = results.join('\n');
+  if (results.length >= MAX_RESULTS) {
+    output += `\n(results truncated at ${MAX_RESULTS} matches)`;
+  }
+  return output;
 }
 

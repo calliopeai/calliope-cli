@@ -266,3 +266,153 @@ describe('glob tool', () => {
     expect(hasJson).toBe(true);
   });
 });
+
+// ===========================================================================
+// grep tool (#114)
+// ===========================================================================
+
+describe('grep tool', () => {
+  beforeEach(() => {
+    fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'file1.ts'), [
+      'export function hello() {',
+      '  return "Hello, World!";',
+      '}',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tmpDir, 'file2.ts'), [
+      'import { hello } from "./file1.js";',
+      'const GREETING = "hello world";',
+      'console.log(GREETING);',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tmpDir, 'src', 'utils.ts'), [
+      'export const PI = 3.14;',
+      'export function add(a: number, b: number) { return a + b; }',
+    ].join('\n'));
+    fs.writeFileSync(path.join(tmpDir, 'notes.txt'), 'This is a text file\nWith some notes');
+  });
+
+  it('basic match: finds the line with matching text', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'hello', path: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('hello');
+    // Should include file path and line number format
+    expect(result.result).toMatch(/:\d+:/);
+  });
+
+  it('case insensitive: matches regardless of case', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'HELLO', path: tmpDir, case_insensitive: true }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    // Should find "hello" (lowercase) due to case insensitive flag
+    expect(result.result.toLowerCase()).toContain('hello');
+  });
+
+  it('case sensitive by default: does not match wrong case', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'HELLO', path: tmpDir }),
+      tmpDir,
+    );
+
+    // Only uppercase HELLO should match; files contain lowercase "hello"
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toBeDefined();
+  });
+
+  it('no matches: returns "No matches found"', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'ZZZNOMATCH_UNIQUE_STRING', path: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toBe('No matches found');
+  });
+
+  it('regex pattern: uses regex matching', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'export (function|const)', path: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('export');
+    expect(result.result).toMatch(/:\d+:/);
+  });
+
+  it('invalid regex falls back to literal string match', async () => {
+    // "[invalid" is not a valid regex — should fallback to literal match and not crash
+    const result = await executeTool(
+      makeTool('grep', { pattern: '[invalid', path: tmpDir }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toBeDefined();
+  });
+
+  it('glob filter: restricts files searched', async () => {
+    // Search for "export" only in .txt files — should find nothing
+    const resultTxt = await executeTool(
+      makeTool('grep', { pattern: 'export', path: tmpDir, glob: '*.txt' }),
+      tmpDir,
+    );
+    expect(resultTxt.result).toBe('No matches found');
+
+    // Search for "export" only in .ts files — should find matches
+    const resultTs = await executeTool(
+      makeTool('grep', { pattern: 'export', path: tmpDir, glob: '*.ts' }),
+      tmpDir,
+    );
+    expect(resultTs.result).toContain('export');
+  });
+
+  it('searching a single file directly', async () => {
+    const filePath = path.join(tmpDir, 'file1.ts');
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'Hello', path: filePath }),
+      tmpDir,
+    );
+
+    expect(result.isError).toBeUndefined();
+    expect(result.result).toContain('Hello');
+  });
+
+  it('error: pattern must be a string', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 42 }),
+      tmpDir,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('pattern must be a string');
+  });
+
+  it('path outside scope: blocked', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'root', path: '/etc' }),
+      tmpDir,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.result).toContain('Error');
+  });
+
+  it('output includes file:line: content format', async () => {
+    const result = await executeTool(
+      makeTool('grep', { pattern: 'function', path: tmpDir, glob: '*.ts' }),
+      tmpDir,
+    );
+
+    expect(result.result).toContain('function');
+    // Every result line should be in "file:N: content" format
+    const lines = result.result.split('\n').filter(Boolean);
+    for (const line of lines) {
+      expect(line).toMatch(/^.+:\d+: .+/);
+    }
+  });
+});
