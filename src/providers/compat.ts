@@ -6,11 +6,13 @@
  */
 
 import OpenAI from 'openai';
+import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
+import type { CompatShim } from './openai-compat-shims.js';
 
 // API base URLs for OpenAI-compatible providers
 const PROVIDER_BASE_URLS: Record<string, string> = {
@@ -65,6 +67,13 @@ export async function chatOpenAICompatible(
     if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
   }
 
+  // Apply openai-compat shim if applicable
+  let activeShim: CompatShim | null = null;
+  if (provider === 'openai-compat') {
+    const { detectShim } = await import('./openai-compat-shims.js');
+    activeShim = detectShim(baseURL);
+  }
+
   const client = new OpenAI({ apiKey, baseURL });
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
@@ -81,13 +90,15 @@ export async function chatOpenAICompatible(
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
     try {
-      const stream = await client.chat.completions.create({
+      let streamParams: ChatCompletionCreateParamsStreaming = {
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
         max_tokens: dynamicMaxTokens,
         stream: true,
-      });
+      };
+      if (activeShim) streamParams = activeShim.transformRequest(streamParams) as ChatCompletionCreateParamsStreaming;
+      const stream = await client.chat.completions.create(streamParams);
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
@@ -160,12 +171,14 @@ export async function chatOpenAICompatible(
   let actualModel = model;
   let response;
   try {
-    response = await client.chat.completions.create({
+    let reqParams: ChatCompletionCreateParamsNonStreaming = {
       model: actualModel,
       messages: openaiMessages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       max_tokens: dynamicMaxTokens,
-    });
+    };
+    if (activeShim) reqParams = activeShim.transformRequest(reqParams) as ChatCompletionCreateParamsNonStreaming;
+    response = await client.chat.completions.create(reqParams);
   } catch (error: unknown) {
     // Ollama model not found - try fallback discovery
     const status = (error as { status?: number })?.status;
@@ -174,12 +187,14 @@ export async function chatOpenAICompatible(
       if (fallback && fallback !== model) {
         debugLog(`Ollama model "${model}" not found, falling back to "${fallback}"`);
         actualModel = fallback;
-        response = await client.chat.completions.create({
+        let fallbackParams: ChatCompletionCreateParamsNonStreaming = {
           model: actualModel,
           messages: openaiMessages,
           tools: openaiTools.length > 0 ? openaiTools : undefined,
           max_tokens: dynamicMaxTokens,
-        });
+        };
+        if (activeShim) fallbackParams = activeShim.transformRequest(fallbackParams) as ChatCompletionCreateParamsNonStreaming;
+        response = await client.chat.completions.create(fallbackParams);
       } else {
         throw new Error(`Ollama model "${model}" not found. Pull it with: ollama pull ${model}`);
       }
