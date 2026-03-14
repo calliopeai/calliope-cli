@@ -25,3 +25,6 @@ cli.env
 
 # Test coverage
 coverage/
+
+# Backup files
+*.backup
