@@ -73,6 +73,14 @@ const envCompanion = process.env.CALLIOPE_COMPANION;
 export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion };
 
 async function main(): Promise<void> {
+  // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
+  const [nodeMaj] = process.versions.node.split('.').map(Number);
+  if (nodeMaj < 20) {
+    console.error(`calliope requires Node.js 20 or later (you have ${process.versions.node})`);
+    console.error('Upgrade: https://nodejs.org/en/download  or  nvm install 20');
+    process.exit(1);
+  }
+
   // Handle --help
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
