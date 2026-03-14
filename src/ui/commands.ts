@@ -254,33 +254,33 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
         }
         ctx.addMessage('system', `Model: ${oldModel} → ${newModel}${switchWarning}`);
       } else {
-        ctx.addMessage('system', `Discovering models for ${ctx.actualProvider}...`);
+        ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
         try {
           const models = await getAvailableModels(ctx.actualProvider);
           if (models.length > 0) {
             ctx.setAvailableModels(models);
             ctx.setModalMode('model');
           } else {
-            ctx.addMessage('error', 'No models found');
+            ctx.addMessage('error', `No models found for ${ctx.actualProvider} — API key may be invalid`);
           }
         } catch (e) {
-          ctx.addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+          ctx.addMessage('error', `Failed to fetch models for ${ctx.actualProvider}: ${e instanceof Error ? e.message : String(e)}. Check your API key.`);
         }
       }
       break;
 
     case '/models':
-      ctx.addMessage('system', `Discovering models for ${ctx.actualProvider}...`);
+      ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
       try {
         const models = await getAvailableModels(ctx.actualProvider);
         if (models.length > 0) {
           ctx.setAvailableModels(models);
           ctx.setModalMode('model');
         } else {
-          ctx.addMessage('error', 'No models found');
+          ctx.addMessage('error', `No models found for ${ctx.actualProvider} — API key may be invalid`);
         }
       } catch (e) {
-        ctx.addMessage('error', `Failed to fetch models: ${e instanceof Error ? e.message : String(e)}`);
+        ctx.addMessage('error', `Failed to fetch models for ${ctx.actualProvider}: ${e instanceof Error ? e.message : String(e)}. Check your API key.`);
       }
       break;
 

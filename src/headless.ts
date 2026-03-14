@@ -33,6 +33,7 @@ export interface HeadlessOptions {
   prompt?: string;
   outputMode?: HeadlessOutputMode;
   maxIterations?: number;
+  maxRetries?: number;
   cwd?: string;
 }
 
@@ -82,6 +83,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
   const persona: AgentPersona = options.persona || config.get('persona');
   const maxIterations = options.maxIterations || config.get('maxIterations');
+  const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
 
   // Build prompt from stdin or --prompt flag
@@ -165,7 +167,15 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             },
           }, outputMode);
 
-          const result = await executeTool(toolCall, cwd);
+          // Execute tool with retry budget
+          let result = await executeTool(toolCall, cwd);
+          let attempt = 0;
+          while (result.isError && attempt < maxRetries) {
+            attempt++;
+            process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
+            result = await executeTool(toolCall, cwd);
+          }
+
           recording.recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
 
           emit({

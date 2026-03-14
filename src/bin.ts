@@ -71,13 +71,29 @@ const useHeadless = args.includes('--headless') || args.includes('--batch') || a
 // Check for API server flag
 const useApiServer = args.includes('--serve') || args.includes('--api');
 
+// Parse --max-retries <N> flag (default 3), also honour CALLIOPE_MAX_RETRIES env var
+function parseMaxRetries(): number {
+  const envVal = process.env.CALLIOPE_MAX_RETRIES;
+  if (envVal !== undefined) {
+    const parsed = parseInt(envVal, 10);
+    if (!isNaN(parsed) && parsed >= 0) return parsed;
+  }
+  const flagIdx = args.indexOf('--max-retries');
+  if (flagIdx !== -1 && args[flagIdx + 1] !== undefined) {
+    const parsed = parseInt(args[flagIdx + 1], 10);
+    if (!isNaN(parsed) && parsed >= 0) return parsed;
+  }
+  return 3;
+}
+const maxRetries = parseMaxRetries();
+
 // HUD environment variable overrides
 const envSkin = process.env.CALLIOPE_SKIN;
 const envPalette = process.env.CALLIOPE_PALETTE;
 const envCompanion = process.env.CALLIOPE_COMPANION;
 
 // Export for CLI to access
-export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion };
+export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion, maxRetries };
 
 async function main(): Promise<void> {
   // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
@@ -245,11 +261,16 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
     const { runHeadless } = await import('./headless.js');
-    // Extract prompt from remaining args (non-flag args)
-    const prompt = args.filter(a => !a.startsWith('-')).join(' ');
+    // Extract prompt from remaining args (non-flag args, skip --max-retries value)
+    const prompt = args.filter((a, i) => {
+      if (a.startsWith('-')) return false;
+      if (i > 0 && args[i - 1] === '--max-retries') return false;
+      return true;
+    }).join(' ');
     const exitCode = await runHeadless({
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
+      maxRetries,
     });
     process.exit(exitCode);
   } else if (useLegacyUI) {
@@ -289,6 +310,7 @@ ${bold('OPTIONS')}
   --batch           Alias for --headless
   --json            Output JSON events (with --headless)
   --pipe            Read from stdin, write to stdout (alias)
+  --max-retries N   Retry failed tool calls N times in headless mode (default 3)
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key
@@ -309,6 +331,7 @@ ${bold('ENVIRONMENT VARIABLES')}
   CALLIOPE_SKIN         Override active skin (e.g. falcon, matrix)
   CALLIOPE_PALETTE      Override active palette (e.g. neon, pastel)
   CALLIOPE_COMPANION    Override active companion (e.g. copilot, wopr)
+  CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
 
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands
