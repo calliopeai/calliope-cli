@@ -201,6 +201,32 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    name: 'edit_file',
+    description: 'Edit a file by replacing an exact string. Prefer this over write_file for modifications. Fails if old_string is not found or appears multiple times (use replace_all for intentional multi-replace).',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'The path to the file to edit',
+        },
+        old_string: {
+          type: 'string',
+          description: 'The exact string to find and replace',
+        },
+        new_string: {
+          type: 'string',
+          description: 'The string to replace old_string with',
+        },
+        replace_all: {
+          type: 'boolean',
+          description: 'If true, replace all occurrences. If false (default), fails when multiple matches exist.',
+        },
+      },
+      required: ['path', 'old_string', 'new_string'],
+    },
+  },
+  {
     name: 'configure',
     description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, companions, or any preference through natural conversation. Always use action "list" first if you need to show available options.
 
@@ -600,6 +626,21 @@ export async function executeTool(
         }
         const title = typeof args.title === 'string' ? args.title : undefined;
         result = generateMermaidDiagram(diagramType, args.content, title);
+        break;
+      }
+
+      case 'edit_file': {
+        if (typeof args.path !== 'string') {
+          return { toolCallId: id, result: 'Error: path must be a string', isError: true };
+        }
+        if (typeof args.old_string !== 'string') {
+          return { toolCallId: id, result: 'Error: old_string must be a string', isError: true };
+        }
+        if (typeof args.new_string !== 'string') {
+          return { toolCallId: id, result: 'Error: new_string must be a string', isError: true };
+        }
+        const replaceAll = args.replace_all === true;
+        result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd);
         break;
       }
 
@@ -1344,3 +1385,54 @@ ${content}
 
   return `MERMAID_DIAGRAM:\n${diagram}\n\nTo view this diagram, paste the mermaid code into https://mermaid.live or a markdown viewer that supports Mermaid.`;
 }
+
+/**
+ * Edit a file by replacing an exact string (in-place edit).
+ * Supports single-occurrence enforcement or replace_all mode.
+ */
+async function editFile(
+  filePath: string,
+  oldString: string,
+  newString: string,
+  replaceAll: boolean,
+  cwd: string,
+): Promise<string> {
+  const absPath = validatePath(filePath, cwd);
+
+  if (!fs.existsSync(absPath)) {
+    throw new Error(`File not found: ${absPath}`);
+  }
+
+  const stats = fs.statSync(absPath);
+  if (stats.isDirectory()) {
+    throw new Error(`Path is a directory: ${absPath}`);
+  }
+
+  const content = fs.readFileSync(absPath, 'utf-8');
+
+  if (replaceAll) {
+    const updated = content.replaceAll(oldString, newString);
+    const count = (content.split(oldString).length - 1);
+    if (count === 0) {
+      throw new Error(`old_string not found in file: ${absPath}`);
+    }
+    fs.writeFileSync(absPath, updated);
+    return `Edited ${absPath} (replaced ${count} occurrence${count !== 1 ? 's' : ''})`;
+  }
+
+  // Count occurrences
+  const occurrences = content.split(oldString).length - 1;
+  if (occurrences === 0) {
+    throw new Error(`old_string not found in file: ${absPath}`);
+  }
+  if (occurrences > 1) {
+    throw new Error(
+      `old_string matches ${occurrences} occurrences — use replace_all: true or make it more specific`,
+    );
+  }
+
+  const updated = content.replace(oldString, newString);
+  fs.writeFileSync(absPath, updated);
+  return `Edited ${absPath} (replaced 1 occurrence)`;
+}
+
