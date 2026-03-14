@@ -505,14 +505,20 @@ export function StateTransition({ from, to, onComplete }: {
       setFrame(f => {
         if (f + 1 >= totalFrames) {
           clearInterval(timer);
-          onComplete();
-          return f;
+          return totalFrames;
         }
         return f + 1;
       });
     }, 40);
     return () => clearInterval(timer);
   }, []);
+
+  // Call onComplete after frame state settles (not inside updater — avoids setState-during-render)
+  useEffect(() => {
+    if (frame >= totalFrames) {
+      onComplete();
+    }
+  }, [frame]);
 
   const progress = frame / totalFrames;
   const width = 24;
