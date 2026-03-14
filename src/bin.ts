@@ -45,6 +45,13 @@ function loadEnvFile(filePath: string): void {
 loadEnvFile(path.join(process.cwd(), '.env'));
 loadEnvFile(path.join(process.cwd(), 'cli.env'));
 
+// Suppress OpenAI/third-party SDK verbose debug output triggered by DEBUG=true
+// (JupyterHub sets DEBUG=true in the container environment which causes OpenAI SDK
+// to dump full HTTP request/response bodies to stdout)
+if (process.env.DEBUG === 'true' && !process.env.CALLIOPE_DEBUG) {
+  delete process.env.DEBUG;
+}
+
 // Handle CLI flags
 const args = process.argv.slice(2);
 
