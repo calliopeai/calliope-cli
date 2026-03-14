@@ -140,7 +140,9 @@ function preMigrateConfig(): void {
     const raw = fs.readFileSync(configPath, 'utf-8');
     const data = JSON.parse(raw);
     let changed = false;
+    const validPersonas = ['calliope', 'muse', 'minimal'];
     if (data.persona === 'professional') { data.persona = 'calliope'; changed = true; }
+    if (data.persona && !validPersonas.includes(data.persona)) { data.persona = 'calliope'; changed = true; }
     if (data.activeCompanion === 'professional') { data.activeCompanion = 'calliope'; changed = true; }
     if (changed) fs.writeFileSync(configPath, JSON.stringify(data, null, '\t'));
   } catch { /* ignore migration errors */ }
