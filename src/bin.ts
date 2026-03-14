@@ -204,7 +204,8 @@ async function main(): Promise<void> {
                        process.env.HUGGINGFACE_API_KEY ||
                        process.env.LITELLM_BASE_URL ||
                        process.env.BEDROCK_API_KEY ||
-                       process.env.BEDROCK_BASE_URL;
+                       process.env.BEDROCK_BASE_URL ||
+                       process.env.OPENAI_COMPAT_BASE_URL;
 
     if (hasEnvKeys) {
       // Skip setup if env keys present
@@ -329,6 +330,8 @@ ${bold('ENVIRONMENT VARIABLES')}
   LITELLM_API_KEY       LiteLLM API key (if required)
   BEDROCK_BASE_URL      AWS Bedrock gateway/proxy URL
   BEDROCK_API_KEY       AWS Bedrock gateway API key (if required)
+  OPENAI_COMPAT_BASE_URL   Generic OpenAI-compatible server URL (e.g. http://localhost:1234/v1)
+  OPENAI_COMPAT_API_KEY    API key for the OpenAI-compatible server (if required)
 
   CALLIOPE_SKIN         Override active skin (e.g. falcon, matrix)
   CALLIOPE_PALETTE      Override active palette (e.g. neon, pastel)

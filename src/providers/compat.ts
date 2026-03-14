@@ -53,6 +53,10 @@ export async function chatOpenAICompatible(
     // Append /v1 for OpenAI-compatible endpoint, unless already present
     baseURL = bedrockBase.endsWith('/v1') ? bedrockBase : `${bedrockBase}/v1`;
     apiKey = config.getApiKey('bedrock') || 'bedrock'; // Key depends on gateway setup
+  } else if (provider === 'openai-compat') {
+    const rawBase = config.getBaseUrl('openai-compat') || 'http://localhost:1234';
+    baseURL = rawBase.endsWith('/v1') ? rawBase : `${rawBase}/v1`;
+    apiKey = config.getApiKey('openai-compat') || 'openai-compat';
   } else {
     apiKey = config.getApiKey(provider);
     if (!apiKey) throw new Error(`${provider} API key not configured`);

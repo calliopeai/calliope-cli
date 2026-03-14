@@ -97,6 +97,7 @@ const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
     /stability\./i,         // Image generation models
     /amazon\.titan-embed/i, // Titan embedding models
   ],
+  'openai-compat': [],  // No filtering — return everything from the server
 };
 
 /**
@@ -246,6 +247,9 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
         break;
       case 'bedrock':
         models = await getBedrockModels();
+        break;
+      case 'openai-compat':
+        models = await getOpenAICompatModels();
         break;
       default:
         throw new Error(`Model detection not implemented for ${provider}`);
@@ -843,6 +847,27 @@ function getBedrockContextLength(modelId: string): number {
   if (modelId.includes('titan-text-premier')) return 32000;
   if (modelId.includes('titan-text-express')) return 8192;
   return 32000;
+}
+
+/**
+ * Get models from a generic OpenAI-compatible server (e.g. LM Studio, Jan, LocalAI, vLLM)
+ */
+async function getOpenAICompatModels(): Promise<ModelInfo[]> {
+  let baseUrl = config.getBaseUrl('openai-compat') || 'http://localhost:1234';
+  if (!baseUrl.endsWith('/v1')) baseUrl = `${baseUrl}/v1`;
+  const apiKey = config.getApiKey('openai-compat') || 'openai-compat';
+
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: { 'Authorization': `Bearer ${apiKey}` },
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI-compat server error: ${response.status}`);
+  }
+
+  const data = await response.json() as { data?: Array<{ id: string }> };
+  const models = data.data ?? [];
+  return models.map(m => ({ id: m.id, name: m.id, description: 'OpenAI-compatible server' }));
 }
 
 /**

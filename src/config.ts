@@ -44,6 +44,9 @@ export interface CalliopeConfig {
   bedrockBaseUrl?: string;  // AWS Bedrock gateway/proxy URL
   awsRegion?: string;       // AWS region for Bedrock (default: us-east-1)
   awsProfile?: string;      // AWS named profile
+  openaiCompatBaseUrl?: string;  // Generic OpenAI-compatible server base URL
+  openaiCompatApiKey?: string;   // Generic OpenAI-compatible server API key
+  openaiCompatModel?: string;    // Override model for OpenAI-compatible server
 
   // Agent settings
   persona: AgentPersona;
@@ -177,6 +180,9 @@ const config = new Conf<CalliopeConfig>({
     bedrockBaseUrl: { type: 'string' },
     awsRegion: { type: 'string' },
     awsProfile: { type: 'string' },
+    openaiCompatBaseUrl: { type: 'string' },
+    openaiCompatApiKey: { type: 'string' },
+    openaiCompatModel: { type: 'string' },
     persona: { type: 'string', enum: ['calliope', 'muse', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
@@ -346,6 +352,7 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (config.get('huggingfaceApiKey') || process.env.HUGGINGFACE_API_KEY) providers.push('huggingface');
   if (config.get('litellmBaseUrl') || process.env.LITELLM_BASE_URL) providers.push('litellm');
   if (config.get('bedrockApiKey') || process.env.BEDROCK_API_KEY || config.get('bedrockBaseUrl') || process.env.BEDROCK_BASE_URL || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
+  if (config.get('openaiCompatBaseUrl') || process.env.OPENAI_COMPAT_BASE_URL) providers.push('openai-compat');
 
   return providers;
 }
@@ -354,6 +361,11 @@ export function getConfiguredProviders(): LLMProvider[] {
  * Get API key for a provider
  */
 export function getApiKey(provider: LLMProvider): string | undefined {
+  // Special handling for openai-compat: check env/config, default to 'openai-compat'
+  if (provider === 'openai-compat') {
+    return process.env.OPENAI_COMPAT_API_KEY || config.get('openaiCompatApiKey') || 'openai-compat';
+  }
+
   const keyMap: Record<LLMProvider, keyof CalliopeConfig | undefined> = {
     anthropic: 'anthropicApiKey',
     google: 'googleApiKey',
@@ -368,6 +380,7 @@ export function getApiKey(provider: LLMProvider): string | undefined {
     huggingface: 'huggingfaceApiKey',
     litellm: 'litellmApiKey',
     bedrock: 'bedrockApiKey',
+    'openai-compat': undefined,  // handled above
     auto: undefined,
   };
 
@@ -412,6 +425,9 @@ export function getBaseUrl(provider: LLMProvider): string | undefined {
   }
   if (provider === 'bedrock') {
     return process.env.BEDROCK_BASE_URL || config.get('bedrockBaseUrl') || undefined;
+  }
+  if (provider === 'openai-compat') {
+    return config.get('openaiCompatBaseUrl') || process.env.OPENAI_COMPAT_BASE_URL;
   }
   return undefined;
 }

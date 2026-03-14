@@ -2,7 +2,7 @@
  * Calliope CLI Types
  */
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'auto';
+export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'openai-compat' | 'auto';
 export type AgentPersona = 'calliope' | 'muse' | 'minimal';
 
 /**
@@ -100,6 +100,7 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
   bedrock: 'us.anthropic.claude-sonnet-4-20250514-v1:0',  // AWS Bedrock (native Converse API)
+  'openai-compat': 'gpt-3.5-turbo',  // Generic OpenAI-compatible server
   auto: 'claude-sonnet-4-20250514',
 };
 

@@ -175,6 +175,11 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     balanced: { name: 'Sonnet 4', provider: 'bedrock', model: 'us.anthropic.claude-sonnet-4-20250514-v1:0', maxTokens: 8192, costPer1kInput: 0.003, costPer1kOutput: 0.015 },
     smart: { name: 'Opus 4', provider: 'bedrock', model: 'us.anthropic.claude-opus-4-20250514-v1:0', maxTokens: 8192, costPer1kInput: 0.015, costPer1kOutput: 0.075 },
   },
+  'openai-compat': {
+    fast: { name: 'Default', provider: 'openai-compat', model: 'gpt-3.5-turbo', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
+    balanced: { name: 'Default', provider: 'openai-compat', model: 'gpt-3.5-turbo', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
+    smart: { name: 'Default', provider: 'openai-compat', model: 'gpt-3.5-turbo', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
+  },
   auto: {
     fast: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
     balanced: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },

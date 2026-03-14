@@ -49,6 +49,7 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.HUGGINGFACE_API_KEY) envProviders.push('huggingface');
   if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
   if (process.env.BEDROCK_API_KEY || process.env.BEDROCK_BASE_URL) envProviders.push('bedrock');
+  if (process.env.OPENAI_COMPAT_BASE_URL) envProviders.push('openai-compat');
 
   if (envProviders.length > 0) {
     console.log(c(`  Found API keys in environment: ${envProviders.join(', ')}`, 'green'));
@@ -69,6 +70,7 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'ollama', name: 'Ollama (Local)', description: 'Run models locally - no API key needed' },
       { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
       { value: 'bedrock', name: 'AWS Bedrock', description: 'AWS Bedrock via gateway/proxy' },
+      { value: 'openai-compat', name: 'Generic OpenAI-compatible server', description: 'Any server with OpenAI API: AnythingLLM, LocalAI, Jan, LM Studio, vLLM' },
       { value: 'ai21', name: 'AI21 Labs', description: 'Jamba models' },
       { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
       { value: 'auto', name: 'Auto (use first available)', description: 'Automatically select based on available keys' },
@@ -133,6 +135,17 @@ export async function runSetup(force = false): Promise<boolean> {
       if (apiKey && apiKey.length > 0) {
         config.set('bedrockApiKey', apiKey);
       }
+    }
+  } else if (providerChoice === 'openai-compat' && needsKey) {
+    console.log();
+    console.log(c('  Any server that speaks the OpenAI chat completions API.', 'dim'));
+    console.log(c('  Examples: AnythingLLM (port 3001), LocalAI (8080), Jan (1337), LM Studio (1234), vLLM (8000)', 'dim'));
+    const baseUrl = await input({ message: 'Enter base URL:', default: 'http://localhost:1234/v1' });
+    config.set('openaiCompatBaseUrl', baseUrl);
+    const needsApiKey = await confirm({ message: 'Does this server require an API key?', default: false });
+    if (needsApiKey) {
+      const apiKey = await input({ message: 'Enter API key:' });
+      config.set('openaiCompatApiKey', apiKey);
     }
   } else if (needsKey) {
     console.log();
