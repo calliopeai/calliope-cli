@@ -530,7 +530,46 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     case '/status':
     case '/s': {
       const imgInfo = getTerminalImageInfo();
-      ctx.addMessage('system', `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`);
+      let statusMsg = `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`;
+      
+      // Add scuttlebot status if enabled
+      if (scuttlebotClient.isEnabled()) {
+        const sbStatus = scuttlebotClient.getStatus();
+        statusMsg += `\nScuttlebot: enabled (${sbStatus.nick}) | ${sbStatus.config?.transport} | #${sbStatus.config?.channel}`;
+      }
+      
+      ctx.addMessage('system', statusMsg);
+      break;
+    }
+
+    case '/scuttlebot': {
+      const sbStatus = scuttlebotClient.getStatus();
+      if (!sbStatus.enabled) {
+        ctx.addMessage('system', 'Scuttlebot integration not enabled.\n\nSet environment variables:\n  SCUTTLEBOT_URL - server URL\n  SCUTTLEBOT_TOKEN - API token\n  SCUTTLEBOT_CHANNEL - channel (default: general)\n  SCUTTLEBOT_TRANSPORT - http or irc (default: http)');
+        break;
+      }
+      
+      let statusText = 'Scuttlebot Status\n────────────────────────────────────────\n';
+      statusText += `Enabled:     yes\n`;
+      statusText += `Nick:        ${sbStatus.nick}\n`;
+      statusText += `Transport:   ${sbStatus.config?.transport}\n`;
+      statusText += `Channel:     #${sbStatus.config?.channel}\n`;
+      statusText += `Connected:   ${sbStatus.connected ? 'yes' : 'no'}`;
+      if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
+        statusText += `\nChannels:    ${sbStatus.config.channels.map(c => '#' + c).join(', ')}`;
+      }
+      
+      ctx.addMessage('system', statusText);
+      
+      // Allow manual message posting
+      if (parts.length > 1) {
+        const message = parts.slice(1).join(' ');
+        scuttlebotClient.postMessage(message).then(() => {
+          ctx.addMessage('system', 'Message posted to scuttlebot.');
+        }).catch((err) => {
+          ctx.addMessage('system', `Failed to post message: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
       break;
     }
 
