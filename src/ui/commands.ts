@@ -28,6 +28,7 @@ import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../sma
 import type { SmartRoutingConfig } from '../smart-router.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud/api.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 import { createJob, runJob, cancelJob, listJobs, getJob, formatJob, formatJobsList, clearFinishedJobs } from '../background-jobs.js';
 import { listRecordings, loadRecording, formatRecording, deleteRecording } from '../terminal-recording.js';
 import { startApiServer, stopApiServer, isApiServerRunning } from '../api-server.js';
