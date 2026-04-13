@@ -7,8 +7,13 @@ on:
     inputs:
       version:
         description: 'Version bump type (patch, minor, major) or specific version'
-        required: true
+        required: false
         default: 'patch'
+      publish_current:
+        description: 'Publish the current package.json version without bumping'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -19,19 +24,16 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Install dependencies
-        run: npm install
 
       - name: Clean git state
         if: github.event_name == 'workflow_dispatch'
@@ -39,8 +41,11 @@ jobs:
           git checkout -- .
           git clean -fd
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Bump version (manual dispatch)
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' && !inputs.publish_current
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -49,8 +54,6 @@ jobs:
 
       - name: Publish to npm
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Get published version
         id: version
