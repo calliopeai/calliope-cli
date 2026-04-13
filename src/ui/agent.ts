@@ -18,6 +18,7 @@ import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
 import * as hooks from '../hooks.js';
 import * as modelRouter from '../model-router.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 import * as summarization from '../summarization.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { setMood } from '../companions.js';
@@ -730,6 +731,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.llmMessages.current.push({ role: 'assistant', content: response.content });
       ctx.addMessage('assistant', response.content);
       recordEvent('output', response.content.slice(0, 5000));
+      
+      // Mirror assistant message to scuttlebot
+      if (scuttlebotClient.isEnabled()) {
+        scuttlebotClient.mirrorAssistant(response.content).catch(() => {
+          // Silent fail
+        });
+      }
+      
       ctx.setStreamingResponse('');
       ctx.setContextTokens(ctx.estimateContextTokens());
       checkAndWarnContextLimit(ctx.actualProvider as LLMProvider, ctx.actualModel, ctx.estimateContextTokens(), ctx.addMessage);

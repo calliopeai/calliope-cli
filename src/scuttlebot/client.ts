@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { ScuttlebotHTTPClient, type ScuttlebotConfig } from './http-client.js';
 import { ScuttlebotIRCClient } from './irc-client.js';
+import { resolveChannelConfig } from './config.js';
 
 export interface ScuttlebotIntegration {
   enabled: boolean;
@@ -38,18 +39,17 @@ export class ScuttlebotClient {
     // Check if scuttlebot is configured
     const url = process.env.SCUTTLEBOT_URL;
     const token = process.env.SCUTTLEBOT_TOKEN;
-    const channel = process.env.SCUTTLEBOT_CHANNEL || 'general';
 
     if (!url || !token) {
       this.enabled = false;
       return false;
     }
 
-    // Parse channels
-    const channelsStr = process.env.SCUTTLEBOT_CHANNELS;
-    const channels = channelsStr 
-      ? channelsStr.split(',').map(c => c.trim())
-      : [channel];
+    const { channel, channels } = resolveChannelConfig(
+      cwd,
+      process.env.SCUTTLEBOT_CHANNEL,
+      process.env.SCUTTLEBOT_CHANNELS
+    );
 
     // Generate session nick: calliope-{basename}-{session}
     const basename = path.basename(cwd);

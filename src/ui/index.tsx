@@ -35,6 +35,7 @@ import * as recording from '../terminal-recording.js';
 import * as sessionTimeout from '../session-timeout.js';
 import * as idleEviction from '../idle-eviction.js';
 import { isTmux, getTmuxInfo } from '../tmux.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 
 // Sub-module imports
 import type {
@@ -431,6 +432,19 @@ function TerminalChat() {
         provider: selectProvider(provider),
         model: model || DEFAULT_MODELS[selectProvider(provider)],
         cwd: cwdMem,
+      });
+
+      // Initialize scuttlebot integration
+      scuttlebotClient.initialize(session.id, cwdMem).then((enabled) => {
+        if (enabled) {
+          const status = scuttlebotClient.getStatus();
+          debugLog('scuttlebot', `enabled, nick=${status.nick}, transport=${status.config?.transport}`);
+          scuttlebotClient.postOnline().catch(() => {
+            // Silent fail on presence post
+          });
+        }
+      }).catch((err) => {
+        debugLog('scuttlebot', 'initialization failed:', err instanceof Error ? err.message : err);
       });
 
       // Configure session timeout (opt-in via config)
@@ -1321,6 +1335,14 @@ export async function startInkCLI(options: { skipPermissions?: boolean; agtermEn
   await waitUntilExit();
 
   // Session cleanup
+  if (scuttlebotClient.isEnabled()) {
+    await scuttlebotClient.postOffline().catch(() => {
+      // Silent fail
+    });
+    await scuttlebotClient.disconnect().catch(() => {
+      // Silent fail
+    });
+  }
   recording.stopRecording();
   sessionTimeout.clearTimers();
   idleEviction.stopMonitor();
