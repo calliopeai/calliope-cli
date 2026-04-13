@@ -25,6 +25,7 @@ import * as idleEviction from '../idle-eviction.js';
 import { isTmux, getTmuxInfo } from '../tmux.js';
 import { resolveIterationLimit } from '../iteration-limit.js';
 import { IterationLedger } from '../iteration-ledger.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 
 // Wire startLoop into commands (avoids circular import)
 setStartLoop(startLoop);
@@ -136,6 +137,14 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   // Start idle eviction monitor
   idleEviction.configureEviction({ enabled: true });
 
+  // Initialize scuttlebot integration
+  const scuttlebotEnabled = await scuttlebotClient.initialize(session.id, state.cwd);
+  if (scuttlebotEnabled) {
+    const scuttlebotStatus = scuttlebotClient.getStatus();
+    debugLog(`scuttlebot: enabled, nick=${scuttlebotStatus.nick}, transport=${scuttlebotStatus.config?.transport}`);
+    await scuttlebotClient.postOnline();
+  }
+
   // Log tmux context
   if (isTmux()) {
     const tmuxInfo = getTmuxInfo();
@@ -216,7 +225,11 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   };
 
   // Handle Ctrl+C
-  rl.on('close', () => {
+  rl.on('close', async () => {
+    if (scuttlebotEnabled) {
+      await scuttlebotClient.postOffline();
+      await scuttlebotClient.disconnect();
+    }
     storage.saveMessageHistory(state.messages);
     recording.stopRecording();
     sessionTimeout.clearTimers();

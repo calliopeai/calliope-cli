@@ -19,7 +19,7 @@ export const COMMANDS = [
   '/memory', '/hooks', '/route', '/summarize', '/theme', '/branch', '/find', '/search',
   '/mode', '/work', '/plan', '/debug', '/set', '/confirm',
   '/scope', '/add-dir', '/remove-dir', '/cost', '/costs', '/session', '/context',
-  '/log',
+  '/log', '/scuttlebot',
   '/skin', '/palette', '/companion', '/hud',
 ];
 

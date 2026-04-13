@@ -13,6 +13,7 @@ import * as hooks from '../hooks.js';
 import type { ToolCall } from '../types.js';
 import * as storage from '../storage.js';
 import { colors as c, color } from '../styles.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 import { getSpinnerFrames, getBoxChars } from '../hud/api.js';
 import { getToolLabel, getThinkingPhrase } from '../companions.js';
 import type { CLIState } from './types.js';
@@ -180,6 +181,13 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
         role: 'assistant',
         content: response.content,
       });
+
+      // Mirror assistant message to scuttlebot
+      if (scuttlebotClient.isEnabled()) {
+        await scuttlebotClient.mirrorAssistant(response.content).catch(() => {
+          // Silently fail
+        });
+      }
 
       finalResponse = response.content;
       runStatus = 'completed';

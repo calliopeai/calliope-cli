@@ -17,6 +17,7 @@ import config from './config.js';
 import { applySkin, applyPalette, listSkins, listPalettes } from './hud/api.js';
 import { listCompanions } from './companions.js';
 import { generateDiff as generateFileDiff } from './diff.js';
+import { scuttlebotClient } from './scuttlebot/index.js';
 
 /**
  * Available tools for the agent
@@ -399,6 +400,13 @@ export async function executeTool(
   onOutput?: (chunk: string) => void
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
+
+  // Mirror tool call to scuttlebot
+  if (scuttlebotClient.isEnabled()) {
+    await scuttlebotClient.mirrorToolCall(name, args).catch(() => {
+      // Silently fail - don't interrupt tool execution
+    });
+  }
 
   // Handle agent tools
   if (isAgtermTool(name)) {

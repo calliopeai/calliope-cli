@@ -18,6 +18,7 @@ import * as summarization from '../summarization.js';
 import * as themes from '../themes.js';
 import * as branching from '../branching.js';
 import * as fuzzySearch from '../fuzzy-search.js';
+import { scuttlebotClient } from '../scuttlebot/index.js';
 import type { LLMProvider, AgentPersona, Mode } from '../types.js';
 import * as storage from '../storage.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
@@ -143,7 +144,53 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
       console.log(`Persona: ${color(state.persona, 'magenta')}`);
       console.log(`Messages: ${state.messages.length}`);
       console.log(`Directory: ${state.cwd}`);
+      
+      // Show scuttlebot status if enabled
+      if (scuttlebotClient.isEnabled()) {
+        const sbStatus = scuttlebotClient.getStatus();
+        console.log(`Scuttlebot: ${color('enabled', 'green')} (${sbStatus.nick})`);
+        console.log(`  Transport: ${sbStatus.config?.transport}`);
+        console.log(`  Channel: ${sbStatus.config?.channel}`);
+      }
+      
       console.log();
+      break;
+    
+    case '/scuttlebot':
+      {
+        const sbStatus = scuttlebotClient.getStatus();
+        if (!sbStatus.enabled) {
+          console.log(color('Scuttlebot integration is not enabled.', 'yellow'));
+          console.log();
+          console.log('To enable scuttlebot, set these environment variables:');
+          console.log(color('  SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
+          console.log(color('  SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
+          console.log(color('  SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (default: general)');
+          console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+          console.log();
+          break;
+        }
+        
+        console.log(color('Scuttlebot Status', 'cyan'));
+        console.log(color('─'.repeat(40), 'dim'));
+        console.log(`Enabled:     ${color('yes', 'green')}`);
+        console.log(`Nick:        ${color(sbStatus.nick || '', 'cyan')}`);
+        console.log(`Transport:   ${sbStatus.config?.transport}`);
+        console.log(`Channel:     #${sbStatus.config?.channel}`);
+        console.log(`Connected:   ${sbStatus.connected ? color('yes', 'green') : color('no', 'red')}`);
+        if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
+          console.log(`Channels:    ${sbStatus.config.channels.map(c => '#' + c).join(', ')}`);
+        }
+        console.log();
+        
+        // Allow manual message posting
+        if (parts.length > 1) {
+          const message = parts.slice(1).join(' ');
+          await scuttlebotClient.postMessage(message);
+          console.log(color('Message posted to scuttlebot.', 'green'));
+          console.log();
+        }
+      }
       break;
 
     case '/loop':
@@ -918,6 +965,7 @@ function printHelp(): void {
   console.log('  /session           Show session info');
   console.log('  /log               Show iteration/run log');
   console.log('  /cost [reset]      Show cost tracking');
+  console.log('  /scuttlebot [msg]  Scuttlebot status (optionally send message)');
   console.log('  /setup             Reconfigure');
   console.log('  /config            Show config path');
   console.log('  /upgrade           Check for and install updates');
