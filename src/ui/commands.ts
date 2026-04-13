@@ -2746,7 +2746,36 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         ctx.addMessage('system', '\u2713 Circuit breakers disabled (will take effect on next agent run)');
       } else if (subCmd === 'on') {
         config.set('circuitBreakersEnabled', true);
-        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
+      } else if (subCmd === 'adjust' && parts[2] === 'cost-runaway') {
+        const param = parts[3];
+        const value = parseFloat(parts[4]);
+        
+        if (!param || !parts[4]) {
+          const currentConfig = ctx.circuitBreaker.getConfig();
+          const costConfig = currentConfig.breakers['cost-runaway'];
+          ctx.addMessage('system', `Cost Circuit Breaker Thresholds:
+  maxSessionCost: $${costConfig.maxSessionCost} per session
+  maxCostPerMinute: $${costConfig.maxCostPerMinute} per minute
+  windowSizeMs: ${costConfig.windowSizeMs}ms
+
+Usage: /breaker adjust cost-runaway <param> <value>
+  /breaker adjust cost-runaway maxSessionCost <dollars>
+  /breaker adjust cost-runaway maxCostPerMinute <dollars>
+  /breaker adjust cost-runaway windowSizeMs <milliseconds>`);
+        } else if (isNaN(value) || value <= 0) {
+          ctx.addMessage('error', 'Value must be a positive number');
+        } else if (['maxSessionCost', 'maxCostPerMinute', 'windowSizeMs'].includes(param)) {
+          const oldConfig = ctx.circuitBreaker.getConfig().breakers['cost-runaway'];
+          const oldValue = (oldConfig as any)[param];
+          
+          ctx.circuitBreaker.adjust('cost-runaway', { [param]: value });
+          
+          const unit = param === 'windowSizeMs' ? 'ms' : '';
+          const prefix = param === 'windowSizeMs' ? '' : '$';
+          ctx.addMessage('system', `✅ Cost circuit breaker ${param}: ${prefix}${oldValue}${unit} → ${prefix}${value}${unit}`);
+        } else {
+          ctx.addMessage('error', `Invalid parameter "${param}". Use: maxSessionCost, maxCostPerMinute, or windowSizeMs`);
+        }        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
       } else {
         ctx.addMessage('system', `Usage: /breaker [status|resume|reset|on|off]
   /breaker resume [type]  - Resume tripped breaker (half-open)
