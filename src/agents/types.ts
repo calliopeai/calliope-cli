@@ -47,6 +47,7 @@ export interface SubAgentTask {
   error?: string;
   pid?: number;
   swarmId?: string;
+  cwd?: string;
   model?: string;
   provider?: string;
   /** System prompt / instructions from agent definition */

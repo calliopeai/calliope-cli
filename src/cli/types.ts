@@ -3,6 +3,7 @@
  */
 
 import type { Message, LLMProvider, AgentPersona, Mode } from '../types.js';
+import { IterationLedger } from '../iteration-ledger.js';
 
 // Debug logging helper
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
@@ -13,11 +14,12 @@ export function debugLog(message: string, ...args: unknown[]): void {
 // Slash commands for tab completion
 export const COMMANDS = [
   '/help', '/h', '/provider', '/p', '/model', '/m', '/models', '/persona',
-  '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop',
+  '/clear', '/c', '/status', '/s', '/loop', '/cancel-loop', '/breakloop',
   '/setup', '/config', '/upgrade', '/exit', '/quit',
   '/memory', '/hooks', '/route', '/summarize', '/theme', '/branch', '/find', '/search',
   '/mode', '/work', '/plan', '/debug', '/set', '/confirm',
   '/scope', '/add-dir', '/remove-dir', '/cost', '/costs', '/session', '/context',
+  '/log',
   '/skin', '/palette', '/companion', '/hud',
 ];
 
@@ -44,4 +46,6 @@ export interface CLIState {
   confirmMode: boolean;
   debugEnabled: boolean;
   sessionCost: number;
+  sessionId?: string;
+  ledger: IterationLedger;
 }

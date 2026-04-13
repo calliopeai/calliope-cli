@@ -7,6 +7,7 @@
  */
 
 import * as http from 'http';
+import * as crypto from 'crypto';
 import * as config from './config.js';
 import { getOrCreateApiToken } from './config.js';
 import { getVersion } from './version-check.js';
@@ -43,7 +44,6 @@ function acceptWebSocket(req: http.IncomingMessage, socket: import('net').Socket
   const key = req.headers['sec-websocket-key'];
   if (!key) return null;
 
-  const crypto = require('crypto');
   const accept = crypto
     .createHash('sha1')
     .update(key + '258EAFA5-E914-47DA-95CA-5AB5DC11CE46')

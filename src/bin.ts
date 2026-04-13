@@ -258,7 +258,11 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
       console.log(`${colors.dim}  Use: Authorization: Bearer ${info.token}${colors.reset}`);
     } catch (err) {
       console.error(`API server failed to start: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
     }
+    // Block until the process is killed — server is the sole purpose of this invocation
+    await new Promise<void>(() => {});
+    return;
   }
 
   if (useHeadless) {

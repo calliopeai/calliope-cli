@@ -59,6 +59,7 @@ import { handleCommand } from './commands.js';
 import type { CommandContext } from './commands.js';
 import { runAgentImpl, runLoopImpl, validateAndRepairMessagesImpl } from './agent.js';
 import type { AgentContext } from './agent.js';
+import { resolveIterationLimit } from '../iteration-limit.js';
 
 // Wire emoji config at module load (breaks circular dep: companions → config)
 setEmojiConfig(config);
@@ -340,7 +341,7 @@ function TerminalChat() {
   // Agent loop state
   const [loopActive, setLoopActive] = useState(false);
   const [loopPrompt, setLoopPrompt] = useState<string>('');
-  const [loopMaxIterations, setLoopMaxIterations] = useState(100);
+  const [loopMaxIterations, setLoopMaxIterations] = useState(() => resolveIterationLimit(config.get('maxIterations')));
   const [loopCompletionPromise, setLoopCompletionPromise] = useState<string | undefined>();
   const [loopIteration, setLoopIteration] = useState(0);
   const loopCancelledRef = useRef(false);
@@ -369,6 +370,15 @@ function TerminalChat() {
 
     const session = storage.getOrCreateSession(cwd);
     sessionRef.current = session;
+    ledgerRef.current.setRetentionLimit(config.get('sessionLogLimit') ?? 0);
+    ledgerRef.current.setOnChange(() => {
+      const activeSessionId = sessionRef.current?.id;
+      if (activeSessionId) {
+        storage.saveIterationLedger(ledgerRef.current, activeSessionId);
+      }
+    });
+    ledgerRef.current.loadSnapshot(storage.loadIterationLedger(session.id));
+    storage.saveIterationLedger(ledgerRef.current, session.id);
 
     // Load memory context into system prompt
     if (!memoryLoaded) {
@@ -573,6 +583,7 @@ function TerminalChat() {
     circuitBreaker: circuitBreakerRef.current || undefined,
     smartRouteActive,
     smartRoutingConfig: smartRoutingConfigRef.current,
+    ledger: ledgerRef.current,
 
     setProvider,
     setModel,
@@ -656,8 +667,9 @@ function TerminalChat() {
         addMessage('system', `$ ${shellCmd}`);
         try {
           const { execSync } = await import('child_process');
+          const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
           const output = execSync(shellCmd, {
-            cwd: process.cwd(),
+            cwd: activeCwd,
             encoding: 'utf-8',
             timeout: 30000,
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -686,7 +698,8 @@ function TerminalChat() {
     saveUndoState();
 
     // Parse file references from input
-    const { text: cleanText, files } = parseFileReferences(trimmed, process.cwd());
+    const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
+    const { text: cleanText, files } = parseFileReferences(trimmed, activeCwd);
 
     // Show user message (with file info if any)
     if (files.length > 0) {
@@ -986,19 +999,43 @@ function TerminalChat() {
         <SessionResumePrompt
           session={previousSession}
           onResume={() => {
-            // Load chat history into context
-            const history = storage.getChatHistory(20);
-            if (history.length > 0) {
-              for (const msg of history) {
-                if (msg.role === 'user' || msg.role === 'assistant') {
-                  llmMessages.current.push({
-                    role: msg.role,
-                    content: msg.content,
-                  });
-                }
+            const savedMessages = storage.loadMessageHistory();
+            if (savedMessages && savedMessages.length > 0) {
+              llmMessages.current.length = 0;
+              for (const msg of savedMessages) {
+                llmMessages.current.push(msg as LLMMessage);
               }
-              addMessage('system', `✓ Resumed session with ${history.length} messages loaded`);
+              addMessage('system', `✓ Resumed session with ${savedMessages.length} saved messages loaded`);
+              const activeSessionId = sessionRef.current?.id;
+              if (activeSessionId) {
+                ledgerRef.current.loadSnapshot(storage.loadIterationLedger(activeSessionId));
+                storage.saveIterationLedger(ledgerRef.current, activeSessionId);
+              }
               setContextTokens(estimateContextTokens());
+            } else {
+              const history = storage.getChatHistory(20);
+              if (history.length > 0) {
+                llmMessages.current.length = 0;
+                const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
+                const basePrompt = getSystemPrompt(persona);
+                const memoryContext = memory.buildMemoryContext(activeCwd);
+                llmMessages.current.push({
+                  role: 'system',
+                  content: memoryContext.trim()
+                    ? `${basePrompt}\n\n--- Project Context ---\n${memoryContext}`
+                    : basePrompt,
+                });
+                for (const msg of history) {
+                  if (msg.role === 'user' || msg.role === 'assistant') {
+                    llmMessages.current.push({
+                      role: msg.role,
+                      content: msg.content,
+                    });
+                  }
+                }
+                addMessage('system', `✓ Resumed session with ${history.length} chat messages loaded`);
+                setContextTokens(estimateContextTokens());
+              }
             }
             setModalMode('none');
             setPreviousSession(null);

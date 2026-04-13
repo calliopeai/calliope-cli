@@ -615,7 +615,7 @@ export async function executeTool(
           'companionIntensity', 'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
           'circuitBreakersEnabled', 'sandboxMode',
           'smartRoutingEnabled', 'smartRoutingCostSensitivity',
-          'recordSessions', 'recordingRetentionDays',
+          'recordSessions', 'recordingRetentionDays', 'sessionLogLimit',
           'awsRegion', 'awsProfile',
         ]);
         if (!SAFE_CONFIG_KEYS.has(key)) {
@@ -1749,4 +1749,3 @@ async function grepFiles(
   }
   return output;
 }
-

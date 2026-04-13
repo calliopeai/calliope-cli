@@ -12,6 +12,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawn, type ChildProcess } from 'child_process';
 import type { Tool } from './types.js';
+import { expandEnvMap } from './env-expansion.js';
 
 // MCP storage directory
 const MCP_DIR = path.join(os.homedir(), '.calliope-cli', 'mcp');
@@ -471,9 +472,14 @@ export function spawnStdioProcess(server: MCPServer): StdioProcess {
     throw new Error(`STDIO server ${server.id} has no command configured`);
   }
 
+  const { expanded: serverEnv, missing } = expandEnvMap(server.env);
+  if (missing.length > 0) {
+    throw new Error(`STDIO server ${server.id} is missing environment variables: ${missing.join(', ')}`);
+  }
+
   const child = spawn(server.command, server.args || [], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...(server.env || {}) },
+    env: { ...process.env, ...serverEnv },
   });
 
   const entry: StdioProcess = {

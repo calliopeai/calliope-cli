@@ -2,6 +2,8 @@
  * Calliope CLI Types
  */
 
+import { getCurrentCompanion } from './companions.js';
+
 export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'openai-compat' | 'auto';
 export type AgentPersona = 'calliope' | 'muse' | 'minimal';
 
@@ -221,14 +223,11 @@ const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overri
 export function getSystemPrompt(persona: AgentPersona): string {
   // If a companion is active, use its system prompt instead of the base persona
   let basePrompt = PERSONA_PROMPTS[persona];
-  try {
-    const companions = require('./companions.js');
-    const companion = companions.getCurrentCompanion();
-    // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
-    if (companion && companion.systemPrompt && !['calliope', 'muse', 'minimal'].includes(companion.name)) {
-      basePrompt = companion.systemPrompt;
-    }
-  } catch { /* companions not loaded yet, use base persona */ }
+  const companion = getCurrentCompanion();
+  // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
+  if (companion && companion.systemPrompt && !['calliope', 'muse', 'minimal'].includes(companion.name)) {
+    basePrompt = companion.systemPrompt;
+  }
   // Prepend safety preamble so companion prompts cannot override safety rules
   return SAFETY_PREAMBLE + basePrompt;
 }

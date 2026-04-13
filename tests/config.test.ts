@@ -63,6 +63,7 @@ describe('get / set', () => {
     expect(get('persona')).toBe('calliope');
     expect(get('fancyOutput')).toBe(true);
     expect(get('maxIterations')).toBe(0);
+    expect(get('sessionLogLimit')).toBe(0);
   });
 
   it('should set and get a boolean value', () => {
@@ -78,6 +79,11 @@ describe('get / set', () => {
   it('should set and get a numeric value', () => {
     set('maxIterations', 50);
     expect(get('maxIterations')).toBe(50);
+  });
+
+  it('should set and get session log retention', () => {
+    set('sessionLogLimit', 250);
+    expect(get('sessionLogLimit')).toBe(250);
   });
 });
 
@@ -114,6 +120,14 @@ describe('set validation', () => {
 
   it('should reject maxIterations above 1000000', () => {
     expect(() => set('maxIterations', 1000001)).toThrow('maxIterations');
+  });
+
+  it('should reject sessionLogLimit below 0', () => {
+    expect(() => set('sessionLogLimit', -1)).toThrow('sessionLogLimit');
+  });
+
+  it('should reject sessionLogLimit above 100000', () => {
+    expect(() => set('sessionLogLimit', 100001)).toThrow('sessionLogLimit');
   });
 });
 
@@ -176,6 +190,7 @@ describe('resetConfig', () => {
   it('should restore all defaults', () => {
     set('fancyOutput', false);
     set('maxIterations', 100);
+    set('sessionLogLimit', 250);
     set('activeSkin', 'matrix');
     markSetupComplete();
 
@@ -183,6 +198,7 @@ describe('resetConfig', () => {
 
     expect(get('fancyOutput')).toBe(true);
     expect(get('maxIterations')).toBe(0);
+    expect(get('sessionLogLimit')).toBe(0);
     expect(get('activeSkin')).toBe('clean');
     expect(isSetupComplete()).toBe(false);
   });
@@ -575,6 +591,15 @@ describe('setMultiple - validateConfigValue coverage', () => {
 
   it('should throw for maxIterations above max in setMultiple', () => {
     expect(() => setMultiple({ maxIterations: 1000001 })).toThrow('maxIterations');
+  });
+
+  it('should not throw for sessionLogLimit at boundary value 0', () => {
+    expect(() => setMultiple({ sessionLogLimit: 0 })).not.toThrow();
+    expect(get('sessionLogLimit')).toBe(0);
+  });
+
+  it('should throw for sessionLogLimit above max in setMultiple', () => {
+    expect(() => setMultiple({ sessionLogLimit: 100001 })).toThrow('sessionLogLimit');
   });
 
   it('should throw for empty ApiKey in setMultiple', () => {

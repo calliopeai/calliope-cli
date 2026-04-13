@@ -195,6 +195,80 @@ describe('IterationLedger', () => {
     });
   });
 
+  describe('snapshot persistence', () => {
+    it('should round-trip a snapshot with runs and failures', () => {
+      const runId = ledger.startRun('loop', 'Keep fixing the repo', {
+        maxIterations: null,
+        completionPromise: 'DONE',
+      });
+      ledger.startIteration(ledger.getNextIterationNumber());
+      ledger.recordAction('shell', { command: 'npm test' }, 'error', 'Test suite failed');
+      ledger.endIteration();
+      ledger.finishRun(runId, 'stopped', { errorSummary: 'Completion promise not met' });
+
+      const restored = new IterationLedger(ledger.toSnapshot());
+
+      expect(restored.getEntries()).toHaveLength(1);
+      expect(restored.getRuns()).toHaveLength(1);
+      expect(restored.getRuns()[0].kind).toBe('loop');
+      expect(restored.getRuns()[0].status).toBe('stopped');
+      expect(restored.getRuns()[0].completionPromise).toBe('DONE');
+      expect(restored.getFailedApproachesMessage()).toContain('Test suite failed');
+    });
+
+    it('should recover interrupted state from a saved snapshot', () => {
+      const runId = ledger.startRun('agent', 'Finish the migration');
+      ledger.startIteration(ledger.getNextIterationNumber());
+      ledger.recordAction('read_file', { path: '/src/index.ts' }, 'ok');
+
+      const restored = new IterationLedger(ledger.toSnapshot());
+
+      expect(restored.getEntries()).toHaveLength(1);
+      expect(restored.getEntries()[0].outcome).toBe('error');
+      expect(restored.getRuns()).toHaveLength(1);
+      expect(restored.getRuns()[0].id).toBe(runId);
+      expect(restored.getRuns()[0].status).toBe('interrupted');
+      expect(restored.getRuns()[0].errorSummary).toContain('Previous session ended');
+      expect(restored.getActiveRun()).toBeUndefined();
+    });
+
+    it('should preserve totals and monotonic numbering after retention pruning', () => {
+      ledger.setRetentionLimit(2);
+
+      for (let i = 1; i <= 4; i++) {
+        ledger.startIteration(ledger.getNextIterationNumber());
+        if (i % 2 === 0) {
+          ledger.recordAction('shell', { command: `fail-${i}` }, 'error', `failed-${i}`);
+        } else {
+          ledger.recordAction('read_file', { path: `/file-${i}.ts` }, 'ok');
+        }
+        ledger.recordTokens(100 * i, 50 * i, 0.01 * i);
+        ledger.endIteration();
+      }
+
+      ledger.recordFailedApproach('manual-1', 'reason-1');
+      ledger.recordFailedApproach('manual-2', 'reason-2');
+      ledger.recordFailedApproach('manual-3', 'reason-3');
+
+      expect(ledger.getEntries().map(entry => entry.iteration)).toEqual([3, 4]);
+      expect(ledger.getFailedApproaches()).toHaveLength(2);
+      expect(ledger.getNextIterationNumber()).toBe(5);
+
+      const totals = ledger.getTotals();
+      expect(totals.iterations).toBe(4);
+      expect(totals.totalTokens).toBe(1500);
+      expect(totals.totalCost).toBeCloseTo(0.1);
+      expect(totals.failures).toBe(2);
+      expect(ledger.getFailedApproachCount()).toBe(5);
+
+      const restored = new IterationLedger(ledger.toSnapshot());
+      expect(restored.getEntries().map(entry => entry.iteration)).toEqual([3, 4]);
+      expect(restored.getNextIterationNumber()).toBe(5);
+      expect(restored.getTotals()).toEqual(totals);
+      expect(restored.getFailedApproachCount()).toBe(5);
+    });
+  });
+
   // ===========================================================================
   // compactArgs — covers all switch branches in the helper
   // ===========================================================================

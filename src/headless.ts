@@ -12,6 +12,7 @@ import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import * as memory from './memory.js';
 import * as recording from './terminal-recording.js';
+import { resolveIterationLimit } from './iteration-limit.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
 // ============================================================================
@@ -82,7 +83,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const provider = options.provider || (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
   const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
   const persona: AgentPersona = options.persona || config.get('persona');
-  const maxIterations = options.maxIterations || config.get('maxIterations');
+  const maxIterations = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
 
@@ -142,7 +143,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   try {
     let iteration = 0;
 
-    while (iteration < (maxIterations || Infinity)) {
+    while (iteration < maxIterations) {
       iteration++;
 
       const response = await chat(provider, messages, TOOLS, model);

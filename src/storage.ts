@@ -7,6 +7,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { IterationLedger } from './iteration-ledger.js';
+import type { IterationLedgerSnapshot } from './iteration-ledger.js';
 
 // ============================================================================
 // Date Utilities
@@ -20,6 +22,10 @@ function getTodayString(date: Date = new Date()): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+export function createSessionId(): string {
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 // ============================================================================
@@ -90,6 +96,11 @@ export const paths = {
   history: path.join(CALLIOPE_DIR, 'history'),
   commandHistory: path.join(CALLIOPE_DIR, 'history', 'commands.txt'),
 };
+
+function getSessionFilePath(fileName: string, sessionId?: string): string | null {
+  const sessionDir = sessionId ? getSessionDirById(sessionId) : paths.currentSession;
+  return sessionDir ? path.join(sessionDir, fileName) : null;
+}
 
 // ============================================================================
 // Initialization
@@ -322,7 +333,7 @@ export function getOrCreateSession(projectPath: string): Session {
   }
 
   const session: Session = {
-    id: `session_${Date.now()}`,
+    id: createSessionId(),
     projectPath,
     projectName: path.basename(projectPath) || 'unnamed',
     createdAt: new Date().toISOString(),
@@ -357,14 +368,24 @@ function updateCurrentSymlink(sessionDir: string): void {
   }
 }
 
+function readSessionFromDir(sessionDir: string): Session | null {
+  const sessionFile = path.join(sessionDir, 'session.json');
+  return readJSON<Session>(sessionFile, null as unknown as Session);
+}
+
+function touchSession(sessionDir: string, session: Session): Session {
+  session.lastAccessedAt = new Date().toISOString();
+  writeJSON(path.join(sessionDir, 'session.json'), session);
+  return session;
+}
+
 /**
  * Get current session info
  */
 export function getCurrentSession(): Session | null {
   try {
     if (fs.existsSync(paths.currentSession)) {
-      const sessionFile = path.join(paths.currentSession, 'session.json');
-      return readJSON<Session>(sessionFile, null as unknown as Session);
+      return readSessionFromDir(paths.currentSession);
     }
   } catch {
     // Ignore errors
@@ -453,9 +474,11 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
 /**
  * Get chat history for current session
  */
-export function getChatHistory(limit?: number): ChatMessage[] {
-  const historyFile = path.join(paths.currentSession, 'chat.log');
-  const history = readChatHistory(historyFile);
+export function getChatHistory(limit?: number, sessionId?: string): ChatMessage[] {
+  const sessionDir = sessionId ? getSessionDirById(sessionId) : paths.currentSession;
+  if (!sessionDir) return [];
+
+  const history = readChatHistory(path.join(sessionDir, 'chat.log'));
 
   if (limit) {
     return history.slice(-limit);
@@ -489,6 +512,22 @@ export function getSessionDirById(sessionId: string): string | null {
     // Ignore errors
   }
   return null;
+}
+
+/**
+ * Switch the active session pointer to a saved session by ID.
+ */
+export function setCurrentSessionById(sessionId: string): Session | null {
+  initStorage();
+
+  const sessionDir = getSessionDirById(sessionId);
+  if (!sessionDir) return null;
+
+  const session = readSessionFromDir(sessionDir);
+  if (!session) return null;
+
+  updateCurrentSymlink(sessionDir);
+  return touchSession(sessionDir, session);
 }
 
 /**
@@ -543,6 +582,66 @@ export function loadMessageHistory(sessionId?: string): unknown[] | null {
 }
 
 /**
+ * Save the current iteration ledger for the active or specified session.
+ */
+export function saveIterationLedger(
+  ledger: IterationLedger | IterationLedgerSnapshot,
+  sessionId?: string
+): void {
+  try {
+    const ledgerFile = getSessionFilePath('ledger.json', sessionId);
+    if (!ledgerFile) return;
+
+    const snapshot = ledger instanceof IterationLedger ? ledger.toSnapshot() : ledger;
+    writeJSON(ledgerFile, snapshot);
+  } catch {
+    // Silently fail - don't break interactive sessions
+  }
+}
+
+/**
+ * Load the saved iteration ledger for the active or specified session.
+ */
+export function loadIterationLedger(sessionId?: string): IterationLedgerSnapshot | null {
+  try {
+    const ledgerFile = getSessionFilePath('ledger.json', sessionId);
+    if (!ledgerFile || !fs.existsSync(ledgerFile)) return null;
+
+    const snapshot = readJSON<IterationLedgerSnapshot | null>(ledgerFile, null);
+    if (!snapshot || !Array.isArray(snapshot.entries)) return null;
+
+    return {
+      version: 1,
+      entries: snapshot.entries,
+      failedApproaches: Array.isArray(snapshot.failedApproaches) ? snapshot.failedApproaches : [],
+      currentEntry: snapshot.currentEntry && typeof snapshot.currentEntry === 'object' && !Array.isArray(snapshot.currentEntry)
+        ? snapshot.currentEntry
+        : null,
+      iterationStart: typeof snapshot.iterationStart === 'number' ? snapshot.iterationStart : 0,
+      runs: Array.isArray(snapshot.runs) ? snapshot.runs : [],
+      nextIterationNumber: typeof snapshot.nextIterationNumber === 'number' ? snapshot.nextIterationNumber : undefined,
+      totalEntryCount: typeof snapshot.totalEntryCount === 'number' ? snapshot.totalEntryCount : undefined,
+      totalTokenCount: typeof snapshot.totalTokenCount === 'number' ? snapshot.totalTokenCount : undefined,
+      totalCostUsd: typeof snapshot.totalCostUsd === 'number' ? snapshot.totalCostUsd : undefined,
+      totalDurationMs: typeof snapshot.totalDurationMs === 'number' ? snapshot.totalDurationMs : undefined,
+      totalFailureCount: typeof snapshot.totalFailureCount === 'number' ? snapshot.totalFailureCount : undefined,
+      totalFailedApproachCount: typeof snapshot.totalFailedApproachCount === 'number' ? snapshot.totalFailedApproachCount : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up a Session object by its ID.
+ */
+export function getSessionById(sessionId: string): Session | null {
+  const sessionDir = getSessionDirById(sessionId);
+  if (!sessionDir) return null;
+  return readSessionFromDir(sessionDir);
+}
+
+/**
  * Fork the current session: creates a new session with the current messages copied.
  * Returns the new session, or null on failure.
  */
@@ -554,6 +653,7 @@ export function forkSession(projectPath: string): Session | null {
   if (!currentMessages || currentMessages.length === 0) {
     return null;
   }
+  const currentLedger = loadIterationLedger();
 
   const currentSession = getCurrentSession();
 
@@ -569,7 +669,7 @@ export function forkSession(projectPath: string): Session | null {
     fs.mkdirSync(path.join(forkDir, 'plans'), { recursive: true });
 
     const newSession: Session = {
-      id: `session_${Date.now()}`,
+      id: createSessionId(),
       projectPath,
       projectName,
       createdAt: new Date().toISOString(),
@@ -584,6 +684,9 @@ export function forkSession(projectPath: string): Session | null {
 
     // Copy messages to fork
     writeJSON(path.join(forkDir, 'messages.json'), currentMessages);
+    if (currentLedger) {
+      writeJSON(path.join(forkDir, 'ledger.json'), currentLedger);
+    }
 
     // Create empty chat log and todos
     fs.writeFileSync(path.join(forkDir, 'chat.log'), '');
@@ -887,10 +990,9 @@ function pruneCosts(costs: CostRecord): void {
     }
   }
 
-  // Prune costBySession: keep only the most recent N sessions (by key, which contains timestamp)
+  // Prune costBySession: keep only the most recent N sessions (IDs still sort by timestamp prefix)
   const sessionKeys = Object.keys(costs.costBySession);
   if (sessionKeys.length > COST_PRUNE_MAX_SESSIONS) {
-    // Session IDs are formatted as session_<timestamp>, so sorting works chronologically
     sessionKeys.sort();
     const toRemove = sessionKeys.slice(0, sessionKeys.length - COST_PRUNE_MAX_SESSIONS);
     for (const key of toRemove) {

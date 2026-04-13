@@ -112,6 +112,8 @@ export interface CouncilSession {
   votes: Vote[];
   scores: Score[];
   round: number;
+  activeTaskIds: string[];
+  linkedSwarmId?: string;
   result?: string;
   winnerId?: string;      // ID of winning deliberation entry
   error?: string;

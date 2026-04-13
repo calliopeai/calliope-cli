@@ -5,43 +5,36 @@
  */
 
 import * as readline from 'readline';
-import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
 import { chat } from '../providers/index.js';
 import { TOOLS, executeTool } from '../tools.js';
 import { assessToolRisk, requiresConfirmation, formatRiskBar } from '../risk.js';
 import * as hooks from '../hooks.js';
 import type { ToolCall } from '../types.js';
+import * as storage from '../storage.js';
 import { colors as c, color } from '../styles.js';
 import { getSpinnerFrames, getBoxChars } from '../hud/api.js';
 import { getToolLabel, getThinkingPhrase } from '../companions.js';
 import type { CLIState } from './types.js';
 import { debugLog } from './types.js';
 import { recordEvent } from '../terminal-recording.js';
-
-/**
- * Start caffeinate to prevent system sleep during long operations (macOS).
- * Returns the child process (or null if not on macOS).
- */
-function startCaffeinate(): ChildProcess | null {
-  if (process.platform !== 'darwin') return null;
-  try {
-    const proc = spawn('caffeinate', ['-di'], { stdio: 'ignore', detached: true });
-    proc.unref();
-    return proc;
-  } catch {
-    return null;
-  }
-}
-
-function stopCaffeinate(proc: ChildProcess | null): void {
-  if (proc) {
-    try { proc.kill('SIGTERM'); } catch { /* already dead */ }
-  }
-}
+import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
+import {
+  resolveIterationLimit,
+  formatIterationLimit,
+  formatIterationProgress,
+  isFiniteIterationLimit,
+} from '../iteration-limit.js';
 
 export async function runAgent(prompt: string, state: CLIState): Promise<string> {
   state.messages.push({ role: 'user', content: prompt });
+  const runId = !state.loopActive
+    ? state.ledger.startRun('agent', prompt, {
+        maxIterations: isFiniteIterationLimit(resolveIterationLimit(config.get('maxIterations')))
+          ? resolveIterationLimit(config.get('maxIterations'))
+          : null,
+      })
+    : undefined;
 
   // Spinner setup
   const frames = getSpinnerFrames();
@@ -58,12 +51,15 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
   };
 
   try {
-    const maxIterations = config.get('maxIterations') || Infinity; // 0 = unlimited
+    const maxIterations = resolveIterationLimit(config.get('maxIterations'));
     let iteration = 0;
     let finalResponse = '';
+    let runStatus: 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'stopped' | undefined;
+    let runErrorSummary: string | undefined;
 
     while (iteration < maxIterations) {
       iteration++;
+      state.ledger.startIteration(state.ledger.getNextIterationNumber());
 
       const response = await chat(
         state.provider,
@@ -71,6 +67,14 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
         TOOLS,
         state.model
       );
+
+      if (response.usage) {
+        state.ledger.recordTokens(
+          response.usage.inputTokens,
+          response.usage.outputTokens,
+          0
+        );
+      }
 
       if (response.toolCalls && response.toolCalls.length > 0) {
         clearSpinner();
@@ -87,6 +91,12 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
             toolArgs: toolCall.arguments as Record<string, unknown>,
           });
           if (!preHookResult.allowed) {
+            state.ledger.recordAction(
+              toolCall.name,
+              toolCall.arguments as Record<string, unknown>,
+              'blocked',
+              preHookResult.reason
+            );
             console.log(`${color(getBoxChars().vertical, 'dim')}  ${color(`Blocked by hook: ${preHookResult.reason}`, 'red')}`);
             state.messages.push({
               role: 'tool',
@@ -109,6 +119,12 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
                 });
               });
               if (!proceed) {
+                state.ledger.recordAction(
+                  toolCall.name,
+                  toolCall.arguments as Record<string, unknown>,
+                  'blocked',
+                  'denied by user'
+                );
                 state.messages.push({
                   role: 'tool',
                   content: '[Tool execution denied by user]',
@@ -129,6 +145,12 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
           if (isShell) process.stdout.write('\n');
           recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
           printToolResult(toolCall.name, result.result);
+          state.ledger.recordAction(
+            toolCall.name,
+            toolCall.arguments as Record<string, unknown>,
+            result.isError ? 'error' : 'ok',
+            result.isError ? result.result : undefined,
+          );
 
           hooks.executeHooks('post-tool', {
             tool: toolCall.name,
@@ -145,6 +167,9 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
           });
         }
 
+        state.ledger.endIteration();
+        storage.saveMessageHistory(state.messages);
+
         continue;
       }
 
@@ -157,6 +182,7 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
       });
 
       finalResponse = response.content;
+      runStatus = 'completed';
       recordEvent('output', response.content.slice(0, 5000));
       console.log();
       console.log(`${color('✧', 'cyan')} ${color('Calliope:', 'dim')}`);
@@ -164,12 +190,28 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
       printOutput(response.content);
       console.log();
 
+      state.ledger.endIteration('success');
+      storage.saveMessageHistory(state.messages);
       break;
+    }
+
+    if (!finalResponse && !runStatus && isFiniteIterationLimit(resolveIterationLimit(config.get('maxIterations')))) {
+      runStatus = 'stopped';
+      runErrorSummary = `Reached ${resolveIterationLimit(config.get('maxIterations'))} iterations limit`;
+    }
+
+    if (runId) {
+      state.ledger.finishRun(runId, runStatus || 'completed', { errorSummary: runErrorSummary });
     }
 
     return finalResponse;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    state.ledger.endIteration('error');
+    if (runId) {
+      state.ledger.finishRun(runId, 'failed', { errorSummary: msg });
+    }
+    storage.saveMessageHistory(state.messages);
     console.log();
     console.log(`${color('✗', 'red')} ${color(`Error: ${msg}`, 'red')}`);
     console.log();
@@ -181,6 +223,12 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
 }
 
 export async function startLoop(args: string, state: CLIState): Promise<void> {
+  if (state.loopActive) {
+    console.log(color('Loop already active. Use /breakloop to stop it first.', 'yellow'));
+    console.log();
+    return;
+  }
+
   const maxIterMatch = args.match(/--max-iterations\s+(\d+)/);
   const completionMatch = args.match(/--completion-promise\s+"([^"]+)"/);
 
@@ -198,57 +246,97 @@ export async function startLoop(args: string, state: CLIState): Promise<void> {
     return;
   }
 
+  const defaultMaxIterations = resolveIterationLimit(config.get('maxIterations'));
+
   state.loopActive = true;
   state.loopPrompt = prompt;
   state.loopIteration = 0;
-  state.loopMaxIterations = maxIterMatch ? parseInt(maxIterMatch[1], 10) : 50;
+  state.loopMaxIterations = maxIterMatch
+    ? resolveIterationLimit(parseInt(maxIterMatch[1], 10))
+    : defaultMaxIterations;
   state.loopCompletionPromise = completionMatch ? completionMatch[1] : undefined;
 
   // Prevent system sleep during long agent loops (macOS)
-  const caffeinateProc = startCaffeinate();
+  startPreventSleep();
 
-  const box = getBoxChars();
-  console.log();
-  console.log(`${color(box.topLeft + box.horizontal, 'dim')} ${color('🔄 Agent Loop Started', 'bold')}`);
-  console.log(`${color(box.vertical, 'dim')}  ${color('Max:', 'dim')} ${color(String(state.loopMaxIterations), 'cyan')}`);
-  if (state.loopCompletionPromise) {
-    console.log(`${color(box.vertical, 'dim')}  ${color('Promise:', 'dim')} ${color(state.loopCompletionPromise, 'green')}`);
-  }
-  console.log(`${color(box.bottomLeft + box.horizontal, 'dim')} ${color('/cancel-loop to stop', 'dim')}`);
-  console.log();
+  let loopOutcome: 'running' | 'cancelled' | 'promise-met' = 'running';
+  const loopRunId = state.ledger.startRun('loop', prompt, {
+    completionPromise: state.loopCompletionPromise,
+    maxIterations: isFiniteIterationLimit(state.loopMaxIterations) ? state.loopMaxIterations : null,
+  });
 
-  while (state.loopActive && state.loopIteration < state.loopMaxIterations) {
-    state.loopIteration++;
+  try {
+    const box = getBoxChars();
+    console.log();
+    console.log(`${color(box.topLeft + box.horizontal, 'dim')} ${color('🔄 Agent Loop Started', 'bold')}`);
+    console.log(`${color(box.vertical, 'dim')}  ${color('Max:', 'dim')} ${color(formatIterationLimit(state.loopMaxIterations), 'cyan')}`);
+    if (state.loopCompletionPromise) {
+      console.log(`${color(box.vertical, 'dim')}  ${color('Promise:', 'dim')} ${color(state.loopCompletionPromise, 'green')}`);
+    }
+    console.log(`${color(box.bottomLeft + box.horizontal, 'dim')} ${color('/breakloop to stop', 'dim')}`);
+    console.log();
 
-    const iterBox = getBoxChars();
-    console.log(`${color(iterBox.topLeft + iterBox.horizontal, 'cyan')} ${color(`Iteration ${state.loopIteration}/${state.loopMaxIterations}`, 'bold')}`);
+    while (state.loopActive && state.loopIteration < state.loopMaxIterations) {
+      state.loopIteration++;
 
-    // First iteration: use the original prompt
-    // Subsequent iterations: use a continuation prompt that references prior context
-    const iterationPrompt = state.loopIteration === 1
-      ? state.loopPrompt
-      : `Continue working on: ${state.loopPrompt}\n\nThis is iteration ${state.loopIteration}. Review your previous progress and continue from where you left off. Do not repeat completed work.`;
+      const iterBox = getBoxChars();
+      console.log(`${color(iterBox.topLeft + iterBox.horizontal, 'cyan')} ${color(`Iteration ${formatIterationProgress(state.loopIteration, state.loopMaxIterations)}`, 'bold')}`);
 
-    const result = await runAgent(iterationPrompt, state);
+      // First iteration: use the original prompt
+      // Subsequent iterations: use a continuation prompt that references prior context
+      const iterationPrompt = state.loopIteration === 1
+        ? state.loopPrompt
+        : `Continue working on: ${state.loopPrompt}\n\nThis is iteration ${state.loopIteration}. Review your previous progress and continue from where you left off. Do not repeat completed work.`;
 
-    if (state.loopCompletionPromise && result.includes(state.loopCompletionPromise)) {
-      console.log(`${color('🎉 Completion promise detected!', 'green')}`);
-      state.loopActive = false;
-      break;
+      const result = await runAgent(iterationPrompt, state);
+
+      if (state.loopCompletionPromise && result.includes(state.loopCompletionPromise)) {
+        console.log(`${color('🎉 Completion promise detected!', 'green')}`);
+        loopOutcome = 'promise-met';
+        state.loopActive = false;
+        break;
+      }
+
+      if (!state.loopActive) {
+        loopOutcome = 'cancelled';
+        break;
+      }
+
+      if (state.loopIteration < state.loopMaxIterations) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
 
-    if (!state.loopActive) break;
-
-    await new Promise(r => setTimeout(r, 1000));
+    if (loopOutcome === 'running' && isFiniteIterationLimit(state.loopMaxIterations) && state.loopIteration >= state.loopMaxIterations) {
+      if (state.loopCompletionPromise) {
+        console.log(color(`⚠️ Completion promise "${state.loopCompletionPromise}" was not reached after ${state.loopIteration} iterations.`, 'yellow'));
+      } else {
+        console.log(`${color('⚠️ Max iterations reached', 'yellow')}`);
+      }
+    }
+  } finally {
+    state.ledger.finishRun(
+      loopRunId,
+      loopOutcome === 'cancelled'
+        ? 'cancelled'
+        : loopOutcome === 'promise-met'
+          ? 'completed'
+          : state.loopCompletionPromise
+            ? 'stopped'
+            : 'completed',
+      {
+        errorSummary: loopOutcome === 'cancelled'
+          ? 'Stopped by user'
+          : (loopOutcome === 'running' && state.loopCompletionPromise
+            ? `Stopped after ${state.loopIteration} iterations without matching completion promise`
+            : undefined),
+      }
+    );
+    storage.saveMessageHistory(state.messages);
+    state.loopActive = false;
+    stopPreventSleep();
+    console.log();
   }
-
-  if (state.loopIteration >= state.loopMaxIterations) {
-    console.log(`${color('⚠️ Max iterations reached', 'yellow')}`);
-  }
-
-  state.loopActive = false;
-  stopCaffeinate(caffeinateProc);
-  console.log();
 }
 
 function printToolCall(toolCall: ToolCall): void {

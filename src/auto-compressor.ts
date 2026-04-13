@@ -31,6 +31,13 @@ const DEFAULT_CONFIG: AutoCompressorConfig = {
 };
 
 let config: AutoCompressorConfig = { ...DEFAULT_CONFIG };
+const WARNING_THRESHOLD_OFFSET = 10;
+const BLOCKING_THRESHOLD_PERCENT = 97;
+const MAX_CONSECUTIVE_LLM_FAILURES = 3;
+
+const state = {
+  consecutiveLlmFailures: 0,
+};
 
 /** Configure auto-compressor */
 export function configureAutoCompressor(opts: Partial<AutoCompressorConfig>): void {
@@ -40,6 +47,54 @@ export function configureAutoCompressor(opts: Partial<AutoCompressorConfig>): vo
 /** Get current config */
 export function getAutoCompressorConfig(): AutoCompressorConfig {
   return { ...config };
+}
+
+export interface AutoCompressorStatus {
+  triggerTokens: number;
+  targetTokens: number;
+  warningTokens: number;
+  blockingTokens: number;
+  percentUsed: number;
+  percentRemaining: number;
+  isAboveWarningThreshold: boolean;
+  isAboveTriggerThreshold: boolean;
+  isAtBlockingThreshold: boolean;
+  llmTemporarilyDisabled: boolean;
+}
+
+export function getAutoCompressorStatus(
+  currentTokens: number,
+  contextLimit: number,
+): AutoCompressorStatus {
+  const triggerTokens = Math.floor(contextLimit * (config.triggerThreshold / 100));
+  const targetTokens = Math.floor(contextLimit * (config.targetThreshold / 100));
+  const warningPercent = Math.max(0, config.triggerThreshold - WARNING_THRESHOLD_OFFSET);
+  const warningTokens = Math.floor(contextLimit * (warningPercent / 100));
+  const blockingTokens = Math.max(
+    triggerTokens,
+    Math.floor(contextLimit * (BLOCKING_THRESHOLD_PERCENT / 100)),
+  );
+  const percentUsed = contextLimit > 0
+    ? Math.min(100, Math.round((currentTokens / contextLimit) * 100))
+    : 0;
+  const percentRemaining = Math.max(0, 100 - percentUsed);
+
+  return {
+    triggerTokens,
+    targetTokens,
+    warningTokens,
+    blockingTokens,
+    percentUsed,
+    percentRemaining,
+    isAboveWarningThreshold: currentTokens >= warningTokens,
+    isAboveTriggerThreshold: currentTokens >= triggerTokens,
+    isAtBlockingThreshold: currentTokens >= blockingTokens,
+    llmTemporarilyDisabled: state.consecutiveLlmFailures >= MAX_CONSECUTIVE_LLM_FAILURES,
+  };
+}
+
+export function resetAutoCompressorState(): void {
+  state.consecutiveLlmFailures = 0;
 }
 
 // ============================================================================
@@ -116,10 +171,13 @@ export async function autoCompress(
   model?: string,
 ): Promise<CompressionResult> {
   const currentTokens = estimateTotalTokens(messages);
-  const triggerAt = contextLimit * (config.triggerThreshold / 100);
+  const status = getAutoCompressorStatus(currentTokens, contextLimit);
 
   // Not over threshold — no compression needed
-  if (!config.enabled || currentTokens < triggerAt) {
+  if (!config.enabled || !status.isAboveTriggerThreshold) {
+    if (!status.isAboveWarningThreshold) {
+      resetAutoCompressorState();
+    }
     return {
       compressed: false,
       method: 'none',
@@ -158,9 +216,14 @@ export async function autoCompress(
   let summary: string | null = null;
   let method: 'llm' | 'heuristic' = 'heuristic';
 
-  if (config.useLlm) {
+  if (config.useLlm && !status.llmTemporarilyDisabled) {
     summary = await llmSummarize(toSummarize, provider, config.compressionModel || model);
-    if (summary) method = 'llm';
+    if (summary) {
+      method = 'llm';
+      resetAutoCompressorState();
+    } else {
+      state.consecutiveLlmFailures += 1;
+    }
   }
 
   // Fallback to heuristic
@@ -177,6 +240,20 @@ export async function autoCompress(
   ];
 
   const compressedTokens = estimateTotalTokens(compressed);
+  if (compressedTokens >= currentTokens) {
+    return {
+      compressed: false,
+      method: 'none',
+      messages,
+      originalTokens: currentTokens,
+      compressedTokens: currentTokens,
+      summarizedCount: 0,
+    };
+  }
+
+  if (compressedTokens <= status.targetTokens) {
+    resetAutoCompressorState();
+  }
 
   return {
     compressed: true,
@@ -195,5 +272,5 @@ export async function autoCompress(
  */
 export function shouldCompress(currentTokens: number, contextLimit: number): boolean {
   if (!config.enabled) return false;
-  return currentTokens >= contextLimit * (config.triggerThreshold / 100);
+  return getAutoCompressorStatus(currentTokens, contextLimit).isAboveTriggerThreshold;
 }

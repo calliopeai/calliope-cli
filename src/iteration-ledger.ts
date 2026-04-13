@@ -49,6 +49,47 @@ export interface FailedApproach {
   tools: string[];
 }
 
+export type LedgerRunKind = 'agent' | 'loop' | 'swarm' | 'council' | 'workflow';
+
+export type LedgerRunStatus =
+  | 'running'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+  | 'interrupted'
+  | 'stopped';
+
+export interface LedgerRun {
+  id: string;
+  kind: LedgerRunKind;
+  prompt: string;
+  status: LedgerRunStatus;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  completionPromise?: string;
+  maxIterations?: number | null;
+  entryCountAtStart: number;
+  entryCountAtEnd?: number;
+  errorSummary?: string;
+}
+
+export interface IterationLedgerSnapshot {
+  version: 1;
+  entries: LedgerEntry[];
+  failedApproaches: FailedApproach[];
+  currentEntry: Partial<LedgerEntry> | null;
+  iterationStart: number;
+  runs: LedgerRun[];
+  nextIterationNumber?: number;
+  totalEntryCount?: number;
+  totalTokenCount?: number;
+  totalCostUsd?: number;
+  totalDurationMs?: number;
+  totalFailureCount?: number;
+  totalFailedApproachCount?: number;
+}
+
 // ============================================================================
 // Iteration Ledger
 // ============================================================================
@@ -56,13 +97,184 @@ export interface FailedApproach {
 export class IterationLedger {
   private entries: LedgerEntry[] = [];
   private failedApproaches: FailedApproach[] = [];
+  private runs: LedgerRun[] = [];
   private currentEntry: Partial<LedgerEntry> | null = null;
   private iterationStart = 0;
+  private nextIterationNumber = 1;
+  private totalEntryCount = 0;
+  private totalTokenCount = 0;
+  private totalCostUsd = 0;
+  private totalDurationMs = 0;
+  private totalFailureCount = 0;
+  private totalFailedApproachCount = 0;
+  private retentionLimit = 0;
+  private onChange?: (ledger: IterationLedger) => void;
+
+  constructor(snapshot?: IterationLedgerSnapshot | null) {
+    if (snapshot) {
+      this.loadSnapshot(snapshot);
+    }
+  }
+
+  /**
+   * Register a callback invoked whenever the ledger changes.
+   */
+  setOnChange(onChange?: (ledger: IterationLedger) => void): void {
+    this.onChange = onChange;
+  }
+
+  /**
+   * Serialize the ledger for storage.
+   */
+  toSnapshot(): IterationLedgerSnapshot {
+    return {
+      version: 1,
+      entries: this.entries.map(entry => ({
+        ...entry,
+        actions: entry.actions.map(action => ({ ...action })),
+        tokens: { ...entry.tokens },
+      })),
+      failedApproaches: this.failedApproaches.map(approach => ({
+        ...approach,
+        tools: [...approach.tools],
+      })),
+      currentEntry: this.currentEntry
+        ? {
+            ...this.currentEntry,
+            actions: this.currentEntry.actions?.map(action => ({ ...action })),
+            tokens: this.currentEntry.tokens ? { ...this.currentEntry.tokens } : undefined,
+          }
+        : null,
+      iterationStart: this.iterationStart,
+      runs: this.runs.map(run => ({ ...run })),
+      nextIterationNumber: this.nextIterationNumber,
+      totalEntryCount: this.totalEntryCount,
+      totalTokenCount: this.totalTokenCount,
+      totalCostUsd: this.totalCostUsd,
+      totalDurationMs: this.totalDurationMs,
+      totalFailureCount: this.totalFailureCount,
+      totalFailedApproachCount: this.totalFailedApproachCount,
+    };
+  }
+
+  /**
+   * Configure in-memory/session retention for entries, failures, and runs.
+   * A value of 0 disables pruning.
+   */
+  setRetentionLimit(limit: number): void {
+    const normalized = Number.isFinite(limit) && limit > 0
+      ? Math.floor(limit)
+      : 0;
+
+    if (normalized === this.retentionLimit) {
+      return;
+    }
+
+    this.retentionLimit = normalized;
+    this.touch();
+  }
+
+  /**
+   * Get the current retention limit.
+   */
+  getRetentionLimit(): number {
+    return this.retentionLimit;
+  }
+
+  /**
+   * Load a snapshot and recover any interrupted work.
+   */
+  loadSnapshot(
+    snapshot?: IterationLedgerSnapshot | null,
+    options: { recoverInterrupted?: boolean } = {}
+  ): void {
+    if (!snapshot) {
+      this.entries = [];
+      this.failedApproaches = [];
+      this.runs = [];
+      this.currentEntry = null;
+      this.iterationStart = 0;
+      this.nextIterationNumber = 1;
+      this.totalEntryCount = 0;
+      this.totalTokenCount = 0;
+      this.totalCostUsd = 0;
+      this.totalDurationMs = 0;
+      this.totalFailureCount = 0;
+      this.totalFailedApproachCount = 0;
+      return;
+    }
+
+    this.entries = Array.isArray(snapshot.entries)
+      ? snapshot.entries.map(entry => ({
+          ...entry,
+          actions: Array.isArray(entry.actions) ? entry.actions.map(action => ({ ...action })) : [],
+          tokens: entry.tokens ? { ...entry.tokens } : { input: 0, output: 0 },
+        }))
+      : [];
+
+    this.failedApproaches = Array.isArray(snapshot.failedApproaches)
+      ? snapshot.failedApproaches.map(approach => ({
+          ...approach,
+          tools: Array.isArray(approach.tools) ? [...approach.tools] : [],
+        }))
+      : [];
+
+    this.runs = Array.isArray(snapshot.runs)
+      ? snapshot.runs.map(run => ({ ...run }))
+      : [];
+
+    this.currentEntry = snapshot.currentEntry && typeof snapshot.currentEntry === 'object' && !Array.isArray(snapshot.currentEntry)
+      ? {
+          ...snapshot.currentEntry,
+          actions: Array.isArray(snapshot.currentEntry.actions)
+            ? snapshot.currentEntry.actions.map(action => ({ ...action }))
+            : [],
+          tokens: snapshot.currentEntry.tokens ? { ...snapshot.currentEntry.tokens } : { input: 0, output: 0 },
+        }
+      : null;
+
+    this.iterationStart = typeof snapshot.iterationStart === 'number' ? snapshot.iterationStart : 0;
+    const maxKnownIteration = Math.max(
+      0,
+      ...this.entries.map(entry => entry.iteration),
+      typeof this.currentEntry?.iteration === 'number' ? this.currentEntry.iteration : 0,
+    );
+    this.totalEntryCount = typeof snapshot.totalEntryCount === 'number'
+      ? snapshot.totalEntryCount
+      : maxKnownIteration;
+    this.nextIterationNumber = typeof snapshot.nextIterationNumber === 'number'
+      ? snapshot.nextIterationNumber
+      : maxKnownIteration + 1;
+    this.totalTokenCount = typeof snapshot.totalTokenCount === 'number'
+      ? snapshot.totalTokenCount
+      : this.entries.reduce((sum, entry) => sum + entry.tokens.input + entry.tokens.output, 0);
+    this.totalCostUsd = typeof snapshot.totalCostUsd === 'number'
+      ? snapshot.totalCostUsd
+      : this.entries.reduce((sum, entry) => sum + entry.cost, 0);
+    this.totalDurationMs = typeof snapshot.totalDurationMs === 'number'
+      ? snapshot.totalDurationMs
+      : this.entries.reduce((sum, entry) => sum + entry.durationMs, 0);
+    this.totalFailureCount = typeof snapshot.totalFailureCount === 'number'
+      ? snapshot.totalFailureCount
+      : this.entries.reduce((sum, entry) => sum + (entry.outcome === 'error' ? 1 : 0), 0);
+    this.totalFailedApproachCount = typeof snapshot.totalFailedApproachCount === 'number'
+      ? snapshot.totalFailedApproachCount
+      : this.failedApproaches.length;
+
+    if (options.recoverInterrupted !== false) {
+      this.recoverInterruptedState();
+    }
+
+    this.pruneRetainedState();
+  }
 
   /**
    * Start tracking a new iteration.
    */
-  startIteration(iteration: number): void {
+  startIteration(iteration = this.nextIterationNumber): void {
+    if (this.currentEntry) {
+      this.endIteration('error');
+    }
     this.currentEntry = {
       iteration,
       timestamp: Date.now(),
@@ -71,6 +283,8 @@ export class IterationLedger {
       cost: 0,
     };
     this.iterationStart = Date.now();
+    this.nextIterationNumber = Math.max(this.nextIterationNumber, iteration + 1);
+    this.touch();
   }
 
   /**
@@ -93,6 +307,7 @@ export class IterationLedger {
       result,
       errorSummary: errorSummary?.split('\n')[0]?.substring(0, 120),
     });
+    this.touch();
   }
 
   /**
@@ -102,6 +317,7 @@ export class IterationLedger {
     if (!this.currentEntry) return;
     this.currentEntry.tokens = { input, output };
     this.currentEntry.cost = cost;
+    this.touch();
   }
 
   /**
@@ -121,6 +337,13 @@ export class IterationLedger {
     };
 
     this.entries.push(entry);
+    this.totalEntryCount = Math.max(this.totalEntryCount + 1, entry.iteration);
+    this.totalTokenCount += entry.tokens.input + entry.tokens.output;
+    this.totalCostUsd += entry.cost;
+    this.totalDurationMs += entry.durationMs;
+    if (entry.outcome === 'error') {
+      this.totalFailureCount++;
+    }
 
     // Auto-detect failed approaches from error patterns
     if (entry.outcome === 'error') {
@@ -141,10 +364,12 @@ export class IterationLedger {
           iteration: entry.iteration,
           tools,
         });
+        this.totalFailedApproachCount++;
       }
     }
 
     this.currentEntry = null;
+    this.touch();
   }
 
   /**
@@ -155,9 +380,67 @@ export class IterationLedger {
     this.failedApproaches.push({
       description,
       reason,
-      iteration: this.entries.length,
+      iteration: Math.max(this.totalEntryCount, this.entries[this.entries.length - 1]?.iteration || 0),
       tools,
     });
+    this.totalFailedApproachCount++;
+    this.touch();
+  }
+
+  /**
+   * Start tracking a higher-level run, such as a loop or standalone agent turn.
+   */
+  startRun(
+    kind: LedgerRunKind,
+    prompt: string,
+    options: {
+      completionPromise?: string;
+      maxIterations?: number | null;
+    } = {}
+  ): string {
+    const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+
+    this.runs.push({
+      id: runId,
+      kind,
+      prompt: truncate(prompt.replace(/\s+/g, ' ').trim(), 160),
+      status: 'running',
+      startedAt: now,
+      updatedAt: now,
+      completedAt: undefined,
+      completionPromise: options.completionPromise,
+      maxIterations: options.maxIterations,
+      entryCountAtStart: this.totalEntryCount,
+    });
+
+    this.touch();
+    return runId;
+  }
+
+  /**
+   * Finish a higher-level run and capture its final status.
+   */
+  finishRun(
+    runId: string,
+    status: Exclude<LedgerRunStatus, 'running'>,
+    options: {
+      errorSummary?: string;
+    } = {}
+  ): void {
+    const run = this.runs.find(entry => entry.id === runId);
+    if (!run) return;
+
+    const now = Date.now();
+    run.status = status;
+    run.updatedAt = now;
+    run.completedAt = now;
+    run.entryCountAtEnd = this.totalEntryCount;
+    run.errorSummary = options.errorSummary
+      ? truncate(options.errorSummary.replace(/\s+/g, ' ').trim(), 200)
+      : run.errorSummary;
+
+    this.touch();
   }
 
   /**
@@ -229,28 +512,64 @@ export class IterationLedger {
   }
 
   /**
-   * Get session totals.
+   * Get failed approaches recorded for this session.
+   */
+  getFailedApproaches(): readonly FailedApproach[] {
+    return this.failedApproaches;
+  }
+
+  /**
+   * Get recent run records.
+   */
+  getRuns(limit?: number): readonly LedgerRun[] {
+    if (!limit || limit <= 0) return this.runs;
+    return this.runs.slice(-limit);
+  }
+
+  /**
+   * Get the latest run, optionally filtered by kind or status.
+   */
+  getLatestRun(kind?: LedgerRunKind): LedgerRun | undefined {
+    for (let i = this.runs.length - 1; i >= 0; i--) {
+      if (!kind || this.runs[i].kind === kind) {
+        return this.runs[i];
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get an active run, optionally filtered by kind.
+   */
+  getActiveRun(kind?: LedgerRunKind): LedgerRun | undefined {
+    return this.runs.find(run => run.status === 'running' && (!kind || run.kind === kind));
+  }
+
+  /**
+   * Get the next global iteration number for session-wide logging.
+   */
+  getNextIterationNumber(): number {
+    return this.nextIterationNumber;
+  }
+
+  /**
+   * Get session totals across the full session, including pruned history.
    */
   getTotals(): { iterations: number; totalTokens: number; totalCost: number; totalDurationMs: number; failures: number } {
-    let totalTokens = 0;
-    let totalCost = 0;
-    let totalDurationMs = 0;
-    let failures = 0;
-
-    for (const entry of this.entries) {
-      totalTokens += entry.tokens.input + entry.tokens.output;
-      totalCost += entry.cost;
-      totalDurationMs += entry.durationMs;
-      if (entry.outcome === 'error') failures++;
-    }
-
     return {
-      iterations: this.entries.length,
-      totalTokens,
-      totalCost,
-      totalDurationMs,
-      failures,
+      iterations: this.totalEntryCount,
+      totalTokens: this.totalTokenCount,
+      totalCost: this.totalCostUsd,
+      totalDurationMs: this.totalDurationMs,
+      failures: this.totalFailureCount,
     };
+  }
+
+  /**
+   * Get the total number of failed approaches recorded across the full session.
+   */
+  getFailedApproachCount(): number {
+    return this.totalFailedApproachCount;
   }
 
   /**
@@ -259,7 +578,90 @@ export class IterationLedger {
   reset(): void {
     this.entries = [];
     this.failedApproaches = [];
+    this.runs = [];
     this.currentEntry = null;
+    this.iterationStart = 0;
+    this.nextIterationNumber = 1;
+    this.totalEntryCount = 0;
+    this.totalTokenCount = 0;
+    this.totalCostUsd = 0;
+    this.totalDurationMs = 0;
+    this.totalFailureCount = 0;
+    this.totalFailedApproachCount = 0;
+    this.touch();
+  }
+
+  /**
+   * Recover interrupted state from a persisted snapshot.
+   * Returns true if anything was recovered.
+   */
+  recoverInterruptedState(reason = 'Previous session ended before completion'): boolean {
+    let recovered = false;
+    const now = Date.now();
+
+    if (this.currentEntry && typeof this.currentEntry.iteration === 'number' && typeof this.currentEntry.timestamp === 'number') {
+      const recoveredEntry: LedgerEntry = {
+        iteration: this.currentEntry.iteration,
+        timestamp: this.currentEntry.timestamp,
+        actions: this.currentEntry.actions || [],
+        outcome: 'error',
+        tokens: this.currentEntry.tokens || { input: 0, output: 0 },
+        durationMs: this.iterationStart > 0 ? Math.max(0, now - this.iterationStart) : 0,
+        cost: this.currentEntry.cost || 0,
+      };
+      this.entries.push(recoveredEntry);
+      this.totalEntryCount = Math.max(this.totalEntryCount + 1, this.currentEntry.iteration);
+      this.nextIterationNumber = Math.max(this.nextIterationNumber, this.currentEntry.iteration + 1);
+      this.totalTokenCount += recoveredEntry.tokens.input + recoveredEntry.tokens.output;
+      this.totalCostUsd += recoveredEntry.cost;
+      this.totalDurationMs += recoveredEntry.durationMs;
+      this.totalFailureCount++;
+      this.currentEntry = null;
+      this.iterationStart = 0;
+      recovered = true;
+    }
+
+    for (const run of this.runs) {
+      if (run.status === 'running') {
+        run.status = 'interrupted';
+        run.updatedAt = now;
+        run.completedAt = now;
+        run.entryCountAtEnd = this.totalEntryCount;
+        if (!run.errorSummary) {
+          run.errorSummary = truncate(reason, 200);
+        }
+        recovered = true;
+      }
+    }
+
+    return recovered;
+  }
+
+  private touch(): void {
+    this.pruneRetainedState();
+    this.onChange?.(this);
+  }
+
+  private pruneRetainedState(): void {
+    if (this.retentionLimit <= 0) {
+      return;
+    }
+
+    if (this.entries.length > this.retentionLimit) {
+      this.entries = this.entries.slice(-this.retentionLimit);
+    }
+
+    if (this.failedApproaches.length > this.retentionLimit) {
+      this.failedApproaches = this.failedApproaches.slice(-this.retentionLimit);
+    }
+
+    if (this.runs.length > this.retentionLimit) {
+      const activeRuns = this.runs.filter(run => run.status === 'running');
+      const finishedRuns = this.runs.filter(run => run.status !== 'running');
+      const maxFinished = Math.max(0, this.retentionLimit - activeRuns.length);
+      this.runs = [...finishedRuns.slice(-maxFinished), ...activeRuns]
+        .sort((a, b) => a.startedAt - b.startedAt);
+    }
   }
 }
 

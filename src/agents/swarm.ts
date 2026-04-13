@@ -51,6 +51,7 @@ class SwarmManager {
       status: 'decomposing',
       config: mergedConfig,
       subtasks: [],
+      activeTaskIds: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -59,8 +60,12 @@ class SwarmManager {
 
     // Start the swarm lifecycle (fire and forget for background execution)
     this.runSwarmLifecycle(session, cwd).catch(err => {
+      if (this.isCancelled(session)) {
+        return;
+      }
       session.status = 'failed';
       session.error = err instanceof Error ? err.message : String(err);
+      session.completedAt = new Date();
       session.updatedAt = new Date();
     });
 
@@ -88,22 +93,20 @@ class SwarmManager {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
 
-    // Cancel all running subtasks
-    for (const subtask of session.subtasks) {
-      if (subtask.taskId && (subtask.status === 'running' || subtask.status === 'pending')) {
-        try {
-          await orchestrator.cancelTask(subtask.taskId);
-        } catch {
-          // Best effort cancellation
-        }
-        subtask.status = 'failed';
-        subtask.error = 'Cancelled';
-      }
-    }
-
     session.status = 'cancelled';
     session.updatedAt = new Date();
     session.completedAt = new Date();
+
+    await this.cancelTrackedTasks(session);
+
+    for (const subtask of session.subtasks) {
+      if (subtask.status === 'running' || subtask.status === 'pending') {
+        subtask.status = 'failed';
+        subtask.error = 'Cancelled';
+        subtask.completedAt = new Date();
+      }
+    }
+
     return true;
   }
 
@@ -141,11 +144,16 @@ class SwarmManager {
       );
 
       // Use overseer agent to decompose
-      const decompositionTask = await orchestrator.spawnAgent(
+      const decompositionTask = await this.runTrackedAgent(
+        session,
         decompositionPrompt,
         session.config.overseerAgent,
-        { background: false, priority: 'high', cwd }
+        { priority: 'high', cwd, timeout: session.config.subtaskTimeout }
       );
+
+      if (this.isCancelled(session) || decompositionTask.status === 'cancelled') {
+        return;
+      }
 
       if (decompositionTask.status !== 'completed' || !decompositionTask.result) {
         throw new Error(`Decomposition failed: ${decompositionTask.error || 'no result'}`);
@@ -163,11 +171,19 @@ class SwarmManager {
       session.subtasks = subtasks;
       session.updatedAt = new Date();
 
+      if (this.isCancelled(session)) {
+        return;
+      }
+
       // Phase 2: Execute
       session.status = 'executing';
       session.updatedAt = new Date();
 
       await this.executeSubtasks(session, cwd);
+
+      if (this.isCancelled(session)) {
+        return;
+      }
 
       // Phase 3: Recovery (retry failed subtasks)
       if (hasFailedSubtasks(session.subtasks)) {
@@ -191,6 +207,10 @@ class SwarmManager {
         if (retryable.length > 0) {
           await this.executeSubtasks(session, cwd);
         }
+
+        if (this.isCancelled(session)) {
+          return;
+        }
       }
 
       // Phase 4: Aggregate
@@ -213,6 +233,11 @@ class SwarmManager {
       session.updatedAt = new Date();
 
     } catch (error) {
+      if (this.isCancelled(session)) {
+        session.completedAt = session.completedAt || new Date();
+        session.updatedAt = new Date();
+        return;
+      }
       session.status = 'failed';
       session.error = error instanceof Error ? error.message : String(error);
       session.completedAt = new Date();
@@ -229,7 +254,7 @@ class SwarmManager {
     // Loop until all subtasks are done
     while (!allSubtasksDone(session.subtasks)) {
       // Check if session was cancelled
-      if (session.status === 'cancelled') return;
+      if (this.isCancelled(session)) return;
 
       const ready = getReadySubtasks(session.subtasks);
       const running = session.subtasks.filter(s => s.status === 'running');
@@ -258,8 +283,8 @@ class SwarmManager {
       if (promises.length > 0) {
         await Promise.race(promises);
       } else if (running.length > 0) {
-        // Wait a bit for running tasks to complete
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Poll quickly so completion/cancellation doesn't stall behind a long sleep.
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
   }
@@ -333,13 +358,27 @@ class SwarmManager {
         enrichedPrompt += `\n\nNote: Previous attempt failed with: ${subtask.error}\nPlease try a different approach.`;
       }
 
-      const task = await orchestrator.spawnAgent(
+      const task = await this.runTrackedAgent(
+        session,
         enrichedPrompt,
         agent,
-        { background: false, priority: subtask.priority, cwd }
+        {
+          priority: subtask.priority,
+          cwd,
+          timeout: session.config.subtaskTimeout,
+          onSpawn: spawnedTask => {
+            subtask.taskId = spawnedTask.id;
+          },
+        }
       );
 
-      subtask.taskId = task.id;
+      if (this.isCancelled(session) || task.status === 'cancelled') {
+        subtask.status = 'failed';
+        subtask.error = 'Cancelled';
+        subtask.completedAt = new Date();
+        session.updatedAt = new Date();
+        return;
+      }
 
       if (task.status === 'completed') {
         subtask.status = 'completed';
@@ -355,6 +394,57 @@ class SwarmManager {
     }
 
     session.updatedAt = new Date();
+  }
+
+  private async runTrackedAgent(
+    session: SwarmSession,
+    prompt: string,
+    agent: SubAgentType,
+    options: {
+      priority?: SwarmSubtask['priority'];
+      cwd?: string;
+      timeout?: number;
+      onSpawn?: (task: Awaited<ReturnType<typeof orchestrator.spawnAgent>>) => void;
+    } = {}
+  ): Promise<Awaited<ReturnType<typeof orchestrator.spawnAgent>>> {
+    const task = await orchestrator.spawnAgent(prompt, agent, {
+      background: true,
+      priority: options.priority,
+      cwd: options.cwd,
+      timeout: options.timeout,
+    });
+
+    options.onSpawn?.(task);
+    this.trackTask(session, task.id);
+
+    try {
+      return await orchestrator.waitForTask(task.id);
+    } finally {
+      this.untrackTask(session, task.id);
+    }
+  }
+
+  private trackTask(session: SwarmSession, taskId: string): void {
+    if (!session.activeTaskIds.includes(taskId)) {
+      session.activeTaskIds.push(taskId);
+    }
+  }
+
+  private untrackTask(session: SwarmSession, taskId: string): void {
+    const index = session.activeTaskIds.indexOf(taskId);
+    if (index !== -1) {
+      session.activeTaskIds.splice(index, 1);
+    }
+  }
+
+  private isCancelled(session: SwarmSession): boolean {
+    return session.status === 'cancelled';
+  }
+
+  private async cancelTrackedTasks(session: SwarmSession): Promise<void> {
+    const taskIds = [...session.activeTaskIds];
+    session.activeTaskIds.length = 0;
+    await Promise.allSettled(taskIds.map(taskId => orchestrator.cancelTask(taskId)));
   }
 
   /**
@@ -397,6 +487,9 @@ class SwarmManager {
    * Reset all sessions
    */
   reset(): void {
+    for (const session of this.sessions.values()) {
+      void this.cancelTrackedTasks(session);
+    }
     this.sessions.clear();
   }
 }

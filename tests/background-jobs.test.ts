@@ -130,6 +130,28 @@ describe('cancelJob', () => {
     expect(result.completedAt).toBeTruthy();
   });
 
+  it('keeps a job cancelled if the executor resolves after abort', async () => {
+    const job = mod.createJob('late resolve');
+
+    const runPromise = mod.runJob(job.id, async (_prompt, signal) => {
+      return await new Promise(resolve => {
+        signal.addEventListener('abort', () => {
+          setTimeout(() => resolve({ result: 'too late', iterations: 7 }), 5);
+        });
+      });
+    });
+
+    await new Promise(r => setTimeout(r, 10));
+
+    const cancelled = mod.cancelJob(job.id);
+    expect(cancelled).toBe(true);
+
+    const result = await runPromise;
+    expect(result.status).toBe('cancelled');
+    expect(result.result).toBeUndefined();
+    expect(result.iterations).toBe(0);
+  });
+
   it('cancels a pending job directly', () => {
     const job = mod.createJob('pending task');
     expect(job.status).toBe('pending');

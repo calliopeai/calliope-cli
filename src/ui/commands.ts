@@ -35,6 +35,13 @@ import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiA
 import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
+import * as memory from '../memory.js';
+import type { IterationLedger, LedgerRun } from '../iteration-ledger.js';
+import {
+  resolveIterationLimit,
+  formatIterationLimit,
+  isFiniteIterationLimit,
+} from '../iteration-limit.js';
 import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent, ToolCall } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
 import type { Session } from '../storage.js';
@@ -72,6 +79,7 @@ export interface CommandContext {
   circuitBreaker?: CircuitBreaker;
   smartRouteActive: boolean;
   smartRoutingConfig?: SmartRoutingConfig;
+  ledger?: IterationLedger;
 
   // State setters
   setProvider: (p: LLMProvider) => void;
@@ -123,6 +131,85 @@ export interface CommandContext {
   exit: () => void;
 }
 
+// Builds the full system prompt including memory context (project + global).
+// dir should be the project directory for the active/resumed session.
+function buildFullSystemPrompt(persona: AgentPersona, dir: string): string {
+  const base = getSystemPrompt(persona);
+  const mem = memory.buildMemoryContext(dir);
+  return mem.trim() ? base + '\n\n--- Project Context ---\n' + mem : base;
+}
+
+function getActiveProjectDir(ctx: Pick<CommandContext, 'sessionRef'>): string {
+  return ctx.sessionRef.current?.projectPath ?? process.cwd();
+}
+
+function formatLedgerDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
+  return `${(durationMs / 60_000).toFixed(1)}m`;
+}
+
+function formatSessionLogLimit(limit: number): string {
+  return limit > 0 ? String(limit) : 'unlimited';
+}
+
+function formatLedgerRun(run: LedgerRun): string {
+  const iterationCount = Math.max(0, (run.entryCountAtEnd ?? run.entryCountAtStart) - run.entryCountAtStart);
+  const parts = [`${run.kind}`, `[${run.status}]`];
+
+  if (iterationCount > 0) {
+    parts.push(`${iterationCount} iteration${iterationCount === 1 ? '' : 's'}`);
+  }
+  if (run.maxIterations != null && Number.isFinite(run.maxIterations)) {
+    parts.push(`max ${run.maxIterations}`);
+  } else if (run.maxIterations === null) {
+    parts.push('unlimited');
+  }
+
+  const prompt = run.prompt.length > 90 ? `${run.prompt.slice(0, 90)}...` : run.prompt;
+  let line = `${parts.join(' ')} — ${prompt}`;
+  if (run.errorSummary) {
+    line += ` (${run.errorSummary})`;
+  }
+  return line;
+}
+
+function watchAsyncLedgerRun(
+  ledger: IterationLedger | undefined,
+  kind: 'swarm' | 'council' | 'workflow',
+  prompt: string,
+  getStatus: () => { status: string; error?: string } | undefined
+): void {
+  if (!ledger) return;
+
+  const runId = ledger.startRun(kind, prompt);
+
+  void (async () => {
+    for (;;) {
+      const current = getStatus();
+      if (!current) {
+        ledger.finishRun(runId, 'failed', { errorSummary: 'Run state no longer available' });
+        return;
+      }
+
+      if (current.status === 'completed') {
+        ledger.finishRun(runId, 'completed');
+        return;
+      }
+      if (current.status === 'failed') {
+        ledger.finishRun(runId, 'failed', { errorSummary: current.error });
+        return;
+      }
+      if (current.status === 'cancelled') {
+        ledger.finishRun(runId, 'cancelled', { errorSummary: current.error || 'Cancelled' });
+        return;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  })();
+}
+
 // ============================================================================
 // handleCommand
 // ============================================================================
@@ -154,6 +241,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
 
 --- Session & State ---
   /session [list|info|fork|save] - Session management (/sessions)
+  /log [summary|tail|failures|reset] - Iteration/run log
   /resume [sessionId]        - Resume session (restores full context)
   /checkpoint [list|clear]   - File checkpoints (/cp)
   /restore <path> [index]    - Restore file from checkpoint
@@ -200,8 +288,8 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
 --- Multi-Agent ---
   /agents                    - Sub-agent status (--agents mode)
   /swarm [start|coord|status] - Agent swarms & coordination
-  /loop [prompt] [n]         - Iterative agent loop
-  /cancel-loop               - Stop running loop (/stop)
+  /loop [prompt]             - Iterative agent loop (default: unlimited)
+  /cancel-loop               - Stop running loop (/stop, /breakloop)
 
 --- System ---
   /status                    - Show status (/s)
@@ -299,7 +387,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       if (parts[1] && ['calliope', 'muse', 'minimal'].includes(parts[1])) {
         const p = parts[1] as AgentPersona;
         ctx.setPersona(p);
-        ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(p) }];
+        ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(p, getActiveProjectDir(ctx)) }];
         ctx.addMessage('system', `Persona: ${p}`);
       } else {
         ctx.addMessage('system', `Persona: ${ctx.persona} | Options: calliope, muse, minimal`);
@@ -309,7 +397,8 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     case '/clear':
     case '/c':
       ctx.setMessages([]);
-      ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+      ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
+      ctx.ledger?.reset();
       ctx.setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
       resetContextWarnings(); // Reset context warning state
       break;
@@ -446,7 +535,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     }
 
     case '/config':
-      ctx.addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}`);
+      ctx.addMessage('system', `Config: ${config.getConfigPath()}\nProviders: ${config.getConfiguredProviders().join(', ') || 'none'}\nmaxIterations: ${config.get('maxIterations')}\nsessionLogLimit: ${formatSessionLogLimit(config.get('sessionLogLimit'))} (set > 0 to cap)`);
       break;
 
     case '/agents': {
@@ -908,6 +997,7 @@ Edit the YAML to customize members, strategy, and coordination settings.`);
         ctx.addMessage('system', `Usage: /set <key> <value>
 Available keys:
   maxIterations <number>  - Max agent iterations (current: ${config.get('maxIterations')})
+  sessionLogLimit <number> - Cap retained session log items (current: ${formatSessionLogLimit(config.get('sessionLogLimit'))}, 0 = unlimited)
   persona <name>          - calliope, muse, minimal
   fancyOutput <bool>      - true/false`);
         break;
@@ -916,12 +1006,21 @@ Available keys:
       try {
         if (key === 'maxIterations') {
           const num = parseInt(value, 10);
-          if (isNaN(num) || num < 1 || num > 10000) {
-            ctx.addMessage('error', 'maxIterations must be 1-10000');
+          if (isNaN(num) || num < 0 || num > 1000000) {
+            ctx.addMessage('error', 'maxIterations must be 0-1000000 (0 = unlimited)');
             break;
           }
           config.set('maxIterations', num);
-          ctx.addMessage('system', `\u2713 maxIterations set to ${num}`);
+          ctx.addMessage('system', `\u2713 maxIterations set to ${formatIterationLimit(resolveIterationLimit(num))}`);
+        } else if (key === 'sessionLogLimit') {
+          const num = parseInt(value, 10);
+          if (isNaN(num) || num < 0 || num > 100000) {
+            ctx.addMessage('error', 'sessionLogLimit must be 0-100000 (0 = unlimited)');
+            break;
+          }
+          config.set('sessionLogLimit', num);
+          ctx.ledger?.setRetentionLimit(num);
+          ctx.addMessage('system', `\u2713 sessionLogLimit set to ${num === 0 ? 'unlimited (set > 0 to cap)' : num}`);
         } else if (key === 'persona') {
           if (!['calliope', 'muse', 'minimal'].includes(value)) {
             ctx.addMessage('error', 'persona must be: calliope, muse, or minimal');
@@ -1063,6 +1162,11 @@ Usage:
 
     case '/loop': {
       // Parse /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
+      if (ctx.loopActive) {
+        ctx.addMessage('system', 'Loop already running. Use /breakloop to stop it first.');
+        break;
+      }
+
       const loopArgs = parts.slice(1).join(' ');
       const maxIterMatch = loopArgs.match(/--max-iterations\s+(\d+)/);
       const completionMatch = loopArgs.match(/--completion-promise\s+"([^"]+)"/);
@@ -1082,26 +1186,32 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         break;
       }
 
+      const defaultMaxIterations = resolveIterationLimit(config.get('maxIterations'));
+      const loopMaxIterations = maxIterMatch
+        ? resolveIterationLimit(parseInt(maxIterMatch[1], 10))
+        : defaultMaxIterations;
+
       // Start the loop
       ctx.setLoopActive(true);
       ctx.setLoopPrompt(prompt);
-      ctx.setLoopMaxIterations(maxIterMatch ? parseInt(maxIterMatch[1], 10) : 100);
+      ctx.setLoopMaxIterations(loopMaxIterations);
       ctx.setLoopCompletionPromise(completionMatch ? completionMatch[1] : undefined);
       ctx.setLoopIteration(0);
       ctx.loopCancelledRef.current = false;
 
       ctx.addMessage('system', `\u{1F504} Agent Loop Started
   Prompt: "${prompt.substring(0, 50)}${prompt.length > 50 ? '...' : ''}"
-  Max iterations: ${maxIterMatch ? maxIterMatch[1] : '100'}
-  ${completionMatch ? `Completion promise: "${completionMatch[1]}"` : 'No completion promise (runs until max iterations)'}
-  Use /cancel-loop to stop`);
+  Max iterations: ${formatIterationLimit(loopMaxIterations)}
+  ${completionMatch ? `Completion promise: "${completionMatch[1]}"` : isFiniteIterationLimit(loopMaxIterations) ? 'No completion promise (runs until max iterations)' : 'No completion promise (runs until stopped)'}
+  Use /breakloop to stop`);
 
       // Start the loop execution (non-blocking)
-      ctx.runLoop(prompt, maxIterMatch ? parseInt(maxIterMatch[1], 10) : 100, completionMatch?.[1]);
+      ctx.runLoop(prompt, loopMaxIterations, completionMatch?.[1]);
       break;
     }
 
     case '/cancel-loop':
+    case '/breakloop':
     case '/stop':
       if (ctx.loopActive) {
         ctx.loopCancelledRef.current = true;
@@ -1353,7 +1463,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     case '/branch': {
       const branching = await import('../branching.js');
       const subCmd = parts[1];
-      const sessionId = ctx.sessionRef.current?.id || `session_${Date.now()}`;
+      const sessionId = ctx.sessionRef.current?.id || storage.createSessionId();
 
       if (subCmd === 'list' || !subCmd) {
         const tree = branching.getBranchTree(sessionId);
@@ -1472,7 +1582,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         const newComp = getCurrentCompanion();
         if (newComp.name === subCmd) {
           config.set('activeCompanion', subCmd);
-          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
           ctx.addMessage('system', `Companion set to: ${subCmd} \u2014 "${newComp.greeting}"`);
         } else {
           ctx.addMessage('error', `Companion not found: ${subCmd}. Available: ${listCompanions().map((c: { name: string }) => c.name).join(', ')}`);
@@ -1561,7 +1671,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
             : pack.companions.immersive;
           config.set('activeCompanion', companion.name);
           // Reset LLM system prompt to use the companion's persona
-          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
           ctx.addMessage('system',
             `Theme pack: ${subCmd}\n` +
             `  Skin: ${pack.skin.name}, Palette: ${pack.palette.name}, Companion: ${companion.name}\n` +
@@ -1582,7 +1692,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           const pack = getCurrentPack()!;
           config.set('companionIntensity', 'professional');
           config.set('activeCompanion', pack.companions.professional.name);
-          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
           ctx.addMessage('system', `Switched to professional mode — ${pack.companions.professional.description}`);
         } else {
           ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
@@ -1593,7 +1703,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           const pack = getCurrentPack()!;
           config.set('companionIntensity', 'immersive');
           config.set('activeCompanion', pack.companions.immersive.name);
-          ctx.llmMessages.current = [{ role: 'system', content: getSystemPrompt(ctx.persona) }];
+          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
           ctx.addMessage('system', `Switched to immersive mode — ${pack.companions.immersive.description}`);
         } else {
           ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
@@ -1822,7 +1932,25 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         if (session) {
           const savedMessages = storage.loadMessageHistory();
           const savedCount = savedMessages ? savedMessages.length : 0;
-          ctx.addMessage('system', `Session: ${session.projectName}\nID: ${session.id}\nCreated: ${new Date(session.createdAt).toLocaleString()}\nMessages: ${session.messageCount}\nSaved LLM messages: ${savedCount}`);
+          const ledgerTotals = ctx.ledger?.getTotals();
+          const latestRun = ctx.ledger?.getLatestRun();
+          const lines = [
+            `Session: ${session.projectName}`,
+            `ID: ${session.id}`,
+            `Created: ${new Date(session.createdAt).toLocaleString()}`,
+            `Messages: ${session.messageCount}`,
+            `Saved LLM messages: ${savedCount}`,
+          ];
+          if (ledgerTotals) {
+            lines.push(
+              `Iterations logged: ${ledgerTotals.iterations}`,
+              `Failed approaches: ${ctx.ledger?.getFailedApproachCount() ?? 0}`,
+            );
+          }
+          if (latestRun) {
+            lines.push(`Latest run: ${formatLedgerRun(latestRun)}`);
+          }
+          ctx.addMessage('system', lines.join('\n'));
         } else {
           ctx.addMessage('system', 'No active session.');
         }
@@ -1833,6 +1961,9 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         } else {
           // Save current messages before forking
           storage.saveMessageHistory(ctx.llmMessages.current);
+          if (ctx.ledger) {
+            storage.saveIterationLedger(ctx.ledger);
+          }
           const forked = storage.forkSession(session.projectPath);
           if (forked) {
             ctx.sessionRef.current = forked;
@@ -1843,11 +1974,93 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         }
       } else if (parts[1] === 'save') {
         storage.saveMessageHistory(ctx.llmMessages.current);
-        ctx.addMessage('system', `Saved ${ctx.llmMessages.current.length} LLM messages to session.`);
+        if (ctx.ledger) {
+          storage.saveIterationLedger(ctx.ledger);
+        }
+        ctx.addMessage('system', `Saved ${ctx.llmMessages.current.length} LLM messages and current log state to session.`);
       } else {
         ctx.addMessage('system', 'Usage: /session [list|info|fork|save] or just /sessions');
       }
       break;
+
+    case '/log': {
+      if (!ctx.ledger) {
+        ctx.addMessage('system', 'No session log available.');
+        break;
+      }
+
+      const subCmd = parts[1] || 'summary';
+
+      if (subCmd === 'summary') {
+        const totals = ctx.ledger.getTotals();
+        const runs = ctx.ledger.getRuns(5);
+        const allFailures = ctx.ledger.getFailedApproaches();
+        const failures = allFailures.slice(-5);
+        const lines = [
+          'Session Log',
+          `Iterations: ${totals.iterations}`,
+          `Failed approaches: ${ctx.ledger.getFailedApproachCount()}`,
+          `Tokens: ${totals.totalTokens}`,
+          `Cost: $${totals.totalCost.toFixed(4)}`,
+          `Duration: ${formatLedgerDuration(totals.totalDurationMs)}`,
+        ];
+
+        if (runs.length > 0) {
+          lines.push('', 'Recent runs:');
+          for (const run of runs) {
+            lines.push(`  - ${formatLedgerRun(run)}`);
+          }
+        }
+
+        if (failures.length > 0) {
+          lines.push('', 'Recent failures:');
+          for (const failure of failures) {
+            lines.push(`  - #${failure.iteration} ${failure.description} — ${failure.reason}`);
+          }
+        }
+
+        ctx.addMessage('system', lines.join('\n'));
+      } else if (subCmd === 'tail') {
+        const limit = parts[2] ? parseInt(parts[2], 10) : 10;
+        if (isNaN(limit) || limit <= 0 || limit > 100) {
+          ctx.addMessage('error', 'Usage: /log tail [1-100]');
+          break;
+        }
+
+        const entries = ctx.ledger.getEntries().slice(-limit);
+        if (entries.length === 0) {
+          ctx.addMessage('system', 'No logged iterations yet.');
+          break;
+        }
+
+        const lines = ['Recent iterations:'];
+        for (const entry of entries) {
+          const actions = entry.actions.length > 0
+            ? entry.actions.map(action => `${action.tool}(${action.args})${action.result === 'error' ? ' FAILED' : action.result === 'blocked' ? ' BLOCKED' : ''}`).join(', ')
+            : 'no tool actions';
+          lines.push(`  #${entry.iteration} [${entry.outcome}] ${formatLedgerDuration(entry.durationMs)} — ${actions}`);
+        }
+        ctx.addMessage('system', lines.join('\n'));
+      } else if (subCmd === 'failures') {
+        const failures = ctx.ledger.getFailedApproaches();
+        if (failures.length === 0) {
+          ctx.addMessage('system', 'No failed approaches recorded.');
+          break;
+        }
+
+        const lines = ['Failed approaches:'];
+        for (const failure of failures.slice(-10)) {
+          lines.push(`  - #${failure.iteration} ${failure.description} — ${failure.reason}`);
+        }
+        ctx.addMessage('system', lines.join('\n'));
+      } else if (subCmd === 'reset') {
+        ctx.ledger.reset();
+        ctx.addMessage('system', 'Session log reset.');
+      } else {
+        ctx.addMessage('system', 'Usage: /log [summary|tail [N]|failures|reset]');
+      }
+      break;
+    }
 
     case '/todo': {
       const subCommand = parts[1];
@@ -2400,6 +2613,21 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       // Resume a session by loading saved LLM message history
       // Usage: /resume [sessionId] - resume a specific session, or current session if no ID
       const targetSessionId = parts[1];
+      if (targetSessionId) {
+        const resumedSession = storage.setCurrentSessionById(targetSessionId);
+        if (!resumedSession) {
+          ctx.addMessage('system', `Session not found: ${targetSessionId}`);
+          break;
+        }
+        ctx.sessionRef.current = resumedSession;
+      }
+
+      if (ctx.ledger) {
+        ctx.ledger.loadSnapshot(storage.loadIterationLedger(targetSessionId || ctx.sessionRef.current?.id));
+        if (ctx.sessionRef.current?.id) {
+          storage.saveIterationLedger(ctx.ledger, ctx.sessionRef.current.id);
+        }
+      }
 
       // Try loading full message history first (preferred - preserves tool calls etc.)
       const savedMessages = storage.loadMessageHistory(targetSessionId);
@@ -2414,10 +2642,15 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         ctx.setContextTokens(ctx.estimateContextTokens());
       } else {
         // Fall back to chat.log history (legacy format, user/assistant only)
-        const history = storage.getChatHistory(20);
+        const history = storage.getChatHistory(20, targetSessionId);
         if (history.length === 0) {
           ctx.addMessage('system', 'No previous messages to resume. Start a conversation first, messages are auto-saved.');
         } else {
+          ctx.llmMessages.current.length = 0;
+          ctx.llmMessages.current.push({
+            role: 'system',
+            content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)),
+          });
           for (const msg of history) {
             if (msg.role === 'user' || msg.role === 'assistant') {
               ctx.llmMessages.current.push({
@@ -2548,6 +2781,7 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
     case '/swarm':
     case '/council': {
       const subCmd = parts[1];
+      const swarmCwd = ctx.sessionRef.current?.projectPath ?? process.cwd();
       if (!ctx.agtermEnabled) {
         ctx.addMessage('system', 'Agents mode not enabled. Start with --agents flag to use agent swarms.');
         break;
@@ -2624,7 +2858,7 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
           try {
             let session;
             if (template) {
-              session = await councilManager.startFromTemplate(template, cleanPrompt);
+              session = await councilManager.startFromTemplate(template, cleanPrompt, swarmCwd);
             } else {
               const { randomUUID } = await import('crypto');
               const members = [
@@ -2632,8 +2866,14 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
                 { id: randomUUID(), name: 'Agent B', agent: 'claude' as const, weight: 1.0 },
                 { id: randomUUID(), name: 'Agent C', agent: 'claude' as const, weight: 1.0 },
               ];
-              session = await councilManager.startCouncil(cleanPrompt, { mode, members });
+              session = await councilManager.startCouncil(cleanPrompt, { mode, members }, swarmCwd);
             }
+            watchAsyncLedgerRun(
+              ctx.ledger,
+              'council',
+              cleanPrompt,
+              () => councilManager.getSession(session.id)
+            );
             ctx.addMessage('system', `\u2713 Swarm coordination started: ${session.id.slice(0, 8)}\nMode: ${session.config.mode}\nAgents: ${session.config.members.map(m => m.name).join(', ')}\n\nUse /swarm coord status ${session.id.slice(0, 8)} to check progress.`);
           } catch (err) {
             ctx.addMessage('error', `Failed to start coordination: ${err instanceof Error ? err.message : String(err)}`);
@@ -2696,7 +2936,14 @@ Options:
         try {
           const session = await swarmManager.startSwarm(
             cleanPrompt,
-            { decomposition: strategy, aggregation }
+            { decomposition: strategy, aggregation },
+            swarmCwd
+          );
+          watchAsyncLedgerRun(
+            ctx.ledger,
+            'swarm',
+            cleanPrompt,
+            () => swarmManager.getSession(session.id)
           );
           ctx.addMessage('system', `\u2713 Swarm started: ${session.id.slice(0, 8)}\nStrategy: ${strategy} \u2192 ${aggregation}\nStatus: ${session.status}\n\nUse /swarm status ${session.id.slice(0, 8)} to check progress.`);
         } catch (err) {
@@ -2875,14 +3122,16 @@ Requires --agents flag.`);
       runJob(bgJob.id, async (prompt, signal) => {
         const { chat } = await import('../providers/index.js');
         const { TOOLS } = await import('../tools.js');
-        const { getSystemPrompt: getSysPrompt } = await import('../types.js');
+        const { executeTool: execTool } = await import('../tools.js');
+        const cwd = ctx.sessionRef.current?.projectPath || process.cwd();
+        const maxIterations = resolveIterationLimit(config.get('maxIterations'));
         const bgMessages: LLMMessage[] = [
-          { role: 'system', content: getSysPrompt(ctx.persona) },
+          { role: 'system', content: buildFullSystemPrompt(ctx.persona, cwd) },
           { role: 'user', content: prompt },
         ];
         let iterations = 0;
         let lastContent = '';
-        while (iterations < 20 && !signal.aborted) {
+        while (!signal.aborted && iterations < maxIterations) {
           iterations++;
           const response = await chat(ctx.provider, bgMessages, TOOLS, ctx.model);
           if (!response.toolCalls?.length) {
@@ -2890,11 +3139,16 @@ Requires --agents flag.`);
             break;
           }
           bgMessages.push({ role: 'assistant', content: response.content, toolCalls: response.toolCalls });
-          const { executeTool: execTool } = await import('../tools.js');
           for (const tc of response.toolCalls) {
-            const result = await execTool(tc, process.cwd());
+            const result = await execTool(tc, cwd);
             bgMessages.push({ role: 'tool', content: result.result, toolCallId: tc.id });
+            if (signal.aborted) break;
           }
+        }
+        if (signal.aborted) {
+          const error = new Error('Background job cancelled');
+          error.name = 'AbortError';
+          throw error;
         }
         return { result: lastContent, iterations };
       }).then(completed => {

@@ -676,6 +676,7 @@ describe('Orchestrator Reset', () => {
 
 describe('Orchestrator Background Tasks', () => {
   beforeEach(() => {
+    orchestrator.updateConfig(DEFAULT_ORCHESTRATOR_CONFIG);
     orchestrator.reset();
     vi.clearAllMocks();
     resetExecuteAgentMock();
@@ -698,6 +699,77 @@ describe('Orchestrator Background Tasks', () => {
 
     expect(task.status).toBe('completed');
     expect(task.result).toContain('Mock result for: Foreground');
+  });
+
+  it('should wait for a background task to finish', async () => {
+    vi.mocked(executeAgent).mockImplementation(async function* (task: SubAgentTask) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      yield {
+        type: 'text' as const,
+        taskId: task.id,
+        timestamp: new Date(),
+        content: `Delayed result for: ${task.prompt}`,
+      };
+      yield {
+        type: 'complete' as const,
+        taskId: task.id,
+        timestamp: new Date(),
+      };
+    });
+
+    const task = await orchestrator.spawnAgent('Background wait', 'claude', {
+      background: true,
+    });
+
+    const finished = await orchestrator.waitForTask(task.id);
+    expect(finished.status).toBe('completed');
+    expect(finished.result).toContain('Delayed result for: Background wait');
+  });
+
+  it('should preserve each background task cwd while queued', async () => {
+    orchestrator.updateConfig({ maxConcurrent: 1 });
+
+    let releaseFirst!: () => void;
+    const seen: string[] = [];
+
+    vi.mocked(executeAgent).mockImplementation(async function* (task: SubAgentTask, cwd: string) {
+      seen.push(`${task.prompt}:${cwd}`);
+      if (task.prompt === 'T1') {
+        await new Promise<void>(resolve => {
+          releaseFirst = resolve;
+        });
+      }
+      yield {
+        type: 'text' as const,
+        taskId: task.id,
+        timestamp: new Date(),
+        content: `Mock result for: ${task.prompt}`,
+      };
+      yield {
+        type: 'complete' as const,
+        taskId: task.id,
+        timestamp: new Date(),
+      };
+    });
+
+    const first = await orchestrator.spawnAgent('T1', 'claude', {
+      background: true,
+      cwd: '/queue/first',
+    });
+    const second = await orchestrator.spawnAgent('T2', 'claude', {
+      background: true,
+      cwd: '/queue/second',
+    });
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(seen).toContain('T1:/queue/first');
+
+    releaseFirst();
+
+    await orchestrator.waitForTask(first.id);
+    await orchestrator.waitForTask(second.id);
+
+    expect(seen).toContain('T2:/queue/second');
   });
 });
 

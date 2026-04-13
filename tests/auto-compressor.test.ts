@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   configureAutoCompressor,
   getAutoCompressorConfig,
+  getAutoCompressorStatus,
+  resetAutoCompressorState,
   shouldCompress,
   autoCompress,
   llmSummarize,
@@ -39,6 +41,7 @@ describe('auto-compressor', () => {
       useLlm: true,
       compressionModel: undefined,
     });
+    resetAutoCompressorState();
     vi.clearAllMocks();
   });
 
@@ -81,6 +84,26 @@ describe('auto-compressor', () => {
       expect(cfg.targetThreshold).toBe(50);
       expect(cfg.preserveRecent).toBe(10);
       expect(cfg.useLlm).toBe(true);
+    });
+  });
+
+  // =========================================================================
+  // getAutoCompressorStatus
+  // =========================================================================
+
+  describe('getAutoCompressorStatus', () => {
+    it('calculates thresholds and percentages from current config', () => {
+      const status = getAutoCompressorStatus(820, 1000);
+      expect(status.triggerTokens).toBe(750);
+      expect(status.targetTokens).toBe(500);
+      expect(status.warningTokens).toBe(650);
+      expect(status.blockingTokens).toBe(970);
+      expect(status.percentUsed).toBe(82);
+      expect(status.percentRemaining).toBe(18);
+      expect(status.isAboveWarningThreshold).toBe(true);
+      expect(status.isAboveTriggerThreshold).toBe(true);
+      expect(status.isAtBlockingThreshold).toBe(false);
+      expect(status.llmTemporarilyDisabled).toBe(false);
     });
   });
 
@@ -242,6 +265,22 @@ describe('auto-compressor', () => {
       expect(result.messages[1].role).toBe('system');
       expect((result.messages[1].content as string)).toContain('[Auto-compressed context');
     });
+
+    it('keeps original messages when compression would not reduce tokens', async () => {
+      configureAutoCompressor({ preserveRecent: 1, useLlm: false });
+
+      const messages: LLMMessage[] = [
+        { role: 'user', content: 'a' },
+        { role: 'assistant', content: 'b' },
+      ];
+
+      const result = await autoCompress(messages, 100, 'openai');
+
+      expect(result.compressed).toBe(false);
+      expect(result.method).toBe('none');
+      expect(result.messages).toEqual(messages);
+      expect(result.compressedTokens).toBe(result.originalTokens);
+    });
   });
 
   // =========================================================================
@@ -362,6 +401,23 @@ describe('auto-compressor', () => {
 
       const result = await llmSummarize(messages, 'anthropic');
       expect(result).not.toBeNull();
+    });
+  });
+
+  describe('autoCompress - llm fallback guard', () => {
+    it('stops retrying llm compression after repeated failures', async () => {
+      configureAutoCompressor({ preserveRecent: 1, useLlm: true });
+      mockedChat.mockResolvedValue({ content: '' } as never);
+
+      const messages = makeMessages(3);
+      for (let i = 0; i < 4; i++) {
+        await autoCompress(messages, 100, 'openai');
+      }
+
+      expect(mockedChat).toHaveBeenCalledTimes(3);
+      expect(
+        getAutoCompressorStatus(10_000, 100).llmTemporarilyDisabled,
+      ).toBe(true);
     });
   });
 

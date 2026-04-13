@@ -53,11 +53,13 @@ vi.mock('../src/agents/swarm.js', () => ({
       status: 'completed',
       config: {},
       subtasks: [],
+      activeTaskIds: [],
       result: 'Swarm aggregated result',
       createdAt: new Date(),
       updatedAt: new Date(),
       completedAt: new Date(),
     })),
+    cancelSwarm: vi.fn(async () => true),
   },
 }));
 
@@ -1065,6 +1067,7 @@ describe('Session Status Formatting', () => {
       votes: [],
       scores: [],
       round: 1,
+      activeTaskIds: [],
       error: 'Something went wrong',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1108,6 +1111,7 @@ describe('Session Status Formatting', () => {
       votes: [],
       scores: [],
       round: 1,
+      activeTaskIds: [],
       winnerId: 'member-0',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1222,5 +1226,6 @@ describe('Council Lifecycle Error Handling', () => {
 
     const updated = councilManager.getSession(session.id)!;
     expect(updated.status).toBe('cancelled');
+    expect(mockCancelTask).toHaveBeenCalled();
   });
 });

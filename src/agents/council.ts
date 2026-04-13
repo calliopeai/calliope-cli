@@ -19,6 +19,7 @@ import type {
 import { DEFAULT_COUNCIL_CONFIG, COUNCIL_TEMPLATES } from './council-types.js';
 import { orchestrator } from './orchestrator.js';
 import { swarmManager } from './swarm.js';
+import type { SubAgentType, TaskPriority } from './types.js';
 
 /**
  * Council Manager - Singleton
@@ -48,6 +49,7 @@ class CouncilManager {
       votes: [],
       scores: [],
       round: 1,
+      activeTaskIds: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -56,8 +58,12 @@ class CouncilManager {
 
     // Start council lifecycle
     this.runCouncilLifecycle(session, cwd).catch(err => {
+      if (this.isCancelled(session)) {
+        return;
+      }
       session.status = 'failed';
       session.error = err instanceof Error ? err.message : String(err);
+      session.completedAt = new Date();
       session.updatedAt = new Date();
     });
 
@@ -115,6 +121,19 @@ class CouncilManager {
     if (!session) return false;
 
     session.status = 'cancelled';
+    session.updatedAt = new Date();
+
+    await this.cancelTrackedTasks(session);
+
+    if (session.linkedSwarmId) {
+      try {
+        await swarmManager.cancelSwarm(session.linkedSwarmId);
+      } catch {
+        // Best effort cancellation
+      }
+      session.linkedSwarmId = undefined;
+    }
+
     session.completedAt = new Date();
     session.updatedAt = new Date();
     return true;
@@ -158,6 +177,11 @@ class CouncilManager {
           break;
       }
     } catch (error) {
+      if (this.isCancelled(session)) {
+        session.completedAt = session.completedAt || new Date();
+        session.updatedAt = new Date();
+        return;
+      }
       session.status = 'failed';
       session.error = error instanceof Error ? error.message : String(error);
       session.completedAt = new Date();
@@ -182,11 +206,24 @@ class CouncilManager {
       const prompt = `${roleContext}${session.prompt}`;
 
       try {
-        const task = await orchestrator.spawnAgent(prompt, member.agent, {
-          background: false,
+        const task = await this.runTrackedTask(session, prompt, member.agent, {
           priority: 'normal',
           cwd,
         });
+
+        if (this.isCancelled(session) || task.status === 'cancelled') {
+          return;
+        }
+
+        if (task.status !== 'completed') {
+          session.deliberations.push({
+            memberId: member.id,
+            memberName: member.name,
+            response: `Error: ${task.error || `Task ended with status: ${task.status}`}`,
+            timestamp: new Date(),
+          });
+          return;
+        }
 
         const entry: DeliberationEntry = {
           memberId: member.id,
@@ -198,6 +235,9 @@ class CouncilManager {
         session.deliberations.push(entry);
         session.updatedAt = new Date();
       } catch (error) {
+        if (this.isCancelled(session)) {
+          return;
+        }
         session.deliberations.push({
           memberId: member.id,
           memberName: member.name,
@@ -208,8 +248,9 @@ class CouncilManager {
     });
 
     await Promise.allSettled(deliberationPromises);
+    session.updatedAt = new Date();
 
-    if ((session.status as string) === 'cancelled') return;
+    if (this.isCancelled(session)) return;
 
     // Phase 2: Cross-scoring (LLM-based with heuristic fallback)
     session.status = 'scoring';
@@ -217,6 +258,8 @@ class CouncilManager {
 
     const scoringResults = await this.crossScoreAsync(session, cwd);
     session.scores = scoringResults;
+
+    if (this.isCancelled(session)) return;
 
     // Phase 3: Select winner
     const winner = this.selectWinner(session);
@@ -244,7 +287,7 @@ class CouncilManager {
     let accumulatedContext = '';
 
     for (const member of members) {
-      if ((session.status as string) === 'cancelled') return;
+      if (this.isCancelled(session)) return;
 
       const roleContext = member.role
         ? `You are acting as ${member.role}. `
@@ -258,11 +301,24 @@ class CouncilManager {
       }
 
       try {
-        const task = await orchestrator.spawnAgent(prompt, member.agent, {
-          background: false,
+        const task = await this.runTrackedTask(session, prompt, member.agent, {
           priority: 'normal',
           cwd,
         });
+
+        if (this.isCancelled(session) || task.status === 'cancelled') {
+          return;
+        }
+
+        if (task.status !== 'completed') {
+          session.deliberations.push({
+            memberId: member.id,
+            memberName: member.name,
+            response: `Error: ${task.error || `Task ended with status: ${task.status}`}`,
+            timestamp: new Date(),
+          });
+          continue;
+        }
 
         const entry: DeliberationEntry = {
           memberId: member.id,
@@ -275,6 +331,9 @@ class CouncilManager {
         accumulatedContext += `\n\n--- ${member.name} (${member.role || 'general'}) ---\n${task.result || '(no response)'}`;
         session.updatedAt = new Date();
       } catch (error) {
+        if (this.isCancelled(session)) {
+          return;
+        }
         session.deliberations.push({
           memberId: member.id,
           memberName: member.name,
@@ -314,11 +373,25 @@ class CouncilManager {
         const prompt = `${roleContext}${session.prompt}${previousContext}\n\nRound ${round}/${maxRounds}. Present your position concisely.`;
 
         try {
-          const task = await orchestrator.spawnAgent(prompt, member.agent, {
-            background: false,
+          const task = await this.runTrackedTask(session, prompt, member.agent, {
             priority: 'normal',
             cwd,
           });
+
+          if (this.isCancelled(session) || task.status === 'cancelled') {
+            return;
+          }
+
+          if (task.status !== 'completed') {
+            session.deliberations.push({
+              memberId: member.id,
+              memberName: member.name,
+              response: `Error: ${task.error || `Task ended with status: ${task.status}`}`,
+              timestamp: new Date(),
+              votes: 0,
+            });
+            return;
+          }
 
           const entry: DeliberationEntry = {
             memberId: member.id,
@@ -330,6 +403,9 @@ class CouncilManager {
 
           session.deliberations.push(entry);
         } catch (error) {
+          if (this.isCancelled(session)) {
+            return;
+          }
           session.deliberations.push({
             memberId: member.id,
             memberName: member.name,
@@ -343,7 +419,7 @@ class CouncilManager {
       await Promise.allSettled(deliberationPromises);
       session.updatedAt = new Date();
 
-      if ((session.status as string) === 'cancelled') return;
+      if (this.isCancelled(session)) return;
 
       // Phase 2: Vote
       session.status = 'voting';
@@ -422,6 +498,7 @@ class CouncilManager {
       { decomposition: 'parallel', aggregation: 'structured' },
       cwd
     );
+    session.linkedSwarmId = swarmSession.id;
 
     // Wait for swarm to complete (poll at 2s intervals).
     // Timeout scales with maxRounds (each round ≈ 5 min), minimum 5 minutes,
@@ -430,9 +507,19 @@ class CouncilManager {
     const pollIntervalMs = 2000;
     const maxAttempts = Math.ceil(timeoutMs / pollIntervalMs);
     let attempts = 0;
-    while (!['completed', 'failed', 'cancelled'].includes(swarmSession.status) && attempts < maxAttempts) {
+    while (
+      !this.isCancelled(session) &&
+      !['completed', 'failed', 'cancelled'].includes(swarmSession.status) &&
+      attempts < maxAttempts
+    ) {
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
       attempts++;
+    }
+
+    session.linkedSwarmId = undefined;
+
+    if (this.isCancelled(session) || swarmSession.status === 'cancelled') {
+      return;
     }
 
     if (swarmSession.status !== 'completed' || !swarmSession.result) {
@@ -446,6 +533,10 @@ class CouncilManager {
       response: swarmSession.result,
       timestamp: new Date(),
     });
+
+    if (this.isCancelled(session)) {
+      return;
+    }
 
     // Phase 2: Overseer reviews
     session.status = 'reviewing';
@@ -461,11 +552,18 @@ ${swarmSession.result}
 Review these results. Synthesize, correct errors, fill gaps, and produce the final authoritative response.`;
 
     try {
-      const reviewTask = await orchestrator.spawnAgent(reviewPrompt, lead.agent, {
-        background: false,
+      const reviewTask = await this.runTrackedTask(session, reviewPrompt, lead.agent, {
         priority: 'high',
         cwd,
       });
+
+      if (this.isCancelled(session) || reviewTask.status === 'cancelled') {
+        return;
+      }
+
+      if (reviewTask.status !== 'completed') {
+        throw new Error(reviewTask.error || `Task ended with status: ${reviewTask.status}`);
+      }
 
       session.deliberations.push({
         memberId: lead.id,
@@ -477,6 +575,9 @@ Review these results. Synthesize, correct errors, fill gaps, and produce the fin
       session.result = reviewTask.result || swarmSession.result;
       session.winnerId = lead.id;
     } catch (error) {
+      if (this.isCancelled(session)) {
+        return;
+      }
       // Fall back to swarm results
       session.result = swarmSession.result;
       session.error = `Overseer review failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -512,11 +613,18 @@ Evaluate each response on correctness, completeness, and quality. Return ONLY a 
 Return ONLY the JSON array, no other text.`;
 
     try {
-      const task = await orchestrator.spawnAgent(scoringPrompt, 'calliope', {
-        background: false,
+      const task = await this.runTrackedTask(session, scoringPrompt, 'calliope', {
         priority: 'normal',
         cwd,
       });
+
+      if (this.isCancelled(session) || task.status === 'cancelled') {
+        return null;
+      }
+
+      if (task.status !== 'completed') {
+        return null;
+      }
 
       const result = (task.result || '').trim();
 
@@ -548,6 +656,55 @@ Return ONLY the JSON array, no other text.`;
     } catch {
       return null;
     }
+  }
+
+  private async runTrackedTask(
+    session: CouncilSession,
+    prompt: string,
+    agent: SubAgentType,
+    options: {
+      priority?: TaskPriority;
+      cwd?: string;
+      timeout?: number;
+    } = {}
+  ): Promise<Awaited<ReturnType<typeof orchestrator.spawnAgent>>> {
+    const task = await orchestrator.spawnAgent(prompt, agent, {
+      background: true,
+      priority: options.priority,
+      cwd: options.cwd,
+      timeout: options.timeout,
+    });
+
+    this.trackTask(session, task.id);
+
+    try {
+      return await orchestrator.waitForTask(task.id);
+    } finally {
+      this.untrackTask(session, task.id);
+    }
+  }
+
+  private trackTask(session: CouncilSession, taskId: string): void {
+    if (!session.activeTaskIds.includes(taskId)) {
+      session.activeTaskIds.push(taskId);
+    }
+  }
+
+  private untrackTask(session: CouncilSession, taskId: string): void {
+    const index = session.activeTaskIds.indexOf(taskId);
+    if (index !== -1) {
+      session.activeTaskIds.splice(index, 1);
+    }
+  }
+
+  private isCancelled(session: CouncilSession): boolean {
+    return session.status === 'cancelled';
+  }
+
+  private async cancelTrackedTasks(session: CouncilSession): Promise<void> {
+    const taskIds = [...session.activeTaskIds];
+    session.activeTaskIds.length = 0;
+    await Promise.allSettled(taskIds.map(taskId => orchestrator.cancelTask(taskId)));
   }
 
   /**
@@ -598,7 +755,13 @@ Return ONLY the JSON array, no other text.`;
    * Async cross-scoring: tries LLM evaluation first, falls back to heuristics.
    */
   private async crossScoreAsync(session: CouncilSession, cwd?: string): Promise<Score[]> {
+    if (this.isCancelled(session)) {
+      return [];
+    }
     const llmScores = await this.llmCrossScore(session, cwd);
+    if (this.isCancelled(session)) {
+      return [];
+    }
     if (llmScores) return llmScores;
     return this.heuristicCrossScore(session);
   }
@@ -690,6 +853,12 @@ Return ONLY the JSON array, no other text.`;
    * Reset all sessions
    */
   reset(): void {
+    for (const session of this.sessions.values()) {
+      void this.cancelTrackedTasks(session);
+      if (session.linkedSwarmId) {
+        void swarmManager.cancelSwarm(session.linkedSwarmId);
+      }
+    }
     this.sessions.clear();
   }
 }

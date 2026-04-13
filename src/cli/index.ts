@@ -18,10 +18,13 @@ import type { CLIOptions, CLIState } from './types.js';
 import { COMMANDS, debugLog } from './types.js';
 import { handleCommand, setStartLoop } from './commands.js';
 import { runAgent, startLoop } from './agent.js';
+import * as storage from '../storage.js';
 import * as recording from '../terminal-recording.js';
 import * as sessionTimeout from '../session-timeout.js';
 import * as idleEviction from '../idle-eviction.js';
 import { isTmux, getTmuxInfo } from '../tmux.js';
+import { resolveIterationLimit } from '../iteration-limit.js';
+import { IterationLedger } from '../iteration-ledger.js';
 
 // Wire startLoop into commands (avoids circular import)
 setStartLoop(startLoop);
@@ -42,6 +45,13 @@ function getBanner(): string {
 }
 
 export async function startCLI(options: CLIOptions = {}): Promise<void> {
+  const session = storage.getOrCreateSession(process.cwd());
+  const savedMessages = storage.loadMessageHistory(session.id);
+  const ledger = new IterationLedger(storage.loadIterationLedger(session.id));
+  ledger.setRetentionLimit(config.get('sessionLogLimit') ?? 0);
+  ledger.setOnChange(() => storage.saveIterationLedger(ledger, session.id));
+  storage.saveIterationLedger(ledger, session.id);
+
   const state: CLIState = {
     provider: config.get('defaultProvider'),
     model: config.get('defaultModel'),
@@ -53,13 +63,15 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     loopActive: false,
     loopPrompt: '',
     loopIteration: 0,
-    loopMaxIterations: 50,
+    loopMaxIterations: resolveIterationLimit(config.get('maxIterations')),
     autoRoute: false,
     currentBranch: 'main',
     mode: 'hybrid',
     confirmMode: true,
     debugEnabled: process.env.CALLIOPE_DEBUG === '1',
     sessionCost: 0,
+    sessionId: session.id,
+    ledger,
   };
 
   // Terminal resize detection
@@ -78,10 +90,14 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
     ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
     : systemPrompt;
 
-  state.messages.push({
-    role: 'system',
-    content: fullPrompt,
-  });
+  if (savedMessages && savedMessages.length > 0) {
+    state.messages = savedMessages as CLIState['messages'];
+  } else {
+    state.messages.push({
+      role: 'system',
+      content: fullPrompt,
+    });
+  }
 
   // Execute session start hooks
   hooks.executeHooks('session-start', {}).catch((err) => {
@@ -110,6 +126,7 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
         console.log(color(`\u23f1\ufe0f  Session timeout in ${sessionTimeout.formatTimeRemaining()}`, 'yellow'));
       } else {
         console.log(color('\ud83d\udeaa Session timeout. Exiting...', 'red'));
+        storage.saveMessageHistory(state.messages);
         recording.stopRecording();
         process.exit(0);
       }
@@ -200,6 +217,7 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
 
   // Handle Ctrl+C
   rl.on('close', () => {
+    storage.saveMessageHistory(state.messages);
     recording.stopRecording();
     sessionTimeout.clearTimers();
     idleEviction.stopMonitor();

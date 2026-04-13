@@ -1418,6 +1418,19 @@ describe('spawnStdioProcess', () => {
     entry.process.kill();
   });
 
+  it('should reject missing environment templates before spawning', () => {
+    const server = makeMCPServer({
+      id: 'mcp_env_missing',
+      transport: 'stdio',
+      command: 'cat',
+      env: { API_TOKEN: '${MISSING_TOKEN}' },
+    });
+
+    expect(() => spawnStdioProcess(server)).toThrow(
+      'STDIO server mcp_env_missing is missing environment variables: MISSING_TOKEN'
+    );
+  });
+
   it('should handle empty args array', () => {
     const server = makeMCPServer({
       id: 'mcp_empty_args',

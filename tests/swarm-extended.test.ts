@@ -746,6 +746,7 @@ describe('Swarm Cancellation', () => {
     const updated = swarmManager.getSession(session.id)!;
     expect(updated.status).toBe('cancelled');
     expect(updated.completedAt).toBeInstanceOf(Date);
+    expect(mockCancelTask).toHaveBeenCalled();
   });
 
   it('should return false when cancelling non-existent session', async () => {
@@ -754,21 +755,45 @@ describe('Swarm Cancellation', () => {
   });
 
   it('should cancel all running/pending subtasks on cancellation', async () => {
-    // Create a session with subtasks that have taskIds
-    mockDecompositionAndWorkers([
-      { prompt: 'Task 1' },
-      { prompt: 'Task 2' },
-    ]);
+    let callCount = 0;
+    vi.mocked(executeAgent).mockImplementation(async function* (task: SubAgentTask) {
+      callCount++;
+      if (callCount === 1) {
+        yield {
+          type: 'text' as const,
+          taskId: task.id,
+          timestamp: new Date(),
+          content: JSON.stringify([
+            { prompt: 'Task 1', dependsOn: [], priority: 'normal' },
+            { prompt: 'Task 2', dependsOn: [], priority: 'normal' },
+          ]),
+        };
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        yield {
+          type: 'text' as const,
+          taskId: task.id,
+          timestamp: new Date(),
+          content: `Worker result for: ${task.prompt}`,
+        };
+      }
+      yield {
+        type: 'complete' as const,
+        taskId: task.id,
+        timestamp: new Date(),
+      };
+    });
 
     const session = await swarmManager.startSwarm('Test cancel subtasks');
 
     // Wait for decomposition to finish and some execution to start
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     await swarmManager.cancelSwarm(session.id);
 
     const updated = swarmManager.getSession(session.id)!;
     expect(updated.status).toBe('cancelled');
+    expect(mockCancelTask).toHaveBeenCalled();
   });
 });
 
@@ -887,6 +912,7 @@ describe('Session Status Formatting', () => {
       status: 'failed',
       config: DEFAULT_SWARM_CONFIG,
       subtasks: [],
+      activeTaskIds: [],
       error: 'Something went wrong',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -917,6 +943,7 @@ describe('Session Status Formatting', () => {
           createdAt: new Date(),
         },
       ],
+      activeTaskIds: [],
       result: 'ok',
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -934,6 +961,7 @@ describe('Session Status Formatting', () => {
       status: 'decomposing',
       config: DEFAULT_SWARM_CONFIG,
       subtasks: [],
+      activeTaskIds: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -972,6 +1000,7 @@ describe('Session Status Formatting', () => {
           dependsOn: [], attempts: 0, maxAttempts: 3, createdAt: new Date(),
         },
       ],
+      activeTaskIds: [],
       createdAt: new Date(),
       updatedAt: new Date(),
     };

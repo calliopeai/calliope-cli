@@ -41,10 +41,15 @@ import {
   resetCosts,
   saveMessageHistory,
   loadMessageHistory,
+  saveIterationLedger,
+  loadIterationLedger,
   getSessionDirById,
+  getSessionById,
+  setCurrentSessionById,
   forkSession,
 } from '../src/storage.js';
 import type { Plan } from '../src/storage.js';
+import { IterationLedger } from '../src/iteration-ledger.js';
 
 // ============================================================================
 // Helpers
@@ -131,7 +136,7 @@ describe('getOrCreateSession', () => {
     const session = getOrCreateSession('/tmp/my-project');
 
     expect(session).toBeDefined();
-    expect(session.id).toMatch(/^session_\d+$/);
+    expect(session.id).toMatch(/^session_\d+_[a-z0-9]+$/);
     expect(session.projectPath).toBe('/tmp/my-project');
     expect(session.projectName).toBe('my-project');
     expect(session.messageCount).toBe(0);
@@ -144,6 +149,21 @@ describe('getOrCreateSession', () => {
     const session2 = getOrCreateSession('/tmp/my-project');
 
     expect(session1.id).toBe(session2.id);
+  });
+
+  it('should generate unique ids for sessions created in the same millisecond', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
+    const randomSpy = vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.111111)
+      .mockReturnValueOnce(0.222222);
+
+    const session1 = getOrCreateSession('/tmp/same-ms-a');
+    const session2 = getOrCreateSession('/tmp/same-ms-b');
+
+    expect(session1.id).not.toBe(session2.id);
+
+    randomSpy.mockRestore();
+    nowSpy.mockRestore();
   });
 
   it('should create chat.log and todos.txt for new session', () => {
@@ -343,6 +363,33 @@ describe('addChatMessage & getChatHistory', () => {
     expect(history).toHaveLength(1);
     expect(history[0].role).toBe('tool');
     expect(history[0].toolCallId).toBe('call_123');
+  });
+
+  it('should read chat history from a specific session id', () => {
+    initStorage();
+    const dirName = '2025-03-10_chat-by-id';
+    const sessionDir = path.join(paths.sessions, dirName);
+    fs.mkdirSync(sessionDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionDir, 'session.json'),
+      JSON.stringify({ id: 'session_chat_by_id', projectPath: '/tmp/chat-by-id', projectName: 'chat-by-id' })
+    );
+    fs.writeFileSync(
+      path.join(sessionDir, 'chat.log'),
+      [
+        '@2025-03-10T10:00:00.000Z id=msg_1',
+        'user: first',
+        '',
+        '@2025-03-10T10:00:01.000Z id=msg_2',
+        'assistant: second',
+        '',
+      ].join('\n')
+    );
+
+    const history = getChatHistory(undefined, 'session_chat_by_id');
+    expect(history).toHaveLength(2);
+    expect(history[0].content).toBe('first');
+    expect(history[1].content).toBe('second');
   });
 });
 
@@ -814,6 +861,50 @@ describe('saveMessageHistory & loadMessageHistory', () => {
 });
 
 // ============================================================================
+// Iteration Ledger Persistence
+// ============================================================================
+
+describe('saveIterationLedger & loadIterationLedger', () => {
+  it('should save and load the ledger for the current session', () => {
+    getOrCreateSession('/tmp/ledger-persist');
+
+    const ledger = new IterationLedger();
+    const runId = ledger.startRun('loop', 'Keep working', { maxIterations: null });
+    ledger.startIteration(ledger.getNextIterationNumber());
+    ledger.recordAction('shell', { command: 'npm test' }, 'error', 'Test failed');
+    ledger.endIteration();
+    ledger.finishRun(runId, 'stopped', { errorSummary: 'No completion promise match' });
+
+    saveIterationLedger(ledger);
+
+    const loaded = loadIterationLedger();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.entries).toHaveLength(1);
+    expect(loaded!.runs).toHaveLength(1);
+    expect(loaded!.runs[0].status).toBe('stopped');
+  });
+
+  it('should return null when there is no saved ledger', () => {
+    getOrCreateSession('/tmp/ledger-empty');
+    expect(loadIterationLedger()).toBeNull();
+  });
+
+  it('should load a ledger from a specific session id', () => {
+    const session = getOrCreateSession('/tmp/ledger-by-id');
+    const ledger = new IterationLedger();
+    ledger.startIteration(ledger.getNextIterationNumber());
+    ledger.recordAction('read_file', { path: '/tmp/x.ts' }, 'ok');
+    ledger.endIteration();
+    saveIterationLedger(ledger);
+
+    const loaded = loadIterationLedger(session.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.entries).toHaveLength(1);
+    expect(loaded!.entries[0].actions[0].tool).toBe('read_file');
+  });
+});
+
+// ============================================================================
 // getSessionDirById
 // ============================================================================
 
@@ -905,6 +996,43 @@ describe('loadMessageHistory with sessionId', () => {
 });
 
 // ============================================================================
+// setCurrentSessionById / getSessionById
+// ============================================================================
+
+describe('setCurrentSessionById & getSessionById', () => {
+  it('should switch the active session to a saved session id', () => {
+    const first = getOrCreateSession('/tmp/session-switch-a');
+    saveMessageHistory([{ role: 'user', content: 'from-a' }]);
+
+    const second = getOrCreateSession('/tmp/session-switch-b');
+    saveMessageHistory([{ role: 'user', content: 'from-b' }]);
+
+    const switched = setCurrentSessionById(first.id);
+    expect(switched).not.toBeNull();
+    expect(switched!.id).toBe(first.id);
+    expect(getCurrentSession()!.id).toBe(first.id);
+
+    saveMessageHistory([{ role: 'assistant', content: 'after-switch' }]);
+
+    expect(loadMessageHistory(first.id)).toEqual([{ role: 'assistant', content: 'after-switch' }]);
+    expect(loadMessageHistory(second.id)).toEqual([{ role: 'user', content: 'from-b' }]);
+  });
+
+  it('should return null when switching to an unknown session id', () => {
+    getOrCreateSession('/tmp/session-switch-miss');
+    const current = getCurrentSession();
+
+    expect(setCurrentSessionById('session_missing')).toBeNull();
+    expect(getCurrentSession()).toEqual(current);
+  });
+
+  it('should look up session metadata by id', () => {
+    const session = getOrCreateSession('/tmp/session-meta');
+    expect(getSessionById(session.id)).toEqual(getCurrentSession());
+  });
+});
+
+// ============================================================================
 // forkSession
 // ============================================================================
 
@@ -920,7 +1048,7 @@ describe('forkSession', () => {
 
     const forked = forkSession('/tmp/fork-source');
     expect(forked).not.toBeNull();
-    expect(forked!.id).toMatch(/^session_\d+$/);
+    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9]+$/);
     expect(forked!.messageCount).toBe(2);
 
     // The fork should have the messages copied
@@ -942,12 +1070,34 @@ describe('forkSession', () => {
     const forked = forkSession('/tmp/fork-unique');
 
     expect(forked).not.toBeNull();
-    expect(forked!.id).toMatch(/^session_\d+$/);
+    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9]+$/);
     expect(forked!.projectName).toBe('fork-unique');
     expect(forked!.messageCount).toBe(1);
 
     // After forking, the forked messages should be loadable as current
     const messages = loadMessageHistory();
     expect(messages).toHaveLength(1);
+  });
+
+  it('should copy ledger state into the forked session', () => {
+    const source = getOrCreateSession('/tmp/fork-ledger');
+    saveMessageHistory([{ role: 'user', content: 'keep log' }]);
+
+    const ledger = new IterationLedger();
+    const runId = ledger.startRun('agent', 'Keep log');
+    ledger.startIteration(ledger.getNextIterationNumber());
+    ledger.recordAction('read_file', { path: '/tmp/file.ts' }, 'ok');
+    ledger.endIteration();
+    ledger.finishRun(runId, 'completed');
+    saveIterationLedger(ledger, source.id);
+
+    const forked = forkSession('/tmp/fork-ledger');
+    expect(forked).not.toBeNull();
+
+    const loaded = loadIterationLedger(forked!.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.entries).toHaveLength(1);
+    expect(loaded!.runs).toHaveLength(1);
+    expect(loaded!.runs[0].status).toBe('completed');
   });
 });

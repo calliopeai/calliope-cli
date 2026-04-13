@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { checkTrust, autoTrustIfNew } from './trust.js';
 
 // ============================================================================
 // Types
@@ -358,14 +359,9 @@ export function listContextFiles(dir: string): string[] {
  */
 export function buildMemoryContext(dir: string): string {
   // Check project trust before loading project-level context (#23)
-  let projectTrusted = true;
-  try {
-    const { checkTrust, autoTrustIfNew } = require('./trust.js');
-    // Auto-trust on first visit (user-friendly default)
-    autoTrustIfNew(dir);
-    const trust = checkTrust(dir);
-    projectTrusted = trust.trusted;
-  } catch { /* trust module not available, default to trusted */ }
+  // Auto-trust on first visit (user-friendly default)
+  autoTrustIfNew(dir);
+  const projectTrusted = checkTrust(dir).trusted;
 
   const projectMemory = projectTrusted ? getProjectMemory(dir) : { context: [], preferences: [], history: [], notes: [] };
   const globalMemory = getGlobalMemory();

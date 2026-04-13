@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMProvider, AgentPersona, Mode } from '../src/types.js';
 import type { CommandContext } from '../src/ui/commands.js';
+import { IterationLedger } from '../src/iteration-ledger.js';
 
 // ---------------------------------------------------------------------------
 // Mock heavy dependencies before importing the module under test
@@ -196,6 +197,7 @@ function makeCtx(provider: LLMProvider = 'anthropic'): CommandContext & { messag
     debugEnabled: false,
     modalMode: '',
     smartRouteActive: false,
+    ledger: undefined,
 
     setProvider: vi.fn(),
     setModel: vi.fn(),
@@ -340,5 +342,92 @@ describe('/models command — loading state and error handling', () => {
     expect(errMsg).toBeDefined();
     expect(errMsg!.content).toMatch(/mistral/);
     expect(errMsg!.content).toMatch(/API key may be invalid/);
+  });
+});
+
+describe('/loop command', () => {
+  it('defaults to unlimited iterations when no max is provided', async () => {
+    const ctx = makeCtx('openai');
+
+    await handleCommand('/loop "keep going"', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(ctx.setLoopMaxIterations).toHaveBeenCalledWith(Infinity);
+    expect(ctx.runLoop).toHaveBeenCalledWith('keep going', Infinity, undefined);
+    expect(msgs.at(-1)?.content).toMatch(/Max iterations: unlimited/i);
+    expect(msgs.at(-1)?.content).toMatch(/Use \/breakloop to stop/i);
+  });
+
+  it('treats --max-iterations 0 as unlimited', async () => {
+    const ctx = makeCtx('openai');
+
+    await handleCommand('/loop "keep going" --max-iterations 0', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(ctx.setLoopMaxIterations).toHaveBeenCalledWith(Infinity);
+    expect(ctx.runLoop).toHaveBeenCalledWith('keep going', Infinity, undefined);
+    expect(msgs.at(-1)?.content).toMatch(/Max iterations: unlimited/i);
+  });
+
+  it('does not start a second loop while one is already active', async () => {
+    const ctx = makeCtx('openai');
+    ctx.loopActive = true;
+
+    await handleCommand('/loop "keep going"', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(ctx.runLoop).not.toHaveBeenCalled();
+    expect(msgs.at(-1)?.content).toMatch(/Loop already running/i);
+  });
+
+  it('supports /breakloop as a loop cancellation alias', async () => {
+    const ctx = makeCtx('openai');
+    ctx.loopActive = true;
+
+    await handleCommand('/breakloop', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(ctx.loopCancelledRef.current).toBe(true);
+    expect(ctx.setLoopActive).toHaveBeenCalledWith(false);
+    expect(msgs.at(-1)?.content).toMatch(/Loop cancelled/i);
+  });
+});
+
+describe('/log command', () => {
+  it('shows a compact summary of the persisted session log', async () => {
+    const ctx = makeCtx('openai');
+    const ledger = new IterationLedger();
+    const runId = ledger.startRun('loop', 'Keep working until done', {
+      maxIterations: null,
+      completionPromise: 'DONE',
+    });
+    ledger.startIteration(ledger.getNextIterationNumber());
+    ledger.recordAction('shell', { command: 'npm test' }, 'error', 'Exit 1');
+    ledger.endIteration();
+    ledger.finishRun(runId, 'stopped', { errorSummary: 'Completion promise not met' });
+    ctx.ledger = ledger as any;
+
+    await handleCommand('/log', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(msgs.at(-1)?.content).toMatch(/Session Log/);
+    expect(msgs.at(-1)?.content).toMatch(/Iterations: 1/);
+    expect(msgs.at(-1)?.content).toMatch(/Recent runs:/);
+    expect(msgs.at(-1)?.content).toMatch(/loop \[stopped\]/i);
+  });
+
+  it('resets the prompt-facing ledger state without error', async () => {
+    const ctx = makeCtx('openai');
+    const ledger = new IterationLedger();
+    ledger.startIteration(ledger.getNextIterationNumber());
+    ledger.recordAction('read_file', { path: '/tmp/a.ts' }, 'ok');
+    ledger.endIteration();
+    ctx.ledger = ledger as any;
+
+    await handleCommand('/log reset', ctx);
+
+    const msgs = getMessages(ctx);
+    expect(ledger.getEntries()).toHaveLength(0);
+    expect(msgs.at(-1)?.content).toMatch(/Session log reset/i);
   });
 });

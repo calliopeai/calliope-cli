@@ -104,6 +104,7 @@ export interface SwarmSession {
   status: SwarmStatus;
   config: SwarmConfig;
   subtasks: SwarmSubtask[];
+  activeTaskIds: string[];
   result?: string;
   error?: string;
   createdAt: Date;

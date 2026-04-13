@@ -59,9 +59,13 @@ export async function runJob(
 
   try {
     const { result, iterations } = await executor(job.prompt, controller.signal);
-    job.status = 'completed';
-    job.result = result;
-    job.iterations = iterations;
+    if (controller.signal.aborted) {
+      job.status = 'cancelled';
+    } else {
+      job.status = 'completed';
+      job.result = result;
+      job.iterations = iterations;
+    }
   } catch (err) {
     if (controller.signal.aborted) {
       job.status = 'cancelled';

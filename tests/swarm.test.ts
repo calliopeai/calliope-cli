@@ -42,6 +42,7 @@ describe('Swarm Types', () => {
         status: 'decomposing',
         config: DEFAULT_SWARM_CONFIG,
         subtasks: [],
+        activeTaskIds: [],
         createdAt: new Date(),
         updatedAt: new Date(),
       };

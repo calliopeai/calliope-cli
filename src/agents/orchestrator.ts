@@ -27,6 +27,18 @@ const PRIORITY_ORDER: Record<TaskPriority, number> = {
   low: 1,
 };
 
+const FINAL_TASK_STATUSES = new Set(['completed', 'failed', 'cancelled'] as const);
+
+function isFinalTaskStatus(
+  status: SubAgentTask['status']
+): status is 'completed' | 'failed' | 'cancelled' {
+  return FINAL_TASK_STATUSES.has(status as 'completed' | 'failed' | 'cancelled');
+}
+
+function isTaskCancelled(task: SubAgentTask): boolean {
+  return task.status === 'cancelled';
+}
+
 /**
  * Agent Orchestrator
  *
@@ -137,6 +149,7 @@ class AgentOrchestrator {
       parentId: options.parentId,
       depth,
       childIds: [],
+      cwd: options.cwd || this.currentCwd,
       model: options.model,
       provider: options.provider,
       systemPrompt: options.systemPrompt,
@@ -155,18 +168,16 @@ class AgentOrchestrator {
       }
     }
 
-    const cwd = options.cwd || this.currentCwd;
-
     // Execute based on background flag
     if (options.background) {
       // Queue for background execution
       this.insertIntoQueue(task.id, task.priority);
       task.status = 'queued';
       task.updatedAt = new Date();
-      this.processQueue(cwd);
+      void this.processQueue();
     } else {
       // Execute immediately and wait
-      await this.runTask(task, cwd);
+      await this.runTask(task);
     }
 
     return task;
@@ -177,6 +188,38 @@ class AgentOrchestrator {
    */
   getTask(taskId: string): SubAgentTask | undefined {
     return this.tasks.get(taskId);
+  }
+
+  /**
+   * Wait for a task to reach a final state.
+   */
+  async waitForTask(
+    taskId: string,
+    options: {
+      pollIntervalMs?: number;
+      timeoutMs?: number;
+    } = {}
+  ): Promise<SubAgentTask> {
+    const pollIntervalMs = options.pollIntervalMs ?? 25;
+    const timeoutMs = options.timeoutMs;
+    const startedAt = Date.now();
+
+    while (true) {
+      const task = this.tasks.get(taskId);
+      if (!task) {
+        throw new Error(`Task ${taskId} not found`);
+      }
+
+      if (isFinalTaskStatus(task.status)) {
+        return task;
+      }
+
+      if (typeof timeoutMs === 'number' && Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Timed out waiting for task ${taskId}`);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
   }
 
   /**
@@ -333,7 +376,7 @@ class AgentOrchestrator {
   /**
    * Process the task queue
    */
-  private async processQueue(cwd: string): Promise<void> {
+  private async processQueue(): Promise<void> {
     while (
       this.taskQueue.length > 0 &&
       this.runningTasks.size < this.config.maxConcurrent
@@ -346,7 +389,7 @@ class AgentOrchestrator {
 
       this.runningTasks.add(taskId);
       // Fire and forget - don't await, let it run in background
-      this.runTask(task, cwd).catch(() => {
+      this.runTask(task).catch(() => {
         // Error already handled in runTask
       });
     }
@@ -355,13 +398,14 @@ class AgentOrchestrator {
   /**
    * Run a single task
    */
-  private async runTask(task: SubAgentTask, cwd: string): Promise<void> {
+  private async runTask(task: SubAgentTask): Promise<void> {
     task.status = 'running';
     task.startedAt = new Date();
     task.updatedAt = new Date();
 
     try {
       let result = '';
+      const cwd = task.cwd || this.currentCwd;
 
       // Per-task timeout overrides global config (0 = no timeout)
       const taskTimeout = task.timeout || this.config.taskTimeout;
@@ -372,11 +416,21 @@ class AgentOrchestrator {
         : executeSdkAgent(task, cwd, taskTimeout);
 
       for await (const event of eventSource) {
+        if (isTaskCancelled(task)) {
+          break;
+        }
         if (event.type === 'text' && event.content) {
           result += event.content;
         } else if (event.type === 'error') {
+          if (isTaskCancelled(task)) {
+            break;
+          }
           throw new Error(event.message || 'Unknown error');
         }
+      }
+
+      if (isTaskCancelled(task)) {
+        return;
       }
 
       task.status = 'completed';
@@ -385,6 +439,9 @@ class AgentOrchestrator {
       task.updatedAt = new Date();
 
     } catch (error) {
+      if (isTaskCancelled(task)) {
+        return;
+      }
       task.status = 'failed';
       task.error = error instanceof Error ? error.message : String(error);
       task.completedAt = new Date();
@@ -392,7 +449,7 @@ class AgentOrchestrator {
     } finally {
       this.runningTasks.delete(task.id);
       // Continue processing queue
-      this.processQueue(cwd);
+      void this.processQueue();
     }
   }
 }

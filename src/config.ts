@@ -6,6 +6,7 @@
  */
 
 import Conf from 'conf';
+import { randomUUID } from 'crypto';
 
 // Re-export types from canonical source
 export type { LLMProvider, AgentPersona } from './types.js';
@@ -94,6 +95,7 @@ export interface CalliopeConfig {
   sessionTimeoutMs?: number;  // Idle timeout in ms (0 or undefined = disabled)
   recordSessions: boolean;    // Record session events as audit log (default: true)
   recordingRetentionDays: number;  // Auto-delete recordings older than N days (0 = keep forever, default: 0)
+  sessionLogLimit: number;    // Cap retained ledger entries/runs/failures per session (0 = unlimited)
 
   // API Server
   apiToken?: string;  // Bearer token for --serve API server (auto-generated on first start)
@@ -132,6 +134,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   smartRoutingCostSensitivity: 0.3,
   recordSessions: true,
   recordingRetentionDays: 0,
+  sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
 };
 
 // Pre-migrate config file before Conf validates schema
@@ -212,6 +215,7 @@ const config = new Conf<CalliopeConfig>({
     recordSessions: { type: 'boolean' },
     sessionTimeoutMs: { type: 'number', minimum: 0 },
     recordingRetentionDays: { type: 'number', minimum: 0 },
+    sessionLogLimit: { type: 'number', minimum: 0, maximum: 100000 },
     apiToken: { type: 'string' },
   },
 });
@@ -259,6 +263,11 @@ export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfi
       throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
     }
   }
+  if (key === 'sessionLogLimit' && typeof value === 'number') {
+    if (value < 0 || value > 100000) {
+      throw new Error('sessionLogLimit must be between 0 and 100000 (0 = unlimited)');
+    }
+  }
 
   config.set(key, value);
 }
@@ -301,6 +310,11 @@ function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
   if (key === 'maxIterations' && typeof value === 'number') {
     if (value < 0 || value > 1000000) {
       throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
+    }
+  }
+  if (key === 'sessionLogLimit' && typeof value === 'number') {
+    if (value < 0 || value > 100000) {
+      throw new Error('sessionLogLimit must be between 0 and 100000 (0 = unlimited)');
     }
   }
 }
@@ -539,7 +553,6 @@ export function getActiveProfile(): string | undefined {
 export function getOrCreateApiToken(): string {
   let token = config.get('apiToken');
   if (!token) {
-    const { randomUUID } = require('crypto') as typeof import('crypto');
     token = randomUUID();
     config.set('apiToken', token);
   }

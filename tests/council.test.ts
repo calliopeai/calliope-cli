@@ -41,6 +41,7 @@ describe('Council Types', () => {
         votes: [],
         scores: [],
         round: 1,
+        activeTaskIds: [],
         createdAt: new Date(),
         updatedAt: new Date(),
       };

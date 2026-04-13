@@ -28,6 +28,24 @@ import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCo
 import { isDockerAvailable } from '../sandbox.js';
 import { getSandboxStatus } from '../sandbox-native.js';
 import type { CLIState } from './types.js';
+import { resolveIterationLimit, formatIterationLimit } from '../iteration-limit.js';
+
+// Builds the full system prompt including memory context (project + global)
+function buildFullSystemPrompt(persona: AgentPersona, cwd: string): string {
+  const base = getSystemPrompt(persona);
+  const mem = memory.buildMemoryContext(cwd);
+  return mem.trim() ? base + '\n\n--- Project Context ---\n' + mem : base;
+}
+
+function formatLedgerDuration(durationMs: number): string {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs < 60_000) return `${(durationMs / 1000).toFixed(1)}s`;
+  return `${(durationMs / 60_000).toFixed(1)}m`;
+}
+
+function formatSessionLogLimit(limit: number): string {
+  return limit > 0 ? String(limit) : 'unlimited';
+}
 
 // Forward declaration — injected by index.ts to avoid circular imports
 let _startLoop: (args: string, state: CLIState) => Promise<void>;
@@ -101,7 +119,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
     case '/persona':
       if (parts[1] && ['calliope', 'muse', 'minimal'].includes(parts[1])) {
         state.persona = parts[1] as AgentPersona;
-        state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+        state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
         console.log(color(`Persona set to: ${parts[1]}`, 'green'));
       } else {
         console.log(`Current: ${color(state.persona, 'magenta')}`);
@@ -112,7 +130,8 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
 
     case '/clear':
     case '/c':
-      state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+      state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
+      state.ledger.reset();
       console.log(color('Conversation cleared.', 'green'));
       console.log();
       break;
@@ -132,6 +151,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
       break;
 
     case '/cancel-loop':
+    case '/breakloop':
       if (state.loopActive) {
         state.loopActive = false;
         console.log(color('Loop cancelled.', 'yellow'));
@@ -149,6 +169,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
     case '/config':
       console.log(`Config: ${config.getConfigPath()}`);
       console.log(`Providers: ${config.getConfiguredProviders().join(', ') || 'none'}`);
+      console.log(`sessionLogLimit: ${formatSessionLogLimit(config.get('sessionLogLimit'))} (set > 0 to cap)`);
       console.log();
       break;
 
@@ -298,7 +319,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
         const newComp = getCurrentCompanion();
         if (newComp.name === parts[1]) {
           config.set('activeCompanion', parts[1]);
-          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
           console.log(color(`Companion set to: ${parts[1]}`, 'green'));
           console.log(color(`  "${newComp.greeting}"`, 'dim'));
         } else {
@@ -362,7 +383,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
             : pack.companions.immersive;
           config.set('activeCompanion', companion.name);
           // Reset system prompt to use the companion's persona
-          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
           console.log(color(`Theme pack: ${parts[1]}`, 'green'));
           console.log(color(`  "${companion.greeting}"`, 'dim'));
         } else {
@@ -379,7 +400,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
           const pack = getCurrentPack()!;
           config.set('companionIntensity', 'professional');
           config.set('activeCompanion', pack.companions.professional.name);
-          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
           console.log(color(`Switched to professional mode`, 'green'));
         } else {
           console.log(color('No theme pack active. Use /pack <name> first.', 'yellow'));
@@ -390,7 +411,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
           const pack = getCurrentPack()!;
           config.set('companionIntensity', 'immersive');
           config.set('activeCompanion', pack.companions.immersive.name);
-          state.messages = [{ role: 'system', content: getSystemPrompt(state.persona) }];
+          state.messages = [{ role: 'system', content: buildFullSystemPrompt(state.persona, state.cwd) }];
           console.log(color(`Switched to immersive mode`, 'green'));
         } else {
           console.log(color('No theme pack active. Use /pack <name> first.', 'yellow'));
@@ -535,12 +556,24 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
     case '/set':
       if (parts[1] === 'maxIterations' && parts[2]) {
         const val = parseInt(parts[2]);
-        if (!isNaN(val) && val > 0) {
-          state.loopMaxIterations = val;
-          console.log(color(`maxIterations set to ${val}`, 'green'));
+        if (!isNaN(val) && val >= 0 && val <= 1000000) {
+          config.set('maxIterations', val);
+          state.loopMaxIterations = resolveIterationLimit(val);
+          console.log(color(`maxIterations set to ${formatIterationLimit(state.loopMaxIterations)}`, 'green'));
+        }
+      } else if (parts[1] === 'sessionLogLimit' && parts[2]) {
+        const val = parseInt(parts[2]);
+        if (!isNaN(val) && val >= 0 && val <= 100000) {
+          config.set('sessionLogLimit', val);
+          state.ledger.setRetentionLimit(val);
+          console.log(color(`sessionLogLimit set to ${val === 0 ? 'unlimited (set > 0 to cap)' : val}`, 'green'));
+        } else {
+          console.log(color('sessionLogLimit must be 0-100000 (0 = unlimited)', 'red'));
         }
       } else {
         console.log('Usage: /set maxIterations <number>');
+        console.log('       /set sessionLogLimit <number>');
+        console.log('       sessionLogLimit uses 0 for unlimited; set > 0 to cap retained log items');
       }
       console.log();
       break;
@@ -609,13 +642,81 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
 
     case '/session':
       console.log(color('Session Info:', 'cyan'));
+      if (state.sessionId) {
+        console.log(`  Session ID: ${state.sessionId}`);
+      }
       console.log(`  Messages: ${state.messages.length}`);
       console.log(`  Provider: ${selectProvider(state.provider)}`);
       console.log(`  Model: ${state.model || DEFAULT_MODELS[selectProvider(state.provider)]}`);
       console.log(`  Mode: ${MODE_CONFIG[state.mode].icon} ${state.mode}`);
       console.log(`  Cost: $${state.sessionCost.toFixed(4)}`);
+      console.log(`  Logged iterations: ${state.ledger.getTotals().iterations}`);
+      console.log(`  Failed approaches: ${state.ledger.getFailedApproachCount()}`);
+      const latestRun = state.ledger.getLatestRun();
+      if (latestRun) {
+        console.log(`  Latest run: ${latestRun.kind} [${latestRun.status}]`);
+      }
       console.log();
       break;
+
+    case '/log': {
+      const subCmd = parts[1] || 'summary';
+      if (subCmd === 'summary') {
+        const totals = state.ledger.getTotals();
+        const runs = state.ledger.getRuns(5);
+        const failures = state.ledger.getFailedApproaches().slice(-5);
+
+        console.log(color('Session Log:', 'cyan'));
+        console.log(`  Iterations: ${totals.iterations}`);
+        console.log(`  Failed approaches: ${state.ledger.getFailedApproachCount()}`);
+        console.log(`  Tokens: ${totals.totalTokens}`);
+        console.log(`  Cost: $${totals.totalCost.toFixed(4)}`);
+        console.log(`  Duration: ${formatLedgerDuration(totals.totalDurationMs)}`);
+        if (runs.length > 0) {
+          console.log('\n  Recent runs:');
+          for (const run of runs) {
+            console.log(`    - ${run.kind} [${run.status}] ${run.prompt}`);
+          }
+        }
+        if (failures.length > 0) {
+          console.log('\n  Recent failures:');
+          for (const failure of failures) {
+            console.log(`    - #${failure.iteration} ${failure.description} — ${failure.reason}`);
+          }
+        }
+      } else if (subCmd === 'tail') {
+        const limit = parts[2] ? parseInt(parts[2], 10) : 10;
+        const entries = state.ledger.getEntries().slice(-(isNaN(limit) || limit <= 0 ? 10 : limit));
+        if (entries.length === 0) {
+          console.log(color('No logged iterations yet.', 'dim'));
+        } else {
+          console.log(color('Recent iterations:', 'cyan'));
+          for (const entry of entries) {
+            const actions = entry.actions.length > 0
+              ? entry.actions.map(action => `${action.tool}(${action.args})${action.result === 'error' ? ' FAILED' : action.result === 'blocked' ? ' BLOCKED' : ''}`).join(', ')
+              : 'no tool actions';
+            console.log(`  #${entry.iteration} [${entry.outcome}] ${formatLedgerDuration(entry.durationMs)} — ${actions}`);
+          }
+        }
+      } else if (subCmd === 'failures') {
+        const failures = state.ledger.getFailedApproaches();
+        if (failures.length === 0) {
+          console.log(color('No failed approaches recorded.', 'dim'));
+        } else {
+          console.log(color('Failed approaches:', 'cyan'));
+          for (const failure of failures.slice(-10)) {
+            console.log(`  - #${failure.iteration} ${failure.description} — ${failure.reason}`);
+          }
+        }
+      } else if (subCmd === 'reset') {
+        state.ledger.reset();
+        console.log(color('Session log reset.', 'green'));
+      } else {
+        console.log(color('Usage: /log [summary|tail [N]|failures|reset]', 'dim'));
+      }
+      console.log();
+      break;
+    }
 
     case '/context':
       const memCtx = memory.buildMemoryContext(state.cwd);
@@ -776,7 +877,7 @@ function printHelp(): void {
   console.log('  /mode [plan|hybrid|work]  Switch modes');
   console.log('  /work              Quick switch to work mode');
   console.log('  /plan              Quick switch to plan mode');
-  console.log('  /set <key> <val>   Change settings (maxIterations)');
+  console.log('  /set <key> <val>   Change settings (maxIterations, sessionLogLimit)');
   console.log('  /confirm [on|off]  Toggle confirmation for risky ops');
   console.log('  /debug [on|off]    Show state / toggle debug logging');
   console.log();
@@ -807,13 +908,15 @@ function printHelp(): void {
   console.log('  /hud               Show HUD status');
   console.log();
   console.log(color('Agent Loop:', 'bold'));
-  console.log('  /loop "<prompt>"   Start autonomous loop');
+  console.log('  /loop "<prompt>"   Start autonomous loop (default: unlimited)');
   console.log('    --max-iterations N');
   console.log('    --completion-promise "text"');
   console.log('  /cancel-loop       Stop active loop');
+  console.log('  /breakloop         Stop active loop');
   console.log();
   console.log(color('Info & Config:', 'bold'));
   console.log('  /session           Show session info');
+  console.log('  /log               Show iteration/run log');
   console.log('  /cost [reset]      Show cost tracking');
   console.log('  /setup             Reconfigure');
   console.log('  /config            Show config path');

@@ -6,7 +6,6 @@
  */
 
 import type React from 'react';
-import { spawn, type ChildProcess } from 'child_process';
 import * as config from '../config.js';
 import { chat } from '../providers/index.js';
 import { estimateContextUsage, needsSummarization } from '../providers/types.js';
@@ -33,6 +32,12 @@ import type { Session } from '../storage.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { shouldCheckpoint, createCheckpoint } from '../auto-checkpoint.js';
 import { recordEvent } from '../terminal-recording.js';
+import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
+import {
+  resolveIterationLimit,
+  formatIterationProgress,
+  isFiniteIterationLimit,
+} from '../iteration-limit.js';
 
 // ============================================================================
 // Tool Result Truncation
@@ -55,6 +60,21 @@ function truncateToolResult(content: string, modelLimit: number): string {
   const half = Math.floor(maxChars / 2);
   const trimmed = content.slice(0, half) + `\n\n... [truncated ${content.length - maxChars} chars] ...\n\n` + content.slice(-half);
   return trimmed;
+}
+
+function summarizeMessageContent(content: MessageContent): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+
+  return content
+    .map(block => {
+      if (block.type === 'text') return block.text;
+      if (block.type === 'image') return '[image]';
+      return '[content]';
+    })
+    .join(' ')
+    .trim();
 }
 
 // ============================================================================
@@ -196,8 +216,21 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     }
   }
 
-  const maxIterations = config.get('maxIterations') || Infinity; // 0 = unlimited
+  const maxIterations = resolveIterationLimit(config.get('maxIterations'));
   let completedNaturally = false;
+  const hasParentRun = Boolean(
+    ctx.ledger?.getActiveRun('loop') ||
+    ctx.ledger?.getActiveRun('workflow') ||
+    ctx.ledger?.getActiveRun('swarm') ||
+    ctx.ledger?.getActiveRun('council')
+  );
+  const runId = ctx.ledger && !hasParentRun
+    ? ctx.ledger.startRun('agent', summarizeMessageContent(content), {
+        maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : null,
+      })
+    : undefined;
+  let runStatus: 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'stopped' | undefined;
+  let runErrorSummary: string | undefined;
 
   // Check context limit and warn if approaching capacity
   // Uses model's actual context length from API when available
@@ -248,7 +281,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
   for (let i = 0; i < maxIterations; i++) {
     // Start ledger tracking for this iteration
-    ctx.ledger?.startIteration(i + 1);
+    if (ctx.ledger) {
+      ctx.ledger.startIteration(ctx.ledger.getNextIterationNumber());
+    }
 
     // Safety check at start of each iteration - context may have grown from tool results
     if (i > 0) {
@@ -272,9 +307,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       // Update thinking state for LLM call
       ctx.setThinkingState({
         status: i === 0 ? 'Analyzing request...' : 'Processing response...',
-        detail: `Iteration ${i + 1}/${maxIterations}`,
+        detail: `Iteration ${formatIterationProgress(i + 1, maxIterations)}`,
         iteration: i + 1,
-        maxIterations,
+        maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
       });
       ctx.setActivityState({
         action: i === 0 ? 'Analyzing request' : 'Processing',
@@ -294,7 +329,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           status: `Retrying... (attempt ${attempt + 1})`,
           detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`,
           iteration: i + 1,
-          maxIterations,
+          maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
         });
       };
 
@@ -364,6 +399,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
         if (breakerResult.tripped) {
           ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue, /breaker status for details.`);
+          runStatus = 'stopped';
+          runErrorSummary = breakerResult.message;
           completedNaturally = true;
           break;
         }
@@ -468,7 +505,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               status: `Executing ${executableTools.length} tools in parallel...`,
               detail: `${parallelStats.stages} stages, up to ${parallelStats.maxParallel}x speedup`,
               iteration: i + 1,
-              maxIterations,
+              maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
             });
             ctx.setActivityState({
               action: `Executing ${executableTools.length} tools`,
@@ -481,7 +518,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             const results = await executeParallel(
               executableTools,
               async (call) => {
-                const result = await executeTool(call, process.cwd());
+                const result = await executeTool(call, ctx.sessionRef.current?.projectPath ?? process.cwd());
                 return result.result;
               },
               (completed, total, current) => {
@@ -496,7 +533,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   status: `Executing tools... (${completed + 1}/${total})`,
                   detail: current.name,
                   iteration: i + 1,
-                  maxIterations,
+                  maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
                 });
               }
             );
@@ -576,7 +613,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
                   thinking: thought,
                   iteration: i + 1,
-                  maxIterations,
+                  maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
                 });
               } else {
                 ctx.setThinkingState({
@@ -584,7 +621,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   detail: toolPreview.substring(0, 60),
                   thinking: undefined,
                   iteration: i + 1,
-                  maxIterations,
+                  maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
                 });
               }
 
@@ -606,7 +643,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60),
                 });
               } : undefined;
-              const result = await executeTool(toolCall, process.cwd(), 60000, shellStreamCallback);
+              const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback);
               ctx.debugLog('tools', 'DONE', toolCall.name);
               recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
 
@@ -705,6 +742,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         continue; // Loop again to get continuation
       }
       completedNaturally = true;
+      runStatus = 'completed';
 
       // End iteration ledger entry
       ctx.ledger?.endIteration('success');
@@ -743,6 +781,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
         if (breakerResult.tripped) {
           ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue.`);
+          runStatus = 'stopped';
+          runErrorSummary = breakerResult.message;
           completedNaturally = true;
           break;
         }
@@ -771,6 +811,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
       // Non-retryable errors (auth, etc.) still kill the session
       completedNaturally = true;
+      runStatus = 'failed';
+      runErrorSummary = errorMsg;
 
       // On error, clear queued messages to prevent infinite retry loop
       const currentQueuedOnError = ctx.queuedMessagesRef.current;
@@ -778,13 +820,24 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.addMessage('system', `\u26a0\ufe0f Cleared ${currentQueuedOnError.length} queued message(s) due to error. Use /clear to reset conversation.`);
         ctx.setQueuedMessages([]);
       }
+      if (runId && runStatus) {
+        ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
+      }
       return; // Exit early on error - don't process queued messages
     }
   }
 
   // Only show warning if we actually hit the iteration limit (not errors or natural completion)
-  if (!completedNaturally) {
+  if (!completedNaturally && isFiniteIterationLimit(maxIterations)) {
     ctx.addMessage('system', `⚠️ Reached ${maxIterations} iterations limit. Task may be incomplete. Adjust with /set maxIterations <number>.`);
+    if (!runStatus) {
+      runStatus = 'stopped';
+      runErrorSummary = `Reached ${maxIterations} iterations limit`;
+    }
+  }
+
+  if (runId) {
+    ctx.ledger?.finishRun(runId, runStatus || 'completed', { errorSummary: runErrorSummary });
   }
 
   // Update context tokens after agent run
@@ -830,26 +883,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 // ============================================================================
 
 /**
- * Start caffeinate to prevent system sleep during long operations (macOS).
- */
-function startCaffeinate(): ChildProcess | null {
-  if (process.platform !== 'darwin') return null;
-  try {
-    const proc = spawn('caffeinate', ['-di'], { stdio: 'ignore', detached: true });
-    proc.unref();
-    return proc;
-  } catch {
-    return null;
-  }
-}
-
-function stopCaffeinate(proc: ChildProcess | null): void {
-  if (proc) {
-    try { proc.kill('SIGTERM'); } catch { /* already dead */ }
-  }
-}
-
-/**
  * Agent loop - runs prompt repeatedly until completion promise or max iterations.
  */
 export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: number, completionPromise?: string): Promise<void> {
@@ -857,63 +890,101 @@ export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: nu
   setMood('focused');
 
   // Prevent system sleep during long agent loops (macOS)
-  const caffeinateProc = startCaffeinate();
+  startPreventSleep();
 
-  for (let i = 0; i < maxIter; i++) {
-    // Check if cancelled
-    if (ctx.loopCancelledRef.current) {
-      ctx.addMessage('system', '🛑 Loop cancelled by user');
-      break;
-    }
+  let completedIterations = 0;
+  let loopOutcome: 'running' | 'cancelled' | 'promise-met' | 'error' = 'running';
+  let loopErrorSummary: string | undefined;
+  const loopRunId = ctx.ledger?.startRun('loop', prompt, {
+    completionPromise,
+    maxIterations: isFiniteIterationLimit(maxIter) ? maxIter : null,
+  });
 
-    ctx.setLoopIteration(i + 1);
-    ctx.addMessage('system', `🔄 Loop iteration ${i + 1}/${maxIter}`);
-
-    // First iteration: send original prompt. Subsequent: send continuation.
-    const iterationPrompt = i === 0
-      ? prompt
-      : `Continue working on the task: "${prompt}"\n\nThis is iteration ${i + 1}. Review what you've done so far and continue making progress.`;
-    ctx.llmMessages.current.push({ role: 'user', content: iterationPrompt });
-
-    try {
-      // Run the agent
-      await runAgentImpl(ctx, iterationPrompt);
-
-      // Check for completion promise in the last assistant message
-      if (completionPromise) {
-        const lastMessage = ctx.llmMessages.current[ctx.llmMessages.current.length - 1];
-        if (lastMessage?.role === 'assistant') {
-          const content = typeof lastMessage.content === 'string'
-            ? lastMessage.content
-            : JSON.stringify(lastMessage.content);
-          if (content.includes(completionPromise)) {
-            ctx.addMessage('system', `🎉 Completion promise "${completionPromise}" detected! Loop finished.`);
-            break;
-          }
-        }
-      }
-
-      // Check cancelled again after agent run
+  try {
+    for (let i = 0; i < maxIter; i++) {
+      // Check if cancelled
       if (ctx.loopCancelledRef.current) {
         ctx.addMessage('system', '🛑 Loop cancelled by user');
+        loopOutcome = 'cancelled';
         break;
       }
 
-      // Small delay between iterations
-      await new Promise(r => setTimeout(r, 500));
+      completedIterations = i + 1;
+      ctx.setLoopIteration(completedIterations);
+      ctx.addMessage('system', `🔄 Loop iteration ${formatIterationProgress(completedIterations, maxIter)}`);
 
-    } catch (error) {
-      ctx.addMessage('error', `Loop error: ${error instanceof Error ? error.message : String(error)}`);
-      break;
+      // First iteration: send original prompt. Subsequent: send continuation.
+      const iterationPrompt = i === 0
+        ? prompt
+        : `Continue working on the task: "${prompt}"\n\nThis is iteration ${i + 1}. Review what you've done so far and continue making progress.`;
+
+      try {
+        // Run the agent
+        await runAgentImpl(ctx, iterationPrompt);
+
+        // Check for completion promise in the last assistant message
+        if (completionPromise) {
+          const lastMessage = ctx.llmMessages.current[ctx.llmMessages.current.length - 1];
+          if (lastMessage?.role === 'assistant') {
+            const content = typeof lastMessage.content === 'string'
+              ? lastMessage.content
+              : JSON.stringify(lastMessage.content);
+            if (content.includes(completionPromise)) {
+              ctx.addMessage('system', `🎉 Completion promise "${completionPromise}" detected! Loop finished.`);
+              loopOutcome = 'promise-met';
+              break;
+            }
+          }
+        }
+
+        // Check cancelled again after agent run
+        if (ctx.loopCancelledRef.current) {
+          ctx.addMessage('system', '🛑 Loop cancelled by user');
+          loopOutcome = 'cancelled';
+          break;
+        }
+
+        // Small delay between iterations
+        if (i + 1 < maxIter) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+
+      } catch (error) {
+        loopErrorSummary = error instanceof Error ? error.message : String(error);
+        ctx.addMessage('error', `Loop error: ${loopErrorSummary}`);
+        loopOutcome = 'error';
+        break;
+      }
     }
-  }
 
-  // If we completed all iterations without hitting completion promise
-  if (!ctx.loopCancelledRef.current && !completionPromise) {
-    ctx.addMessage('system', `✅ Loop completed ${maxIter} iterations`);
+    if (loopOutcome === 'running') {
+      if (completionPromise) {
+        ctx.addMessage('system', `⚠️ Loop stopped after ${completedIterations} iteration${completedIterations === 1 ? '' : 's'} without matching completion promise "${completionPromise}".`);
+      } else {
+        ctx.addMessage('system', `✅ Loop completed ${completedIterations} iteration${completedIterations === 1 ? '' : 's'}.`);
+      }
+    }
+  } finally {
+    if (loopRunId) {
+      const finalStatus = loopOutcome === 'cancelled'
+        ? 'cancelled'
+        : loopOutcome === 'error'
+          ? 'failed'
+          : loopOutcome === 'promise-met'
+            ? 'completed'
+            : completionPromise
+              ? 'stopped'
+              : 'completed';
+      ctx.ledger?.finishRun(loopRunId, finalStatus, {
+        errorSummary: loopErrorSummary
+          || (finalStatus === 'cancelled' ? 'Stopped by user' : undefined)
+          || (finalStatus === 'stopped' && completionPromise
+            ? `Stopped after ${completedIterations} iterations without matching completion promise`
+            : undefined),
+      });
+    }
+    ctx.setLoopActive(false);
+    ctx.setIsProcessing(false);
+    stopPreventSleep();
   }
-
-  ctx.setLoopActive(false);
-  ctx.setIsProcessing(false);
-  stopCaffeinate(caffeinateProc);
 }
