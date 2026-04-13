@@ -11,6 +11,25 @@ import { select } from '@inquirer/prompts';
 import * as config from './config.js';
 import type { LLMProvider } from './types.js';
 
+const DEBUG = process.env.CALLIOPE_DEBUG === '1';
+
+interface ModelFetchOptions {
+  quiet?: boolean;
+}
+
+function logModelDetectionWarning(message: string, error?: unknown, options: ModelFetchOptions = {}): void {
+  if (options.quiet || !DEBUG) {
+    return;
+  }
+
+  if (error !== undefined) {
+    console.warn(message, error);
+    return;
+  }
+
+  console.warn(message);
+}
+
 // API base URLs for OpenAI-compatible providers
 const PROVIDER_BASE_URLS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
@@ -202,7 +221,7 @@ function formatContextLength(tokens: number): string {
 /**
  * Get available models for a provider
  */
-export async function getAvailableModels(provider: LLMProvider): Promise<ModelInfo[]> {
+export async function getAvailableModels(provider: LLMProvider, options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
   // Check cache first
   const cached = modelCache.get(provider);
   if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
@@ -214,10 +233,10 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
   try {
     switch (provider) {
       case 'anthropic':
-        models = await getAnthropicModels();
+        models = await getAnthropicModels(options);
         break;
       case 'google':
-        models = await getGoogleModels();
+        models = await getGoogleModels(options);
         break;
       case 'openai':
         models = await getOpenAIModels();
@@ -258,7 +277,7 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
     // Cache the results
     modelCache.set(provider, { models, timestamp: Date.now() });
   } catch (error) {
-    console.warn(`Failed to fetch models for ${provider}:`, error);
+    logModelDetectionWarning(`Failed to fetch models for ${provider}:`, error, options);
   }
 
   return models;
@@ -267,7 +286,7 @@ export async function getAvailableModels(provider: LLMProvider): Promise<ModelIn
 /**
  * Get Anthropic models dynamically from API
  */
-async function getAnthropicModels(): Promise<ModelInfo[]> {
+async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('anthropic');
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
@@ -296,7 +315,7 @@ async function getAnthropicModels(): Promise<ModelInfo[]> {
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
     // Fallback to known models if API fails
-    console.warn('Failed to fetch Anthropic models, using fallback list');
+    logModelDetectionWarning('Failed to fetch Anthropic models, using fallback list', error, options);
     return [
       { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5', description: 'Most capable model', contextLength: 200000 },
       { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Balanced intelligence and speed', contextLength: 200000 },
@@ -326,7 +345,7 @@ function getAnthropicModelDescription(modelId: string): string {
 /**
  * Get Google models dynamically from API
  */
-async function getGoogleModels(): Promise<ModelInfo[]> {
+async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
 
@@ -354,7 +373,7 @@ async function getGoogleModels(): Promise<ModelInfo[]> {
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
     // Fallback to known models if API fails
-    console.warn('Failed to fetch Google models, using fallback list');
+    logModelDetectionWarning('Failed to fetch Google models, using fallback list', error, options);
     return [
       { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro', description: 'Most capable', contextLength: 1048576 },
       { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash', description: 'Fast next-gen', contextLength: 1048576 },
@@ -949,7 +968,7 @@ export async function preWarmModelCache(): Promise<void> {
 
   // Fetch models for all configured providers in parallel
   await Promise.allSettled(
-    configuredProviders.map(provider => getAvailableModels(provider))
+    configuredProviders.map(provider => getAvailableModels(provider, { quiet: true }))
   );
 }
 

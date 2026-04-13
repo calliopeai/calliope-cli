@@ -13,6 +13,7 @@ import { getCurrentCompanion } from '../companions.js';
 import { getInkColor } from '../hud/api.js';
 import { Separator } from './components.js';
 import { SLASH_COMMANDS, PATH_COMMANDS, getPathCompletions, getSmartCommandSuggestions } from './completions.js';
+import { shouldInsertInputChunk } from './input-utils.js';
 
 // ============================================================================
 // ChatInput Component
@@ -253,7 +254,7 @@ export function ChatInput({
       }
 
       // Regular input - insert at cursor position
-      if (input && !key.ctrl && !key.meta && !key.tab) {
+      if (shouldInsertInputChunk(input, key)) {
         const cursor = cursorRef.current;
         const newValue = currentValue.slice(0, cursor) + input + currentValue.slice(cursor);
         updateValue(newValue, cursor + input.length);
@@ -413,7 +414,7 @@ export function ChatInput({
     }
 
     // Regular character input - insert at cursor position
-    if (input) {
+    if (shouldInsertInputChunk(input, key)) {
       const cursorPos = cursorRef.current;
       const newValue = currentValue.slice(0, cursorPos) + input + currentValue.slice(cursorPos);
       log(`-> char "${input}": "${currentValue}" -> "${newValue}" cursor=${cursorPos}`);
@@ -427,6 +428,8 @@ export function ChatInput({
   const promptText = isProcessing
     ? (isEditing ? `edit[${editingQueueIndex + 1}]>` : 'queue>')
     : `${getCurrentCompanion().name}>`;
+  const displayValue = valueRef.current;
+  const cursorPos = Math.max(0, Math.min(cursorRef.current, displayValue.length));
 
   return (
     <Box flexDirection="column">
@@ -448,9 +451,9 @@ export function ChatInput({
       )}
       <Box>
         <Text color={promptColor}>{promptText} </Text>
-        <Text>{value.slice(0, cursorRef.current)}</Text>
-        <Text color={promptColor}>▌</Text>
-        <Text>{value.slice(cursorRef.current)}</Text>
+        <Text>{displayValue.slice(0, cursorPos)}</Text>
+        {!disabled && <Text color={promptColor}>▌</Text>}
+        <Text>{displayValue.slice(cursorPos)}</Text>
       </Box>
     </Box>
   );

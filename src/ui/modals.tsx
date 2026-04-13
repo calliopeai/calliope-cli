@@ -10,6 +10,7 @@ import { parseFileReferences } from '../files.js';
 import type { ModelInfo } from '../model-detection.js';
 import type { ToolCall, RiskLevel } from '../types.js';
 import type { SessionInfo } from './types.js';
+import { getSessionResumeAction } from './input-utils.js';
 
 // ============================================================================
 // Model Selector
@@ -285,9 +286,10 @@ export function SessionResumePrompt({
   onResume: () => void;
   onNew: () => void;
 }) {
-  useInput((input) => {
-    if (input === 'r' || input === 'R') onResume();
-    else onNew();  // Any other key starts a new session
+  useInput((input, key) => {
+    const action = getSessionResumeAction(input, key);
+    if (action === 'resume') onResume();
+    else if (action === 'new') onNew();
   });
 
   const timeAgo = (() => {
@@ -308,7 +310,7 @@ export function SessionResumePrompt({
       <Text>Last active: <Text dimColor>{timeAgo}</Text></Text>
       <Text>Messages: <Text dimColor>{session.messageCount}</Text></Text>
       <Text> </Text>
-      <Text><Text color="cyan">[R]</Text>esume session  <Text dimColor>any other key = new session</Text></Text>
+      <Text><Text color="cyan">[R]</Text>esume session  <Text color="cyan">[N]</Text>ew session  <Text dimColor>[Enter/Esc] new</Text></Text>
     </Box>
   );
 }

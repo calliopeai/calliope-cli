@@ -66,6 +66,26 @@ setEmojiConfig(config);
 
 // Module-level state for agterm mode
 let moduleAgtermEnabled = false;
+let pendingRestartArgs: string[] | null = null;
+
+function requestSelfRestart(args: string[] = process.argv.slice(1)): void {
+  pendingRestartArgs = [...args];
+}
+
+async function spawnPendingRestart(): Promise<void> {
+  if (!pendingRestartArgs) {
+    return;
+  }
+
+  const restartArgs = pendingRestartArgs;
+  pendingRestartArgs = null;
+  const { spawn } = await import('child_process');
+  const child = spawn(process.argv[0], restartArgs, {
+    stdio: 'inherit',
+    detached: true,
+  });
+  child.unref();
+}
 
 // Debug logging for flow control issues
 let debugEnabled = process.env.CALLIOPE_DEBUG === '1';
@@ -760,13 +780,9 @@ function TerminalChat() {
       const success = await performUpgrade();
       if (success) {
         addMessage('system', 'Upgrade complete! Restarting...');
-        const { spawn } = await import('child_process');
-        const child = spawn(process.argv[0], process.argv.slice(1), {
-          stdio: 'inherit',
-          detached: true,
-        });
-        child.unref();
-        process.exit(0);
+        requestSelfRestart(process.argv.slice(1));
+        exit();
+        return;
       } else {
         addMessage('error', 'Upgrade failed. Try: npm install -g @calliopelabs/cli@latest');
       }
@@ -1308,4 +1324,5 @@ export async function startInkCLI(options: { skipPermissions?: boolean; agtermEn
   recording.stopRecording();
   sessionTimeout.clearTimers();
   idleEviction.stopMonitor();
+  await spawnPendingRestart();
 }
