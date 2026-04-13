@@ -2777,7 +2777,7 @@ Usage: /breaker adjust cost-runaway <param> <value>
           ctx.addMessage('error', `Invalid parameter "${param}". Use: maxSessionCost, maxCostPerMinute, or windowSizeMs`);
         }        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
       } else {
-        ctx.addMessage('system', `Usage: /breaker [status|resume|reset|on|off]
+        ctx.addMessage('system', `Usage: /breaker [status|resume|reset|adjust|on|off]
   /breaker resume [type]  - Resume tripped breaker (half-open)
   /breaker reset [type]   - Reset breaker to closed
   /breaker on|off         - Enable/disable circuit breakers
