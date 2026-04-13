@@ -2780,6 +2780,7 @@ Usage: /breaker adjust cost-runaway <param> <value>
         ctx.addMessage('system', `Usage: /breaker [status|resume|reset|adjust|on|off]
   /breaker resume [type]  - Resume tripped breaker (half-open)
   /breaker reset [type]   - Reset breaker to closed
+  /breaker adjust cost-runaway <param> <value> - Adjust cost thresholds
   /breaker on|off         - Enable/disable circuit breakers
 
 Breaker types: repeated-failure, cost-runaway, infinite-loop, token-burn, stall`);
