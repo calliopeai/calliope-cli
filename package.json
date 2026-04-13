@@ -50,6 +50,7 @@
     "@inquirer/prompts": "^7.2.0",
     "conf": "^13.0.1",
     "ink": "^6.6.0",
+    "irc-framework": "^4.14.0",
     "openai": "^4.77.0",
     "react": "^19.2.3",
     "yaml": "^2.8.2"
