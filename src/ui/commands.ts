@@ -556,7 +556,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       statusText += `Channel:     #${sbStatus.config?.channel}\n`;
       statusText += `Connected:   ${sbStatus.connected ? 'yes' : 'no'}`;
       if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
-        statusText += `\nChannels:    ${sbStatus.config.channels.map(c => '#' + c).join(', ')}`;
+        statusText += `\nChannels:    ${sbStatus.config.channels.map((c: string) => '#' + c).join(', ')}`;
       }
       
       ctx.addMessage('system', statusText);
@@ -566,7 +566,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
         const message = parts.slice(1).join(' ');
         scuttlebotClient.postMessage(message).then(() => {
           ctx.addMessage('system', 'Message posted to scuttlebot.');
-        }).catch((err) => {
+        }).catch((err: unknown) => {
           ctx.addMessage('system', `Failed to post message: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
