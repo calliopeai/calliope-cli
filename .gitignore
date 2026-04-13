@@ -7,6 +7,7 @@ dist/
 # IDE
 .idea/
 .vscode/
+.claude/
 *.swp
 *.swo
 
@@ -22,6 +23,7 @@ npm-debug.log*
 .env
 .env.local
 cli.env
+.calliope-cli/
 
 # Test coverage
 coverage/

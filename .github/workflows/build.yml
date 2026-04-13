@@ -1,0 +1,107 @@
+name: Build and Push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'Dockerfile'
+      - '.github/workflows/build.yml'
+  # Triggered by publish.yml after a new npm release — ensures the Docker image
+  # always reflects the latest published CLI version
+  workflow_run:
+    workflows: ['Publish']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag_stable:
+        description: 'Also tag :stable (production-ready release)'
+        type: boolean
+        default: false
+
+env:
+  AWS_REGION: us-west-2
+  AWS_ACCOUNT_ID: 718519534729
+  ECR_REPOSITORY: calliope-cli
+
+jobs:
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    # Skip if triggered by a failed workflow_run
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get short SHA
+        id: sha
+        run: echo "short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
+
+      - name: Get CLI version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:sha-${{ steps.sha.outputs.short }}
+            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:v${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=calliope-cli
+          cache-to: type=gha,mode=max,scope=calliope-cli
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+
+      - name: Tag :stable
+        if: ${{ github.event.inputs.tag_stable == 'true' || github.event_name == 'workflow_run' }}
+        run: |
+          MANIFEST=$(aws ecr batch-get-image \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --image-ids imageTag=sha-${{ steps.sha.outputs.short }} \
+            --query 'images[0].imageManifest' --output text)
+          aws ecr put-image \
+            --repository-name ${{ env.ECR_REPOSITORY }} \
+            --image-tag stable \
+            --image-manifest "$MANIFEST"
+          echo "Tagged sha-${{ steps.sha.outputs.short }} as :stable"
+
+      - name: Summary
+        run: |
+          REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}"
+          echo "## Calliope CLI Docker Build" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** \`v${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**SHA:** \`sha-${{ steps.sha.outputs.short }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags pushed:**" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${REGISTRY}:latest\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${REGISTRY}:sha-${{ steps.sha.outputs.short }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${REGISTRY}:v${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ github.event.inputs.tag_stable }}" == "true" ] || [ "${{ github.event_name }}" == "workflow_run" ]; then
+            echo "- \`${REGISTRY}:stable\`" >> $GITHUB_STEP_SUMMARY
+          fi
