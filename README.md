@@ -42,6 +42,23 @@ calliope --god-mode
 
 ## Features
 
+### 🚀 Scuttlebot Integration (New!)
+
+Native support for [scuttlebot](https://scuttlebot.dev) - real-time IRC mirroring and fleet coordination:
+
+```bash
+export SCUTTLEBOT_URL=http://localhost:8080
+export SCUTTLEBOT_TOKEN=your-token
+calliope
+```
+
+- **Real-time Mirroring**: Tool calls and responses stream to IRC as they happen
+- **Operator Intervention**: Address your session by name in IRC to redirect it mid-task
+- **Fleet Coordination**: Run multiple agents (Claude, Gemini, Calliope) in parallel
+- **Secret Sanitization**: Automatic redaction of API keys and tokens
+
+See [scuttlebot integration docs](docs/scuttlebot-integration.md) for details.
+
 ### Multi-Model Support
 
 Switch between 12+ providers on the fly:
