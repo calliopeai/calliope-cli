@@ -8,7 +8,6 @@
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { ScuttlebotHTTPClient, type ScuttlebotConfig } from './http-client.js';
-import { ScuttlebotIRCClient } from './irc-client.js';
 import { resolveChannelConfig } from './config.js';
 
 export interface ScuttlebotIntegration {
@@ -20,7 +19,7 @@ export interface ScuttlebotIntegration {
 
 export class ScuttlebotClient {
   private httpClient: ScuttlebotHTTPClient | null = null;
-  private ircClient: ScuttlebotIRCClient | null = null;
+  private ircClient: any | null = null;
   private config: ScuttlebotConfig | null = null;
   private nick: string = '';
   private enabled: boolean = false;
@@ -56,8 +55,8 @@ export class ScuttlebotClient {
     const sessionSuffix = sessionId.slice(0, 8);
     this.nick = process.env.SCUTTLEBOT_NICK || `calliope-${basename}-${sessionSuffix}`;
 
-    // Determine transport
-    this.transport = (process.env.SCUTTLEBOT_TRANSPORT as 'http' | 'irc') || 'http';
+    // Determine transport - default to IRC for native relay
+    this.transport = (process.env.SCUTTLEBOT_TRANSPORT as 'http' | 'irc') || 'irc';
 
     this.config = {
       url,
@@ -100,6 +99,8 @@ export class ScuttlebotClient {
   private async initializeIRC(): Promise<void> {
     if (!this.config) throw new Error('Config not initialized');
     
+    // Lazy import IRC client to avoid dependency issues
+    const { ScuttlebotIRCClient } = await import('./irc-client.js');
     this.ircClient = new ScuttlebotIRCClient({
       ...this.config,
       ircAddr: process.env.SCUTTLEBOT_IRC_ADDR,
@@ -116,7 +117,7 @@ export class ScuttlebotClient {
     }
 
     // Set up message handler
-    this.ircClient.onMessage((nick, channel, text) => {
+    this.ircClient.onMessage((nick: string, channel: string, text: string) => {
       if (this.instructionHandler) {
         this.instructionHandler(text);
       }
