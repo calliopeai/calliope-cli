@@ -55,8 +55,8 @@ export class ScuttlebotClient {
     const sessionSuffix = sessionId.slice(0, 8);
     this.nick = process.env.SCUTTLEBOT_NICK || `calliope-${basename}-${sessionSuffix}`;
 
-    // Determine transport - default to IRC for native relay
-    this.transport = (process.env.SCUTTLEBOT_TRANSPORT as 'http' | 'irc') || 'irc';
+    // Determine transport - prefer IRC for native relay, fallback to HTTP if dependency missing
+    this.transport = (process.env.SCUTTLEBOT_TRANSPORT as 'http' | 'irc') || 'http';
 
     this.config = {
       url,

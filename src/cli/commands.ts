@@ -180,7 +180,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
             console.log(color('  SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
             console.log(color('  SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
             console.log(color('  SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (optional)');
-            console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+            console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: irc)');
             console.log();
             console.log('Or set them inline:');
             console.log(color('  export SCUTTLEBOT_URL=http://localhost:3000', 'dim'));
