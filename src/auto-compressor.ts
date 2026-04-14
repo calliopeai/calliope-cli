@@ -7,6 +7,7 @@
 
 import { chat } from './providers/index.js';
 import { summarizeMessages, estimateTotalTokens } from './summarization.js';
+import { estimateInputTokens } from './providers/types.js';
 import type { Message as LLMMessage, LLMProvider, Tool } from './types.js';
 
 // ============================================================================
@@ -170,7 +171,8 @@ export async function autoCompress(
   provider: LLMProvider,
   model?: string,
 ): Promise<CompressionResult> {
-  const currentTokens = estimateTotalTokens(messages);
+  // Use the same token estimation method as the UI to avoid threshold mismatches
+  const currentTokens = estimateInputTokens(messages, []);
   const status = getAutoCompressorStatus(currentTokens, contextLimit);
 
   // Not over threshold — no compression needed
@@ -239,7 +241,7 @@ export async function autoCompress(
     ...toKeep,
   ];
 
-  const compressedTokens = estimateTotalTokens(compressed);
+  const compressedTokens = estimateInputTokens(compressed, []);
   if (compressedTokens >= currentTokens) {
     return {
       compressed: false,
