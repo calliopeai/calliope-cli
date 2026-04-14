@@ -141,8 +141,19 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   const scuttlebotEnabled = await scuttlebotClient.initialize(session.id, state.cwd);
   if (scuttlebotEnabled) {
     const scuttlebotStatus = scuttlebotClient.getStatus();
-    debugLog(`scuttlebot: enabled, nick=${scuttlebotStatus.nick}, transport=${scuttlebotStatus.config?.transport}`);
+    debugLog(`scuttlebot: enabled, nick=${scuttlebotStatus.nick}, irc=${scuttlebotStatus.config?.ircAddr}`);
     await scuttlebotClient.postOnline();
+
+    // Route incoming IRC instructions into the agent loop
+    scuttlebotClient.startPolling(async (instruction) => {
+      // If the CLI is currently waiting for user input, we'll need to interrupt it
+      // For now, we'll just run the agent with the new instruction if it's not already running.
+      if (!state.loopActive) {
+        process.stdout.write(`\r${color('IRC instruction:', 'cyan')} ${instruction}\n`);
+        await runAgent(instruction, state);
+        promptUser();
+      }
+    });
   }
 
   // Log tmux context
@@ -217,6 +228,11 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
         await handleCommand(input, state, rl);
         if (state.running) promptUser();
         return;
+      }
+
+      // Mirror user input to IRC so observers see what prompted each agent run
+      if (scuttlebotEnabled) {
+        scuttlebotClient.postMessage(input).catch(() => {});
       }
 
       await runAgent(input, state);

@@ -86,6 +86,12 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
           toolCalls: response.toolCalls,
         });
 
+        // Mirror any text the assistant produced alongside the tool calls
+        // (the "thinking out loud" content before invoking tools)
+        if (scuttlebotClient.isEnabled() && response.content) {
+          scuttlebotClient.mirrorAssistant(response.content).catch(() => {});
+        }
+
         for (const toolCall of response.toolCalls) {
           const preHookResult = await hooks.checkHooksAllow('pre-tool', {
             tool: toolCall.name,

@@ -1,46 +1,49 @@
 /**
  * Scuttlebot HTTP API Client
  *
- * Provides HTTP-based transport for scuttlebot integration.
- * Used when SCUTTLEBOT_TRANSPORT=http or as a fallback.
+ * Provides agent registration and health check via the scuttlebot HTTP API.
+ * All runtime messaging goes through IRC (see irc-client.ts).
  */
 
 export interface ScuttlebotConfig {
+  /** HTTP API base URL for registration (e.g. "http://localhost:3000"). */
   url: string;
+  /** API bearer token. */
   token: string;
+  /** IRC server address, host:port (e.g. "127.0.0.1:6667"). */
+  ircAddr: string;
+  /** Primary channel (no # prefix). */
   channel: string;
-  channels?: string[];
+  /** All channels (no # prefix). */
+  channels: string[];
+  /** Agent nick. */
   nick?: string;
-  transport?: 'http' | 'irc';
 }
 
-export interface Message {
+export interface AgentCredentials {
   nick: string;
-  text: string;
-  timestamp: string;
-}
-
-export interface AgentRegistration {
-  nick: string;
-  password: string;
-  agentType?: string;
+  passphrase: string;
 }
 
 export class ScuttlebotHTTPClient {
   private config: ScuttlebotConfig;
-  private lastCheckTimestamp: string;
 
   constructor(config: ScuttlebotConfig) {
     this.config = config;
-    this.lastCheckTimestamp = new Date().toISOString();
   }
 
   /**
-   * Register an agent and get IRC credentials
+   * Register an agent (or rotate if already registered) and return IRC credentials.
+   *
+   * Mirrors the relay's registerOrRotate logic:
+   *   POST /v1/agents/register → 201 Created: use passphrase
+   *                            → 409 Conflict: rotate instead
+   *   POST /v1/agents/{nick}/rotate → use new passphrase
    */
-  async register(nick: string, agentType?: string): Promise<AgentRegistration> {
-    const url = `${this.config.url}/v1/agents/register`;
-    const response = await fetch(url, {
+  async register(nick: string, agentType?: string, channels?: string[]): Promise<AgentCredentials> {
+    const raw = channels || this.config.channels;
+    const channelList = raw.map(c => c.startsWith('#') ? c : `#${c}`);
+    const registerResp = await fetch(`${this.config.url}/v1/agents/register`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${this.config.token}`,
@@ -48,115 +51,90 @@ export class ScuttlebotHTTPClient {
       },
       body: JSON.stringify({
         nick,
-        agent_type: agentType || 'calliope',
+        type: agentType || 'worker',
+        channels: channelList,
       }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Registration failed: ${response.status} ${response.statusText}`);
+    if (registerResp.status === 201) {
+      const data = await registerResp.json() as {
+        credentials: { nick: string; passphrase: string };
+      };
+      return { nick: data.credentials.nick, passphrase: data.credentials.passphrase };
     }
 
-    const data = await response.json() as any;
-    return {
-      nick: data.nick,
-      password: data.password,
-      agentType: data.agent_type,
-    };
+    if (registerResp.status === 409) {
+      // Nick already registered — rotate to get fresh credentials
+      return this.rotate(nick);
+    }
+
+    const body = await registerResp.text().catch(() => '');
+    throw new Error(`Registration failed: ${registerResp.status} ${registerResp.statusText}${body ? ` — ${body}` : ''}`);
   }
 
   /**
-   * Post a message to a channel via HTTP
+   * Rotate credentials for an existing agent nick.
+   *
+   * POST /v1/agents/{nick}/rotate
    */
-  async postMessage(channel: string, text: string, nick?: string): Promise<void> {
-    const channelName = channel.startsWith('#') ? channel.slice(1) : channel;
-    const url = `${this.config.url}/v1/channels/${channelName}/messages`;
-    
-    const response = await fetch(url, {
+  async rotate(nick: string): Promise<AgentCredentials> {
+    const response = await fetch(`${this.config.url}/v1/agents/${nick}/rotate`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.config.token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        nick: nick || this.config.nick || 'calliope',
-        text,
-      }),
+      headers: { 'Authorization': `Bearer ${this.config.token}` },
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to post message: ${response.status} ${response.statusText}`);
+      const body = await response.text().catch(() => '');
+      throw new Error(`Rotate failed: ${response.status} ${response.statusText}${body ? ` — ${body}` : ''}`);
+    }
+
+    const data = await response.json() as { passphrase: string };
+    return { nick, passphrase: data.passphrase };
+  }
+
+  /**
+   * Delete agent registration on close (session cleanup).
+   *
+   * DELETE /v1/agents/{nick}
+   */
+  async deleteAgent(nick: string): Promise<void> {
+    try {
+      await fetch(`${this.config.url}/v1/agents/${nick}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${this.config.token}` },
+      });
+    } catch {
+      // Best-effort
     }
   }
 
   /**
-   * Get recent messages from a channel
+   * Touch presence for a nick in a channel — marks the agent as online
+   * in the registry. Required for the admin UI to show the agent as live.
+   *
+   * POST /v1/channels/{channel}/presence
    */
-  async getMessages(channel: string, since?: string): Promise<Message[]> {
+  async touchPresence(channel: string, nick: string): Promise<void> {
+    if (!this.config.url || !this.config.token) return;
     const channelName = channel.startsWith('#') ? channel.slice(1) : channel;
-    const url = `${this.config.url}/v1/channels/${channelName}/messages`;
-    
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${this.config.token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get messages: ${response.status} ${response.statusText}`);
+    try {
+      await fetch(`${this.config.url}/v1/channels/${channelName}/presence`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.config.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ nick }),
+      });
+    } catch {
+      // Silently fail — presence is best-effort
     }
-
-    const messages = await response.json() as Message[];
-    
-    // Filter to messages after the given timestamp
-    if (since) {
-      return messages.filter(m => m.timestamp > since);
-    }
-    
-    return messages;
   }
 
   /**
-   * Poll for new messages addressed to this session
-   */
-  async pollForInstructions(myNick: string, serviceBots: Set<string>): Promise<string | null> {
-    const newMessages = await this.getMessages(
-      this.config.channel,
-      this.lastCheckTimestamp
-    );
-
-    if (newMessages.length === 0) {
-      return null;
-    }
-
-    // Update timestamp for next poll
-    this.lastCheckTimestamp = newMessages[newMessages.length - 1].timestamp;
-
-    // Filter to messages mentioning this session
-    const addressed = newMessages.filter(msg => {
-      // Skip self
-      if (msg.nick === myNick) return false;
-      
-      // Skip service bots
-      if (serviceBots.has(msg.nick)) return false;
-      
-      // Skip other agent sessions
-      if (msg.nick.match(/^(claude|codex|gemini|calliope)-/)) return false;
-      
-      // Must mention our nick
-      return msg.text.includes(myNick);
-    });
-
-    if (addressed.length === 0) {
-      return null;
-    }
-
-    // Return the most recent addressed message
-    return addressed[addressed.length - 1].text;
-  }
-
-  /**
-   * Check server health
+   * Check server health.
+   *
+   * GET /v1/status
    */
   async healthCheck(): Promise<boolean> {
     try {

@@ -149,7 +149,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
       if (scuttlebotClient.isEnabled()) {
         const sbStatus = scuttlebotClient.getStatus();
         console.log(`Scuttlebot: ${color('enabled', 'green')} (${sbStatus.nick})`);
-        console.log(`  Transport: ${sbStatus.config?.transport}`);
+        console.log(`  IRC: ${sbStatus.config?.ircAddr}`);
         console.log(`  Channel: ${sbStatus.config?.channel}`);
       }
       
@@ -169,28 +169,8 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
             break;
           }
           
-          // Check if env vars are set
-          const url = process.env.SCUTTLEBOT_URL;
-          const token = process.env.SCUTTLEBOT_TOKEN;
-          
-          if (!url || !token) {
-            console.log(color('Cannot enable scuttlebot: missing configuration', 'red'));
-            console.log();
-            console.log('Set these environment variables first:');
-            console.log(color('  SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
-            console.log(color('  SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
-            console.log(color('  SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (optional)');
-            console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: irc)');
-            console.log();
-            console.log('Or set them inline:');
-            console.log(color('  export SCUTTLEBOT_URL=http://localhost:3000', 'dim'));
-            console.log(color('  export SCUTTLEBOT_TOKEN=your-token', 'dim'));
-            console.log(color('  /scuttlebot enable', 'dim'));
-            console.log();
-            break;
-          }
-          
-          // Initialize scuttlebot
+          // Initialize scuttlebot — config loaded from ~/.config/scuttlebot-relay.env,
+          // process.env, and .scuttlebot.yaml inside initialize()
           const sessionId = state.sessionId || 'default';
           const enabled = await scuttlebotClient.initialize(sessionId, state.cwd);
           
@@ -198,7 +178,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
             const status = scuttlebotClient.getStatus();
             console.log(color('✓ Scuttlebot enabled!', 'green'));
             console.log(`  Nick:      ${color(status.nick || '', 'cyan')}`);
-            console.log(`  Transport: ${status.config?.transport}`);
+            console.log(`  IRC:       ${status.config?.ircAddr}`);
             console.log(`  Channel:   #${status.config?.channel}`);
             if (status.config?.channels && status.config.channels.length > 1) {
               console.log(`  Channels:  ${status.config.channels.map(c => '#' + c).join(', ')}`);
@@ -236,10 +216,10 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
           console.log();
           console.log('To enable scuttlebot:');
           console.log(color('  1. Set environment variables:', 'bold'));
-          console.log(color('     SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
+          console.log(color('     SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot API URL');
           console.log(color('     SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
           console.log(color('     SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (optional)');
-          console.log(color('     SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+          console.log(color('     SCUTTLEBOT_IRC_ADDR', 'cyan') + '    - IRC server (default: 127.0.0.1:6667)');
           console.log();
           console.log(color('  2. Run:', 'bold'));
           console.log(color('     /scuttlebot enable', 'cyan'));
@@ -253,7 +233,7 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
         console.log(color('─'.repeat(40), 'dim'));
         console.log(`Enabled:     ${color('yes', 'green')}`);
         console.log(`Nick:        ${color(sbStatus.nick || '', 'cyan')}`);
-        console.log(`Transport:   ${sbStatus.config?.transport}`);
+        console.log(`IRC:         ${sbStatus.config?.ircAddr}`);
         console.log(`Channel:     #${sbStatus.config?.channel}`);
         console.log(`Connected:   ${sbStatus.connected ? color('yes', 'green') : color('no', 'red')}`);
         if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {

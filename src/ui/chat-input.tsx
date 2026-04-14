@@ -147,6 +147,30 @@ export function ChatInput({
         return;
       }
 
+      // Alt+Backspace or Alt+Delete for word deletion (Mac Option+Delete)
+      const isWordDelete = (key.backspace || key.delete || input === '\x7f' || input === '\b') && key.meta;
+      if (isWordDelete) {
+        if (cursor > 0) {
+          // Find start of current word (delete backwards to word boundary)
+          let wordStart = cursor - 1;
+          // Skip whitespace
+          while (wordStart > 0 && /\s/.test(currentValue[wordStart])) {
+            wordStart--;
+          }
+          // Skip non-whitespace (the word)
+          while (wordStart > 0 && !/\s/.test(currentValue[wordStart])) {
+            wordStart--;
+          }
+          // If we stopped at whitespace, move forward one
+          if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart])) {
+            wordStart++;
+          }
+          const newValue = currentValue.slice(0, wordStart) + currentValue.slice(cursor);
+          updateValue(newValue, wordStart);
+        }
+        return;
+      }
+
       // Backspace - support multiple variants including Mac delete key
       const isBackspace = key.backspace || key.delete || (key.ctrl && input === 'h') || input === '\x7f' || input === '\b';
       if (isBackspace) {
@@ -204,6 +228,7 @@ export function ChatInput({
       }
 
       // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
+      // On Mac, Option key is detected as key.meta
       if (key.return && (key.meta || key.ctrl)) {
         updateValue(currentValue + '\n');
         return;
@@ -269,6 +294,7 @@ export function ChatInput({
     }
 
     // Alt+Enter or Ctrl+Enter to insert newline (multiline input)
+    // On Mac, Option key is detected as key.meta
     if (key.return && (key.meta || key.ctrl)) {
       updateValue(currentValue + '\n');
       return;
@@ -294,6 +320,30 @@ export function ChatInput({
     }
     if (key.rightArrow) {
       updateCursor(cursor + 1);
+      return;
+    }
+
+    // Alt+Backspace or Alt+Delete for word deletion (Mac Option+Delete)
+    const isWordDelete = (key.backspace || key.delete || input === '\x7f' || input === '\b') && key.meta;
+    if (isWordDelete) {
+      if (cursor > 0) {
+        // Find start of current word (delete backwards to word boundary)
+        let wordStart = cursor - 1;
+        // Skip whitespace
+        while (wordStart > 0 && /\s/.test(currentValue[wordStart])) {
+          wordStart--;
+        }
+        // Skip non-whitespace (the word)
+        while (wordStart > 0 && !/\s/.test(currentValue[wordStart])) {
+          wordStart--;
+        }
+        // If we stopped at whitespace, move forward one
+        if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart])) {
+          wordStart++;
+        }
+        const newValue = currentValue.slice(0, wordStart) + currentValue.slice(cursor);
+        updateValue(newValue, wordStart);
+      }
       return;
     }
 

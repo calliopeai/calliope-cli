@@ -5,11 +5,27 @@ import { parse as parseYaml } from 'yaml';
 export interface RepoScuttlebotConfig {
   channel?: string;
   channels?: string[];
+  /** HTTP API base URL (e.g. "https://scuttlebot.net"). Not a secret — safe in yaml. */
+  url?: string;
+  /** IRC server address "host:port" (e.g. "irc.scuttlebot.net:6667"). */
+  irc_addr?: string;
+  /** Use TLS for IRC. Inferred from port 6697 if not specified. */
+  tls?: boolean;
+  /** Stable pre-registered IRC nick. Overridden by SCUTTLEBOT_NICK env var. */
+  nick?: string;
 }
 
 export interface ResolvedChannelConfig {
   channel: string;
   channels: string[];
+  /** From .scuttlebot.yaml url field (overridden by SCUTTLEBOT_URL env var). */
+  url?: string;
+  /** From .scuttlebot.yaml irc_addr field (overridden by SCUTTLEBOT_IRC_ADDR env var). */
+  ircAddr?: string;
+  /** From .scuttlebot.yaml tls field. */
+  tls?: boolean;
+  /** From .scuttlebot.yaml nick field (overridden by SCUTTLEBOT_NICK env var). */
+  nick?: string;
 }
 
 function normalizeChannelName(channel: string): string {
@@ -70,6 +86,10 @@ export function loadRepoConfig(dir: string): RepoScuttlebotConfig | null {
         channels: Array.isArray(config.channels)
           ? config.channels.filter((value): value is string => typeof value === 'string')
           : undefined,
+        url: typeof config.url === 'string' ? config.url : undefined,
+        irc_addr: typeof config.irc_addr === 'string' ? config.irc_addr : undefined,
+        tls: typeof config.tls === 'boolean' ? config.tls : undefined,
+        nick: typeof config.nick === 'string' ? config.nick : undefined,
       };
     }
 
@@ -105,5 +125,9 @@ export function resolveChannelConfig(cwd: string, channel?: string, channelsEnv?
   return {
     channel: channels[0],
     channels,
+    url: repoConfig?.url,
+    ircAddr: repoConfig?.irc_addr,
+    tls: repoConfig?.tls,
+    nick: repoConfig?.nick,
   };
 }

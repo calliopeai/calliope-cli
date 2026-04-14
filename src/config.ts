@@ -128,7 +128,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   borderStyle: 'rounded',
   bannerStyle: 'full',
   renderer: 'ink',
-  circuitBreakersEnabled: true,
+  circuitBreakersEnabled: false,
   sandboxMode: 'auto',
   smartRoutingEnabled: false,
   smartRoutingCostSensitivity: 0.3,

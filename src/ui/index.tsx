@@ -256,6 +256,15 @@ function TerminalChat() {
     queuedMessagesRef.current = queuedMessages;
   }, [queuedMessages]);
 
+  // Refs for scuttlebot polling — avoids stale closures across re-renders
+  const isProcessingRef = useRef(false);
+  const handleSubmitRef = useRef<(value: string) => Promise<void>>(async () => {});
+
+  // Keep isProcessingRef in sync
+  useEffect(() => {
+    isProcessingRef.current = isProcessing;
+  }, [isProcessing]);
+
   // Undo/Redo history - stores snapshots of conversation state
   const undoStack = useRef<ConversationSnapshot[]>([]);
   const redoStack = useRef<ConversationSnapshot[]>([]);
@@ -371,23 +380,8 @@ function TerminalChat() {
   useEffect(() => {
     const cwd = process.cwd();
 
-    // Check for existing session with messages
-    const existingSessions = storage.listSessions(5);
-    const recentSession = existingSessions.find(s =>
-      s.projectPath === cwd &&
-      s.messageCount > 0 &&
-      Date.now() - new Date(s.lastAccessedAt).getTime() < 24 * 60 * 60 * 1000 // Within 24 hours
-    );
-
-    if (recentSession && !sessionRef.current) {
-      // Offer to resume
-      setPreviousSession({
-        projectName: recentSession.projectName,
-        lastAccessedAt: recentSession.lastAccessedAt,
-        messageCount: recentSession.messageCount,
-      });
-      setModalMode('session-resume');
-    }
+    // Always start fresh session - skip resume dialog
+    // Note: Previous session data is still available via storage APIs if needed
 
     const session = storage.getOrCreateSession(cwd);
     sessionRef.current = session;
@@ -438,9 +432,17 @@ function TerminalChat() {
       scuttlebotClient.initialize(session.id, cwdMem).then((enabled) => {
         if (enabled) {
           const status = scuttlebotClient.getStatus();
-          debugLog('scuttlebot', `enabled, nick=${status.nick}, transport=${status.config?.transport}`);
+          debugLog('scuttlebot', `enabled, nick=${status.nick}, irc=${status.config?.ircAddr}`);
           scuttlebotClient.postOnline().catch(() => {
             // Silent fail on presence post
+          });
+          // Route incoming IRC instructions into the agent loop
+          scuttlebotClient.startPolling((instruction) => {
+            if (isProcessingRef.current) {
+              setQueuedMessages(prev => [...prev, instruction]);
+            } else {
+              void handleSubmitRef.current(instruction);
+            }
           });
         }
       }).catch((err) => {
@@ -664,6 +666,15 @@ function TerminalChat() {
     runAgent,
     runLoop,
     exit,
+    startScuttlebotPolling: () => {
+      scuttlebotClient.startPolling((instruction) => {
+        if (isProcessingRef.current) {
+          setQueuedMessages(prev => [...prev, instruction]);
+        } else {
+          void handleSubmitRef.current(instruction);
+        }
+      });
+    },
   }), [actualProvider, actualModel, provider, model, persona, mode, confirmMode, autoRoute, smartRouteActive,
        layout, density, collapseSettings, messages, stats, loopActive, isProcessing,
        thinkingState, streamingResponse, queuedMessages, bookmarks, templates, modalMode,
@@ -743,6 +754,11 @@ function TerminalChat() {
       addMessage('user', trimmed);
     }
 
+    // Mirror user input to IRC so observers see what prompted each agent run
+    if (scuttlebotClient.isEnabled()) {
+      scuttlebotClient.postMessage(cleanText || trimmed).catch(() => {});
+    }
+
     setIsProcessing(true);
 
     try {
@@ -770,6 +786,11 @@ function TerminalChat() {
       setStreamingResponse('');
     }
   }, [isProcessing, handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, addToHistory, mode]);
+
+  // Keep handleSubmitRef current so scuttlebot polling never captures a stale closure
+  useEffect(() => {
+    handleSubmitRef.current = handleSubmit;
+  }, [handleSubmit]);
 
   // Modal handlers
   const handleModelSelect = useCallback((selectedModel: string) => {

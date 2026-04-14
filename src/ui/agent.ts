@@ -20,6 +20,7 @@ import * as hooks from '../hooks.js';
 import * as modelRouter from '../model-router.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
 import * as summarization from '../summarization.js';
+import { autoCompress } from '../auto-compressor.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { setMood } from '../companions.js';
 import { checkAndWarnContextLimit } from './context.js';
@@ -242,31 +243,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   // Adaptive preserveRecent: small models keep fewer messages to leave room for output
   const preserveRecent = modelLimit < 8000 ? 2 : modelLimit < 16000 ? 4 : modelLimit < 32000 ? 6 : modelLimit < 64000 ? 10 : 15;
 
-  // Auto-compact if we're over 75% capacity to prevent API errors
-  if (contextPercentage > 75) {
-    ctx.addMessage('system', `🔄 Context at ${Math.round(contextPercentage)}% - auto-compacting to prevent errors...`);
-    const result = summarization.summarizeConversation(ctx.llmMessages.current, {
-      maxTokens: Math.floor(modelLimit * 0.7), // Target 70% of limit after compaction
-      preserveRecent,
-    });
-    if (result.summarizedCount > 0) {
-      ctx.llmMessages.current = result.messages;
-      currentContextTokens = ctx.estimateContextTokens();
-      contextPercentage = (currentContextTokens / modelLimit) * 100;
-      ctx.setContextTokens(currentContextTokens);
-      ctx.addMessage('system', `✓ Compacted ${result.summarizedCount} messages. Now at ${Math.round(contextPercentage)}% (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K)`);
-    } else {
-      // If compaction didn't help enough, force-trim old messages
-      if (contextPercentage > 98) {
-        const systemMsgs = ctx.llmMessages.current.filter(m => m.role === 'system');
-        const recentMsgs = ctx.llmMessages.current.filter(m => m.role !== 'system').slice(-5);
-        ctx.llmMessages.current = [...systemMsgs, ...recentMsgs];
-        currentContextTokens = ctx.estimateContextTokens();
-        contextPercentage = (currentContextTokens / modelLimit) * 100;
-        ctx.setContextTokens(currentContextTokens);
-        ctx.addMessage('system', `⚠️  Force-trimmed to last 5 messages (${Math.round(contextPercentage)}%). Use /clear for a full reset.`);
-      }
-    }
+  // Auto-compact using the new auto-compressor
+  const autoCompressResult = await autoCompress(ctx.llmMessages.current, modelLimit, ctx.provider, effectiveModel);
+  if (autoCompressResult.compressed) {
+    ctx.llmMessages.current = autoCompressResult.messages;
+    currentContextTokens = ctx.estimateContextTokens();
+    contextPercentage = (currentContextTokens / modelLimit) * 100;
+    ctx.setContextTokens(currentContextTokens);
+    ctx.addMessage('system', `🔄 Auto-compressed ${autoCompressResult.summarizedCount} messages using ${autoCompressResult.method} (${Math.round(autoCompressResult.originalTokens/1000)}K → ${Math.round(autoCompressResult.compressedTokens/1000)}K tokens)`);
   } else if (contextPercentage > 65) {
     ctx.addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
    Consider: /summarize compact | /clear | shorter messages`);
@@ -289,18 +273,11 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     // Safety check at start of each iteration - context may have grown from tool results
     if (i > 0) {
       const iterContextTokens = ctx.estimateContextTokens();
-      const iterContextPercentage = (iterContextTokens / modelLimit) * 100;
-      if (iterContextPercentage > 75) {
-        ctx.addMessage('system', `🔄 Context grew to ${Math.round(iterContextPercentage)}% - auto-compacting...`);
-        const result = summarization.summarizeConversation(ctx.llmMessages.current, {
-          maxTokens: Math.floor(modelLimit * 0.7),
-          preserveRecent,
-        });
-        if (result.summarizedCount > 0) {
-          ctx.llmMessages.current = result.messages;
-          ctx.setContextTokens(ctx.estimateContextTokens());
-          ctx.addMessage('system', `✓ Compacted ${result.summarizedCount} messages during iteration ${i + 1}`);
-        }
+      const iterAutoCompressResult = await autoCompress(ctx.llmMessages.current, modelLimit, ctx.provider, effectiveModel);
+      if (iterAutoCompressResult.compressed) {
+        ctx.llmMessages.current = iterAutoCompressResult.messages;
+        ctx.setContextTokens(ctx.estimateContextTokens());
+        ctx.addMessage('system', `🔄 Auto-compressed ${iterAutoCompressResult.summarizedCount} messages during iteration ${i + 1} (${iterAutoCompressResult.method})`);
       }
     }
 
@@ -414,6 +391,11 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           content: response.content,
           toolCalls: response.toolCalls,
         });
+
+        // Mirror any text the assistant produced alongside the tool calls
+        if (scuttlebotClient.isEnabled() && response.content) {
+          scuttlebotClient.mirrorAssistant(response.content).catch(() => {});
+        }
 
         // ============================================================
         // Phase 1: Pre-check all tools, categorize into blocked vs executable

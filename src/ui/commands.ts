@@ -130,6 +130,7 @@ export interface CommandContext {
   runAgent: (content: MessageContent) => Promise<void>;
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
   exit: () => void;
+  startScuttlebotPolling: () => void;
 }
 
 // Builds the full system prompt including memory context (project + global).
@@ -230,7 +231,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /persona [name]            - Switch personality
   /route [on|off]            - Auto model routing (/autoroute)
   /smart [on|off|cost|test]  - Cross-provider smart routing
-  /breaker [status|resume]   - Circuit breaker control (/cb)
+  /breaker [status|adjust]   - Circuit breaker control (/cb)
 
 --- Conversation ---
   /edit                      - Edit and resend last message
@@ -536,7 +537,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       // Add scuttlebot status if enabled
       if (scuttlebotClient.isEnabled()) {
         const sbStatus = scuttlebotClient.getStatus();
-        statusMsg += `\nScuttlebot: enabled (${sbStatus.nick}) | ${sbStatus.config?.transport} | #${sbStatus.config?.channel}`;
+        statusMsg += `\nScuttlebot: enabled (${sbStatus.nick}) | irc:${sbStatus.config?.ircAddr} | #${sbStatus.config?.channel}`;
       }
       
       ctx.addMessage('system', statusMsg);
@@ -554,16 +555,8 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
           break;
         }
         
-        // Check if env vars are set
-        const url = process.env.SCUTTLEBOT_URL;
-        const token = process.env.SCUTTLEBOT_TOKEN;
-        
-        if (!url || !token) {
-          ctx.addMessage('system', 'Cannot enable scuttlebot: missing configuration\n\nSet these environment variables first:\n  SCUTTLEBOT_URL - scuttlebot server URL\n  SCUTTLEBOT_TOKEN - API token\n  SCUTTLEBOT_CHANNEL - IRC channel (optional)\n  SCUTTLEBOT_TRANSPORT - http or irc (default: http)\n\nThen run: /scuttlebot enable');
-          break;
-        }
-        
-        // Initialize scuttlebot
+        // Initialize scuttlebot — config is loaded from ~/.config/scuttlebot-relay.env,
+        // process.env, and .scuttlebot.yaml inside initialize()
         const sessionId = ctx.sessionRef.current?.id || 'default';
         const cwd = getActiveProjectDir(ctx);
         scuttlebotClient.initialize(sessionId, cwd).then(async (enabled) => {
@@ -571,15 +564,16 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
             const status = scuttlebotClient.getStatus();
             let msg = '✓ Scuttlebot enabled!\n';
             msg += `  Nick:      ${status.nick}\n`;
-            msg += `  Transport: ${status.config?.transport}\n`;
+            msg += `  IRC:       ${status.config?.ircAddr}\n`;
             msg += `  Channel:   #${status.config?.channel}`;
             if (status.config?.channels && status.config.channels.length > 1) {
               msg += `\n  Channels:  ${status.config.channels.map((c: string) => '#' + c).join(', ')}`;
             }
             ctx.addMessage('system', msg);
-            
-            // Post online status
+
+            // Post online status and start routing IRC instructions
             await scuttlebotClient.postOnline();
+            ctx.startScuttlebotPolling();
           } else {
             ctx.addMessage('system', 'Failed to enable scuttlebot');
           }
@@ -608,14 +602,14 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       
       // Show status
       if (!sbStatus.enabled) {
-        ctx.addMessage('system', 'Scuttlebot integration not enabled.\n\nTo enable scuttlebot:\n  1. Set environment variables:\n     SCUTTLEBOT_URL - server URL\n     SCUTTLEBOT_TOKEN - API token\n     SCUTTLEBOT_CHANNEL - IRC channel (optional)\n     SCUTTLEBOT_TRANSPORT - http or irc (default: http)\n\n  2. Run: /scuttlebot enable\n\nNote: Channel config from .scuttlebot.yaml will be used if present');
+        ctx.addMessage('system', 'Scuttlebot not enabled.\n\nRun: /scuttlebot enable\n\nConfig is loaded automatically from ~/.config/scuttlebot-relay.env\nChannel is read from .scuttlebot.yaml');
         break;
       }
       
       let statusText = 'Scuttlebot Status\n────────────────────────────────────────\n';
       statusText += `Enabled:     yes\n`;
       statusText += `Nick:        ${sbStatus.nick}\n`;
-      statusText += `Transport:   ${sbStatus.config?.transport}\n`;
+      statusText += `IRC:         ${sbStatus.config?.ircAddr}\n`;
       statusText += `Channel:     #${sbStatus.config?.channel}\n`;
       statusText += `Connected:   ${sbStatus.connected ? 'yes' : 'no'}`;
       if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
@@ -2806,47 +2800,238 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         ctx.addMessage('system', `\u2713 Circuit breaker${breakerType ? ` "${breakerType}"` : 's'} reset to closed`);
       } else if (subCmd === 'off') {
         config.set('circuitBreakersEnabled', false);
-        ctx.addMessage('system', '\u2713 Circuit breakers disabled (will take effect on next agent run)');
+        // Also disable the current circuit breaker instance if it exists
+        if (ctx.circuitBreaker) {
+          ctx.circuitBreaker = undefined;
+          ctx.setBreakerHealth?.('ok');
+        }
+        ctx.addMessage('system', '\u2713 Circuit breakers disabled');
       } else if (subCmd === 'on') {
         config.set('circuitBreakersEnabled', true);
-      } else if (subCmd === 'adjust' && parts[2] === 'cost-runaway') {
+        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
+      } else if (subCmd === 'adjust') {
+        const breakerTypeString = parts[2];
         const param = parts[3];
-        const value = parseFloat(parts[4]);
+        const rawValue = parts[4];
         
-        if (!param || !parts[4]) {
-          const currentConfig = ctx.circuitBreaker.getConfig();
-          const costConfig = currentConfig.breakers['cost-runaway'];
-          ctx.addMessage('system', `Cost Circuit Breaker Thresholds:
-  maxSessionCost: $${costConfig.maxSessionCost} per session
-  maxCostPerMinute: $${costConfig.maxCostPerMinute} per minute
-  windowSizeMs: ${costConfig.windowSizeMs}ms
+        // Handle special 'list' command to show detailed parameter info
+        if (breakerTypeString === 'list') {
+          ctx.addMessage('system', `Circuit Breaker Configuration Reference:
 
-Usage: /breaker adjust cost-runaway <param> <value>
-  /breaker adjust cost-runaway maxSessionCost <dollars>
-  /breaker adjust cost-runaway maxCostPerMinute <dollars>
-  /breaker adjust cost-runaway windowSizeMs <milliseconds>`);
-        } else if (isNaN(value) || value <= 0) {
-          ctx.addMessage('error', 'Value must be a positive number');
-        } else if (['maxSessionCost', 'maxCostPerMinute', 'windowSizeMs'].includes(param)) {
-          const oldConfig = ctx.circuitBreaker.getConfig().breakers['cost-runaway'];
-          const oldValue = (oldConfig as any)[param];
+📊 REPEATED-FAILURE (Consecutive Errors)
+  • maxConsecutiveErrors: Number of consecutive errors before tripping (default: 3)
+  Example: /breaker adjust repeated-failure maxConsecutiveErrors 5
+
+💰 COST-RUNAWAY (Spending Control)
+  • maxSessionCost: Maximum total cost per session in USD (default: $5.0)
+  • maxCostPerMinute: Maximum spending rate per minute in USD (default: $1.0)
+  • windowSizeMs: Sliding window size for rate calculation in milliseconds (default: 60000)
+  Examples:
+    /breaker adjust cost-runaway maxSessionCost 10.0
+    /breaker adjust cost-runaway maxCostPerMinute 2.0
+
+🔄 INFINITE-LOOP (Repetitive Behavior)
+  • maxIdenticalInWindow: Max identical tool calls in window before tripping (default: 3)
+  • windowSize: Number of recent tool calls to analyze (default: 6)
+  • detectOscillation: Detect A-B-A-B oscillation patterns (default: true)
+  Examples:
+    /breaker adjust infinite-loop maxIdenticalInWindow 5
+    /breaker adjust infinite-loop detectOscillation false
+
+🔥 TOKEN-BURN (Token Usage Limits)
+  • maxTokensPerIteration: Max tokens per single iteration (default: 200,000)
+  • maxTotalTokens: Max total tokens per session (default: 5,000,000)
+  Examples:
+    /breaker adjust token-burn maxTokensPerIteration 100000
+    /breaker adjust token-burn maxTotalTokens 1000000
+
+⏸️  STALL (Progress Detection)
+  • maxIdleIterations: Max iterations with no tool calls/content (default: 5)
+  Example: /breaker adjust stall maxIdleIterations 3
+
+⏰ WALL-CLOCK (Time Limits)
+  • maxSessionDurationMs: Max session duration in milliseconds (0 = unlimited, default: 0)
+  • maxIterationDurationMs: Max single iteration duration in milliseconds (default: 600000 = 10 min)
+  Examples:
+    /breaker adjust wall-clock maxSessionDurationMs 3600000  # 1 hour
+    /breaker adjust wall-clock maxIterationDurationMs 300000  # 5 minutes
+
+Quick Commands:
+  /breaker adjust <type>              - Show current settings for that type
+  /breaker adjust                     - Show types overview
+  /breaker status                     - Show current breaker states`);
+          break;
+        }
+
+        // Show basic types overview if no type specified
+        if (!breakerTypeString) {
+          ctx.addMessage('system', `Circuit Breaker Types Available for Configuration:
+
+  repeated-failure  - Consecutive errors before tripping
+  cost-runaway      - Spending rate and total cost limits  
+  infinite-loop     - Identical tool calls and oscillation detection
+  token-burn        - Token usage per iteration and total limits
+  stall             - Idle iterations without progress
+  wall-clock        - Time-based session and iteration limits
+
+Usage: /breaker adjust <type> [param] [value]
+       /breaker adjust list                   - Show detailed parameter reference
+
+Examples:
+  /breaker adjust repeated-failure          - Show current settings
+  /breaker adjust cost-runaway maxSessionCost 10.0
+  /breaker adjust infinite-loop detectOscillation true`);
+          break;
+        }
+
+        // Cast to BreakerType and validate
+        const breakerType = breakerTypeString as BreakerType;
+        const validTypes: BreakerType[] = ['repeated-failure', 'cost-runaway', 'infinite-loop', 'token-burn', 'stall', 'wall-clock'];
+        if (!validTypes.includes(breakerType)) {
+          ctx.addMessage('error', `Invalid breaker type "${breakerType}". Valid types: ${validTypes.join(', ')}`);
+          break;
+        }
+
+        const currentConfig = ctx.circuitBreaker.getConfig();
+        const breakerConfig = currentConfig.breakers[breakerType];
+
+        // Show current configuration if no param specified
+        if (!param) {
+          let configDisplay = `${breakerType} Circuit Breaker Settings:\n`;
           
-          ctx.circuitBreaker.adjust('cost-runaway', { [param]: value });
+          switch (breakerType) {
+            case 'repeated-failure':
+              configDisplay += `  maxConsecutiveErrors: ${(breakerConfig as any).maxConsecutiveErrors} errors\n\nUsage: /breaker adjust repeated-failure <param> <value>\n  /breaker adjust repeated-failure maxConsecutiveErrors <number>`;
+              break;
+            case 'cost-runaway':
+              configDisplay += `  maxSessionCost: ${(breakerConfig as any).maxSessionCost} per session\n  maxCostPerMinute: ${(breakerConfig as any).maxCostPerMinute} per minute\n  windowSizeMs: ${(breakerConfig as any).windowSizeMs}ms\n\nUsage: /breaker adjust cost-runaway <param> <value>\n  /breaker adjust cost-runaway maxSessionCost <dollars>\n  /breaker adjust cost-runaway maxCostPerMinute <dollars>\n  /breaker adjust cost-runaway windowSizeMs <milliseconds>`;
+              break;
+            case 'infinite-loop':
+              configDisplay += `  maxIdenticalInWindow: ${(breakerConfig as any).maxIdenticalInWindow} calls\n  windowSize: ${(breakerConfig as any).windowSize} recent calls\n  detectOscillation: ${(breakerConfig as any).detectOscillation}\n\nUsage: /breaker adjust infinite-loop <param> <value>\n  /breaker adjust infinite-loop maxIdenticalInWindow <number>\n  /breaker adjust infinite-loop windowSize <number>\n  /breaker adjust infinite-loop detectOscillation <true|false>`;
+              break;
+            case 'token-burn':
+              configDisplay += `  maxTokensPerIteration: ${(breakerConfig as any).maxTokensPerIteration.toLocaleString()} tokens\n  maxTotalTokens: ${(breakerConfig as any).maxTotalTokens.toLocaleString()} tokens\n\nUsage: /breaker adjust token-burn <param> <value>\n  /breaker adjust token-burn maxTokensPerIteration <number>\n  /breaker adjust token-burn maxTotalTokens <number>`;
+              break;
+            case 'stall':
+              configDisplay += `  maxIdleIterations: ${(breakerConfig as any).maxIdleIterations} iterations\n\nUsage: /breaker adjust stall <param> <value>\n  /breaker adjust stall maxIdleIterations <number>`;
+              break;
+            case 'wall-clock':
+              const sessionDuration = (breakerConfig as any).maxSessionDurationMs;
+              const iterationDuration = (breakerConfig as any).maxIterationDurationMs;
+              configDisplay += `  maxSessionDurationMs: ${sessionDuration === 0 ? 'unlimited' : sessionDuration + 'ms'}\n  maxIterationDurationMs: ${iterationDuration}ms (${Math.round(iterationDuration/60000)} minutes)\n\nUsage: /breaker adjust wall-clock <param> <value>\n  /breaker adjust wall-clock maxSessionDurationMs <milliseconds>\n  /breaker adjust wall-clock maxIterationDurationMs <milliseconds>`;
+              break;
+          }
           
-          const unit = param === 'windowSizeMs' ? 'ms' : '';
-          const prefix = param === 'windowSizeMs' ? '' : '$';
-          ctx.addMessage('system', `✅ Cost circuit breaker ${param}: ${prefix}${oldValue}${unit} → ${prefix}${value}${unit}`);
+          ctx.addMessage('system', configDisplay);
+          break;
+        }
+
+        // Parse and validate the value
+        let parsedValue: any;
+        
+        // Handle boolean parameters
+        if (param === 'detectOscillation') {
+          if (rawValue === 'true') parsedValue = true;
+          else if (rawValue === 'false') parsedValue = false;
+          else {
+            ctx.addMessage('error', 'detectOscillation must be "true" or "false"');
+            break;
+          }
         } else {
-          ctx.addMessage('error', `Invalid parameter "${param}". Use: maxSessionCost, maxCostPerMinute, or windowSizeMs`);
-        }        ctx.addMessage('system', '\u2713 Circuit breakers enabled');
+          // Handle numeric parameters
+          parsedValue = parseFloat(rawValue);
+          if (isNaN(parsedValue) || parsedValue < 0) {
+            ctx.addMessage('error', 'Value must be a non-negative number');
+            break;
+          }
+        }
+
+        // Validate parameter names for each breaker type
+        const paramValidations: Record<BreakerType, { params: string[], validate?: (param: string, value: any) => string | null }> = {
+          'repeated-failure': { 
+            params: ['maxConsecutiveErrors'],
+            validate: (param, value) => value <= 0 ? 'maxConsecutiveErrors must be > 0' : null
+          },
+          'cost-runaway': { 
+            params: ['maxSessionCost', 'maxCostPerMinute', 'windowSizeMs'],
+            validate: (param, value) => value <= 0 ? `${param} must be > 0` : null
+          },
+          'infinite-loop': { 
+            params: ['maxIdenticalInWindow', 'windowSize', 'detectOscillation'],
+            validate: (param, value) => {
+              if (param === 'detectOscillation') return null; // boolean is already validated above
+              return value <= 0 ? `${param} must be > 0` : null;
+            }
+          },
+          'token-burn': { 
+            params: ['maxTokensPerIteration', 'maxTotalTokens'],
+            validate: (param, value) => value <= 0 ? `${param} must be > 0` : null
+          },
+          'stall': { 
+            params: ['maxIdleIterations'],
+            validate: (param, value) => value <= 0 ? 'maxIdleIterations must be > 0' : null
+          },
+          'wall-clock': { 
+            params: ['maxSessionDurationMs', 'maxIterationDurationMs'],
+            validate: (param, value) => {
+              if (param === 'maxSessionDurationMs' && value === 0) return null; // 0 = unlimited is valid
+              return value < 0 ? `${param} cannot be negative` : null;
+            }
+          }
+        };
+
+        const validation = paramValidations[breakerType];
+        if (!validation.params.includes(param)) {
+          ctx.addMessage('error', `Invalid parameter "${param}" for ${breakerType}. Valid parameters: ${validation.params.join(', ')}`);
+          break;
+        }
+
+        // Run custom validation if provided
+        if (validation.validate) {
+          const error = validation.validate(param, parsedValue);
+          if (error) {
+            ctx.addMessage('error', error);
+            break;
+          }
+        }
+
+        // Update the configuration
+        const oldValue = (breakerConfig as any)[param];
+        ctx.circuitBreaker.adjust(breakerType, { [param]: parsedValue });
+
+        // Format the success message based on parameter type
+        let formattedOld: string, formattedNew: string;
+        
+        if (param === 'detectOscillation') {
+          formattedOld = String(oldValue);
+          formattedNew = String(parsedValue);
+        } else if (param.includes('Cost')) {
+          formattedOld = `${oldValue}`;
+          formattedNew = `${parsedValue}`;
+        } else if (param.includes('Ms')) {
+          formattedOld = oldValue === 0 ? 'unlimited' : `${oldValue}ms`;
+          formattedNew = parsedValue === 0 ? 'unlimited' : `${parsedValue}ms`;
+        } else if (param.includes('Tokens')) {
+          formattedOld = oldValue.toLocaleString();
+          formattedNew = parsedValue.toLocaleString();
+        } else {
+          formattedOld = String(oldValue);
+          formattedNew = String(parsedValue);
+        }
+
+        ctx.addMessage('system', `✅ ${breakerType} ${param}: ${formattedOld} → ${formattedNew}`)
       } else {
         ctx.addMessage('system', `Usage: /breaker [status|resume|reset|adjust|on|off]
   /breaker resume [type]  - Resume tripped breaker (half-open)
   /breaker reset [type]   - Reset breaker to closed
-  /breaker adjust cost-runaway <param> <value> - Adjust cost thresholds
+  /breaker adjust [type] [param] [value] - Configure breaker thresholds
   /breaker on|off         - Enable/disable circuit breakers
 
-Breaker types: repeated-failure, cost-runaway, infinite-loop, token-burn, stall`);
+Breaker types: repeated-failure, cost-runaway, infinite-loop, token-burn, stall, wall-clock
+
+Quick help:
+  /breaker adjust         - Show types overview
+  /breaker adjust list    - Show detailed parameter reference`);
       }
       break;
     }
