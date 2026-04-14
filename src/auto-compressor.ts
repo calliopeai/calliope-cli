@@ -16,7 +16,7 @@ import type { Message as LLMMessage, LLMProvider, Tool } from './types.js';
 
 export interface AutoCompressorConfig {
   enabled: boolean;
-  triggerThreshold: number;   // Compress when context exceeds this % of limit (default: 75)
+  triggerThreshold: number;   // Compress when context exceeds this % of limit (default: 80)
   targetThreshold: number;    // Compress down to this % of limit (default: 50)
   preserveRecent: number;     // Always keep this many recent messages (default: 10)
   useLlm: boolean;           // Use LLM for compression (default: true, falls back to heuristic)
@@ -25,7 +25,7 @@ export interface AutoCompressorConfig {
 
 const DEFAULT_CONFIG: AutoCompressorConfig = {
   enabled: true,
-  triggerThreshold: 75,
+  triggerThreshold: 80,  // Updated to match documentation and user expectations
   targetThreshold: 50,
   preserveRecent: 10,
   useLlm: true,
