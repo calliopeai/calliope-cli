@@ -544,9 +544,70 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     }
 
     case '/scuttlebot': {
+      const subCmd = parts[1];
       const sbStatus = scuttlebotClient.getStatus();
+      
+      // /scuttlebot enable - enable mid-session
+      if (subCmd === 'enable') {
+        if (sbStatus.enabled) {
+          ctx.addMessage('system', 'Scuttlebot is already enabled.');
+          break;
+        }
+        
+        // Check if env vars are set
+        const url = process.env.SCUTTLEBOT_URL;
+        const token = process.env.SCUTTLEBOT_TOKEN;
+        
+        if (!url || !token) {
+          ctx.addMessage('system', 'Cannot enable scuttlebot: missing configuration\n\nSet these environment variables first:\n  SCUTTLEBOT_URL - scuttlebot server URL\n  SCUTTLEBOT_TOKEN - API token\n  SCUTTLEBOT_CHANNEL - IRC channel (optional)\n  SCUTTLEBOT_TRANSPORT - http or irc (default: http)\n\nThen run: /scuttlebot enable');
+          break;
+        }
+        
+        // Initialize scuttlebot
+        const sessionId = ctx.sessionId || 'default';
+        scuttlebotClient.initialize(sessionId, ctx.cwd).then(async (enabled) => {
+          if (enabled) {
+            const status = scuttlebotClient.getStatus();
+            let msg = '✓ Scuttlebot enabled!\n';
+            msg += `  Nick:      ${status.nick}\n`;
+            msg += `  Transport: ${status.config?.transport}\n`;
+            msg += `  Channel:   #${status.config?.channel}`;
+            if (status.config?.channels && status.config.channels.length > 1) {
+              msg += `\n  Channels:  ${status.config.channels.map((c: string) => '#' + c).join(', ')}`;
+            }
+            ctx.addMessage('system', msg);
+            
+            // Post online status
+            await scuttlebotClient.postOnline();
+          } else {
+            ctx.addMessage('system', 'Failed to enable scuttlebot');
+          }
+        }).catch((err: unknown) => {
+          ctx.addMessage('system', `Failed to enable scuttlebot: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        break;
+      }
+      
+      // /scuttlebot disable - disable mid-session
+      if (subCmd === 'disable') {
+        if (!sbStatus.enabled) {
+          ctx.addMessage('system', 'Scuttlebot is not enabled.');
+          break;
+        }
+        
+        scuttlebotClient.postOffline().then(() => {
+          return scuttlebotClient.disconnect();
+        }).then(() => {
+          ctx.addMessage('system', 'Scuttlebot disabled');
+        }).catch((err: unknown) => {
+          ctx.addMessage('system', `Error disabling scuttlebot: ${err instanceof Error ? err.message : String(err)}`);
+        });
+        break;
+      }
+      
+      // Show status
       if (!sbStatus.enabled) {
-        ctx.addMessage('system', 'Scuttlebot integration not enabled.\n\nSet environment variables:\n  SCUTTLEBOT_URL - server URL\n  SCUTTLEBOT_TOKEN - API token\n  SCUTTLEBOT_CHANNEL - channel (default: general)\n  SCUTTLEBOT_TRANSPORT - http or irc (default: http)');
+        ctx.addMessage('system', 'Scuttlebot integration not enabled.\n\nTo enable scuttlebot:\n  1. Set environment variables:\n     SCUTTLEBOT_URL - server URL\n     SCUTTLEBOT_TOKEN - API token\n     SCUTTLEBOT_CHANNEL - IRC channel (optional)\n     SCUTTLEBOT_TRANSPORT - http or irc (default: http)\n\n  2. Run: /scuttlebot enable\n\nNote: Channel config from .scuttlebot.yaml will be used if present');
         break;
       }
       
@@ -559,11 +620,12 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
         statusText += `\nChannels:    ${sbStatus.config.channels.map((c: string) => '#' + c).join(', ')}`;
       }
+      statusText += '\n\nCommands:\n  /scuttlebot <message>  Post a message\n  /scuttlebot disable    Disable integration';
       
       ctx.addMessage('system', statusText);
       
       // Allow manual message posting
-      if (parts.length > 1) {
+      if (subCmd && subCmd !== 'enable' && subCmd !== 'disable') {
         const message = parts.slice(1).join(' ');
         scuttlebotClient.postMessage(message).then(() => {
           ctx.addMessage('system', 'Message posted to scuttlebot.');

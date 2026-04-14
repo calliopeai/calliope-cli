@@ -1047,7 +1047,7 @@ function printHelp(): void {
   console.log('  /session           Show session info');
   console.log('  /log               Show iteration/run log');
   console.log('  /cost [reset]      Show cost tracking');
-  console.log('  /scuttlebot [msg]  Scuttlebot status (optionally send message)');
+  console.log('  /scuttlebot [enable|disable|msg]  Scuttlebot integration');
   console.log('  /setup             Reconfigure');
   console.log('  /config            Show config path');
   console.log('  /upgrade           Check for and install updates');
