@@ -158,15 +158,93 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
     
     case '/scuttlebot':
       {
+        const subCmd = parts[1];
         const sbStatus = scuttlebotClient.getStatus();
+        
+        // /scuttlebot enable - enable mid-session
+        if (subCmd === 'enable') {
+          if (sbStatus.enabled) {
+            console.log(color('Scuttlebot is already enabled.', 'yellow'));
+            console.log();
+            break;
+          }
+          
+          // Check if env vars are set
+          const url = process.env.SCUTTLEBOT_URL;
+          const token = process.env.SCUTTLEBOT_TOKEN;
+          
+          if (!url || !token) {
+            console.log(color('Cannot enable scuttlebot: missing configuration', 'red'));
+            console.log();
+            console.log('Set these environment variables first:');
+            console.log(color('  SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
+            console.log(color('  SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
+            console.log(color('  SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (optional)');
+            console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+            console.log();
+            console.log('Or set them inline:');
+            console.log(color('  export SCUTTLEBOT_URL=http://localhost:3000', 'dim'));
+            console.log(color('  export SCUTTLEBOT_TOKEN=your-token', 'dim'));
+            console.log(color('  /scuttlebot enable', 'dim'));
+            console.log();
+            break;
+          }
+          
+          // Initialize scuttlebot
+          const sessionId = state.sessionId || 'default';
+          const enabled = await scuttlebotClient.initialize(sessionId, state.cwd);
+          
+          if (enabled) {
+            const status = scuttlebotClient.getStatus();
+            console.log(color('✓ Scuttlebot enabled!', 'green'));
+            console.log(`  Nick:      ${color(status.nick || '', 'cyan')}`);
+            console.log(`  Transport: ${status.config?.transport}`);
+            console.log(`  Channel:   #${status.config?.channel}`);
+            if (status.config?.channels && status.config.channels.length > 1) {
+              console.log(`  Channels:  ${status.config.channels.map(c => '#' + c).join(', ')}`);
+            }
+            console.log();
+            
+            // Post online status
+            await scuttlebotClient.postOnline();
+            console.log(color('Posted online status to channel', 'dim'));
+          } else {
+            console.log(color('Failed to enable scuttlebot', 'red'));
+          }
+          console.log();
+          break;
+        }
+        
+        // /scuttlebot disable - disable mid-session
+        if (subCmd === 'disable') {
+          if (!sbStatus.enabled) {
+            console.log(color('Scuttlebot is not enabled.', 'dim'));
+            console.log();
+            break;
+          }
+          
+          await scuttlebotClient.postOffline();
+          await scuttlebotClient.disconnect();
+          console.log(color('Scuttlebot disabled', 'green'));
+          console.log();
+          break;
+        }
+        
+        // Show status
         if (!sbStatus.enabled) {
           console.log(color('Scuttlebot integration is not enabled.', 'yellow'));
           console.log();
-          console.log('To enable scuttlebot, set these environment variables:');
-          console.log(color('  SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
-          console.log(color('  SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
-          console.log(color('  SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (default: general)');
-          console.log(color('  SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+          console.log('To enable scuttlebot:');
+          console.log(color('  1. Set environment variables:', 'bold'));
+          console.log(color('     SCUTTLEBOT_URL', 'cyan') + '         - scuttlebot server URL');
+          console.log(color('     SCUTTLEBOT_TOKEN', 'cyan') + '       - API token');
+          console.log(color('     SCUTTLEBOT_CHANNEL', 'cyan') + '     - IRC channel (optional)');
+          console.log(color('     SCUTTLEBOT_TRANSPORT', 'cyan') + '   - http or irc (default: http)');
+          console.log();
+          console.log(color('  2. Run:', 'bold'));
+          console.log(color('     /scuttlebot enable', 'cyan'));
+          console.log();
+          console.log(color('  Note:', 'dim') + ' Channel config from .scuttlebot.yaml will be used if present');
           console.log();
           break;
         }
@@ -182,9 +260,13 @@ export async function handleCommand(input: string, state: CLIState, rl: readline
           console.log(`Channels:    ${sbStatus.config.channels.map(c => '#' + c).join(', ')}`);
         }
         console.log();
+        console.log(color('Commands:', 'dim'));
+        console.log(color('  /scuttlebot <message>  Post a message', 'dim'));
+        console.log(color('  /scuttlebot disable    Disable integration', 'dim'));
+        console.log();
         
         // Allow manual message posting
-        if (parts.length > 1) {
+        if (subCmd && subCmd !== 'enable' && subCmd !== 'disable') {
           const message = parts.slice(1).join(' ');
           await scuttlebotClient.postMessage(message);
           console.log(color('Message posted to scuttlebot.', 'green'));
