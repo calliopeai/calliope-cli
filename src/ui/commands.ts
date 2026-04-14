@@ -564,8 +564,9 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
         }
         
         // Initialize scuttlebot
-        const sessionId = ctx.sessionId || 'default';
-        scuttlebotClient.initialize(sessionId, ctx.cwd).then(async (enabled) => {
+        const sessionId = ctx.sessionRef.current?.id || 'default';
+        const cwd = getActiveProjectDir(ctx);
+        scuttlebotClient.initialize(sessionId, cwd).then(async (enabled) => {
           if (enabled) {
             const status = scuttlebotClient.getStatus();
             let msg = '✓ Scuttlebot enabled!\n';
