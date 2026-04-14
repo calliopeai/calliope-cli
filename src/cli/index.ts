@@ -142,7 +142,12 @@ export async function startCLI(options: CLIOptions = {}): Promise<void> {
   if (scuttlebotEnabled) {
     const scuttlebotStatus = scuttlebotClient.getStatus();
     debugLog(`scuttlebot: enabled, nick=${scuttlebotStatus.nick}, irc=${scuttlebotStatus.config?.ircAddr}`);
+    // Show nick prominently so operators know how to address calliope from IRC/web UI
+    console.log(`  ${color('IRC nick:', 'dim')} ${color(scuttlebotStatus.nick || '', 'cyan')}`);
+    console.log();
     await scuttlebotClient.postOnline();
+    // Also post a human-readable hello so the nick appears in the IRC channel
+    scuttlebotClient.postMessage(`connected — address me as: ${scuttlebotStatus.nick}`).catch(() => {});
 
     // Route incoming IRC instructions into the agent loop
     scuttlebotClient.startPolling(async (instruction) => {

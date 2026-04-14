@@ -433,9 +433,10 @@ function TerminalChat() {
         if (enabled) {
           const status = scuttlebotClient.getStatus();
           debugLog('scuttlebot', `enabled, nick=${status.nick}, irc=${status.config?.ircAddr}`);
-          scuttlebotClient.postOnline().catch(() => {
-            // Silent fail on presence post
-          });
+          // Show nick in system messages so operators know how to address calliope
+          addMessage('system', `IRC connected — address me as: ${status.nick}`);
+          scuttlebotClient.postOnline().catch(() => {});
+          scuttlebotClient.postMessage(`connected — address me as: ${status.nick}`).catch(() => {});
           // Route incoming IRC instructions into the agent loop
           scuttlebotClient.startPolling((instruction) => {
             if (isProcessingRef.current) {
