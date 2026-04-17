@@ -8,9 +8,9 @@ import React, { useState, useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { parseFileReferences } from '../files.js';
 import type { ModelInfo } from '../model-detection.js';
-import type { ToolCall, RiskLevel } from '../types.js';
+import type { ToolCall, RiskLevel, LLMProvider } from '../types.js';
 import type { SessionInfo } from './types.js';
-import { getSessionResumeAction } from './input-utils.js';
+import { getSessionResumeAction, shouldInsertInputChunk } from './input-utils.js';
 
 // ============================================================================
 // Model Selector
@@ -351,6 +351,139 @@ export function ToolConfirmation({
       <Text>Reason: <Text dimColor>{reason}</Text></Text>
       <Text> </Text>
       <Text>Execute this operation? <Text color="cyan">(y/N)</Text></Text>
+    </Box>
+  );
+}
+
+// ============================================================================
+// Provider Selector
+// ============================================================================
+
+export interface ProviderEntry {
+  id: LLMProvider;
+  label: string;           // Display name
+  configured: boolean;     // Has creds?
+  configHint: string;      // e.g. "ANTHROPIC_API_KEY" or "AWS_PROFILE / AWS_ACCESS_KEY_ID"
+  recommended?: boolean;   // Highlight as easiest option (Ollama)
+  note?: string;           // Extra info (e.g. "local, free")
+}
+
+export function ProviderSelector({
+  providers,
+  onSelect,
+  onCancel,
+}: {
+  providers: ProviderEntry[];
+  onSelect: (p: ProviderEntry) => void;
+  onCancel: () => void;
+}) {
+  const [index, setIndex] = useState(() => {
+    // Start on the first configured provider; fall back to 0.
+    const firstConfigured = providers.findIndex(p => p.configured);
+    return firstConfigured >= 0 ? firstConfigured : 0;
+  });
+  const pageSize = 12;
+  const start = Math.max(0, Math.min(index - Math.floor(pageSize / 2), providers.length - pageSize));
+  const visible = providers.slice(start, start + pageSize);
+  const anyConfigured = providers.some(p => p.configured);
+
+  useInput((input, key) => {
+    if (key.upArrow) setIndex(i => Math.max(0, i - 1));
+    else if (key.downArrow) setIndex(i => Math.min(providers.length - 1, i + 1));
+    else if (key.return) onSelect(providers[index]);
+    else if (key.escape || input === 'q') onCancel();
+  });
+
+  return (
+    <Box flexDirection="column" marginY={1}>
+      <Text color="yellow">Select provider (↑/↓ navigate, Enter select, Esc cancel):</Text>
+      {!anyConfigured && (
+        <Text dimColor>  No providers configured. Ollama is the easiest starting point (local, free).</Text>
+      )}
+      {visible.map((p, i) => {
+        const globalIndex = start + i;
+        const isSelected = globalIndex === index;
+        const star = p.configured ? '★' : '☆';
+        const starColor = p.configured ? 'green' : 'gray';
+        const tag = p.recommended ? ' (recommended)' : '';
+        return (
+          <Box key={p.id}>
+            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+              {isSelected ? '❯ ' : '  '}
+            </Text>
+            <Text color={starColor}>{star} </Text>
+            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+              {p.label}
+            </Text>
+            {p.note && <Text dimColor>  — {p.note}</Text>}
+            {tag && <Text color="yellow">{tag}</Text>}
+            {!p.configured && <Text dimColor>  (needs {p.configHint})</Text>}
+          </Box>
+        );
+      })}
+      {providers.length > pageSize && (
+        <Text dimColor>  ({index + 1}/{providers.length})</Text>
+      )}
+    </Box>
+  );
+}
+
+// ============================================================================
+// Api Key Setup (inline configuration for unconfigured providers)
+// ============================================================================
+
+export function ApiKeySetup({
+  provider,
+  configHint,
+  onSubmit,
+  onCancel,
+  extraInstructions,
+}: {
+  provider: LLMProvider;
+  configHint: string;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+  extraInstructions?: string;
+}) {
+  const [value, setValue] = useState('');
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel();
+      return;
+    }
+    if (key.return) {
+      const trimmed = value.trim();
+      if (trimmed) onSubmit(trimmed);
+      return;
+    }
+    if (key.backspace || key.delete || input === '\x7f' || input === '\b' || (key.ctrl && input === 'h')) {
+      setValue(v => v.slice(0, -1));
+      return;
+    }
+    if (key.ctrl && input === 'u') {
+      setValue('');
+      return;
+    }
+    if (shouldInsertInputChunk(input, key)) {
+      setValue(v => v + input);
+    }
+  });
+
+  const masked = value ? '•'.repeat(Math.min(value.length, 40)) : '';
+
+  return (
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="cyan" paddingX={1}>
+      <Text color="cyan" bold>🔑 Configure {provider}</Text>
+      <Text> </Text>
+      <Text dimColor>Paste your {configHint} and press Enter (Esc to cancel):</Text>
+      {extraInstructions && <Text dimColor>{extraInstructions}</Text>}
+      <Text> </Text>
+      <Box>
+        <Text color="yellow">{configHint}: </Text>
+        <Text>{masked}</Text>
+        <Text color="cyan">▌</Text>
+      </Box>
     </Box>
   );
 }

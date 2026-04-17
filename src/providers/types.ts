@@ -16,10 +16,17 @@ export const CONTEXT_BUFFER_MIN = 1024; // Minimum buffer (scales with context s
 /** Maximum allowed content length (1MB) to prevent memory issues */
 export const MAX_CONTENT_LENGTH = 1024 * 1024;
 
-// Debug logging helper
-const DEBUG = process.env.CALLIOPE_DEBUG === '1';
+// Debug logging helper. Writes to /tmp/calliope-debug.log (file, not stdout)
+// so it doesn't corrupt the Ink TUI. Enable via --debug CLI flag or
+// CALLIOPE_DEBUG=1 env var.
+const DEBUG_FILE = '/tmp/calliope-debug.log';
 export function debugLog(message: string, ...args: unknown[]): void {
-  if (DEBUG) console.log(`[DEBUG] ${message}`, ...args);
+  if (process.env.CALLIOPE_DEBUG !== '1') return;
+  const line = args.length
+    ? `${new Date().toISOString()} ${message} ${args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')}\n`
+    : `${new Date().toISOString()} ${message}\n`;
+  // Async best-effort append; swallow errors.
+  import('fs').then(fs => fs.appendFile(DEBUG_FILE, line, () => {})).catch(() => {});
 }
 
 /**

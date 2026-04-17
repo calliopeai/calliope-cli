@@ -119,7 +119,41 @@ export function classifyError(error: unknown): ClassifiedError {
     };
   }
 
-  // Invalid request errors
+  // AWS SigV4 signature mismatch (Bedrock). 403 with signature/credentials text.
+  // Don't truncate the message — the full body usually contains useful detail
+  // (e.g. which key was tried). Also treat as non-retryable so we don't burn time.
+  if (
+    (numericStatus === 403 || /\b403\b/.test(message)) &&
+    (lowerMessage.includes('signature') || lowerMessage.includes('access key') || lowerMessage.includes('security token'))
+  ) {
+    return {
+      category: 'auth',
+      message: `AWS SigV4 signature mismatch. ${message.slice(0, 600)}`,
+      suggestion:
+        'Likely causes: (1) stale AWS_ACCESS_KEY_ID env vars overriding your profile — `unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN` and retry; ' +
+        '(2) SSO token expired — `aws sso login --profile <name>`; ' +
+        '(3) clock skew — check `date` against AWS server time.',
+      retryable: false,
+    };
+  }
+
+  // Bedrock ValidationException: on-demand not supported — model needs an inference profile.
+  if (
+    lowerMessage.includes("on-demand throughput isn't supported") ||
+    lowerMessage.includes('inference profile') ||
+    lowerMessage.includes('inferenceprofile')
+  ) {
+    return {
+      category: 'invalid_request',
+      message: `Bedrock model requires an inference profile. ${message.slice(0, 500)}`,
+      suggestion:
+        'Pick the "us.*" (or your region) prefixed cross-region inference profile ID via /model — raw foundation IDs for newer Claude 4.x/Haiku 4.5 models aren\'t invokable on-demand.',
+      retryable: false,
+    };
+  }
+
+  // Invalid request errors. Keep the underlying body (up to 500 chars) so the
+  // user can see the actual Bedrock / provider validation message.
   if (
     lowerMessage.includes('bad request') ||
     numericStatus === 400 ||
@@ -127,11 +161,12 @@ export function classifyError(error: unknown): ClassifiedError {
     lowerMessage.includes('invalid request') ||
     lowerMessage.includes('invalid model') ||
     lowerMessage.includes('invalid parameter') ||
-    lowerMessage.includes('malformed')
+    lowerMessage.includes('malformed') ||
+    lowerMessage.includes('validationexception')
   ) {
     return {
       category: 'invalid_request',
-      message: 'Invalid request',
+      message: `Invalid request: ${message.slice(0, 500)}`,
       suggestion: 'Try rephrasing your message or use /clear to reset the conversation.',
       retryable: false,
     };

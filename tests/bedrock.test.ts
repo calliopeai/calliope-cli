@@ -318,6 +318,40 @@ describe('chatBedrock - non-streaming', () => {
     expect(toolResultMsg.content[0].toolResult.toolUseId).toBe('tc-1');
   });
 
+  it('should merge consecutive tool results into ONE user message (Bedrock requires paired toolUses/toolResults)', async () => {
+    mockFetch.mockResolvedValue(makeBedrockResponse());
+
+    const messages: Message[] = [
+      makeTextMessage('user', 'Use two tools'),
+      // Assistant makes 2 tool calls in a single turn
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [
+          { id: 'tc-1', name: 'read_file', arguments: { path: '/a' } },
+          { id: 'tc-2', name: 'read_file', arguments: { path: '/b' } },
+        ],
+      },
+      // Two separate tool-result messages (how the agent loop produces them)
+      makeToolResultMessage('tc-1', 'A'),
+      makeToolResultMessage('tc-2', 'B'),
+    ];
+
+    await chatBedrock(messages, [], 'model-id');
+    const [, options] = mockFetch.mock.calls[0];
+    const body = JSON.parse(options.body);
+
+    // There must be exactly ONE user message carrying both toolResults;
+    // two separate user messages in a row produce a 400 from Bedrock.
+    const userToolResultMsgs = body.messages.filter((m: { role: string; content: Array<{ toolResult?: unknown }> }) =>
+      m.role === 'user' && m.content.every(b => b.toolResult)
+    );
+    expect(userToolResultMsgs).toHaveLength(1);
+    expect(userToolResultMsgs[0].content).toHaveLength(2);
+    expect(userToolResultMsgs[0].content[0].toolResult.toolUseId).toBe('tc-1');
+    expect(userToolResultMsgs[0].content[1].toolResult.toolUseId).toBe('tc-2');
+  });
+
   it('should handle assistant message with tool calls', async () => {
     mockFetch.mockResolvedValue(makeBedrockResponse());
 

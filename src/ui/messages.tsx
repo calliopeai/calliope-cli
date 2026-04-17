@@ -269,7 +269,7 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
   }
 }
 
-export function MessageHistory({ messages, collapseSettings }: { messages: UIMessage[]; collapseSettings: CollapseSettings }) {
+function MessageHistoryInner({ messages, collapseSettings }: { messages: UIMessage[]; collapseSettings: CollapseSettings }) {
 
   // Count tool messages for toolDisplayLimit calculation
   const toolMessages = messages.filter(m => m.type === 'tool');
@@ -294,3 +294,7 @@ export function MessageHistory({ messages, collapseSettings }: { messages: UIMes
     </Box>
   );
 }
+
+// Memoized so unrelated parent re-renders (e.g. input keystrokes) don't
+// re-render the entire message list.
+export const MessageHistory = React.memo(MessageHistoryInner);

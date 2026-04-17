@@ -50,9 +50,58 @@ function parseIniFile(filePath: string): Record<string, Record<string, string>> 
 }
 
 /**
- * Resolve AWS credentials from environment variables or shared credential files.
+ * Shell out to the AWS CLI to resolve credentials for a profile. This covers
+ * SSO profiles, role-assumption profiles, and anything else AWS CLI supports.
  */
-function getAWSCredentials(): AWSCredentials {
+async function resolveCredentialsViaCli(profile: string): Promise<AWSCredentials | null> {
+  try {
+    const { execFileSync } = await import('child_process');
+    // Prefer `--format env-no-export` (simpler KEY=value), fall back to `env`.
+    let output = '';
+    try {
+      output = execFileSync(
+        'aws',
+        ['configure', 'export-credentials', '--profile', profile, '--format', 'env-no-export'],
+        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+    } catch {
+      output = execFileSync(
+        'aws',
+        ['configure', 'export-credentials', '--profile', profile, '--format', 'env'],
+        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+    }
+    const envs: Record<string, string> = {};
+    for (const rawLine of output.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      // Matches both "export KEY=value" and "KEY=value"
+      const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
+      if (!match) continue;
+      // Strip exactly one pair of surrounding quotes (not all quotes).
+      let val = match[2].trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      envs[match[1]] = val;
+    }
+    if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
+      return {
+        accessKeyId: envs.AWS_ACCESS_KEY_ID,
+        secretAccessKey: envs.AWS_SECRET_ACCESS_KEY,
+        sessionToken: envs.AWS_SESSION_TOKEN,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Resolve AWS credentials from environment variables, shared credential files,
+ * or the AWS CLI (for SSO / role-assumption profiles).
+ */
+async function getAWSCredentials(): Promise<AWSCredentials> {
   // 1. Explicit env vars
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
     return {
@@ -88,9 +137,15 @@ function getAWSCredentials(): AWSCredentials {
     };
   }
 
+  // 3. Ask the AWS CLI (handles SSO, role assumption, etc.).
+  const cliCreds = await resolveCredentialsViaCli(profile);
+  if (cliCreds) return cliCreds;
+
   throw new Error(
-    'AWS credentials not found. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY env vars, ' +
-    'or configure an AWS_PROFILE with credentials in ~/.aws/credentials'
+    `AWS credentials not found for profile "${profile}". ` +
+    `For SSO: run \`aws sso login --profile ${profile}\`. ` +
+    `For static keys: set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, ` +
+    `or configure ~/.aws/credentials.`
   );
 }
 
@@ -151,8 +206,13 @@ function signRequest(
     headers['x-amz-security-token'] = credentials.sessionToken;
   }
 
-  // Canonical request
-  const canonicalUri = parsedUrl.pathname;
+  // Canonical request. AWS SigV4 requires the canonical URI to be URI-encoded
+  // TWICE for non-S3 services. parsedUrl.pathname is already once-encoded, so
+  // we re-encode each segment (path separators kept unencoded).
+  const canonicalUri = parsedUrl.pathname
+    .split('/')
+    .map(segment => encodeURIComponent(segment))
+    .join('/');
   const canonicalQuerystring = parsedUrl.search ? parsedUrl.search.slice(1) : '';
 
   const signedHeaderKeys = Object.keys(headers)
@@ -235,16 +295,24 @@ function toBedrockMessages(messages: Message[]): { system: Array<{ text: string 
     }
 
     if (msg.role === 'tool') {
-      // Tool results become user messages with toolResult content blocks
-      bedrockMessages.push({
-        role: 'user',
-        content: [{
-          toolResult: {
-            toolUseId: msg.toolCallId || '',
-            content: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }],
-          },
-        }],
-      });
+      // Tool results become user messages with toolResult content blocks.
+      // Bedrock requires ALL toolResults for a preceding assistant's toolUses
+      // to live in ONE user message (no two user messages in a row, and every
+      // toolUseId must have a paired toolResult). If the last pushed message
+      // is already a user/toolResult message, append to it instead of making
+      // a new one — otherwise we get a 400 "Expected toolResult blocks at ...".
+      const resultBlock: BedrockContentBlock = {
+        toolResult: {
+          toolUseId: msg.toolCallId || '',
+          content: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }],
+        },
+      };
+      const last = bedrockMessages[bedrockMessages.length - 1];
+      if (last && last.role === 'user' && last.content.every(b => b.toolResult)) {
+        last.content.push(resultBlock);
+      } else {
+        bedrockMessages.push({ role: 'user', content: [resultBlock] });
+      }
       continue;
     }
 
@@ -327,7 +395,7 @@ export async function chatBedrock(
   model: string,
   onToken?: StreamCallback
 ): Promise<LLMResponse> {
-  const credentials = getAWSCredentials();
+  const credentials = await getAWSCredentials();
   const region = getAWSRegion();
   const service = 'bedrock';
 
@@ -367,6 +435,7 @@ export async function chatBedrock(
   };
 
   const signed = signRequest('POST', baseUrl, headers, bodyStr, credentials, region, service);
+  debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, access_key_prefix=${credentials.accessKeyId.slice(0, 4)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
 
   if (isStreaming) {
     return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!);

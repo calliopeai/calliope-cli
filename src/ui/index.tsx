@@ -47,8 +47,9 @@ import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator, StateTransiti
 import { MessageHistory } from './messages.js';
 import {
   ModelSelector, SessionSelector, UpgradePrompt, ComplexityWarning,
-  SessionResumePrompt, KeybindingsModal,
+  SessionResumePrompt, KeybindingsModal, ProviderSelector, ApiKeySetup,
 } from './modals.js';
+import type { ProviderEntry } from './modals.js';
 import { ThemePicker } from './theme-picker.js';
 import { PackPicker } from './pack-picker.js';
 import { applyThemePack, getCurrentPack, getCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
@@ -228,7 +229,9 @@ function TerminalChat() {
   }));
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker' | 'pack-picker'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker' | 'pack-picker' | 'provider' | 'api-key-setup'>('none');
+  const [providerEntries, setProviderEntries] = useState<ProviderEntry[]>([]);
+  const [pendingSetupProvider, setPendingSetupProvider] = useState<ProviderEntry | null>(null);
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
   const [previousSession, setPreviousSession] = useState<{ projectName: string; lastAccessedAt: string; messageCount: number } | null>(null);
   const [pendingToolCall, setPendingToolCall] = useState<{ toolCall: import('../types.js').ToolCall; resolve: (approved: boolean) => void } | null>(null);
@@ -259,6 +262,7 @@ function TerminalChat() {
   // Refs for scuttlebot polling — avoids stale closures across re-renders
   const isProcessingRef = useRef(false);
   const handleSubmitRef = useRef<(value: string) => Promise<void>>(async () => {});
+  const openProviderPickerRef = useRef<(() => void) | null>(null);
 
   // Keep isProcessingRef in sync
   useEffect(() => {
@@ -676,6 +680,7 @@ function TerminalChat() {
         }
       });
     },
+    openProviderPicker: () => openProviderPickerRef.current?.(),
   }), [actualProvider, actualModel, provider, model, persona, mode, confirmMode, autoRoute, smartRouteActive,
        layout, density, collapseSettings, messages, stats, loopActive, isProcessing,
        thinkingState, streamingResponse, queuedMessages, bookmarks, templates, modalMode,
@@ -847,16 +852,121 @@ function TerminalChat() {
       setStreamingResponse('');
       setLoopActive(false);
       setEditingQueueIndex(null);
-      addMessage('system', '⏹ Operation cancelled. Use /exit to quit.');
+      addMessage('system', '⏹ Operation cancelled. Press Ctrl+C again to quit.');
     } else if (modalMode !== 'none') {
       // Close any open modal
       setModalMode('none');
       setPendingComplexPrompt(null);
     } else {
-      // Not processing - show hint instead of exiting
-      addMessage('system', '💡 Use /exit to quit, or Ctrl+C.');
+      // Not processing - show hint. Second Ctrl+C within 2s will actually exit.
+      addMessage('system', '💡 Press Ctrl+C again to quit, or /exit.');
     }
   }, [isProcessing, modalMode, addMessage]);
+
+  const handleExit = useCallback(() => {
+    exit();
+  }, [exit]);
+
+  // Build the list of providers with their configuration status for the picker.
+  // Ordering: Ollama first (recommended onboarding), then others by rough popularity.
+  const buildProviderEntries = useCallback((): ProviderEntry[] => {
+    const hasBedrock = !!(config.getApiKey('bedrock') || config.getBaseUrl('bedrock')
+      || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE);
+    const entries: ProviderEntry[] = [
+      { id: 'ollama',      label: 'Ollama',       configured: !!config.getBaseUrl('ollama'),    configHint: 'OLLAMA_BASE_URL',   recommended: true, note: 'local, free' },
+      { id: 'anthropic',   label: 'Anthropic',    configured: !!config.getApiKey('anthropic'),  configHint: 'ANTHROPIC_API_KEY' },
+      { id: 'openai',      label: 'OpenAI',       configured: !!config.getApiKey('openai'),     configHint: 'OPENAI_API_KEY' },
+      { id: 'google',      label: 'Google',       configured: !!config.getApiKey('google'),     configHint: 'GOOGLE_API_KEY' },
+      { id: 'mistral',     label: 'Mistral',      configured: !!config.getApiKey('mistral'),    configHint: 'MISTRAL_API_KEY' },
+      { id: 'openrouter',  label: 'OpenRouter',   configured: !!config.getApiKey('openrouter'), configHint: 'OPENROUTER_API_KEY' },
+      { id: 'together',    label: 'Together',     configured: !!config.getApiKey('together'),   configHint: 'TOGETHER_API_KEY' },
+      { id: 'groq',        label: 'Groq',         configured: !!config.getApiKey('groq'),       configHint: 'GROQ_API_KEY' },
+      { id: 'fireworks',   label: 'Fireworks',    configured: !!config.getApiKey('fireworks'),  configHint: 'FIREWORKS_API_KEY' },
+      { id: 'ai21',        label: 'AI21',         configured: !!config.getApiKey('ai21'),       configHint: 'AI21_API_KEY' },
+      { id: 'huggingface', label: 'HuggingFace',  configured: !!config.getApiKey('huggingface'),configHint: 'HUGGINGFACE_API_KEY' },
+      { id: 'bedrock',     label: 'AWS Bedrock',  configured: hasBedrock,                       configHint: 'AWS_PROFILE or AWS_ACCESS_KEY_ID', note: 'AWS credentials' },
+      { id: 'litellm',     label: 'LiteLLM',      configured: !!config.getBaseUrl('litellm'),   configHint: 'LITELLM_BASE_URL' },
+    ];
+    return entries;
+  }, []);
+
+  const openProviderPicker = useCallback(() => {
+    setProviderEntries(buildProviderEntries());
+    setModalMode('provider');
+  }, [buildProviderEntries]);
+
+  const handleProviderSelect = useCallback((entry: ProviderEntry) => {
+    if (entry.configured) {
+      setProvider(entry.id);
+      addMessage('system', `Provider: ${entry.label}${entry.id === 'ollama' ? ' (local)' : ''}`);
+      setModalMode('none');
+      setProviderEntries([]);
+      return;
+    }
+    // Not configured — open inline setup.
+    setPendingSetupProvider(entry);
+    setModalMode('api-key-setup');
+  }, [addMessage, setProvider]);
+
+  const handleApiKeySubmit = useCallback((value: string) => {
+    const entry = pendingSetupProvider;
+    if (!entry) {
+      setModalMode('none');
+      return;
+    }
+    try {
+      // Map provider → config key. Bedrock/Ollama/LiteLLM are special (base URL or AWS).
+      if (entry.id === 'ollama') {
+        config.set('ollamaBaseUrl', value);
+      } else if (entry.id === 'litellm') {
+        config.set('litellmBaseUrl', value);
+      } else if (entry.id === 'bedrock') {
+        // Simplest path: user enters AWS_PROFILE name. Write to env for this session;
+        // persistence is user's responsibility (profile lives in ~/.aws).
+        process.env.AWS_PROFILE = value;
+        // Clear any stale env-var credentials (e.g. from a prior `aws sso login`
+        // export that's since expired) so the profile actually wins.
+        delete process.env.AWS_ACCESS_KEY_ID;
+        delete process.env.AWS_SECRET_ACCESS_KEY;
+        delete process.env.AWS_SESSION_TOKEN;
+        addMessage('system', `AWS_PROFILE=${value} set for this session. Add to shell rc to persist.`);
+      } else {
+        const keyMap: Record<string, string> = {
+          anthropic: 'anthropicApiKey',
+          openai: 'openaiApiKey',
+          google: 'googleApiKey',
+          mistral: 'mistralApiKey',
+          openrouter: 'openrouterApiKey',
+          together: 'togetherApiKey',
+          groq: 'groqApiKey',
+          fireworks: 'fireworksApiKey',
+          ai21: 'ai21ApiKey',
+          huggingface: 'huggingfaceApiKey',
+        };
+        const configKey = keyMap[entry.id];
+        if (!configKey) throw new Error(`No config mapping for ${entry.id}`);
+        // Cast through any — the mapping above guarantees a valid ApiKey field.
+        (config.set as (k: string, v: string) => void)(configKey, value);
+      }
+      setProvider(entry.id);
+      addMessage('system', `✓ Configured ${entry.label}. Provider switched.`);
+    } catch (e) {
+      addMessage('error', `Failed to configure ${entry.label}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setPendingSetupProvider(null);
+    setModalMode('none');
+  }, [pendingSetupProvider, addMessage, setProvider]);
+
+  const handleApiKeyCancel = useCallback(() => {
+    setPendingSetupProvider(null);
+    setModalMode('none');
+  }, []);
+
+  // Forward-declared ref so buildCommandContext (defined earlier) can open the
+  // provider picker without a TDZ on the openProviderPicker callback.
+  useEffect(() => {
+    openProviderPickerRef.current = openProviderPicker;
+  }, [openProviderPicker]);
 
   // Handle direct send (Shift+Enter) - interrupts current operation and sends immediately
   const handleDirectSend = useCallback((msg: string) => {
@@ -1146,6 +1256,37 @@ function TerminalChat() {
         <KeybindingsModal onClose={() => setModalMode('none')} />
       )}
 
+      {/* Modal: Provider Picker */}
+      {modalMode === 'provider' && providerEntries.length > 0 && (
+        <ProviderSelector
+          providers={providerEntries}
+          onSelect={handleProviderSelect}
+          onCancel={() => {
+            setModalMode('none');
+            setProviderEntries([]);
+          }}
+        />
+      )}
+
+      {/* Modal: API Key Setup (inline configuration for unconfigured provider) */}
+      {modalMode === 'api-key-setup' && pendingSetupProvider && (
+        <ApiKeySetup
+          provider={pendingSetupProvider.id}
+          configHint={pendingSetupProvider.configHint}
+          onSubmit={handleApiKeySubmit}
+          onCancel={handleApiKeyCancel}
+          extraInstructions={
+            pendingSetupProvider.id === 'ollama'
+              ? 'e.g. http://localhost:11434  (start with: ollama serve)'
+              : pendingSetupProvider.id === 'bedrock'
+              ? 'Enter your AWS profile name. Ensure it exists in ~/.aws/credentials or ~/.aws/config.'
+              : pendingSetupProvider.id === 'litellm'
+              ? 'e.g. http://localhost:4000'
+              : undefined
+          }
+        />
+      )}
+
       {/* Modal: Theme Picker */}
       {modalMode === 'theme-picker' && (
         <ThemePicker
@@ -1219,6 +1360,7 @@ function TerminalChat() {
         onChange={handleInputChange}
         onSubmit={handleSubmit}
         onEscape={handleEscape}
+        onExit={handleExit}
         onCycleMode={cycleMode}
         disabled={isModalActive}
         isProcessing={isProcessing}

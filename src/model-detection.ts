@@ -15,6 +15,9 @@ const DEBUG = process.env.CALLIOPE_DEBUG === '1';
 
 interface ModelFetchOptions {
   quiet?: boolean;
+  /** Rethrow the underlying error instead of returning []. Use for interactive
+   *  flows (like /model) where the user should see the real reason. */
+  throwOnError?: boolean;
 }
 
 function logModelDetectionWarning(message: string, error?: unknown, options: ModelFetchOptions = {}): void {
@@ -278,6 +281,7 @@ export async function getAvailableModels(provider: LLMProvider, options: ModelFe
     modelCache.set(provider, { models, timestamp: Date.now() });
   } catch (error) {
     logModelDetectionWarning(`Failed to fetch models for ${provider}:`, error, options);
+    if (options.throwOnError) throw error;
   }
 
   return models;
@@ -699,46 +703,78 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
 
   // 1. Try gateway/proxy model listing (OpenAI-compatible)
   if (baseUrl) {
-    try {
-      const modelsUrl = baseUrl.endsWith('/v1') ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
-      const headers: Record<string, string> = {};
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
-      const response = await fetch(modelsUrl, { headers });
-      if (response.ok) {
-        const data = await response.json() as { data: Array<{ id: string }> };
-        return data.data
-          .filter(model => isCompatibleModel(model.id, 'bedrock'))
-          .map(model => ({
-            id: model.id,
-            name: model.id,
-            description: getBedrockModelDescription(model.id),
-            contextLength: getBedrockContextLength(model.id),
-          }));
-      }
-    } catch {
-      // Fall through to native discovery
+    const modelsUrl = baseUrl.endsWith('/v1') ? `${baseUrl}/models` : `${baseUrl}/v1/models`;
+    const headers: Record<string, string> = {};
+    if (apiKey) {
+      headers['Authorization'] = `Bearer ${apiKey}`;
     }
+    const response = await fetch(modelsUrl, { headers });
+    if (response.ok) {
+      const data = await response.json() as { data: Array<{ id: string }> };
+      return data.data
+        .filter(model => isCompatibleModel(model.id, 'bedrock'))
+        .map(model => ({
+          id: model.id,
+          name: model.id,
+          description: getBedrockModelDescription(model.id),
+          contextLength: getBedrockContextLength(model.id),
+        }));
+    }
+    throw new Error(`Bedrock gateway ${baseUrl} returned ${response.status}. Check BEDROCK_BASE_URL / BEDROCK_API_KEY.`);
   }
 
-  // 2. Try native AWS ListFoundationModels API
+  // 2. Native AWS path — let errors bubble up so the user sees the real reason.
+  return discoverBedrockModelsNative();
+}
+
+/**
+ * Resolve AWS credentials via the `aws` CLI. Handles SSO profiles,
+ * role-assumption profiles, and anything else `aws` knows about.
+ * Returns null if the CLI isn't installed or the profile resolution fails.
+ */
+async function resolveAwsCredentialsViaCli(profile: string): Promise<{
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string;
+} | null> {
   try {
-    const hasNativeCreds = !!(
-      (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) ||
-      process.env.AWS_PROFILE ||
-      (await import('fs')).existsSync((await import('path')).join((await import('os')).homedir(), '.aws', 'credentials'))
-    );
-    if (hasNativeCreds) {
-      const nativeModels = await discoverBedrockModelsNative();
-      if (nativeModels.length > 0) return nativeModels;
+    const { execFileSync } = await import('child_process');
+    let output = '';
+    try {
+      output = execFileSync(
+        'aws',
+        ['configure', 'export-credentials', '--profile', profile, '--format', 'env-no-export'],
+        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
+      );
+    } catch {
+      output = execFileSync(
+        'aws',
+        ['configure', 'export-credentials', '--profile', profile, '--format', 'env'],
+        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
+      );
     }
+    const envs: Record<string, string> = {};
+    for (const rawLine of output.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
+      if (!match) continue;
+      let val = match[2].trim();
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      envs[match[1]] = val;
+    }
+    if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
+      return {
+        accessKeyId: envs.AWS_ACCESS_KEY_ID,
+        secretAccessKey: envs.AWS_SECRET_ACCESS_KEY,
+        sessionToken: envs.AWS_SESSION_TOKEN,
+      };
+    }
+    return null;
   } catch {
-    // Fall through to minimal fallback
+    return null;
   }
-
-  // 3. No hardcoded fallback — the default model from types.ts is used when list is empty
-  return [];
 }
 
 /**
@@ -755,96 +791,201 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
   let accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
   let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
   let sessionToken = process.env.AWS_SESSION_TOKEN;
+  const profile = process.env.AWS_PROFILE || config.get('awsProfile') || 'default';
+
+  // Parse an INI-style AWS file. Handles both ~/.aws/credentials sections
+  // ([name]) and ~/.aws/config sections ([profile name]).
+  const readIni = (path: string): Record<string, Record<string, string>> => {
+    if (!existsSync(path)) return {};
+    const content = readFileSync(path, 'utf-8');
+    const sections: Record<string, Record<string, string>> = {};
+    let section = '';
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
+      const secMatch = trimmed.match(/^\[(.+)\]$/);
+      if (secMatch) {
+        section = secMatch[1].replace(/^profile\s+/, '');
+        sections[section] = sections[section] || {};
+        continue;
+      }
+      const kvMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
+      if (kvMatch && section) sections[section][kvMatch[1].trim()] = kvMatch[2].trim();
+    }
+    return sections;
+  };
 
   if (!accessKeyId || !secretAccessKey) {
-    const profile = process.env.AWS_PROFILE || config.get('awsProfile') || 'default';
-    const credPath = join(homedir(), '.aws', 'credentials');
-    if (existsSync(credPath)) {
-      const content = readFileSync(credPath, 'utf-8');
-      const sections: Record<string, Record<string, string>> = {};
-      let section = '';
-      for (const line of content.split('\n')) {
-        const trimmed = line.trim();
-        const secMatch = trimmed.match(/^\[(.+)\]$/);
-        if (secMatch) { section = secMatch[1]; sections[section] = {}; continue; }
-        const kvMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
-        if (kvMatch && section) sections[section][kvMatch[1].trim()] = kvMatch[2].trim();
-      }
-      const cred = sections[profile];
-      if (cred?.aws_access_key_id) {
-        accessKeyId = cred.aws_access_key_id;
-        secretAccessKey = cred.aws_secret_access_key || '';
-        sessionToken = cred.aws_session_token;
-      }
+    // Try ~/.aws/credentials (static keys) first, then ~/.aws/config (also
+    // used by some setups that put static keys alongside SSO config).
+    const credSections = readIni(join(homedir(), '.aws', 'credentials'));
+    const configSections = readIni(join(homedir(), '.aws', 'config'));
+    const cred = credSections[profile] || configSections[profile];
+    if (cred?.aws_access_key_id) {
+      accessKeyId = cred.aws_access_key_id;
+      secretAccessKey = cred.aws_secret_access_key || '';
+      sessionToken = cred.aws_session_token;
     }
   }
 
-  if (!accessKeyId || !secretAccessKey) return [];
+  // Last resort: shell out to the AWS CLI. This resolves SSO / role-assumption
+  // profiles that can't be parsed from the INI files alone.
+  if (!accessKeyId || !secretAccessKey) {
+    const cliCreds = await resolveAwsCredentialsViaCli(profile);
+    if (cliCreds) {
+      accessKeyId = cliCreds.accessKeyId;
+      secretAccessKey = cliCreds.secretAccessKey;
+      sessionToken = cliCreds.sessionToken;
+    }
+  }
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error(
+      `No AWS credentials found for profile "${profile}". ` +
+      `Try: aws sso login --profile ${profile}  (for SSO), or set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY.`
+    );
+  }
 
   const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || config.get('awsRegion') || 'us-east-1';
   const host = `bedrock.${region}.amazonaws.com`;
-  const url = `https://${host}/foundation-models?byOutputModality=TEXT&byInferenceType=ON_DEMAND`;
 
-  // SigV4 sign
-  const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
-  const dateStamp = amzDate.slice(0, 8);
-  const sha256Fn = (d: string) => createHash('sha256').update(d).digest('hex');
-  const hmacFn = (k: string | Buffer, d: string) => createHmac('sha256', k).update(d).digest();
+  const signedGet = async (path: string, query: string): Promise<Response> => {
+    const url = `https://${host}${path}${query ? '?' + query : ''}`;
+    const now = new Date();
+    const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
+    const dateStamp = amzDate.slice(0, 8);
+    const sha256Fn = (d: string) => createHash('sha256').update(d).digest('hex');
+    const hmacFn = (k: string | Buffer, d: string) => createHmac('sha256', k).update(d).digest();
 
-  const headers: Record<string, string> = {
-    'host': host,
-    'x-amz-date': amzDate,
+    const headers: Record<string, string> = { host, 'x-amz-date': amzDate };
+    if (sessionToken) headers['x-amz-security-token'] = sessionToken;
+
+    const signedHeaderKeys = Object.keys(headers).map(k => k.toLowerCase()).sort();
+    const signedHeaders = signedHeaderKeys.join(';');
+    const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${headers[k].trim()}`).join('\n') + '\n';
+    const payloadHash = sha256Fn('');
+    // AWS SigV4: non-S3 services require the canonical URI to be URI-encoded
+    // TWICE. Paths here don't currently contain special chars but we normalise
+    // for consistency with the chat signing path.
+    const canonicalPath = path.split('/').map(s => encodeURIComponent(s)).join('/');
+    const canonicalRequest = ['GET', canonicalPath, query, canonicalHeaders, signedHeaders, payloadHash].join('\n');
+    const credentialScope = `${dateStamp}/${region}/bedrock/aws4_request`;
+    const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256Fn(canonicalRequest)].join('\n');
+
+    const kDate = hmacFn('AWS4' + secretAccessKey, dateStamp);
+    const kRegion = hmacFn(kDate, region);
+    const kService = hmacFn(kRegion, 'bedrock');
+    const signingKey = hmacFn(kService, 'aws4_request');
+    const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
+
+    headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+    return fetch(url, { headers });
   };
-  if (sessionToken) headers['x-amz-security-token'] = sessionToken;
 
-  const parsedUrl = new URL(url);
-  const signedHeaderKeys = Object.keys(headers).map(k => k.toLowerCase()).sort();
-  const signedHeaders = signedHeaderKeys.join(';');
-  const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${headers[k].trim()}`).join('\n') + '\n';
-  const payloadHash = sha256Fn('');
-
-  const canonicalRequest = ['GET', parsedUrl.pathname, parsedUrl.search.slice(1), canonicalHeaders, signedHeaders, payloadHash].join('\n');
-  const credentialScope = `${dateStamp}/${region}/bedrock/aws4_request`;
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256Fn(canonicalRequest)].join('\n');
-
-  const kDate = hmacFn('AWS4' + secretAccessKey, dateStamp);
-  const kRegion = hmacFn(kDate, region);
-  const kService = hmacFn(kRegion, 'bedrock');
-  const signingKey = hmacFn(kService, 'aws4_request');
-  const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
-
-  headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const response = await fetch(url, { headers });
-  if (!response.ok) return [];
-
-  const data = await response.json() as {
+  // 1. ListFoundationModels (direct on-demand access).
+  // Dropped the byInferenceType=ON_DEMAND filter — newer Claude models are only
+  // accessible via cross-region inference profiles and don't have ON_DEMAND flag.
+  const foundationResp = await signedGet('/foundation-models', 'byOutputModality=TEXT');
+  if (!foundationResp.ok) {
+    let body = '';
+    try { body = (await foundationResp.text()).slice(0, 400); } catch { /* ignore */ }
+    throw new Error(
+      `AWS Bedrock ListFoundationModels returned ${foundationResp.status} in region ${region}. ` +
+      (body || 'Common causes: (1) no Bedrock access in this region — try us-east-1 or us-west-2; ' +
+       '(2) IAM role missing bedrock:ListFoundationModels; (3) SSO token expired — run `aws sso login`.')
+    );
+  }
+  const foundationData = await foundationResp.json() as {
     modelSummaries?: Array<{
       modelId: string;
       modelName?: string;
       providerName?: string;
       inputModalities?: string[];
       outputModalities?: string[];
-      responseStreamingSupported?: boolean;
     }>;
   };
 
-  if (!data.modelSummaries) return [];
-
-  return data.modelSummaries
-    .filter(m => {
-      // Only text-in/text-out models that support streaming
-      if (!m.outputModalities?.includes('TEXT')) return false;
-      if (!m.inputModalities?.includes('TEXT')) return false;
-      return isCompatibleModel(m.modelId, 'bedrock');
-    })
+  const foundationModels: ModelInfo[] = (foundationData.modelSummaries || [])
+    .filter(m => m.inputModalities?.includes('TEXT') && m.outputModalities?.includes('TEXT'))
+    .filter(m => bedrockSupportsConverseTools(m.modelId))
     .map(m => ({
       id: m.modelId,
       name: m.modelName || m.modelId,
       description: `${m.providerName || 'Unknown'} — ${getBedrockModelDescription(m.modelId)}`,
       contextLength: getBedrockContextLength(m.modelId),
     }));
+
+  // 2. ListInferenceProfiles — cross-region profile IDs (e.g. us.anthropic.claude-sonnet-4-5-*).
+  // Many modern models are ONLY reachable via these, not direct foundation-model IDs.
+  // Failures here are non-fatal (older accounts / regions may not support it).
+  let profileModels: ModelInfo[] = [];
+  try {
+    const profileResp = await signedGet('/inference-profiles', '');
+    if (profileResp.ok) {
+      const profileData = await profileResp.json() as {
+        inferenceProfileSummaries?: Array<{
+          inferenceProfileId: string;
+          inferenceProfileName?: string;
+          status?: string;
+          type?: string;
+        }>;
+      };
+      profileModels = (profileData.inferenceProfileSummaries || [])
+        .filter(p => p.status !== 'INACTIVE')
+        .filter(p => bedrockSupportsConverseTools(p.inferenceProfileId))
+        .map(p => ({
+          id: p.inferenceProfileId,
+          name: p.inferenceProfileName || p.inferenceProfileId,
+          description: `Inference profile — ${getBedrockModelDescription(p.inferenceProfileId)}`,
+          contextLength: getBedrockContextLength(p.inferenceProfileId),
+        }));
+    }
+  } catch {
+    // Non-fatal — foundation models alone is still useful.
+  }
+
+  // Merge. For every inference profile, strip the region prefix (e.g. `us.`,
+  // `eu.`, `apac.`, `jp.`) to get the base foundation-model ID it wraps, and
+  // drop that base from the foundation list — because newer Claude 4.x / Haiku
+  // 4.5 models can ONLY be invoked via their inference profile on on-demand
+  // throughput. Showing both would let users pick the invokable-broken raw ID.
+  const coveredBaseIds = new Set<string>();
+  for (const p of profileModels) {
+    const base = p.id.replace(/^[a-z]{2,5}\./, '');
+    if (base !== p.id) coveredBaseIds.add(base);
+  }
+  const filteredFoundation = foundationModels.filter(m => !coveredBaseIds.has(m.id));
+
+  const merged = new Map<string, ModelInfo>();
+  for (const m of filteredFoundation) merged.set(m.id, m);
+  for (const m of profileModels) merged.set(m.id, m);
+  return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Bedrock Converse API tool-calling support. Maintained as a local allowlist
+ * because AWS doesn't expose per-model tool capability via the list APIs.
+ * See: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference-supported-models-features.html
+ * Matches both raw foundation model IDs (e.g. anthropic.claude-3-5-sonnet-*)
+ * and cross-region inference profile IDs (e.g. us.anthropic.claude-sonnet-4-5-*).
+ */
+function bedrockSupportsConverseTools(modelId: string): boolean {
+  const id = modelId.toLowerCase();
+  // Anthropic Claude 3, 3.5, 3.7, 4, 4.5 (all support tools). Excludes Claude 2.x / Instant.
+  if (/anthropic\.claude-(3|opus-4|sonnet-4|haiku-4|3-5|3-7)/.test(id)) return true;
+  // Amazon Nova (Pro / Lite / Micro support Converse tools; Nova Canvas/Reel are image models — excluded)
+  if (/amazon\.nova-(pro|lite|micro|premier)/.test(id)) return true;
+  // Cohere Command R / R+ support tools (older Command models do not)
+  if (/cohere\.command-r/.test(id)) return true;
+  // Mistral Large (2402, 2407), Pixtral Large, Mistral Small, Nemo
+  if (/mistral\.(mistral-large|pixtral|mistral-small|mistral-nemo)/.test(id)) return true;
+  // Meta Llama 3.1+ supports tools via Converse (3.0 and earlier do not)
+  if (/meta\.llama(3-1|3-2|3-3|4)/.test(id)) return true;
+  // AI21 Jamba 1.5 supports tools
+  if (/ai21\.jamba-1-5/.test(id)) return true;
+  // DeepSeek R1 supports tools
+  if (/deepseek\.r1/.test(id)) return true;
+  return false;
 }
 
 function getBedrockModelDescription(modelId: string): string {

@@ -131,6 +131,7 @@ export interface CommandContext {
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
   exit: () => void;
   startScuttlebotPolling: () => void;
+  openProviderPicker?: () => void;
 }
 
 // Builds the full system prompt including memory context (project + global).
@@ -313,9 +314,17 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     case '/providers':
     case '/p':
       if (parts[1]) {
-        const p = parts[1].toLowerCase() as LLMProvider;
-        ctx.setProvider(p);
-        ctx.addMessage('system', `Provider: ${selectProvider(p)}`);
+        const requested = parts[1].toLowerCase() as LLMProvider;
+        const available = getAvailableProviders();
+        if (!available.includes(requested)) {
+          ctx.addMessage('error',
+            `Provider "${requested}" is not configured. Run /provider (no args) for an interactive picker with setup.`);
+          break;
+        }
+        ctx.setProvider(requested);
+        ctx.addMessage('system', `Provider: ${selectProvider(requested)}`);
+      } else if (ctx.openProviderPicker) {
+        ctx.openProviderPicker();
       } else {
         ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
       }
@@ -346,7 +355,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
       } else {
         ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
         try {
-          const models = await getAvailableModels(ctx.actualProvider);
+          const models = await getAvailableModels(ctx.actualProvider, { throwOnError: true });
           if (models.length > 0) {
             ctx.setAvailableModels(models);
             ctx.setModalMode('model');
@@ -362,7 +371,7 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}${ctx.a
     case '/models':
       ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
       try {
-        const models = await getAvailableModels(ctx.actualProvider);
+        const models = await getAvailableModels(ctx.actualProvider, { throwOnError: true });
         if (models.length > 0) {
           ctx.setAvailableModels(models);
           ctx.setModalMode('model');

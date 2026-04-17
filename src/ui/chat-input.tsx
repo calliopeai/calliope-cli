@@ -24,6 +24,7 @@ export function ChatInput({
   onChange,
   onSubmit,
   onEscape,
+  onExit,
   onCycleMode,
   disabled,
   isProcessing,
@@ -48,6 +49,7 @@ export function ChatInput({
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onEscape: () => void;
+  onExit?: () => void;
   onCycleMode: () => void;
   disabled: boolean;
   isProcessing?: boolean;
@@ -81,27 +83,33 @@ export function ChatInput({
   const valueRef = React.useRef(value);
   const cursorRef = React.useRef(value.length); // Cursor position (0 = start, length = end)
   const internalChangeRef = React.useRef(false); // Track if change was from typing
+  const lastCtrlCRef = React.useRef(0); // Timestamp of last Ctrl+C for double-press exit
 
-  // Sync refs when prop changes (from external sources like history navigation)
+  // Force re-render so input echoes immediately from refs, independent of
+  // parent re-render cadence (parent can be slow during streaming/tool output).
+  const [, forceRender] = React.useState(0);
+
+  // Sync refs when prop changes. Authoritative: if parent's value diverges from
+  // our ref (post-submit clear, history nav, external reset), resync and repaint.
+  // Our own onChange echo never diverges, so this is a no-op during typing.
   React.useEffect(() => {
-    // Only reset cursor if change was external (not from our own typing)
-    if (!internalChangeRef.current) {
+    if (value !== valueRef.current) {
       valueRef.current = value;
-      cursorRef.current = value.length; // Move cursor to end on external change
+      cursorRef.current = value.length;
+      forceRender(n => n + 1);
     }
     internalChangeRef.current = false;
   }, [value]);
 
-  // Helper to update value - updates ref IMMEDIATELY, then notifies parent
+  // Helper to update value - updates ref IMMEDIATELY, paints, then notifies parent
   const updateValue = (newValue: string, newCursor?: number) => {
-    valueRef.current = newValue;  // Update ref synchronously
-    cursorRef.current = newCursor ?? newValue.length; // Default cursor to end
-    internalChangeRef.current = true; // Mark as internal change
-    onChange(newValue);           // Then notify parent (may batch)
+    valueRef.current = newValue;
+    cursorRef.current = newCursor ?? newValue.length;
+    internalChangeRef.current = true;
+    forceRender(n => n + 1); // Paint now; don't wait for parent's batch
+    onChange(newValue);
   };
 
-  // Force re-render for cursor position changes (cursor is visual only)
-  const [, forceRender] = React.useState(0);
   const updateCursor = (pos: number) => {
     cursorRef.current = Math.max(0, Math.min(pos, valueRef.current.length));
     forceRender(n => n + 1);
@@ -119,8 +127,15 @@ export function ChatInput({
       return;
     }
 
-    // Ctrl+C to exit (always works)
+    // Ctrl+C: first press cancels (like Esc); second press within 2s exits.
     if (key.ctrl && input === 'c') {
+      const now = Date.now();
+      if (onExit && now - lastCtrlCRef.current < 2000) {
+        lastCtrlCRef.current = 0;
+        onExit();
+        return;
+      }
+      lastCtrlCRef.current = now;
       onEscape();
       return;
     }

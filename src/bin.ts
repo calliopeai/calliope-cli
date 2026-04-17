@@ -68,6 +68,12 @@ const agtermEnabled = args.includes('--agents') || args.includes('--agterm') || 
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
 
+// --debug enables verbose file logging to /tmp/calliope-debug.log
+// (console output would corrupt Ink rendering, so we log to file).
+if (args.includes('--debug')) {
+  process.env.CALLIOPE_DEBUG = '1';
+}
+
 // Check for API server flag
 const useApiServer = args.includes('--serve') || args.includes('--api');
 
@@ -318,6 +324,7 @@ ${bold('OPTIONS')}
   --json            Output JSON events (with --headless)
   --pipe            Read from stdin, write to stdout (alias)
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
+  --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
 ${bold('ENVIRONMENT VARIABLES')}
   ANTHROPIC_API_KEY     Anthropic Claude API key

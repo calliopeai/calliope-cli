@@ -31,7 +31,7 @@ export function formatTokenCount(n: number): string {
 // StatusBar Component
 // ============================================================================
 
-export function StatusBar({
+function StatusBarInner({
   provider,
   model,
   stats,
@@ -108,3 +108,7 @@ export function StatusBar({
     </Box>
   );
 }
+
+// Memoized so input keystrokes don't re-render the status bar. Mood/git refresh
+// when any prop (most commonly stats) ticks during agent activity.
+export const StatusBar = React.memo(StatusBarInner);
