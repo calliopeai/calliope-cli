@@ -76,6 +76,8 @@ vi.mock('../src/summarization.js', () => ({
     reducedTokens: 0,
     summary: '',
   })),
+  estimateTotalTokens: vi.fn(() => 100),
+  summarizeMessages: vi.fn(() => ''),
 }));
 
 vi.mock('../src/parallel-tools.js', () => ({

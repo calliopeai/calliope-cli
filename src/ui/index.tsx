@@ -118,7 +118,18 @@ function TerminalChat() {
   }, [stdout]);
 
   // Core state
-  const [input, setInput] = useState('');
+  // Input value is held primarily in a ref so that keystrokes don't force
+  // a full parent re-render (which cascades through modals, layouts, status bar
+  // and causes visible paint lag on every character). We only bump `inputVersion`
+  // when we need the parent to re-render with a programmatic value change
+  // (history nav, clear on submit) — keystrokes never trigger a parent render.
+  const inputRef = useRef('');
+  const [inputVersion, setInputVersion] = useState(0);
+  const setInputValue = useCallback((value: string) => {
+    inputRef.current = value;
+    setInputVersion(v => v + 1);
+  }, []);
+  const input = inputRef.current;
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -164,15 +175,17 @@ function TerminalChat() {
     [inputHistory]
   );
 
-  // Clear suggestions when input changes significantly
+  // Handle changes coming from the ChatInput. During typing, we update the
+  // ref only — ChatInput paints itself synchronously from its own ref, so we
+  // don't need to re-render the parent. We still want to clear stale slash
+  // suggestions and reset history navigation, but those setters bail out
+  // via functional updates when the value is already current.
   const handleInputChange = useCallback((newValue: string) => {
-    setInput(newValue);
-    // Clear suggestions if user clears input or submits
+    inputRef.current = newValue;
     if (!newValue || !newValue.startsWith('/')) {
-      setSuggestions([]);
+      setSuggestions(prev => prev.length > 0 ? [] : prev);
     }
-    // Reset history navigation when user types
-    setHistoryIndex(-1);
+    setHistoryIndex(prev => prev === -1 ? prev : -1);
   }, []);
 
   // Navigate input history
@@ -182,25 +195,25 @@ function TerminalChat() {
     if (direction === 'up') {
       if (historyIndex === -1) {
         // Save current input before navigating
-        setSavedInput(input);
+        setSavedInput(inputRef.current);
         setHistoryIndex(inputHistory.length - 1);
-        setInput(inputHistory[inputHistory.length - 1]);
+        setInputValue(inputHistory[inputHistory.length - 1]);
       } else if (historyIndex > 0) {
         setHistoryIndex(historyIndex - 1);
-        setInput(inputHistory[historyIndex - 1]);
+        setInputValue(inputHistory[historyIndex - 1]);
       }
     } else {
       if (historyIndex === -1) return;
       if (historyIndex < inputHistory.length - 1) {
         setHistoryIndex(historyIndex + 1);
-        setInput(inputHistory[historyIndex + 1]);
+        setInputValue(inputHistory[historyIndex + 1]);
       } else {
         // Return to saved input
         setHistoryIndex(-1);
-        setInput(savedInput);
+        setInputValue(savedInput);
       }
     }
-  }, [inputHistory, historyIndex, input, savedInput]);
+  }, [inputHistory, historyIndex, savedInput, setInputValue]);
 
   // Add to history when submitting
   const addToHistory = useCallback((value: string) => {
@@ -651,7 +664,7 @@ function TerminalChat() {
     setThinkingState,
     setStreamingResponse,
     setQueuedMessages,
-    setInput,
+    setInput: setInputValue,
     setBookmarks,
     setTemplates,
     setContextTokens,
@@ -704,7 +717,7 @@ function TerminalChat() {
 
     // Add to history for up/down arrow navigation
     addToHistory(trimmed);
-    setInput('');
+    setInputValue('');
 
     if (trimmed.startsWith('/')) {
       await handleCommandWrapped(trimmed);
@@ -791,7 +804,7 @@ function TerminalChat() {
       setThinkingState(null);
       setStreamingResponse('');
     }
-  }, [isProcessing, handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, addToHistory, mode]);
+  }, [isProcessing, handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, addToHistory, mode, setInputValue]);
 
   // Keep handleSubmitRef current so scuttlebot polling never captures a stale closure
   useEffect(() => {
