@@ -21,6 +21,7 @@ import { shouldInsertInputChunk } from './input-utils.js';
 
 export function ChatInput({
   value,
+  valueVersion,
   onChange,
   onSubmit,
   onEscape,
@@ -46,6 +47,11 @@ export function ChatInput({
   hasGitRepo,
 }: {
   value: string;
+  // Bumps when the parent explicitly sets the value (clear on submit,
+  // history nav). Needed because during typing the parent holds the value
+  // in a ref and does not re-render, so the `value` prop can be stale;
+  // watching a version counter guarantees we sync on explicit resets.
+  valueVersion?: number;
   onChange: (value: string) => void;
   onSubmit: (value: string) => void;
   onEscape: () => void;
@@ -89,9 +95,11 @@ export function ChatInput({
   // parent re-render cadence (parent can be slow during streaming/tool output).
   const [, forceRender] = React.useState(0);
 
-  // Sync refs when prop changes. Authoritative: if parent's value diverges from
-  // our ref (post-submit clear, history nav, external reset), resync and repaint.
-  // Our own onChange echo never diverges, so this is a no-op during typing.
+  // Sync refs when parent authoritatively pushes a value. We depend on
+  // `valueVersion` rather than `value` alone: during typing the parent keeps
+  // the canonical value in a ref and does not re-render, so the `value` prop
+  // can lag behind our own ref. The parent bumps `valueVersion` on explicit
+  // resets (clear after submit, history nav) so we know to overwrite.
   React.useEffect(() => {
     if (value !== valueRef.current) {
       valueRef.current = value;
@@ -99,7 +107,7 @@ export function ChatInput({
       forceRender(n => n + 1);
     }
     internalChangeRef.current = false;
-  }, [value]);
+  }, [value, valueVersion]);
 
   // Helper to update value - updates ref IMMEDIATELY, paints, then notifies parent
   const updateValue = (newValue: string, newCursor?: number) => {

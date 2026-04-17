@@ -1370,6 +1370,7 @@ function TerminalChat() {
       {/* Chat Input */}
       <ChatInput
         value={input}
+        valueVersion={inputVersion}
         onChange={handleInputChange}
         onSubmit={handleSubmit}
         onEscape={handleEscape}
