@@ -1037,16 +1037,13 @@ async function readFile(filePath: string, cwd: string): Promise<string> {
 
   const content = fs.readFileSync(absPath, 'utf-8');
 
-  // Inline file preview header (#119)
-  const PREVIEW_CAP = 20;
-  const allLines = content.split('\n');
-  const totalLines = allLines.length;
-  const previewLines = allLines.slice(0, PREVIEW_CAP);
+  // Inline file preview header (#119). The header carries the line count;
+  // the full content follows once — no preview/footer, those duplicated the
+  // first 20 lines on every read and cost ~20% extra tokens on short files.
+  const totalLines = content.split('\n').length;
   const header = `[file: ${filePath} \u2014 ${totalLines} line${totalLines !== 1 ? 's' : ''}]\n${'─'.repeat(40)}`;
-  const previewBody = previewLines.join('\n');
-  const footer = totalLines > PREVIEW_CAP ? `\n... (${totalLines - PREVIEW_CAP} more lines)` : '';
 
-  return `${header}\n${previewBody}${footer}\n\n${content}`;
+  return `${header}\n${content}`;
 }
 
 /**
@@ -1236,6 +1233,7 @@ function listFilesRecursive(dir: string, prefix: string, depth: number): string 
 
   for (const entry of entries.slice(0, 50)) {
     if (entry.name.startsWith('.')) continue; // Skip hidden files
+    if (entry.isDirectory() && WALK_IGNORED_DIRS.has(entry.name)) continue;
 
     const entryPath = path.join(dir, entry.name);
 
@@ -1408,6 +1406,30 @@ async function webSearch(query: string, numResults: number): Promise<string> {
 /**
  * Execute git commands safely
  */
+// Tokenize git args supporting simple shell-style quoting so commit messages
+// like  -m "fix: thing"  parse into two tokens.
+function parseGitArgs(args: string): string[] {
+  const tokens: string[] = [];
+  const re = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+)/g;
+  let m;
+  while ((m = re.exec(args)) !== null) {
+    tokens.push(m[1] ?? m[2] ?? m[3]!);
+  }
+  return tokens;
+}
+
+// Single-quote each token so the final string is safe to pass through bash -c
+// (what executeShell does). A single quote inside a single-quoted string is
+// escaped as  '\''  .
+function shellEscape(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+// Git-specific flags that cause arbitrary command execution even when passed
+// without a shell (e.g. over SSH via upload-pack/receive-pack). Blocklisted
+// because the shell-metachar strip used before did not catch them.
+const DANGEROUS_GIT_FLAG_RE = /^(--upload-pack|--receive-pack|--exec|--config-env)(=|$)/;
+
 async function executeGit(operation: string, args: string, cwd: string): Promise<string> {
   const allowedOps = ['status', 'diff', 'log', 'branch', 'add', 'commit', 'push', 'pull', 'stash'];
 
@@ -1415,8 +1437,18 @@ async function executeGit(operation: string, args: string, cwd: string): Promise
     return `Error: Unknown git operation: ${operation}. Allowed: ${allowedOps.join(', ')}`;
   }
 
-  // Sanitize args to prevent command injection via shell metacharacters
-  const safeArgs = args.replace(/[;&|`$(){}!#\n\r]/g, '');
+  const tokens = parseGitArgs(args);
+  for (const tok of tokens) {
+    if (DANGEROUS_GIT_FLAG_RE.test(tok)) {
+      return `Error: git flag "${tok.split('=')[0]}" is not allowed (RCE risk)`;
+    }
+    // ext:: remote protocol runs an arbitrary command on the client side.
+    if (tok.startsWith('ext::')) {
+      return 'Error: git "ext::" remote protocol is not allowed (RCE risk)';
+    }
+  }
+
+  const quoted = tokens.map(shellEscape).join(' ');
 
   let command: string;
   switch (operation) {
@@ -1424,31 +1456,31 @@ async function executeGit(operation: string, args: string, cwd: string): Promise
       command = 'git status --short';
       break;
     case 'diff':
-      command = `git diff ${safeArgs}`.trim();
+      command = `git diff ${quoted}`.trim();
       break;
     case 'log':
-      command = `git log --oneline -20 ${safeArgs}`.trim();
+      command = `git log --oneline -20 ${quoted}`.trim();
       break;
     case 'branch':
-      command = `git branch ${safeArgs}`.trim();
+      command = `git branch ${quoted}`.trim();
       break;
     case 'add':
-      command = `git add ${safeArgs || '.'}`.trim();
+      command = tokens.length ? `git add ${quoted}` : 'git add .';
       break;
     case 'commit':
-      if (!safeArgs.includes('-m')) {
+      if (!tokens.includes('-m')) {
         return 'Error: commit requires -m "message"';
       }
-      command = `git commit ${safeArgs}`.trim();
+      command = `git commit ${quoted}`.trim();
       break;
     case 'push':
-      command = `git push ${safeArgs}`.trim();
+      command = `git push ${quoted}`.trim();
       break;
     case 'pull':
-      command = `git pull ${safeArgs}`.trim();
+      command = `git pull ${quoted}`.trim();
       break;
     case 'stash':
-      command = `git stash ${safeArgs}`.trim();
+      command = `git stash ${quoted}`.trim();
       break;
     default:
       return `Unknown operation: ${operation}`;
@@ -1612,6 +1644,29 @@ function globToRegex(pattern: string): RegExp {
 /**
  * Recursively walk a directory and collect all file paths relative to the base.
  */
+// Directories that are almost always noise when searching a project tree.
+// Keeping this list small and hardcoded (rather than parsing .gitignore) avoids
+// both performance cliffs on large monorepos and accidental scans of vendored
+// secrets in node_modules. Users who need to search these can use the shell tool.
+const WALK_IGNORED_DIRS = new Set([
+  '.git',
+  'node_modules',
+  'dist',
+  'build',
+  '.next',
+  '.nuxt',
+  '.turbo',
+  '.cache',
+  'coverage',
+  '.venv',
+  'venv',
+  '__pycache__',
+  'target',   // rust
+  '.gradle',
+  '.idea',
+  '.vscode',
+]);
+
 function walkDir(dir: string, base: string, results: string[]): void {
   let entries: fs.Dirent[];
   try {
@@ -1620,6 +1675,7 @@ function walkDir(dir: string, base: string, results: string[]): void {
     return;
   }
   for (const entry of entries) {
+    if (entry.isDirectory() && WALK_IGNORED_DIRS.has(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     const relPath = path.relative(base, fullPath);
     if (entry.isDirectory()) {

@@ -406,6 +406,43 @@ describe('git tool', () => {
     // Should complain about missing -m
     expect(result.result).toContain('-m');
   });
+
+  it('rejects --upload-pack flag (SSH RCE vector)', async () => {
+    const result = await executeTool(
+      makeTool('git', { operation: 'pull', args: '--upload-pack="rm -rf /" origin main' }),
+      tmpDir,
+    );
+    expect(result.result).toContain('not allowed');
+    expect(result.result).toContain('--upload-pack');
+  });
+
+  it('rejects --receive-pack flag (SSH RCE vector)', async () => {
+    const result = await executeTool(
+      makeTool('git', { operation: 'push', args: '--receive-pack=evil origin main' }),
+      tmpDir,
+    );
+    expect(result.result).toContain('not allowed');
+    expect(result.result).toContain('--receive-pack');
+  });
+
+  it('rejects ext:: remote protocol (RCE vector)', async () => {
+    const result = await executeTool(
+      makeTool('git', { operation: 'pull', args: 'ext::sh -c evil' }),
+      tmpDir,
+    );
+    expect(result.result).toContain('ext::');
+    expect(result.result).toContain('not allowed');
+  });
+
+  it('shell-quotes args so metacharacters cannot inject commands', async () => {
+    // This should pass the args through safely — git will reject them as a
+    // bad ref, but the `; echo PWNED` portion must not execute in the shell.
+    const result = await executeTool(
+      makeTool('git', { operation: 'log', args: '"HEAD; echo PWNED"' }),
+      tmpDir,
+    );
+    expect(result.result).not.toContain('PWNED');
+  });
 });
 
 // ===========================================================================

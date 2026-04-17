@@ -73,7 +73,7 @@ describe('read_file preview header (#119)', () => {
     expect(result.result).toContain('row 20');
   });
 
-  it('shows 20 preview lines + "N more lines" footer for a file > 20 lines', async () => {
+  it('shows header with total line count and full content for a file > 20 lines', async () => {
     const filePath = path.join(tmpDir, 'large.txt');
     const lines = Array.from({ length: 35 }, (_, i) => `entry ${i + 1}`);
     fs.writeFileSync(filePath, lines.join('\n'));
@@ -83,13 +83,13 @@ describe('read_file preview header (#119)', () => {
     expect(result.isError).toBeUndefined();
     // Header shows total line count
     expect(result.result).toMatch(/\[file:.*35 lines\]/);
-    // Preview is capped at first 20 lines
+    // Full content present (no duplicated preview block)
     expect(result.result).toContain('entry 1');
     expect(result.result).toContain('entry 20');
-    // "more lines" footer appears
-    expect(result.result).toContain('15 more lines');
-    // Full content also present after double newline
     expect(result.result).toContain('entry 35');
+    // First line ("entry 1") must appear exactly once — no preview duplication
+    const occurrences = result.result!.match(/\bentry 1\b(?!\d)/g) ?? [];
+    expect(occurrences.length).toBe(1);
   });
 
   it('still returns the full file content after the preview section', async () => {
