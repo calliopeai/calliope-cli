@@ -35,11 +35,9 @@ FROM node:20-alpine AS runtime
 RUN apk add --no-cache git
 
 # Non-root user with home dir for config persistence
-# node:20-alpine already ships a `node` user/group at UID/GID 1000, so remove it first
-RUN deluser --remove-home node 2>/dev/null || true; \
-    delgroup node 2>/dev/null || true; \
-    addgroup -g 1000 calliope && \
-    adduser -u 1000 -G calliope -s /bin/sh -D -h /home/calliope calliope
+# UID/GID 2000 sidesteps the `node` user that ships at 1000 in node:20-alpine
+RUN addgroup -g 2000 calliope && \
+    adduser -u 2000 -G calliope -s /bin/sh -D -h /home/calliope calliope
 
 WORKDIR /app
 
