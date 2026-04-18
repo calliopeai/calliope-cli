@@ -25,7 +25,6 @@ on:
 
 env:
   AWS_REGION: us-west-2
-  AWS_ACCOUNT_ID: 718519534729
   ECR_REPOSITORY: calliope-cli
 
 jobs:
@@ -69,9 +68,9 @@ jobs:
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:sha-${{ steps.sha.outputs.short }}
-            ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:v${{ steps.version.outputs.version }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:sha-${{ steps.sha.outputs.short }}
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:v${{ steps.version.outputs.version }}
           cache-from: type=gha,scope=calliope-cli
           cache-to: type=gha,mode=max,scope=calliope-cli
           build-args: |
@@ -92,7 +91,7 @@ jobs:
 
       - name: Summary
         run: |
-          REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}"
+          REGISTRY="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}"
           echo "## Calliope CLI Docker Build" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`v${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
