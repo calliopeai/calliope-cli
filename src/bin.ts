@@ -101,6 +101,51 @@ const envCompanion = process.env.CALLIOPE_COMPANION;
 // Export for CLI to access
 export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion, maxRetries };
 
+// ---------------------------------------------------------------------------
+// Graceful shutdown + top-level error handling
+//
+// In --serve/--api mode the process blocks forever, so without signal handlers
+// Ctrl-C (SIGINT) or SIGTERM would drop the HTTP listener, open WebSocket
+// sockets, and the caffeinate sleep guard without cleanup. We install a single
+// idempotent shutdown path and wire it to process signals and to top-level
+// async error handlers (which main().catch() does not cover post-startup).
+// ---------------------------------------------------------------------------
+
+let shuttingDown = false;
+
+/**
+ * Run cleanup exactly once, then exit. Re-entrant calls (e.g. a second Ctrl-C
+ * mid-shutdown) are ignored so cleanup never double-runs. stopApiServer() and
+ * stopPreventSleep() are both safe no-ops when nothing was started.
+ */
+export async function shutdown(exitCode = 0): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try {
+    const { stopApiServer } = await import('./api-server.js');
+    const { stopPreventSleep } = await import('./prevent-sleep.js');
+    await stopApiServer();
+    stopPreventSleep();
+  } catch {
+    // Best-effort cleanup — never let a teardown error block exit.
+  }
+  process.exit(exitCode);
+}
+
+/** Register signal + top-level error handlers. Idempotent. */
+export function registerProcessHandlers(): void {
+  process.on('SIGINT', () => { void shutdown(0); });
+  process.on('SIGTERM', () => { void shutdown(0); });
+  process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection:', reason instanceof Error ? reason.message : reason);
+    void shutdown(1);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception:', err instanceof Error ? err.message : err);
+    void shutdown(1);
+  });
+}
+
 async function main(): Promise<void> {
   // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
   const [nodeMaj] = process.versions.node.split('.').map(Number);
@@ -376,7 +421,13 @@ function bold(text: string): string {
 }
 
 // Run
-main().catch((err) => {
-  console.error('Error:', err.message);
-  process.exit(1);
-});
+// CALLIOPE_NO_AUTORUN lets tests import this module to exercise the exported
+// shutdown/handler logic without launching the CLI or registering signal
+// handlers. It is never set in normal use.
+if (!process.env.CALLIOPE_NO_AUTORUN) {
+  registerProcessHandlers();
+  main().catch((err) => {
+    console.error('Error:', err.message);
+    void shutdown(1);
+  });
+}
