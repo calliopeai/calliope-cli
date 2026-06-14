@@ -62,9 +62,6 @@
     "typescript": "^5.7.2",
     "vitest": "^4.0.16"
   },
-  "optionalDependencies": {
-    "@calliopelabs/cli-themes": "^1.0.0"
-  },
   "engines": {
     "node": ">=20.0.0"
   }
