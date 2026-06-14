@@ -730,3 +730,30 @@ describe('chatAnthropic', () => {
     });
   });
 });
+
+describe('adaptive thinking + refusal stop reason (#147)', () => {
+  it('enables adaptive thinking for supported models', async () => {
+    await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-sonnet-4-6');
+    expect(lastCreateParams?.thinking).toEqual({ type: 'adaptive' });
+    await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-opus-4-8');
+    expect(lastCreateParams?.thinking).toEqual({ type: 'adaptive' });
+  });
+
+  it('omits thinking for models that do not support it', async () => {
+    await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-haiku-4-5');
+    expect(lastCreateParams?.thinking).toBeUndefined();
+    await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-sonnet-4-20250514');
+    expect(lastCreateParams?.thinking).toBeUndefined();
+  });
+
+  it('maps the refusal stop reason to an error finish', async () => {
+    mockCreateResponse = {
+      content: [],
+      stop_reason: 'refusal',
+      usage: { input_tokens: 5, output_tokens: 0 },
+    };
+    const r = await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-opus-4-8');
+    expect(r.finishReason).toBe('error');
+    expect(r.content).toMatch(/refused/i);
+  });
+});
