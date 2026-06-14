@@ -21,6 +21,7 @@ vi.mock('fs', () => ({
   writeFileSync: vi.fn(),
   readFileSync: vi.fn(),
   unlinkSync: vi.fn(),
+  renameSync: vi.fn(),
 }));
 
 import {

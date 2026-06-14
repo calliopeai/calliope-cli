@@ -232,7 +232,7 @@ describe('idle-eviction', () => {
       expect(getEvictionStats().enabled).toBe(false);
     });
 
-    it('should increment evictionCount after evictions', () => {
+    it('should increment evictionCount once per idle period', () => {
       const baseCount = getEvictionStats().evictionCount;
 
       configureEviction({
@@ -245,11 +245,10 @@ describe('idle-eviction', () => {
       vi.advanceTimersByTime(1500);
       const stats = getEvictionStats();
       // At 500ms: idle=500 < 1000, no eviction
-      // At 1000ms: idle=1000 >= 1000, eviction
-      // At 1500ms: idle=1500 >= 1000, eviction
-      // But callbacks from prior tests are still registered and may trigger additional evictions
-      // Just verify the count increased
-      expect(stats.evictionCount).toBeGreaterThan(baseCount);
+      // At 1000ms: idle=1000 >= 1000, eviction (latch set)
+      // At 1500ms: still idle but latched, no further eviction
+      // Latch ensures exactly one eviction event for this idle period.
+      expect(stats.evictionCount).toBe(baseCount + 1);
     });
 
     it('should report correct idle duration', () => {
@@ -335,12 +334,10 @@ describe('idle-eviction', () => {
       startMonitor();
 
       vi.advanceTimersByTime(1500);
-      // Should only fire once per check, not 4 times (original + 3 extra)
-      // At 1500ms with 500ms interval: check at 500, 1000, 1500
-      // Eviction happens at 1000ms and 1500ms (idle >= 1000)
+      // With stacking, a single idle period would fire many times. With a single
+      // interval plus the once-per-idle-period latch, eviction fires exactly once.
       const evictCalls = cb.mock.calls.filter(([a]: [string]) => a === 'evict');
-      // With stacking, we'd see far more calls. With a single interval, we expect 2 checks that trigger eviction.
-      expect(evictCalls.length).toBe(2);
+      expect(evictCalls.length).toBe(1);
     });
   });
 
@@ -364,7 +361,7 @@ describe('idle-eviction', () => {
       expect(cb).toHaveBeenCalledWith('evict');
     });
 
-    it('should trigger eviction repeatedly on subsequent checks while still idle', () => {
+    it('should fire eviction exactly once while remaining idle (latched)', () => {
       const cb = vi.fn();
       onEviction(cb);
 
@@ -376,10 +373,33 @@ describe('idle-eviction', () => {
       });
 
       vi.advanceTimersByTime(3000);
-      // Checks at 500, 1000, 1500, 2000, 2500, 3000
-      // Evictions at 1000, 1500, 2000, 2500, 3000 (5 times)
+      // Checks at 500, 1000, 1500, 2000, 2500, 3000.
+      // Eviction fires once at 1000ms; the latch suppresses all later ticks.
       const evictCalls = cb.mock.calls.filter(([a]: [string]) => a === 'evict');
-      expect(evictCalls.length).toBe(5);
+      expect(evictCalls.length).toBe(1);
+    });
+
+    it('should evict again in a new idle period after activity resets the latch', () => {
+      const cb = vi.fn();
+      onEviction(cb);
+
+      configureEviction({
+        enabled: true,
+        idleThresholdMs: 1000,
+        checkIntervalMs: 500,
+        autoSaveOnEvict: false,
+      });
+
+      // First idle period -> one eviction.
+      vi.advanceTimersByTime(1500);
+      expect(cb.mock.calls.filter(([a]: [string]) => a === 'evict').length).toBe(1);
+
+      // Activity resets the latch and the idle clock.
+      recordActivity();
+
+      // Second idle period -> one more eviction.
+      vi.advanceTimersByTime(1500);
+      expect(cb.mock.calls.filter(([a]: [string]) => a === 'evict').length).toBe(2);
     });
   });
 

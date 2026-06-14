@@ -6,7 +6,7 @@
  */
 
 import { chat } from './providers/index.js';
-import { summarizeMessages, estimateTotalTokens } from './summarization.js';
+import { summarizeMessages, estimateTotalTokens, validateMessageHistory } from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, Tool } from './types.js';
 
 // ============================================================================
@@ -233,12 +233,15 @@ export async function autoCompress(
     method = 'heuristic';
   }
 
-  // Build compressed messages
-  const compressed: LLMMessage[] = [
+  // Build compressed messages. The positional slice can orphan a tool_use/result
+  // pair across the keep boundary (e.g. a kept `tool` result whose assistant
+  // `tool_use` was summarized away), which would 400 on the next provider call.
+  // validateMessageHistory strips any such orphaned tool blocks before returning.
+  const compressed: LLMMessage[] = validateMessageHistory([
     ...systemMessages,
     { role: 'system', content: `[Auto-compressed context — ${method} summary of ${toSummarize.length} messages]\n\n${summary}` },
     ...toKeep,
-  ];
+  ]);
 
   const compressedTokens = estimateTotalTokens(compressed);
   if (compressedTokens >= currentTokens) {

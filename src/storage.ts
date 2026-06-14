@@ -150,12 +150,31 @@ function readJSON<T>(filePath: string, defaultValue: T): T {
   return defaultValue;
 }
 
+/**
+ * Atomically write JSON to disk. Serializes to a uniquely-named temp file in the
+ * target's own directory, then renames it into place. rename(2) is atomic within
+ * a filesystem, so a concurrent reader sees either the old or the new file, never a
+ * truncated partial write. The unique temp name (pid + timestamp) prevents two
+ * concurrent instances from clobbering each other's temp file, and the temp file is
+ * cleaned up if the write/rename fails.
+ */
 function writeJSON(filePath: string, data: unknown): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.renameSync(tmp, filePath);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // temp file may not exist; ignore cleanup failures
+    }
+    throw err;
+  }
 }
 
 // ============================================================================
@@ -224,11 +243,46 @@ function readChatHistory(filePath: string): ChatMessage[] {
   }
 }
 
+/**
+ * Retention/rotation policy for per-session chat.log.
+ *
+ * chat.log is rotated to chat.log.1 (overwriting any previous rotation) once it
+ * exceeds CHAT_LOG_MAX_BYTES, bounding on-disk growth to ~2x the cap per session.
+ * Override the default via the CALLIOPE_CHAT_LOG_MAX_BYTES env var (bytes).
+ */
+const DEFAULT_CHAT_LOG_MAX_BYTES = 5 * 1024 * 1024; // 5 MiB
+
+function getChatLogMaxBytes(): number {
+  const raw = process.env.CALLIOPE_CHAT_LOG_MAX_BYTES;
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return DEFAULT_CHAT_LOG_MAX_BYTES;
+}
+
+/**
+ * Rotate chat.log to chat.log.1 if it has grown past the configured cap.
+ * The previous chat.log.1 (if any) is overwritten, so retention is bounded to
+ * the two most recent log segments.
+ */
+function rotateChatLogIfNeeded(filePath: string): void {
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const size = fs.statSync(filePath).size;
+    if (size < getChatLogMaxBytes()) return;
+    fs.renameSync(filePath, `${filePath}.1`);
+  } catch {
+    // Rotation is best-effort; never break the append path.
+  }
+}
+
 function appendChatMessage(filePath: string, msg: ChatMessage): void {
   const dir = path.dirname(filePath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  rotateChatLogIfNeeded(filePath);
   fs.appendFileSync(filePath, formatChatMessage(msg) + '\n');
 }
 
@@ -431,8 +485,8 @@ export function deleteSession(sessionId: string): boolean {
   initStorage();
 
   try {
-    const sessionDir = path.join(paths.sessions, sessionId);
-    if (fs.existsSync(sessionDir)) {
+    const sessionDir = getSessionDirById(sessionId);
+    if (sessionDir && fs.existsSync(sessionDir)) {
       fs.rmSync(sessionDir, { recursive: true });
       return true;
     }
@@ -534,17 +588,38 @@ export function setCurrentSessionById(sessionId: string): Session | null {
  * Save the full LLM message array to the current session directory as messages.json.
  * This preserves tool calls, tool results, and all message metadata for perfect resume.
  */
+/**
+ * Maximum number of LLM messages persisted to messages.json. Capping the persisted
+ * array bounds both the per-turn write size and cumulative growth (so a long session
+ * no longer rewrites an ever-larger array each turn). Only the most recent messages
+ * are kept, which is what session resume needs. Override via the
+ * CALLIOPE_MAX_PERSISTED_MESSAGES env var.
+ */
+const DEFAULT_MAX_PERSISTED_MESSAGES = 1000;
+
+function getMaxPersistedMessages(): number {
+  const raw = process.env.CALLIOPE_MAX_PERSISTED_MESSAGES;
+  if (raw) {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed > 0) return Math.floor(parsed);
+  }
+  return DEFAULT_MAX_PERSISTED_MESSAGES;
+}
+
 export function saveMessageHistory(messages: unknown[]): void {
   const session = getCurrentSession();
   if (!session) return;
 
   try {
+    const cap = getMaxPersistedMessages();
+    const toPersist = messages.length > cap ? messages.slice(-cap) : messages;
+
     const messagesFile = path.join(paths.currentSession, 'messages.json');
-    writeJSON(messagesFile, messages);
+    writeJSON(messagesFile, toPersist);
 
     // Update session metadata
     const sessionFile = path.join(paths.currentSession, 'session.json');
-    session.messageCount = messages.length;
+    session.messageCount = toPersist.length;
     session.lastAccessedAt = new Date().toISOString();
     writeJSON(sessionFile, session);
   } catch {

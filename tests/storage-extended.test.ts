@@ -272,14 +272,19 @@ describe('listSessions', () => {
 });
 
 describe('deleteSession', () => {
-  it('should delete an existing session directory', () => {
+  it('should delete an existing session directory by its session id', () => {
     initStorage();
+    // Session dirs are named ${date}_${project}, NOT by the session id.
     const dirName = '2025-01-15_del-project';
     const sessionDir = path.join(paths.sessions, dirName);
     fs.mkdirSync(sessionDir, { recursive: true });
-    fs.writeFileSync(path.join(sessionDir, 'session.json'), '{}');
+    const sessionId = 'session_del_123';
+    fs.writeFileSync(
+      path.join(sessionDir, 'session.json'),
+      JSON.stringify({ id: sessionId })
+    );
 
-    const result = deleteSession(dirName);
+    const result = deleteSession(sessionId);
     expect(result).toBe(true);
     expect(fs.existsSync(sessionDir)).toBe(false);
   });

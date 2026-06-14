@@ -15,6 +15,7 @@ vi.mock('fs', () => ({
   writeFileSync: vi.fn(),
   readFileSync: vi.fn(),
   unlinkSync: vi.fn(),
+  renameSync: vi.fn(),
 }));
 
 // Import after mocks
@@ -254,7 +255,7 @@ describe('Branch Creation', () => {
 
     // The last writeFileSync should be the state file
     const stateWrites = vi.mocked(fs.writeFileSync).mock.calls.filter(
-      call => String(call[0]).endsWith('state.json')
+      call => String(call[0]).includes('state.json')
     );
     expect(stateWrites.length).toBe(1);
 
@@ -409,7 +410,7 @@ describe('Branch Switching', () => {
     switchBranch(TEST_SESSION, 'target', []);
 
     const stateWrites = vi.mocked(fs.writeFileSync).mock.calls.filter(
-      call => String(call[0]).endsWith('state.json')
+      call => String(call[0]).includes('state.json')
     );
     expect(stateWrites.length).toBe(1);
 
@@ -641,7 +642,7 @@ describe('Branch Deletion', () => {
     deleteBranch(TEST_SESSION, 'to-remove');
 
     const stateWrites = vi.mocked(fs.writeFileSync).mock.calls.filter(
-      call => String(call[0]).endsWith('state.json')
+      call => String(call[0]).includes('state.json')
     );
     expect(stateWrites.length).toBe(1);
 
@@ -703,7 +704,7 @@ describe('Branch Renaming', () => {
     expect(result).toBe(true);
 
     const stateWrites = vi.mocked(fs.writeFileSync).mock.calls.filter(
-      call => String(call[0]).endsWith('state.json')
+      call => String(call[0]).includes('state.json')
     );
     const savedState = JSON.parse(stateWrites[0][1] as string) as BranchState;
     expect(savedState.branches['b1'].name).toBe('new-name');
@@ -732,7 +733,7 @@ describe('Branch Renaming', () => {
     expect(result).toBe(true);
 
     const stateWrites = vi.mocked(fs.writeFileSync).mock.calls.filter(
-      call => String(call[0]).endsWith('state.json')
+      call => String(call[0]).includes('state.json')
     );
     const savedState = JSON.parse(stateWrites[0][1] as string) as BranchState;
     expect(savedState.branches['main'].name).toBe('trunk');

@@ -162,6 +162,7 @@ describe('createCheckpoint', () => {
   it('should create checkpoint for write_file and return hash', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M modified.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some staged diff\n';
@@ -176,6 +177,7 @@ describe('createCheckpoint', () => {
   it('should create checkpoint for shell command and return hash', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -190,6 +192,7 @@ describe('createCheckpoint', () => {
   it('should create checkpoint for unknown tool using tool name as summary', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -204,6 +207,7 @@ describe('createCheckpoint', () => {
   it('should return null when git commit throws', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -216,6 +220,7 @@ describe('createCheckpoint', () => {
   it('should increment checkpoint count on success', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -249,6 +254,7 @@ describe('revertToLastCheckpoint', () => {
     // Set up mock to create a checkpoint first
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -264,6 +270,7 @@ describe('revertToLastCheckpoint', () => {
   it('should return false when git reset throws', () => {
     mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
       if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo\n';
       if (args[0] === 'status') return 'M file.txt\n';
       if (args[0] === 'add') return '';
       if (args[0] === 'diff') return 'some diff\n';
@@ -273,6 +280,44 @@ describe('revertToLastCheckpoint', () => {
       return '';
     });
     createCheckpoint('write_file', { path: 'test.txt' });
+    expect(revertToLastCheckpoint()).toBe(false);
+  });
+
+  it('should reset against the captured repo root, not live cwd', () => {
+    const resetCalls: string[][] = [];
+    mockExecFileSync.mockImplementation((_cmd: unknown, args: string[], opts: { cwd: string }) => {
+      if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return '/repo-a\n';
+      if (args[0] === 'status') return 'M file.txt\n';
+      if (args[0] === 'add') return '';
+      if (args[0] === 'diff') return 'some diff\n';
+      if (args[0] === 'commit') return '';
+      if (args[0] === 'rev-parse' && args[1] === '--short') return 'abc1234\n';
+      if (args[0] === 'reset') { resetCalls.push([opts.cwd, ...args]); return ''; }
+      return '';
+    });
+    createCheckpoint('write_file', { path: 'test.txt' });
+    expect(revertToLastCheckpoint()).toBe(true);
+    // The hard reset must run in the captured root, pinned to the checkpoint repo.
+    expect(resetCalls).toEqual([['/repo-a', 'reset', '--hard', 'abc1234']]);
+  });
+
+  it('should be a no-op when the stored repo root no longer matches', () => {
+    let toplevel = '/repo-a\n';
+    mockExecFileSync.mockImplementation((_cmd: unknown, args: string[]) => {
+      if (args[0] === 'rev-parse' && args[1] === '--is-inside-work-tree') return 'true\n';
+      if (args[0] === 'rev-parse' && args[1] === '--show-toplevel') return toplevel;
+      if (args[0] === 'status') return 'M file.txt\n';
+      if (args[0] === 'add') return '';
+      if (args[0] === 'diff') return 'some diff\n';
+      if (args[0] === 'commit') return '';
+      if (args[0] === 'rev-parse' && args[1] === '--short') return 'abc1234\n';
+      if (args[0] === 'reset') throw new Error('should not reset on mismatch');
+      return '';
+    });
+    createCheckpoint('write_file', { path: 'test.txt' });
+    // Simulate the cwd moving to a different repo before the revert.
+    toplevel = '/repo-b\n';
     expect(revertToLastCheckpoint()).toBe(false);
   });
 });
@@ -304,23 +349,21 @@ describe('getCheckpointStats', () => {
 });
 
 // ---------------------------------------------------------------------------
-// isGitRepo caching behavior
+// isGitRepo re-evaluation (must not memoize across cwd changes)
 // ---------------------------------------------------------------------------
 
-describe('isGitRepo caching', () => {
-  it('should cache the git repo result after first call', () => {
-    // First call fails (not a git repo)
+describe('isGitRepo re-evaluation', () => {
+  it('should re-evaluate git-repo status on each call (no stale memoization)', () => {
+    // First call: not a git repo.
     mockExecFileSync.mockImplementationOnce(() => { throw new Error('not a git repo'); });
-    // shouldCheckpoint will cache _isGitRepo = false
-    const result1 = shouldCheckpoint('write_file', { path: 'test.txt' });
-    expect(result1).toBe(false);
+    expect(shouldCheckpoint('write_file', { path: 'test.txt' })).toBe(false);
 
-    // Second call (mockExecFileSync would return 'true' but cache says false)
+    // After a cwd change the dir IS a git repo: the prior "false" must not stick.
     mockExecFileSync.mockReturnValue('true\n');
-    const result2 = shouldCheckpoint('write_file', { path: 'test.txt' });
-    // Still false because _isGitRepo is cached as false from fresh module
-    // (Actually after vi.resetModules() + re-import, cache is reset)
-    // This just tests the flow doesn't crash
-    expect(typeof result2).toBe('boolean');
+    expect(shouldCheckpoint('write_file', { path: 'test.txt' })).toBe(true);
+
+    // And the reverse: a dir that stops being a repo must flip back to false.
+    mockExecFileSync.mockImplementation(() => { throw new Error('not a git repo'); });
+    expect(shouldCheckpoint('write_file', { path: 'test.txt' })).toBe(false);
   });
 });

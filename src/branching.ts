@@ -87,7 +87,16 @@ export function loadBranchState(sessionId: string): BranchState {
  */
 export function saveBranchState(sessionId: string, state: BranchState): void {
   const stateFile = getStateFile(sessionId);
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
+  // Atomic write: a crash or concurrent instance must never leave a truncated
+  // branch-state file (readers fall back to defaults on parse error).
+  const tmp = `${stateFile}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.renameSync(tmp, stateFile);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    throw e;
+  }
 }
 
 // ============================================================================

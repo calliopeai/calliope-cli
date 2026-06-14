@@ -26,6 +26,8 @@ let lastActivityMs = Date.now();
 let checkInterval: ReturnType<typeof setInterval> | null = null;
 let callbacks: EvictionCallback[] = [];
 let evictionCount = 0;
+/** Latch so auto-save/evict fires once per idle period, not every check tick. */
+let hasEvicted = false;
 
 /** Configure eviction behavior */
 export function configureEviction(opts: Partial<EvictionConfig>): void {
@@ -45,6 +47,8 @@ export function onEviction(cb: EvictionCallback): void {
 /** Record user activity */
 export function recordActivity(): void {
   lastActivityMs = Date.now();
+  // Reset the latch so the next idle period can evict again.
+  hasEvicted = false;
 }
 
 /** Get idle duration in ms */
@@ -78,12 +82,15 @@ export function stopMonitor(): void {
 
 function checkIdle(): void {
   const idle = Date.now() - lastActivityMs;
-  if (idle >= config.idleThresholdMs) {
+  // Latch: fire callbacks once per idle period (when crossing the threshold),
+  // not on every check tick while still idle. recordActivity() clears the latch.
+  if (idle >= config.idleThresholdMs && !hasEvicted) {
     evictionCount++;
     if (config.autoSaveOnEvict) {
       for (const cb of callbacks) cb('auto-save');
     }
     for (const cb of callbacks) cb('evict');
+    hasEvicted = true;
   }
 }
 
