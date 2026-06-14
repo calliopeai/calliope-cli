@@ -149,8 +149,8 @@ describe('headless retry budget', () => {
       .mockResolvedValueOnce(toolCallResponse())
       .mockResolvedValueOnce(textResponse('gave up'));
 
-    // All executions fail
-    mockExecuteTool.mockResolvedValue({ result: 'always fails', isError: true });
+    // All executions fail with a transient (retryable) error
+    mockExecuteTool.mockResolvedValue({ result: 'network timeout', isError: true });
 
     const code = await runHeadless({
       prompt: 'hello',

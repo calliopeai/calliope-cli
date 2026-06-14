@@ -75,6 +75,61 @@ function now(): string {
 }
 
 // ============================================================================
+// Retry policy
+// ============================================================================
+
+/**
+ * Tools that mutate state / have side effects. Re-running these on an error
+ * risks compounding partial side effects (duplicate writes, repeated commands),
+ * so they are never blindly retried.
+ */
+const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure']);
+
+/**
+ * Classify an error message as plausibly transient (worth retrying) vs.
+ * deterministic (validation / auth / invalid-request — retrying cannot help).
+ */
+function isTransientError(message: string): boolean {
+  const m = message.toLowerCase();
+
+  // Deterministic failures: never retry.
+  const nonTransient = [
+    'must be a string', 'must be a', 'is required', 'invalid', 'not found',
+    'no such file', 'permission denied', 'unauthorized', 'forbidden',
+    '401', '403', '404', '400', 'bad request', 'validation',
+  ];
+  if (nonTransient.some(p => m.includes(p))) return false;
+
+  // Plausibly transient: network / timeout / rate-limit / transient server errors.
+  const transient = [
+    'timeout', 'timed out', 'etimedout', 'econnreset', 'econnrefused',
+    'enotfound', 'eai_again', 'network', 'socket hang up', 'rate limit',
+    'rate-limit', 'too many requests', '429', '503', '502', '500',
+    'temporarily', 'try again',
+  ];
+  return transient.some(p => m.includes(p));
+}
+
+/** Exponential backoff with a cap, in milliseconds. */
+function backoffDelay(attempt: number): number {
+  return Math.min(250 * 2 ** (attempt - 1), 4000);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Decide whether a failed tool result should be retried.
+ * - Mutating tools are never retried (avoid duplicated side effects).
+ * - Only errors classified as transient are retried.
+ */
+function shouldRetry(toolName: string, errorText: string): boolean {
+  if (MUTATING_TOOLS.has(toolName)) return false;
+  return isTransientError(errorText);
+}
+
+// ============================================================================
 // Headless Runner
 // ============================================================================
 
@@ -168,11 +223,18 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             },
           }, outputMode);
 
-          // Execute tool with retry budget
+          // Execute tool with a guarded retry budget.
+          // Only retry classified-transient errors, never re-run mutating tools
+          // (avoids duplicated side effects), and back off between attempts.
           let result = await executeTool(toolCall, cwd);
           let attempt = 0;
-          while (result.isError && attempt < maxRetries) {
+          while (
+            result.isError &&
+            attempt < maxRetries &&
+            shouldRetry(toolCall.name, result.result)
+          ) {
             attempt++;
+            await sleep(backoffDelay(attempt));
             process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
             result = await executeTool(toolCall, cwd);
           }

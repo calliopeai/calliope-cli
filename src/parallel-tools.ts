@@ -16,10 +16,19 @@ export interface ToolDependency {
   outputs: string[];    // What this tool produces
 }
 
+/** Value an executor callback returns: the tool output plus its tool-level error flag */
+export interface ExecutorResult {
+  result: string;
+  isError?: boolean;
+}
+
 export interface ToolResult {
   toolCall: ToolCall;
   result: string;
   duration: number;
+  /** Tool-level failure (executor returned isError) distinct from a thrown exception */
+  isError?: boolean;
+  /** Thrown exception / timeout while running the executor */
   error?: string;
 }
 
@@ -208,13 +217,12 @@ function createTimeout<T>(ms: number, message: string): Promise<T> {
  */
 export async function executeParallel(
   toolCalls: ToolCall[],
-  executor: (call: ToolCall) => Promise<string>,
+  executor: (call: ToolCall) => Promise<string | ExecutorResult>,
   onProgress?: (completed: number, total: number, current: ToolCall) => void,
   stageTimeoutMs: number = DEFAULT_STAGE_TIMEOUT_MS
 ): Promise<ToolResult[]> {
   const plan = analyzeDependencies(toolCalls);
   const results: ToolResult[] = [];
-  let completed = 0;
   const total = toolCalls.length;
 
   for (const stage of plan.stages) {
@@ -223,17 +231,19 @@ export async function executeParallel(
       const startTime = Date.now();
 
       try {
-        onProgress?.(completed, total, call);
-        const result = await executor(call);
-        completed++;
+        // Derive progress from completed work, not a shared mutable counter,
+        // to avoid an interleaving race across concurrent stage callbacks.
+        onProgress?.(results.length, total, call);
+        const raw = await executor(call);
+        const { result, isError } = typeof raw === 'string' ? { result: raw, isError: undefined } : raw;
 
         return {
           toolCall: call,
           result,
           duration: Date.now() - startTime,
+          isError,
         };
       } catch (error) {
-        completed++;
         return {
           toolCall: call,
           result: '',

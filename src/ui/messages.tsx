@@ -47,7 +47,7 @@ export function getToolIcon(toolName: string): string {
 // Components
 // ============================================================================
 
-export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSettings }) {
+function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: CollapseSettings }) {
   // Determine if this tool should be collapsed
   const shouldCollapseThisTool = collapse?.collapseTools &&
     collapse.toolDisplayLimit > 0 &&
@@ -227,15 +227,27 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
       const totalLines = allLines.length;
       const hasMore = totalLines > 5;
 
-      const lowerContent = msg.content.toLowerCase();
-      const hasError = lowerContent.includes('error') ||
-                       lowerContent.includes('failed') ||
-                       lowerContent.includes('permission denied') ||
-                       lowerContent.includes('not found') ||
-                       lowerContent.includes('exception');
-      const hasWarning = lowerContent.includes('warning') ||
-                         lowerContent.includes('deprecated') ||
-                         lowerContent.includes('caution');
+      // Prefer the authoritative isError flag plumbed from executeTool. Fall
+      // back to a conservative marker scan (matching the structured prefixes the
+      // agent actually emits for failures) only when the flag is unavailable, so
+      // benign output that merely *mentions* "error"/"not found" isn't flagged.
+      const errorFlag = (msg as { isError?: boolean }).isError;
+      let hasError: boolean;
+      let hasWarning = false;
+      if (errorFlag !== undefined) {
+        hasError = errorFlag;
+      } else {
+        // Genuine failures are emitted as a leading "Error:" line or a 🛑 block
+        // marker, not as an arbitrary substring buried in successful output.
+        const firstLine = msg.content.split('\n', 1)[0];
+        hasError = /^(error[:!]|✗|🛑)/i.test(firstLine.trimStart());
+        const lowerFirst = firstLine.toLowerCase();
+        hasWarning = !hasError && (
+          lowerFirst.startsWith('warning') ||
+          lowerFirst.startsWith('⚠') ||
+          firstLine.includes('⚠')
+        );
+      }
 
       let statusIcon = '✓';
       let statusClr = successColor;
@@ -268,6 +280,21 @@ export function MessageItem({ msg, collapse }: { msg: UIMessage; collapse?: Coll
       return <Text>{msg.content}</Text>;
   }
 }
+
+// Per-item memoization so appending a new message does not re-run
+// renderMarkdown for already-finalized messages. A message's id/content are
+// immutable once committed, so the memo only re-renders when collapse settings
+// (which affect how the tool is displayed) actually change for this item.
+export const MessageItem = React.memo(
+  MessageItemInner,
+  (prev, next) =>
+    prev.msg === next.msg &&
+    prev.collapse?.collapseTools === next.collapse?.collapseTools &&
+    prev.collapse?.collapseThinking === next.collapse?.collapseThinking &&
+    prev.collapse?.toolDisplayLimit === next.collapse?.toolDisplayLimit &&
+    prev.collapse?.toolIndex === next.collapse?.toolIndex &&
+    prev.collapse?.totalTools === next.collapse?.totalTools,
+);
 
 function MessageHistoryInner({ messages, collapseSettings }: { messages: UIMessage[]; collapseSettings: CollapseSettings }) {
 

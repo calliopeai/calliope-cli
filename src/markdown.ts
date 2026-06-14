@@ -86,27 +86,46 @@ function highlightCode(code: string, language: string): string {
     return `${COLORS.white}${code}${COLORS.reset}`;
   }
 
-  // Apply patterns in order (later patterns can override)
-  let result = code;
-  const colorMap: Map<number, { end: number; color: string }> = new Map();
-
-  for (const { pattern, color } of patterns) {
+  // Collect every match (start/end/color/priority) against the RAW code, never
+  // against intermediate colored output, so regexes can never run over an
+  // already-emitted ANSI escape sequence.
+  const ranges: { start: number; end: number; color: string; priority: number }[] = [];
+  patterns.forEach(({ pattern, color }, priority) => {
     pattern.lastIndex = 0;
     let match;
     while ((match = pattern.exec(code)) !== null) {
       const start = match.index;
       const end = start + match[0].length;
-      colorMap.set(start, { end, color });
+      if (end > start) ranges.push({ start, end, color, priority });
+      // Guard against zero-width matches causing an infinite loop.
+      if (match[0].length === 0) pattern.lastIndex++;
     }
-  }
+  });
 
-  // Build result string with colors
-  const positions = Array.from(colorMap.keys()).sort((a, b) => b - a);
-  for (const start of positions) {
-    const { end, color } = colorMap.get(start)!;
-    const colorCode = COLORS[color as keyof typeof COLORS] || COLORS.white;
-    result = result.slice(0, start) + colorCode + result.slice(start, end) + COLORS.reset + result.slice(end);
+  // Merge into non-overlapping spans: earlier pattern (lower priority index)
+  // wins on conflict; ties broken by earlier start, then longer span.
+  ranges.sort((a, b) =>
+    a.priority - b.priority ||
+    a.start - b.start ||
+    b.end - a.end,
+  );
+  const spans: { start: number; end: number; color: string }[] = [];
+  for (const r of ranges) {
+    if (spans.some(s => r.start < s.end && r.end > s.start)) continue;
+    spans.push({ start: r.start, end: r.end, color: r.color });
   }
+  spans.sort((a, b) => a.start - b.start);
+
+  // Single left-to-right pass; color + reset only at span boundaries.
+  let result = '';
+  let cursor = 0;
+  for (const { start, end, color } of spans) {
+    if (start > cursor) result += code.slice(cursor, start);
+    const colorCode = COLORS[color as keyof typeof COLORS] || COLORS.white;
+    result += colorCode + code.slice(start, end) + COLORS.reset;
+    cursor = end;
+  }
+  if (cursor < code.length) result += code.slice(cursor);
 
   return result;
 }
