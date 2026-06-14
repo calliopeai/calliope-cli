@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 
 // ============================================================================
@@ -56,6 +57,18 @@ export interface LoadedPlugin {
   error?: string;
 }
 
+/**
+ * Confirmation request shown before a plugin's code is imported/executed (#137).
+ * `reason` distinguishes a first-time load (TOFU) from a changed entry file.
+ */
+export interface PluginTrustConfirmation {
+  name: string;
+  path: string;
+  version: string;
+  description: string;
+  reason: 'first-load' | 'entry-file-changed';
+}
+
 // ============================================================================
 // Plugin Manager
 // ============================================================================
@@ -63,9 +76,96 @@ export interface LoadedPlugin {
 class PluginManager {
   private plugins: Map<string, LoadedPlugin> = new Map();
   private pluginsDir: string;
+  // Optional trust prompt invoked before importing/executing plugin code (#137).
+  private trustConfirmHandler: ((info: PluginTrustConfirmation) => boolean | Promise<boolean>) | null = null;
 
   constructor() {
     this.pluginsDir = path.join(os.homedir(), '.calliope-cli', 'plugins');
+  }
+
+  /**
+   * Register a trust prompt invoked before a plugin is imported/executed (#137).
+   * Returning false aborts the load. Pass null to clear.
+   */
+  setTrustConfirmHandler(
+    handler: ((info: PluginTrustConfirmation) => boolean | Promise<boolean>) | null
+  ): void {
+    this.trustConfirmHandler = handler;
+  }
+
+  /**
+   * Path to the per-installation plugin trust store (entry-file hashes — #137).
+   * Stored inside pluginsDir so it travels with the plugins it describes.
+   */
+  private getTrustStorePath(): string {
+    return path.join(this.pluginsDir, 'trust.json');
+  }
+
+  private loadTrustStore(): Record<string, { hash: string }> {
+    try {
+      const raw = fs.readFileSync(this.getTrustStorePath(), 'utf-8');
+      const parsed = JSON.parse(raw);
+      return typeof parsed === 'object' && parsed !== null ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  private saveTrustStore(store: Record<string, { hash: string }>): void {
+    try {
+      if (!fs.existsSync(this.pluginsDir)) {
+        fs.mkdirSync(this.pluginsDir, { recursive: true });
+      }
+      fs.writeFileSync(this.getTrustStorePath(), JSON.stringify(store, null, 2));
+    } catch { /* best-effort */ }
+  }
+
+  private hashFile(filePath: string): string {
+    return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  }
+
+  /**
+   * Gate a plugin load behind trust-on-first-use + hash re-verification (#137).
+   * Returns true if the plugin may be imported/executed.
+   *
+   * - First time seen: record the hash. If a trust handler is set, ask it;
+   *   with no handler, trust-on-first-use (backward compatible).
+   * - Seen before, hash matches: allow silently.
+   * - Seen before, hash changed: require confirmation. With no handler, refuse
+   *   (do not silently run changed code).
+   */
+  private async checkPluginTrust(name: string, indexPath: string, manifest: PluginMetadata): Promise<boolean> {
+    const store = this.loadTrustStore();
+    const currentHash = this.hashFile(indexPath);
+    const known = store[name];
+
+    if (known && known.hash === currentHash) {
+      return true;
+    }
+
+    const reason: PluginTrustConfirmation['reason'] = known ? 'entry-file-changed' : 'first-load';
+
+    if (this.trustConfirmHandler) {
+      const ok = await this.trustConfirmHandler({
+        name,
+        path: indexPath,
+        version: manifest.version,
+        description: manifest.description,
+        reason,
+      });
+      if (!ok) {
+        console.warn(`Plugin ${name}: load declined by user`);
+        return false;
+      }
+    } else if (known) {
+      // Entry file changed and we cannot prompt — refuse rather than run silently.
+      console.warn(`Plugin ${name}: index.js changed since last load — refusing to load (re-trust required)`);
+      return false;
+    }
+
+    store[name] = { hash: currentHash };
+    this.saveTrustStore(store);
+    return true;
   }
 
   /**
@@ -204,6 +304,12 @@ class PluginManager {
       // Check for entry point — only .js files allowed
       if (!fs.existsSync(indexPath)) {
         console.warn(`Plugin ${name}: Missing index.js`);
+        return null;
+      }
+
+      // Trust gate: confirm + verify entry-file hash before executing code (#137).
+      const trusted = await this.checkPluginTrust(name, indexPath, manifest);
+      if (!trusted) {
         return null;
       }
 
@@ -563,4 +669,10 @@ export async function reloadPlugins(): Promise<void> {
 
 export function enablePlugin(name: string, enabled: boolean): boolean {
   return pluginManager.setPluginEnabled(name, enabled);
+}
+
+export function setPluginTrustConfirmHandler(
+  handler: ((info: PluginTrustConfirmation) => boolean | Promise<boolean>) | null
+): void {
+  pluginManager.setTrustConfirmHandler(handler);
 }

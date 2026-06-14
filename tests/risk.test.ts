@@ -111,9 +111,10 @@ describe('assessShellRisk', () => {
   });
 
   describe('unknown commands', () => {
-    it('should default to medium risk for unknown commands', () => {
+    it('should default to high risk requiring confirmation for unknown commands', () => {
       const result = assessShellRisk('custom-script --flag');
-      expect(result.level).toBe('medium');
+      expect(result.level).toBe('high');
+      expect(result.requiresConfirmation).toBe(true);
       expect(result.reason).toContain('Unknown command');
     });
   });
@@ -363,8 +364,11 @@ describe('assessShellRisk - critical path elevation', () => {
     expect(assessShellRisk('tail -f logfile.log').level).toBe('low');
   });
 
-  it('should classify find as low risk', () => {
-    expect(assessShellRisk('find . -name "*.ts"').level).toBe('low');
+  it('should not classify find as low risk (deny-by-default)', () => {
+    // Bare find is no longer auto-trusted as low; destructive find requires confirmation.
+    expect(assessShellRisk('find . -name "*.ts"').level).not.toBe('low');
+    expect(assessShellRisk('find . -delete').level).toBe('high');
+    expect(assessShellRisk('find . -delete').requiresConfirmation).toBe(true);
   });
 
   it('should classify echo as low risk', () => {

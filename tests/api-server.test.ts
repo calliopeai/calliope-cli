@@ -124,6 +124,7 @@ function connectWebSocket(port: number): Promise<{ socket: net.Socket; firstMess
         `Host: ${TEST_HOST}:${port}\r\n` +
         'Upgrade: websocket\r\n' +
         'Connection: Upgrade\r\n' +
+        `Authorization: Bearer ${TEST_TOKEN}\r\n` +
         `Sec-WebSocket-Key: ${wsKey}\r\n` +
         'Sec-WebSocket-Version: 13\r\n' +
         '\r\n'
@@ -254,6 +255,10 @@ function connectRawUpgradeNoKey(port: number): Promise<boolean> {
       );
     });
 
+    // Consume any response bytes so the (now auth-gated) 401 + FIN is read and
+    // the socket transitions to 'close'. Without a data listener the socket
+    // stays paused and never observes the server's teardown.
+    socket.on('data', () => { /* drain */ });
     socket.on('close', () => resolve(true));
     socket.on('error', () => resolve(true));
     setTimeout(() => { socket.destroy(); resolve(false); }, 3000);

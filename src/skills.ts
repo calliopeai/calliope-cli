@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import * as https from 'https';
+import * as crypto from 'crypto';
 
 // Skills storage directory
 const SKILLS_DIR = path.join(os.homedir(), '.calliope-cli', 'skills');
@@ -44,6 +45,71 @@ export interface SkillReference {
   content?: string;
 }
 
+/**
+ * Confirmation request shown to the user before a network skill is installed (#137).
+ */
+export interface SkillInstallConfirmation {
+  name: string;
+  source: 'registry' | 'github';
+  sourceUrl: string;
+  description: string;
+}
+
+// ============================================================================
+// Security: name validation, path containment, trust gate (#136, #137)
+// ============================================================================
+
+/**
+ * Reject skill names that could escape SKILLS_DIR via path traversal (#136).
+ * Mirrors the plugin loader guard in plugins.ts.
+ */
+export function assertSafeSkillName(name: string): void {
+  if (!name || name.includes('..') || name.includes('/') || name.includes('\\') || path.isAbsolute(name)) {
+    throw new Error(`Invalid skill name: ${name}`);
+  }
+}
+
+/**
+ * Resolve a skill destination directory and confirm it stays inside SKILLS_DIR.
+ * Defense-in-depth on top of assertSafeSkillName (#136).
+ */
+function resolveSkillDir(name: string): string {
+  assertSafeSkillName(name);
+  const destDir = path.join(SKILLS_DIR, name);
+  const root = path.resolve(SKILLS_DIR);
+  const resolved = path.resolve(destDir);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new Error(`Invalid skill name: ${name}`);
+  }
+  return destDir;
+}
+
+function hashContent(content: string): string {
+  return crypto.createHash('sha256').update(content).digest('hex');
+}
+
+// Optional confirmation handler for network installs (#137). When unset,
+// installs proceed (backward-compatible). Wire an interactive prompt to gate.
+let installConfirmHandler: ((info: SkillInstallConfirmation) => boolean | Promise<boolean>) | null = null;
+
+/**
+ * Register a confirmation handler invoked before installing a network skill (#137).
+ * Returning false aborts the install. Pass null to clear.
+ */
+export function setSkillInstallConfirmHandler(
+  handler: ((info: SkillInstallConfirmation) => boolean | Promise<boolean>) | null
+): void {
+  installConfirmHandler = handler;
+}
+
+async function confirmInstall(info: SkillInstallConfirmation): Promise<void> {
+  if (!installConfirmHandler) return;
+  const ok = await installConfirmHandler(info);
+  if (!ok) {
+    throw new Error(`Skill install declined: ${info.name}`);
+  }
+}
+
 // ============================================================================
 // Storage
 // ============================================================================
@@ -61,7 +127,7 @@ function getSkillsIndexFile(): string {
 /**
  * Load skills index
  */
-function loadSkillsIndex(): Record<string, { path: string; source: string; sourceUrl?: string }> {
+function loadSkillsIndex(): Record<string, { path: string; source: string; sourceUrl?: string; hash?: string }> {
   const file = getSkillsIndexFile();
   if (!fs.existsSync(file)) {
     return {};
@@ -76,7 +142,7 @@ function loadSkillsIndex(): Record<string, { path: string; source: string; sourc
 /**
  * Save skills index
  */
-function saveSkillsIndex(index: Record<string, { path: string; source: string; sourceUrl?: string }>): void {
+function saveSkillsIndex(index: Record<string, { path: string; source: string; sourceUrl?: string; hash?: string }>): void {
   ensureSkillsDir();
   fs.writeFileSync(getSkillsIndexFile(), JSON.stringify(index, null, 2));
 }
@@ -194,6 +260,12 @@ export function getSkills(): Skill[] {
   const skills: Skill[] = [];
 
   for (const [name, info] of Object.entries(index)) {
+    // Drop skills whose SKILL.md no longer matches the hash recorded at install
+    // time — do not silently elevate tampered content into the system prompt (#137).
+    if (info.hash && !verifySkillHash(info.path, info.hash)) {
+      console.warn(`Skill ${name}: SKILL.md hash mismatch — skipping (re-install to trust again)`);
+      continue;
+    }
     const skill = loadSkillFromDir(info.path);
     if (skill) {
       skill.source = info.source as 'local' | 'registry' | 'github';
@@ -206,12 +278,30 @@ export function getSkills(): Skill[] {
 }
 
 /**
+ * Re-verify a stored skill's SKILL.md against its recorded hash (TOFU — #137).
+ */
+function verifySkillHash(skillDir: string, expected: string): boolean {
+  try {
+    const content = fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf-8');
+    return hashContent(content) === expected;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Get skill by name
  */
 export function getSkill(name: string): Skill | null {
   const index = loadSkillsIndex();
   const info = index[name];
   if (!info) return null;
+
+  // Refuse to surface tampered instructions on activation (#137).
+  if (info.hash && !verifySkillHash(info.path, info.hash)) {
+    console.warn(`Skill ${name}: SKILL.md hash mismatch — refusing to load (re-install to trust again)`);
+    return null;
+  }
 
   const skill = loadSkillFromDir(info.path);
   if (skill) {
@@ -258,8 +348,10 @@ export function installLocalSkill(dir: string): Skill | null {
     return null;
   }
 
+  // Reject path-traversal names (the name comes from SKILL.md content — #136).
+  const destDir = resolveSkillDir(skill.id);
+
   ensureSkillsDir();
-  const destDir = path.join(SKILLS_DIR, skill.id);
 
   // Copy skill directory
   copyDir(dir, destDir);
@@ -294,8 +386,18 @@ export async function installFromGithub(url: string): Promise<Skill | null> {
     throw new Error('Invalid SKILL.md');
   }
 
+  // Reject path-traversal names from remote, attacker-controlled content (#136).
+  const destDir = resolveSkillDir(parsed.metadata.name);
+
+  // Require explicit confirmation before trusting network content (#137).
+  await confirmInstall({
+    name: parsed.metadata.name,
+    source: 'github',
+    sourceUrl: url,
+    description: parsed.metadata.description,
+  });
+
   ensureSkillsDir();
-  const destDir = path.join(SKILLS_DIR, parsed.metadata.name);
 
   // Create skill directory
   if (!fs.existsSync(destDir)) {
@@ -305,9 +407,9 @@ export async function installFromGithub(url: string): Promise<Skill | null> {
   // Write SKILL.md
   fs.writeFileSync(path.join(destDir, 'SKILL.md'), content);
 
-  // Update index
+  // Update index (record content hash for trust-on-first-use re-verification — #137)
   const index = loadSkillsIndex();
-  index[parsed.metadata.name] = { path: destDir, source: 'github', sourceUrl: url };
+  index[parsed.metadata.name] = { path: destDir, source: 'github', sourceUrl: url, hash: hashContent(content) };
   saveSkillsIndex(index);
 
   return {
@@ -335,8 +437,23 @@ export async function installFromRegistry(skillName: string): Promise<Skill | nu
     if (info.github) {
       return installFromGithub(info.github);
     } else if (info.content) {
+      // Reject path-traversal names before any filesystem use (#136).
+      const destDir = resolveSkillDir(skillName);
+
+      const parsed = parseSkillFile(info.content);
+      if (!parsed) {
+        throw new Error('Invalid skill content');
+      }
+
+      // Require explicit confirmation before trusting network content (#137).
+      await confirmInstall({
+        name: skillName,
+        source: 'registry',
+        sourceUrl: registryUrl,
+        description: parsed.metadata.description,
+      });
+
       ensureSkillsDir();
-      const destDir = path.join(SKILLS_DIR, skillName);
 
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
@@ -344,13 +461,8 @@ export async function installFromRegistry(skillName: string): Promise<Skill | nu
 
       fs.writeFileSync(path.join(destDir, 'SKILL.md'), info.content);
 
-      const parsed = parseSkillFile(info.content);
-      if (!parsed) {
-        throw new Error('Invalid skill content');
-      }
-
       const index = loadSkillsIndex();
-      index[skillName] = { path: destDir, source: 'registry', sourceUrl: registryUrl };
+      index[skillName] = { path: destDir, source: 'registry', sourceUrl: registryUrl, hash: hashContent(info.content) };
       saveSkillsIndex(index);
 
       return {

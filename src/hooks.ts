@@ -71,18 +71,63 @@ export interface HookResult {
 const HOOKS_DIR = path.join(os.homedir(), '.calliope-cli', 'hooks');
 const HOOKS_FILE = path.join(HOOKS_DIR, 'hooks.json');
 
+/**
+ * Events on which a hook may veto an operation (exit code 42). For these
+ * events the hook MUST be awaited so its blocking result is honored, even
+ * if the hook is flagged `async`. Otherwise an `async: true` flag could
+ * silently neutralize a guardrail.
+ */
+const BLOCKING_EVENTS: ReadonlySet<HookEvent> = new Set<HookEvent>([
+  'pre-tool',
+  'pre-shell',
+  'pre-write',
+  'pre-read',
+  'session-start',
+]);
+
 function ensureHooksDir(): void {
   if (!fs.existsSync(HOOKS_DIR)) {
-    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+    fs.mkdirSync(HOOKS_DIR, { recursive: true, mode: 0o700 });
   }
 }
 
 /**
- * Load hooks configuration
+ * hooks.json is a trust boundary: its `command` strings run as arbitrary
+ * shell on routine events. Refuse to load it if it is writable by group or
+ * other, since any process that can write it gains persistent code-exec.
+ * Returns true if safe to load.
+ */
+function hooksFileIsSafe(): boolean {
+  try {
+    const mode = fs.statSync(HOOKS_FILE).mode;
+    // Reject if group-writable (0o020) or world-writable (0o002).
+    if (mode & 0o022) {
+      debugLog(
+        `Refusing to load hooks.json: file is group/world-writable (mode ${(mode & 0o777).toString(8)}). ` +
+          `Run: chmod 600 ${HOOKS_FILE}`
+      );
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Load hooks configuration.
+ *
+ * SECURITY: hooks.json is a trusted file — its `command` strings are executed
+ * as shell. It must not be writable by group/other, and the directory must
+ * never be agent-writable. Hooks are refused (not executed) if the file has
+ * loose permissions.
  */
 export function loadHooks(): Hook[] {
   ensureHooksDir();
   if (!fs.existsSync(HOOKS_FILE)) {
+    return [];
+  }
+  if (!hooksFileIsSafe()) {
     return [];
   }
   try {
@@ -93,11 +138,18 @@ export function loadHooks(): Hook[] {
 }
 
 /**
- * Save hooks configuration
+ * Save hooks configuration. Written with restrictive (0600) permissions so the
+ * trusted command list is not exposed to or writable by other users.
  */
 export function saveHooks(hooks: Hook[]): void {
   ensureHooksDir();
-  fs.writeFileSync(HOOKS_FILE, JSON.stringify(hooks, null, 2));
+  fs.writeFileSync(HOOKS_FILE, JSON.stringify(hooks, null, 2), { mode: 0o600 });
+  // writeFileSync `mode` only applies on create; enforce perms on existing files too.
+  try {
+    fs.chmodSync(HOOKS_FILE, 0o600);
+  } catch {
+    /* best effort */
+  }
 }
 
 // ============================================================================
@@ -179,14 +231,18 @@ async function runHookCommand(
       env.CALLIOPE_TOOL_ARGS = JSON.stringify(context.toolArgs);
     }
 
+    // `detached` puts the shell and its children in their own process group so
+    // the timeout can kill the whole group (a shell child cannot escape it).
     const proc = spawn('sh', ['-c', hook.command], {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout,
+      detached: true,
     });
 
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
 
     proc.stdout?.on('data', (data) => {
       stdout += data.toString();
@@ -196,16 +252,41 @@ async function runHookCommand(
       stderr += data.toString();
     });
 
+    // Signal the whole process group (negative pid) so the shell's children die
+    // too. Fall back to signalling the process directly if the group is gone.
+    const signalGroup = (signal: NodeJS.Signals): void => {
+      try {
+        if (proc.pid !== undefined) {
+          process.kill(-proc.pid, signal);
+        }
+      } catch {
+        try {
+          proc.kill(signal);
+        } catch {
+          /* already dead */
+        }
+      }
+    };
+
+    // Hard timeout: SIGTERM, then SIGKILL after a short grace period so a
+    // command that traps/ignores SIGTERM cannot outlive its timeout.
     const timer = setTimeout(() => {
-      proc.kill();
-      resolve({
-        success: false,
-        error: 'Hook timed out',
-      });
+      timedOut = true;
+      signalGroup('SIGTERM');
+      killTimer = setTimeout(() => signalGroup('SIGKILL'), 2000);
     }, timeout);
 
     proc.on('close', (code) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+
+      if (timedOut) {
+        resolve({
+          success: false,
+          error: 'Hook timed out',
+        });
+        return;
+      }
 
       // Exit code 42 means "block the operation"
       const blocked = code === 42;
@@ -220,6 +301,7 @@ async function runHookCommand(
 
     proc.on('error', (err) => {
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       resolve({
         success: false,
         error: err.message,
@@ -267,7 +349,11 @@ export async function executeHooks(
       if (!matches) continue;
     }
 
-    if (hook.async) {
+    // For blocking events, the exit-42 veto contract must be enforced, so the
+    // hook is always awaited regardless of its `async` flag. Allowing
+    // fire-and-forget here would let `async: true` silently neutralize a
+    // guardrail (the discarded result could never set `blocked`).
+    if (hook.async && !BLOCKING_EVENTS.has(event)) {
       // Fire and forget with debug logging
       runHookCommand(hook, fullContext).catch((err) => {
         debugLog(`Async hook '${hook.id}' failed:`, err instanceof Error ? err.message : err);

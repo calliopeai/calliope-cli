@@ -85,6 +85,26 @@ function substituteParams(template: string, args: Record<string, unknown>): stri
   });
 }
 
+/**
+ * Like substituteParams, but shell-quotes every substituted value so that
+ * untrusted argument content is treated as a single literal argument and shell
+ * metacharacters (| > < & ; && || newline ...) are never interpreted.
+ *
+ * Used for the `command` path, which resolves to a real shell string. The
+ * DANGEROUS_PATTERNS denylist in sanitizeArg is kept only as defence-in-depth;
+ * shell quoting is the primary control. The literal (non-{{param}}) portions of
+ * the template are left as-is and are subsequently subject to the same
+ * blocklist/scope/sandbox gates as the normal `shell` tool.
+ */
+function substituteParamsQuoted(template: string, args: Record<string, unknown>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
+    if (!(key in args)) {
+      throw new Error(`Missing required parameter: ${key}`);
+    }
+    return shellEscape(sanitizeArg(args[key]));
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Serialisation helpers (Date round-tripping)
 // ---------------------------------------------------------------------------
@@ -174,7 +194,7 @@ export class DynamicToolRegistry {
     }
 
     try {
-      const output = this.run(tool, toolCall.arguments, cwd);
+      const output = await this.run(tool, toolCall.arguments, cwd);
       return {
         toolCallId: toolCall.id,
         result: output.slice(0, 50_000), // cap output size
@@ -189,18 +209,33 @@ export class DynamicToolRegistry {
     }
   }
 
-  private run(tool: DynamicTool, args: Record<string, unknown>, cwd: string): string {
+  private async run(tool: DynamicTool, args: Record<string, unknown>, cwd: string): Promise<string> {
     const resolvedCwd = resolve(cwd);
 
     if (tool.command) {
-      const cmd = substituteParams(tool.command, args);
-      return execSync(cmd, {
-        cwd: resolvedCwd,
-        timeout: DEFAULT_TIMEOUT,
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        maxBuffer: 10 * 1024 * 1024,
-      }).trim();
+      // Shell-quote every substituted {{param}} so untrusted arg content is a
+      // literal argument (no metacharacter interpretation), then route the
+      // resolved command through the SAME blocklist / scope / sandbox gates as
+      // the normal `shell` tool instead of calling execSync directly. This
+      // closes the RCE where model/persisted tool output could inject commands.
+      const cmd = substituteParamsQuoted(tool.command, args);
+
+      // Lazy import to avoid a static circular dependency
+      // (tools.js -> agents/index -> agents/tools -> dynamic-tools).
+      const { executeTool } = await import('../tools.js');
+      const result = await executeTool(
+        { id: 'dynamic-command', name: 'shell', arguments: { command: cmd } },
+        resolvedCwd,
+        DEFAULT_TIMEOUT,
+      );
+      // executeShell reports blocklist/scope rejections as a plain string
+      // prefixed with "Error:" and non-zero exits as "Exit code N" (without
+      // setting isError). Surface all of these as an error so the dynamic tool
+      // preserves its prior contract (a failing/blocked command => isError).
+      if (result.isError || /^Error: /.test(result.result) || /^Exit code \d/.test(result.result)) {
+        throw new Error(result.result.trim());
+      }
+      return result.result.trim();
     }
 
     if (tool.code) {

@@ -44,11 +44,32 @@ export interface NativeSandboxOptions {
  * Defaults:
  *  - deny everything by default
  *  - allow process execution and forking
- *  - allow all file reads (safe; write restriction is the enforcement point)
+ *  - allow broad file reads BUT explicitly deny common secret locations
+ *    (~/.ssh, ~/.aws, ~/.config, ~/.gnupg, ~/.gcloud, *.env) so that even with
+ *    network off a poisoned command cannot read credentials (#133). Seatbelt
+ *    applies the most-specific matching rule, so a (deny file-read*) subpath
+ *    overrides the broad (allow file-read*).
  *  - allow file writes only in: project cwd, /dev (stdout/stderr), temp dirs
  *  - allow file-ioctl (terminal I/O), sysctl-read, mach-lookup, signal
- *  - optionally allow outbound HTTP/HTTPS
+ *  - network is DENIED by default; outbound HTTP/HTTPS is only added when the
+ *    caller explicitly opts in via options.networkEnabled (#133).
  */
+/**
+ * Common secret/credential locations that must never be readable from inside the
+ * sandbox, expressed relative to the user's home directory plus a literal .env
+ * regex. Read denials for these override the broad (allow file-read*).
+ */
+const SECRET_READ_DENY_SUBPATHS = [
+  '.ssh',
+  '.aws',
+  '.config',
+  '.gnupg',
+  '.gcloud',
+  '.config/gcloud',
+  '.kube',
+  '.docker',
+  '.netrc',
+];
 /**
  * Sanitize a path for safe embedding in a Seatbelt profile string.
  * Escapes characters that are significant in the Scheme-like DSL
@@ -63,7 +84,7 @@ function sanitizeSeatbeltPath(p: string): string {
   return p.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-function buildSeatbeltProfile(
+export function buildSeatbeltProfile(
   cwd: string,
   options: NativeSandboxOptions = {},
 ): string {
@@ -76,10 +97,23 @@ function buildSeatbeltProfile(
     .map((p) => `(allow file-write* (subpath "${sanitizeSeatbeltPath(p)}"))`)
     .join('\n');
 
-  // Network rules
+  // Network rules — DENIED by default; only enabled on explicit opt-in (#133)
   const networkRules = options.networkEnabled
     ? `(allow network-outbound (remote ip "*:443") (remote ip "*:80"))\n(allow network-outbound (remote unix-socket))`
     : '';
+
+  // Deny reads of well-known secret locations even though reads are broadly
+  // allowed (#133). Seatbelt resolves the most-specific subpath rule, so these
+  // denials win over the broad (allow file-read*) below. We also deny *.env via
+  // a regex so credential files anywhere on disk are not readable.
+  const home = os.homedir();
+  const secretDenyRules = [
+    ...SECRET_READ_DENY_SUBPATHS.map(
+      (sub) => `(deny file-read* (subpath "${sanitizeSeatbeltPath(`${home}/${sub}`)}"))`,
+    ),
+    // Any file whose name ends in .env (e.g. .env, foo.env, .env.production)
+    `(deny file-read* (regex #"\\.env($|\\.)"))`,
+  ].join('\n');
 
   const profile = `(version 1)
 (deny default)
@@ -88,8 +122,9 @@ function buildSeatbeltProfile(
 (allow process-exec)
 (allow process-fork)
 
-;; File reads: allow broadly (read-only is safe; write restrictions are the enforcement point)
+;; File reads: allow broadly, then deny known secret locations (#133)
 (allow file-read*)
+${secretDenyRules}
 
 ;; File writes: restricted to project directory, temp dirs, and stdout/stderr devices
 (allow file-write*

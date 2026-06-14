@@ -113,10 +113,10 @@ describe('Scope Manager', () => {
       expect(isInScope('./src/test.ts', cwd)).toBe(true);
     });
 
-    it('should allow paths in /tmp by default (allowTmp=true)', () => {
+    it('should NOT allow paths in /tmp by default (allowTmp=false, #139)', () => {
       resetScope('/only-this-dir');
       const result = scopeManager.isInScope('/tmp/test.txt');
-      expect(result.allowed).toBe(true);
+      expect(result.allowed).toBe(false);
     });
 
     it('should include suggestedAction when path is outside scope', () => {

@@ -72,7 +72,7 @@ class ScopeManager {
     this.config = {
       allowedDirs: [process.cwd()],
       allowHome: false,
-      allowTmp: true,
+      allowTmp: false,
       deniedDirs: [],
       deniedPatterns: [...DEFAULT_DENIED_PATTERNS],
     };
@@ -88,7 +88,43 @@ class ScopeManager {
     this.config.deniedDirs = [];
     this.config.deniedPatterns = [...DEFAULT_DENIED_PATTERNS];
     this.config.allowHome = false;
-    this.config.allowTmp = true;
+    this.config.allowTmp = false;
+  }
+
+  /**
+   * Resolve a path to its canonical (symlink-free) form before scope checks (#139).
+   *
+   * - If the path exists, returns fs.realpathSync(path). On a realpath error for
+   *   an existing path we fail closed by returning null.
+   * - If the path does not yet exist (e.g. a write target), we canonicalize the
+   *   nearest existing ancestor directory and re-append the remaining segments,
+   *   so a write whose parent dir is a symlink out of scope is screened too.
+   */
+  private canonicalize(absPath: string): string | null {
+    try {
+      return fs.realpathSync(absPath);
+    } catch {
+      // Path (or an ancestor) does not exist, or realpath failed. Walk up to the
+      // nearest existing ancestor, canonicalize it, then re-append the tail.
+    }
+
+    let current = absPath;
+    const tail: string[] = [];
+    while (true) {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        // Reached filesystem root without finding an existing ancestor.
+        return absPath;
+      }
+      tail.unshift(path.basename(current));
+      current = parent;
+      try {
+        const realParent = fs.realpathSync(current);
+        return path.join(realParent, ...tail);
+      } catch {
+        // Keep walking up.
+      }
+    }
   }
 
   /**
@@ -143,25 +179,48 @@ class ScopeManager {
    */
   isInScope(filePath: string, baseCwd?: string): ScopeValidationResult {
     const cwd = baseCwd || process.cwd();
-    const absPath = path.isAbsolute(filePath) 
+    const lexicalPath = path.isAbsolute(filePath)
       ? path.resolve(filePath)
       : path.resolve(cwd, filePath);
-    const fileName = path.basename(absPath);
 
-    // Check denied patterns first (match against filename)
+    // Resolve symlinks before any scope/denylist check so an in-scope symlink
+    // cannot point at an out-of-scope target (#139). Fail closed on null.
+    const canonical = this.canonicalize(lexicalPath);
+    if (canonical === null) {
+      return {
+        allowed: false,
+        reason: `Path could not be resolved (possible symlink/realpath failure)`,
+      };
+    }
+    const absPath = canonical;
+
+    // Check denied patterns against BOTH the lexical name and the canonical
+    // (symlink-resolved) target name, so a benignly-named symlink pointing at a
+    // secret (e.g. notes.txt -> ~/.ssh/id_rsa) is still blocked (#139).
+    const namesToScreen = new Set<string>([
+      path.basename(lexicalPath),
+      path.basename(absPath),
+    ]);
     for (const pattern of this.config.deniedPatterns) {
-      if (this.matchesPattern(fileName, pattern)) {
-        return {
-          allowed: false,
-          reason: `File matches denied pattern: ${pattern}`,
-          suggestedAction: 'This file type is blocked for security reasons.',
-        };
+      for (const name of namesToScreen) {
+        if (this.matchesPattern(name, pattern)) {
+          return {
+            allowed: false,
+            reason: `File matches denied pattern: ${pattern}`,
+            suggestedAction: 'This file type is blocked for security reasons.',
+          };
+        }
       }
     }
 
-    // Check denied directories
+    // Check denied directories. Compare against the canonical form too, since
+    // absPath was symlink-resolved above and the stored dir may be lexical (#139).
     for (const denied of this.config.deniedDirs) {
-      if (absPath.startsWith(denied + path.sep) || absPath === denied) {
+      const canonicalDenied = this.canonicalize(denied) ?? denied;
+      if (
+        absPath.startsWith(denied + path.sep) || absPath === denied ||
+        absPath.startsWith(canonicalDenied + path.sep) || absPath === canonicalDenied
+      ) {
         return {
           allowed: false,
           reason: `Path is in denied directory: ${denied}`,
@@ -169,9 +228,15 @@ class ScopeManager {
       }
     }
 
-    // Check allowed directories
+    // Check allowed directories. Compare against the canonical form of each
+    // allowed dir as well, so symlinked roots (e.g. macOS /var/folders tmp
+    // dirs) still match after the target was symlink-resolved above (#139).
     for (const allowed of this.config.allowedDirs) {
-      if (absPath.startsWith(allowed + path.sep) || absPath === allowed) {
+      const canonicalAllowed = this.canonicalize(allowed) ?? allowed;
+      if (
+        absPath.startsWith(allowed + path.sep) || absPath === allowed ||
+        absPath.startsWith(canonicalAllowed + path.sep) || absPath === canonicalAllowed
+      ) {
         return { allowed: true };
       }
     }

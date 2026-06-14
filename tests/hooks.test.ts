@@ -114,6 +114,57 @@ describe('loadHooks', () => {
     const hooks = loadHooks();
     expect(hooks).toEqual([]);
   });
+
+  // SEC-hooks (#141): hooks.json is a trust boundary. Refuse to execute it if
+  // it is writable by group/other (a foothold for persistent code-exec).
+  it('should load hooks when file is owner-only writable (0600)', () => {
+    const testHooks: Hook[] = [
+      { id: 'h1', event: 'pre-tool', name: 'Safe', command: 'echo 1', enabled: true, async: false },
+    ];
+    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+    fs.writeFileSync(HOOKS_FILE, JSON.stringify(testHooks));
+    fs.chmodSync(HOOKS_FILE, 0o600);
+
+    expect(loadHooks()).toEqual(testHooks);
+  });
+
+  it('should refuse to load hooks when file is group/world-writable', () => {
+    const testHooks: Hook[] = [
+      { id: 'h1', event: 'pre-tool', name: 'Tampered', command: 'echo pwned', enabled: true, async: false },
+    ];
+    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+    fs.writeFileSync(HOOKS_FILE, JSON.stringify(testHooks));
+    // World/group writable: an untrusted process could plant commands here.
+    fs.chmodSync(HOOKS_FILE, 0o666);
+
+    expect(loadHooks()).toEqual([]);
+  });
+});
+
+// ===========================================================================
+// saveHooks permissions (SEC-hooks #141)
+// ===========================================================================
+
+describe('saveHooks permissions', () => {
+  it('should write hooks.json with restrictive 0600 permissions', () => {
+    saveHooks([
+      { id: 'h1', event: 'pre-tool', name: 'A', command: 'echo a', enabled: true, async: false },
+    ]);
+    const mode = fs.statSync(HOOKS_FILE).mode & 0o777;
+    expect(mode & 0o077).toBe(0); // no group/other access bits
+  });
+
+  it('should tighten permissions on an existing loose file', () => {
+    fs.mkdirSync(HOOKS_DIR, { recursive: true });
+    fs.writeFileSync(HOOKS_FILE, '[]');
+    fs.chmodSync(HOOKS_FILE, 0o666);
+
+    saveHooks([
+      { id: 'h1', event: 'pre-tool', name: 'A', command: 'echo a', enabled: true, async: false },
+    ]);
+    const mode = fs.statSync(HOOKS_FILE).mode & 0o777;
+    expect(mode & 0o077).toBe(0);
+  });
 });
 
 // ===========================================================================
@@ -401,6 +452,63 @@ describe('executeHooks', () => {
     expect(results[0].success).toBe(false);
     expect(results[0].error).toContain('timed out');
   }, 10000);
+
+  // SEC-hooks (#141): async hooks on blocking events must NOT bypass exit-42.
+  it('should honor exit-42 on a blocking event even when async is true', async () => {
+    addHook(makeHook({
+      event: 'pre-shell',
+      command: 'echo "denied"; exit 42',
+      enabled: true,
+      async: true, // attacker flips this to try to neutralize the guardrail
+    }));
+
+    const results = await executeHooks('pre-shell', {});
+    expect(results.length).toBe(1);
+    // Awaited (not fire-and-forget), so the block is observed.
+    expect(results[0].blocked).toBe(true);
+    expect(results[0].output).toBe('denied');
+
+    const allow = await checkHooksAllow('pre-shell', {});
+    expect(allow.allowed).toBe(false);
+    expect(allow.reason).toBe('denied');
+  }, 10000);
+
+  it('should still fire-and-forget async hooks on non-blocking events', async () => {
+    addHook(makeHook({
+      event: 'post-tool', // not a blocking event
+      command: 'exit 42',
+      enabled: true,
+      async: true,
+    }));
+
+    const results = await executeHooks('post-tool', {});
+    expect(results.length).toBe(1);
+    // Fire-and-forget: result is reported as success without awaiting exit code.
+    expect(results[0].success).toBe(true);
+    expect(results[0].blocked).toBeUndefined();
+  });
+
+  // SEC-hooks (#141): a SIGTERM-trapping command must still be killed.
+  it('should kill a SIGTERM-trapping command after the grace period', async () => {
+    addHook(makeHook({
+      event: 'pre-tool',
+      // Trap SIGTERM and keep sleeping; only SIGKILL can stop it.
+      command: "trap '' TERM; sleep 30",
+      enabled: true,
+      async: false,
+      timeout: 200,
+    }));
+
+    const start = Date.now();
+    const results = await executeHooks('pre-tool', {});
+    const elapsed = Date.now() - start;
+
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toContain('timed out');
+    // Killed via SIGKILL within the grace window (200ms timeout + ~2s grace),
+    // not left to run the full 30s sleep.
+    expect(elapsed).toBeLessThan(8000);
+  }, 12000);
 });
 
 // ===========================================================================
