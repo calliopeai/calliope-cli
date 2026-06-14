@@ -104,6 +104,8 @@ export async function chat(
       case 'mistral':
       case 'ai21':
       case 'huggingface':
+        response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        break;
       case 'ollama':
         response = await chatOllama(messages, tools, actualModel, onToken);
         break;
