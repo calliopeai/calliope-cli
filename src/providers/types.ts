@@ -4,7 +4,7 @@
  * Constants, token estimation, context health, validation, and shared helpers.
  */
 
-import { getModelContextLimit } from '../model-detection.js';
+import { getModelContextLimit, getModelMaxOutput } from '../model-detection.js';
 import type { Message, Tool, LLMResponse, LLMProvider, TextContent } from '../types.js';
 
 // Constants
@@ -108,13 +108,15 @@ export function calculateMaxTokens(
 
   debugLog(`Context calculation: limit=${contextLimit}, input≈${estimatedInput}, buffer=${buffer}, available=${available}`);
 
-  // Ensure we have at least MIN_OUTPUT_TOKENS, up to MAX_TOKENS
+  // Ensure we have at least MIN_OUTPUT_TOKENS, up to the model's real output ceiling
   if (available < MIN_OUTPUT_TOKENS) {
     debugLog(`WARNING: Very limited output space (${available}), using minimum ${MIN_OUTPUT_TOKENS}`);
     return MIN_OUTPUT_TOKENS;
   }
 
-  return Math.min(MAX_TOKENS, available);
+  // Cap by the model's actual max output (capability-derived), not a global 8192.
+  const maxOutput = getModelMaxOutput(provider, model);
+  return Math.min(maxOutput, available);
 }
 
 /**

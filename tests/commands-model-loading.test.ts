@@ -21,6 +21,7 @@ const mockGetAvailableModels = vi.fn();
 vi.mock('../src/model-detection.js', () => ({
   getAvailableModels: (...args: unknown[]) => mockGetAvailableModels(...args),
   getModelContextLimit: vi.fn(() => 128000),
+  getModelMaxOutput: vi.fn(() => 8192),
   clearModelCache: vi.fn(),
   preWarmModelCache: vi.fn(),
 }));

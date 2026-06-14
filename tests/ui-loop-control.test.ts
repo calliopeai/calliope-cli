@@ -41,6 +41,7 @@ vi.mock('../src/types.js', () => ({
 
 vi.mock('../src/model-detection.js', () => ({
   getModelContextLimit: vi.fn(() => 100000),
+  getModelMaxOutput: vi.fn(() => 8192),
 }));
 
 vi.mock('../src/risk.js', () => ({

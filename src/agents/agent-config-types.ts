@@ -24,7 +24,7 @@ export interface AgentDefinition {
   engine: TaskExecutor;
   /** LLM provider: anthropic, openai, google, ollama, etc. */
   provider?: string;
-  /** Model name: claude-sonnet-4-20250514, gpt-4o, gemini-2.0-flash, etc. */
+  /** Model name: claude-sonnet-4-6, gpt-4o, gemini-2.0-flash, etc. */
   model?: string;
 
   /** System prompt / instructions for this agent */

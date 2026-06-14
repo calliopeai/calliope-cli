@@ -58,6 +58,7 @@ vi.mock('openai', () => {
 vi.mock('@inquirer/prompts', () => ({ select: vi.fn() }));
 vi.mock('../src/model-detection.js', () => ({
   getModelContextLimit: vi.fn(() => 4096),
+  getModelMaxOutput: vi.fn(() => 8192),
   getModelInfo: vi.fn(() => null),
   getOllamaFallbackModel: vi.fn(async () => null),
   getAvailableModels: vi.fn(),

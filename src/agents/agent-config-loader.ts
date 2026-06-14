@@ -355,7 +355,7 @@ name: my-agent
 description: Custom agent for my project
 engine: cli              # cli | claude-sdk | openai-sdk | google-adk
 provider: anthropic      # anthropic | openai | google | ollama | etc.
-model: claude-sonnet-4-20250514
+model: claude-sonnet-4-6
 instructions: |
   You are a helpful coding assistant specialized in this project.
   Follow the project conventions and style guide.

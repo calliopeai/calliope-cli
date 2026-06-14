@@ -12,6 +12,7 @@ vi.mock('../src/config.js', () => ({
 vi.mock('../src/model-detection.js', () => ({
   getOllamaFallbackModel: vi.fn(),
   getModelContextLimit: vi.fn(() => 128000),
+  getModelMaxOutput: vi.fn(() => 8192),
 }));
 
 // Stub fetch globally

@@ -87,9 +87,11 @@ export interface LLMResponse {
   };
 }
 
-// Default models for each provider
+// Default model per provider. This is the OFFLINE EMERGENCY FALLBACK only —
+// model selection is normally driven by live discovery (see model-detection.ts).
+// Keep these current so the no-key / offline path doesn't point at a retired model.
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  anthropic: 'claude-sonnet-4-20250514',
+  anthropic: 'claude-sonnet-4-6',
   google: 'gemini-2.0-flash',
   openai: 'gpt-4o',
   together: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
@@ -103,7 +105,7 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
   bedrock: 'us.anthropic.claude-sonnet-4-20250514-v1:0',  // AWS Bedrock (native Converse API)
   'openai-compat': 'gpt-3.5-turbo',  // Generic OpenAI-compatible server
-  auto: 'claude-sonnet-4-20250514',
+  auto: 'claude-sonnet-4-6',
 };
 
 // Mode display configuration
@@ -234,7 +236,14 @@ export function getSystemPrompt(persona: AgentPersona): string {
 
 // Pricing per 1M tokens (input, output) in USD
 export const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  // Anthropic
+  // Anthropic — current models
+  'claude-fable-5': { input: 10, output: 50 },
+  'claude-opus-4-8': { input: 5, output: 25 },
+  'claude-opus-4-7': { input: 5, output: 25 },
+  'claude-opus-4-6': { input: 5, output: 25 },
+  'claude-sonnet-4-6': { input: 3, output: 15 },
+  'claude-haiku-4-5': { input: 1, output: 5 },
+  // Anthropic — legacy (still served)
   'claude-sonnet-4-20250514': { input: 3, output: 15 },
   'claude-opus-4-20250514': { input: 15, output: 75 },
   'claude-3-5-sonnet-20241022': { input: 3, output: 15 },

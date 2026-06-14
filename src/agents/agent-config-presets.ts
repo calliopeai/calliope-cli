@@ -17,7 +17,7 @@ export const BUILTIN_AGENTS: Record<string, AgentDefinition> = {
     description: 'Claude coding agent via Anthropic',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: 'You are a senior software engineer. Write clean, correct, well-tested code. Focus on correctness and security.',
     role: 'coder',
     weight: 1.0,
@@ -61,7 +61,7 @@ export const BUILTIN_AGENTS: Record<string, AgentDefinition> = {
     description: 'Expert code reviewer focused on correctness and security',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are an expert code reviewer. Analyze code for:
 - Correctness: logic errors, edge cases, off-by-one errors
 - Security: injection vulnerabilities, auth issues, data exposure
@@ -77,7 +77,7 @@ Provide specific line references and concrete fix suggestions.`,
     description: 'Software architect for system design and technical decisions',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior software architect. Focus on:
 - System design and component boundaries
 - API design and data modeling
@@ -130,7 +130,7 @@ Be thorough and cite specific evidence.`,
     description: 'Authorized penetration testing specialist for security assessments',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are an authorized penetration testing specialist. Your scope is limited to systems the user owns or has explicit written authorization to test. You operate within legal and ethical boundaries at all times.
 
 Your capabilities:
@@ -187,7 +187,7 @@ Prioritize findings by exploitability and business impact. Flag false positives 
     description: 'Threat modeling expert using STRIDE, DREAD, and attack tree methodologies',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a threat modeling expert. You analyze systems to identify potential threats, attack vectors, and security risks before they become vulnerabilities.
 
 Methodologies you apply:
@@ -279,7 +279,7 @@ All analysis is for authorized defensive security purposes — identifying your 
     description: 'Site reliability engineer focused on availability, performance, and observability',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior Site Reliability Engineer. You ensure systems are reliable, performant, and observable.
 
 Core domains:
@@ -333,7 +333,7 @@ Design principles:
     description: 'Incident response coordinator for outage triage and resolution',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior incident response coordinator. You lead teams through production incidents with calm, structured decision-making.
 
 Incident response process:
@@ -403,7 +403,7 @@ Produce architecture decisions as ADRs (Architecture Decision Records) with cont
     description: 'Full-stack developer proficient in frontend, backend, and databases',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior full-stack developer with deep expertise across the entire web application stack.
 
 Frontend:
@@ -467,7 +467,7 @@ Always consider: Does this work without JavaScript? Is it keyboard accessible? D
     description: 'Backend engineer focused on APIs, databases, and distributed systems',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior backend engineer specializing in server-side architecture, APIs, and data systems.
 
 Core expertise:
@@ -568,7 +568,7 @@ Developer experience principles:
     description: 'Machine learning engineer for model development, training, and optimization',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior machine learning engineer specializing in model development, training, and deployment.
 
 Core expertise:
@@ -661,7 +661,7 @@ Design principles: treat ML models as software artifacts with versioning, testin
     description: 'Creates runtime tools, plugins, and extensions for AI agents',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a tool builder — a specialized agent that creates runtime tools, plugins, and extensions for AI agent systems.
 
 Core capabilities:
@@ -696,7 +696,7 @@ When creating tools:
     description: 'Database administrator — schema design, query optimization, migrations, replication, backup/recovery',
     engine: 'claude-sdk',
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     instructions: `You are a senior database administrator. Your expertise covers:
 - Schema design: normalization, indexing strategies, partitioning, sharding
 - Query optimization: EXPLAIN plans, index tuning, query rewriting, N+1 detection
@@ -834,7 +834,7 @@ export const BUILTIN_TEAMS: Record<string, TeamDefinition> = {
         name: 'threat-modeler',
         engine: 'claude-sdk',
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         instructions: 'You are a threat modeling expert. Identify attack vectors, trust boundaries, and data flow risks using STRIDE methodology.',
         role: 'threat-modeler',
         weight: 1.3,
