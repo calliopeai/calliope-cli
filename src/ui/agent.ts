@@ -123,7 +123,7 @@ export interface AgentContext {
   sessionRef: React.MutableRefObject<Session | null>;
 
   // Callbacks
-  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string) => void;
+  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string, isError?: boolean) => void;
   estimateContextTokens: () => number;
   validateAndRepairMessages: () => boolean;
 
@@ -502,7 +502,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               executableTools,
               async (call) => {
                 const result = await executeTool(call, ctx.sessionRef.current?.projectPath ?? process.cwd());
-                return result.result;
+                return { result: result.result, isError: result.isError };
               },
               (completed, total, current) => {
                 const args = current.arguments as Record<string, unknown>;
@@ -526,15 +526,19 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             for (const result of results) {
               const toolCall = result.toolCall;
               const args = toolCall.arguments as Record<string, unknown>;
+              // A tool-level failure (result.isError) or a thrown exception (result.error)
+              // both count as a failure — mirror the sequential branch.
+              const failed = result.isError || !!result.error;
+              const failureText = result.error || result.result;
               recordEvent('tool_call', toolCall.name, { name: toolCall.name, arguments: args });
-              recordEvent('tool_result', (result.result || result.error || '').slice(0, 1000), { name: toolCall.name, isError: !!result.error });
+              recordEvent('tool_result', (result.result || result.error || '').slice(0, 1000), { name: toolCall.name, isError: failed });
 
               // Record in iteration ledger
               ctx.ledger?.recordAction(
                 toolCall.name,
                 args,
-                result.error ? 'error' : 'ok',
-                result.error || undefined,
+                failed ? 'error' : 'ok',
+                failed ? failureText : undefined,
               );
 
               // Execute post-tool hooks
@@ -551,10 +555,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                 const thought = String(args.thought || '');
                 ctx.addMessage('tool', thought);
               } else if (result.error) {
-                ctx.addMessage('tool', `Error: ${result.error}`);
+                ctx.addMessage('tool', `Error: ${result.error}`, true);
               } else {
                 const preview = result.result.split('\n').slice(0, 3).join('\n');
-                ctx.addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''));
+                ctx.addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''), failed);
               }
 
               ctx.llmMessages.current.push({
@@ -689,7 +693,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               } else {
                 const display = result.displayResult || result.result;
                 const preview = display.split('\n').slice(0, 5).join('\n');
-                ctx.addMessage('tool', preview + (display.split('\n').length > 5 ? '\n...' : ''));
+                ctx.addMessage('tool', preview + (display.split('\n').length > 5 ? '\n...' : ''), result.isError);
               }
 
               if (toolCall.name !== 'ask_question') {

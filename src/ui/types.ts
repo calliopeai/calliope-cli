@@ -10,6 +10,9 @@ export interface UIMessage {
   id: string;
   type: 'user' | 'assistant' | 'tool' | 'system' | 'error';
   content: string;
+  /** True when a 'tool' message represents a failed tool execution (drives the
+   *  status icon instead of string-matching the content for "error"). */
+  isError?: boolean;
 }
 
 export interface SessionStats {

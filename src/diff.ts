@@ -897,10 +897,48 @@ export function highlightSyntax(line: string, filePath: string): string {
   const lang = detectLanguage(filePath);
   const rules = lang ? SYNTAX_RULES[lang] || SYNTAX_RULES.default : SYNTAX_RULES.default;
 
-  let result = line;
-  for (const rule of rules) {
-    result = result.replace(rule.pattern, `${rule.color}$1${COLORS.reset}`);
+  // Match every rule against the ORIGINAL line (never against intermediate
+  // colored output), capturing the position of group 1 — the token that should
+  // actually be colored (rules like JSON keys consume trailing context outside
+  // the capture). Collect {start,end,color} ranges, merge into non-overlapping
+  // spans (earlier rule wins), then emit in a single left-to-right pass so a
+  // regex can never run over an injected ANSI escape sequence.
+  const ranges: { start: number; end: number; color: string; priority: number }[] = [];
+  rules.forEach(({ pattern, color }, priority) => {
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(line)) !== null) {
+      const token = match[1] ?? match[0];
+      // Offset of the captured token within the full match.
+      const tokenOffset = match[1] !== undefined ? match[0].indexOf(match[1]) : 0;
+      const start = match.index + (tokenOffset >= 0 ? tokenOffset : 0);
+      const end = start + token.length;
+      if (end > start) ranges.push({ start, end, color, priority });
+      if (match[0].length === 0) pattern.lastIndex++;
+    }
+  });
+
+  ranges.sort((a, b) =>
+    a.priority - b.priority ||
+    a.start - b.start ||
+    b.end - a.end,
+  );
+  const spans: { start: number; end: number; color: string }[] = [];
+  for (const r of ranges) {
+    if (spans.some(s => r.start < s.end && r.end > s.start)) continue;
+    spans.push({ start: r.start, end: r.end, color: r.color });
   }
+  spans.sort((a, b) => a.start - b.start);
+
+  let result = '';
+  let cursor = 0;
+  for (const { start, end, color } of spans) {
+    if (start > cursor) result += line.slice(cursor, start);
+    result += color + line.slice(start, end) + COLORS.reset;
+    cursor = end;
+  }
+  if (cursor < line.length) result += line.slice(cursor);
+
   return result;
 }
 

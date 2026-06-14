@@ -523,11 +523,15 @@ function TerminalChat() {
   const isModalActive = modalMode !== 'none';
 
   // Add message helper
-  const addMessage = useCallback((type: UIMessage['type'], content: string) => {
+  const addMessage = useCallback((type: UIMessage['type'], content: string, isError?: boolean) => {
     setMessages(prev => [...prev, {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       type,
-      content
+      content,
+      // isError is plumbed through to the renderer (messages.tsx) so the tool
+      // status icon is driven by the authoritative executeTool flag rather than
+      // string-matching the output. Omitted (undefined) for non-tool messages.
+      ...(isError !== undefined ? { isError } : {}),
     }]);
     // Persist user and assistant messages to storage for session history
     if (type === 'user' || type === 'assistant') {

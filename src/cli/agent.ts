@@ -151,7 +151,7 @@ export async function runAgent(prompt: string, state: CLIState): Promise<string>
           const result = await executeTool(toolCall, state.cwd, 60000, streamCallback);
           if (isShell) process.stdout.write('\n');
           recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
-          printToolResult(toolCall.name, result.result);
+          printToolResult(toolCall.name, result.result, result.isError);
           state.ledger.recordAction(
             toolCall.name,
             toolCall.arguments as Record<string, unknown>,
@@ -378,7 +378,7 @@ function printToolCall(toolCall: ToolCall): void {
   }
 }
 
-function printToolResult(name: string, result: string): void {
+function printToolResult(name: string, result: string, isError?: boolean): void {
   const box = getBoxChars();
   if (name === 'think') {
     console.log(`${color(box.bottomLeft + box.horizontal, 'dim')} ${color('✓', 'green')}`);
@@ -393,7 +393,11 @@ function printToolResult(name: string, result: string): void {
     console.log(`${color(box.vertical, 'dim')}  ${color(`... (${result.split('\n').length - 10} more lines)`, 'dim')}`);
   }
 
-  const success = !result.toLowerCase().includes('error');
+  // Drive the status icon from the authoritative isError flag returned by
+  // executeTool. Only fall back to string-matching when the flag is absent.
+  const success = isError === undefined
+    ? !result.toLowerCase().includes('error')
+    : !isError;
   console.log(`${color(box.bottomLeft + box.horizontal, 'dim')} ${success ? color('✓', 'green') : color('✗', 'red')}`);
 }
 
