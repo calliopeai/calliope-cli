@@ -33,6 +33,19 @@ function toAnthropicContent(content: MessageContent): Anthropic.MessageParam['co
 }
 
 /**
+ * Whether a model supports adaptive thinking (Opus 4.6+, Sonnet 4.6, Fable/Mythos 5).
+ * Older models (Haiku 4.5, the dated -20250514 ids, Claude 3.x) do not, so we
+ * omit the parameter for them to avoid a 400.
+ */
+function supportsAdaptiveThinking(model: string): boolean {
+  const m = model.toLowerCase();
+  return /claude-opus-4-[678]/.test(m)
+    || m.includes('claude-sonnet-4-6')
+    || m.includes('claude-fable-5')
+    || m.includes('claude-mythos-5');
+}
+
+/**
  * Chat with Anthropic Claude
  */
 export async function chatAnthropic(
@@ -49,6 +62,11 @@ export async function chatAnthropic(
   // Extract system message
   const systemMessage = messages.find(m => m.role === 'system');
   const chatMessages = messages.filter(m => m.role !== 'system');
+
+  // Adaptive thinking improves agentic/coding quality on the models that support it (#147).
+  const thinking = supportsAdaptiveThinking(model)
+    ? { type: 'adaptive' as const }
+    : undefined;
 
   // Convert to Anthropic format
   const anthropicMessages = chatMessages.map(m => {
@@ -125,6 +143,7 @@ export async function chatAnthropic(
         system: systemMessage ? getTextContent(systemMessage.content) : '',
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+        ...(thinking ? { thinking } : {}),
       });
 
       for await (const event of stream) {
@@ -169,6 +188,11 @@ export async function chatAnthropic(
             finishReason = 'tool_use';
           } else if (event.delta.stop_reason === 'max_tokens') {
             finishReason = 'length';
+          } else if (event.delta.stop_reason === 'refusal') {
+            // Safety classifier declined mid-stream (#147); discard the partial.
+            finishReason = 'error';
+            content = '[Request refused by the safety classifier]';
+            onToken('\n[Request refused by the safety classifier]\n');
           }
         } else if (event.type === 'message_start' && event.message.usage) {
           inputTokens = event.message.usage.input_tokens;
@@ -197,6 +221,7 @@ export async function chatAnthropic(
     system: systemMessage ? getTextContent(systemMessage.content) : '',
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+    ...(thinking ? { thinking } : {}),
   });
 
   // Parse response
@@ -221,6 +246,10 @@ export async function chatAnthropic(
     finishReason = 'tool_use';
   } else if (response.stop_reason === 'max_tokens') {
     finishReason = 'length';
+  } else if (response.stop_reason === 'refusal') {
+    // Safety classifier declined the request (#147) — content is empty/partial.
+    finishReason = 'error';
+    if (!content) content = '[Request refused by the safety classifier]';
   }
 
   return {
