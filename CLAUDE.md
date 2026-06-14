@@ -1,8 +1,12 @@
 # CLAUDE.md - Calliope CLI
 
+> **Read [`bootstrap.md`](./bootstrap.md) before writing code** — it is the
+> canonical conventions document. This file is the Claude-specific shim plus
+> issue-tracking notes.
+
 ## Project
 
-Multi-model AI agent CLI (`@calliopelabs/cli` v0.8.20). TypeScript + React/Ink, ESM modules.
+Multi-model AI agent CLI (`@calliopelabs/cli` v2.4.2). TypeScript + React/Ink, ESM modules. Node ≥ 20.
 
 ## Development Rules
 
@@ -11,6 +15,7 @@ Multi-model AI agent CLI (`@calliopelabs/cli` v0.8.20). TypeScript + React/Ink, 
 - All changes must pass `npx tsc --noEmit` and `npx vitest run`
 - Barrel pattern: original files re-export from subdirectories (zero import path changes)
 - Circular dep workaround: `setStartLoop()` injection pattern, `require()` for lazy loading
+- No hardcoded model lists — discover models + capabilities from each provider's models API (see `bootstrap.md`)
 
 ## Architecture
 
@@ -37,16 +42,17 @@ src/
 - When a task is complete, close the issue via commit message or `gh issue close`
 - Check open issues before starting work to avoid duplicating effort
 
-### Active Roadmap Issues
+### Roadmap themes
 
-- #48 - Smart Routing: dynamic model selection across providers
-- #49 - Swarm Mode: parallel task delegation with overseers
-- #50 - Agent Councils: multi-agent coordination (consensus, competitive, collaborative, overseer)
-- #51 - Long-running sessions: remove iteration cap, add circuit breakers
+Smart routing (dynamic model selection across providers), swarm mode (parallel
+task delegation with overseers), agent councils (consensus / competitive /
+collaborative / overseer coordination), and long-running sessions (no iteration
+cap, circuit breakers) — track live status in GitHub issues rather than here.
 
 ## Testing
 
 - Framework: Vitest
-- 200 tests across 10 test files
+- 4602 tests across 104 test files (`tests/*.test.ts`)
 - Run: `npx vitest run`
 - Watch: `npx vitest --watch`
+- Every fix gets a regression test; cover happy path and error/denied path
