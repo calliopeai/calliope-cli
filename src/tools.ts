@@ -949,19 +949,6 @@ function shouldUseNativeSandbox(): 'use' | 'skip' | 'require' {
 }
 
 /**
- * Whether the shell tool should fail closed instead of running unsandboxed (#133).
- *
- * True only when sandboxMode is 'auto' (the default) AND no native backend is
- * available — on those platforms (e.g. Linux/Windows without Seatbelt/Landlock)
- * we refuse to silently run `bash -c` unsandboxed. 'off' and 'docker' are
- * explicit user choices and fall through to the existing fallback path.
- */
-function shellSandboxFailsClosed(): boolean {
-  const mode = config.get('sandboxMode') || 'auto';
-  return mode === 'auto' && !nativeSandbox.isNativeSandboxAvailable();
-}
-
-/**
  * Execute a shell command
  */
 async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
@@ -984,12 +971,12 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
     return 'Error: Native sandbox required (sandboxMode=native) but not available on this platform.';
   }
 
-  // Fail closed: in 'auto' mode with no native backend, refuse to silently run
-  // unsandboxed. The user must explicitly acknowledge by setting sandboxMode=off
-  // (#133). 'off' returns 'skip' and is handled by the fallback below.
-  if (sandboxDecision === 'skip' && shellSandboxFailsClosed()) {
-    return 'Error: No native sandbox backend is available on this platform and sandboxMode=auto, so the shell command was not run (fail-closed). Set sandboxMode=off to run shell commands unsandboxed at your own risk, or use sandboxMode=docker.';
-  }
+  // 'auto' is best-effort: when no native backend exists (e.g. Linux/Windows
+  // without Seatbelt/Landlock) the command runs unsandboxed rather than failing,
+  // so shell execution keeps working on every platform. Users who require
+  // enforcement set sandboxMode=native (fail-closed above) or sandboxMode=docker.
+  // The sandbox hardening (#133 — network off by default, restricted reads)
+  // still applies whenever a sandbox IS active ('use'/'require'/docker).
 
   if (sandboxDecision === 'use' || sandboxDecision === 'require') {
     // Network is OFF by default; opt in via CALLIOPE_SHELL_NETWORK=1 (#133).

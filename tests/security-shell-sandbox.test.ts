@@ -131,12 +131,21 @@ describe('#133 Seatbelt profile - network + secret reads', () => {
   });
 });
 
-describe('#133 executeShell fail-closed + network default', () => {
-  it('fails closed in sandboxMode=auto when no native backend is available', async () => {
+describe('#133 executeShell sandbox modes + network default', () => {
+  it('runs (best-effort, unsandboxed) in auto mode when no native backend exists', async () => {
+    // 'auto' must not fail closed on platforms without a native sandbox (e.g.
+    // Linux/Windows) — shell execution has to keep working everywhere.
     mockSandboxMode = 'auto';
     mockNativeAvailable = false;
+    const r = await executeTool(makeTool('shell', { command: 'echo ran-auto' }), tmpDir);
+    expect(r.result).toContain('ran-auto');
+  });
+
+  it('fails closed only when the user explicitly requires native sandboxing', async () => {
+    mockSandboxMode = 'native';
+    mockNativeAvailable = false;
     const r = await executeTool(makeTool('shell', { command: 'echo should-not-run' }), tmpDir);
-    expect(r.result).toContain('fail-closed');
+    expect(r.result).toMatch(/Native sandbox required|not available/i);
     expect(r.result).not.toContain('should-not-run');
   });
 
