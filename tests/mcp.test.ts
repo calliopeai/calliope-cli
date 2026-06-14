@@ -2064,7 +2064,7 @@ describeStdio('stdioCall edge cases', () => {
     entry.process.stdin!.write = ((_data: unknown, cb: (err: Error | null | undefined) => void) => {
       process.nextTick(() => cb(new Error('write broken')));
       return true;
-    }) as typeof entry.process.stdin!.write;
+    }) as typeof origWrite;
 
     await expect(
       stdioCall('mcp_write_err', 'tools/call', { name: 'test' })
@@ -2115,7 +2115,7 @@ describeStdio('stdioCall edge cases', () => {
         return false;
       }
       return origWrite(data as string, cb as any);
-    }) as typeof entry.process.stdin!.write;
+    }) as typeof origWrite;
 
     const result = await stdioCall('mcp_backpressure', 'tools/call', { name: 'test' });
     expect(result).toBe('bp_ok');
