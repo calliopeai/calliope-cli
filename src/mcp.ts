@@ -10,6 +10,8 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as net from 'net';
+import * as dns from 'dns';
 import { spawn, type ChildProcess } from 'child_process';
 import type { Tool } from './types.js';
 import { expandEnvMap } from './env-expansion.js';
@@ -128,6 +130,144 @@ export function saveServers(servers: MCPServer[]): void {
 }
 
 // ============================================================================
+// SSRF / network egress guards
+// ============================================================================
+
+/**
+ * Whether private/loopback/link-local MCP targets are explicitly opted in.
+ * Set MCP_ALLOW_PRIVATE_HOSTS=1 (or true) to allow them.
+ */
+function privateHostsAllowed(): boolean {
+  const v = (process.env.MCP_ALLOW_PRIVATE_HOSTS || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Whether loopback MCP targets (localhost / 127.0.0.0/8 / ::1) are blocked.
+ * Off by default — local MCP servers are the common legitimate case.
+ * Set MCP_BLOCK_LOOPBACK=1 to disallow loopback targets too.
+ */
+function loopbackBlocked(): boolean {
+  const v = (process.env.MCP_BLOCK_LOOPBACK || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Whether a spawned stdio MCP server may inherit the full parent environment.
+ * Off by default to avoid leaking API keys/tokens to arbitrary commands.
+ */
+function inheritEnvAllowed(): boolean {
+  const v = (process.env.MCP_STDIO_INHERIT_ENV || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Whether stdio MCP servers may be spawned without an explicit consent flag.
+ * Off by default: callers must pass { allowSpawn: true } after surfacing the
+ * exact command + args to the user.
+ */
+function autoSpawnAllowed(): boolean {
+  const v = (process.env.MCP_ALLOW_STDIO_SPAWN || '').trim().toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+/**
+ * Return true if a resolved IP address is loopback, link-local, private
+ * (RFC1918 / ULA), unique-local, or otherwise non-routable / metadata.
+ */
+function isLoopbackAddress(ip: string): boolean {
+  const type = net.isIP(ip);
+  if (type === 4) return /^127\./.test(ip);
+  if (type === 6) return ip.toLowerCase() === '::1';
+  return false;
+}
+
+function isBlockedAddress(ip: string): boolean {
+  const type = net.isIP(ip);
+  if (type === 4) {
+    const parts = ip.split('.').map((n) => parseInt(n, 10));
+    const [a, b] = parts;
+    // Loopback (127/8) is allowed by default — see assertUrlAllowed.
+    if (a === 10) return true;                          // private 10.0.0.0/8
+    if (a === 172 && b >= 16 && b <= 31) return true;   // private 172.16.0.0/12
+    if (a === 192 && b === 168) return true;            // private 192.168.0.0/16
+    if (a === 169 && b === 254) return true;            // link-local / metadata 169.254.0.0/16
+    if (a === 100 && b >= 64 && b <= 127) return true;  // CGNAT 100.64.0.0/10
+    if (a === 0) return true;                           // 0.0.0.0/8
+    return false;
+  }
+  if (type === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::') return true;                            // unspecified (::1 loopback allowed)
+    if (lower.startsWith('fe80')) return true;                  // link-local fe80::/10
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA fc00::/7
+    // IPv4-mapped IPv6 (::ffff:a.b.c.d) — recurse on the embedded v4
+    const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (mapped) return isBlockedAddress(mapped[1]);
+    return false;
+  }
+  // Not an IP literal — treat as unknown/unsafe.
+  return true;
+}
+
+/**
+ * Validate an MCP target URL against SSRF rules. Rejects non-http(s) schemes
+ * and (unless opted in) loopback / link-local / private / metadata hosts.
+ * Resolves DNS and re-checks every resolved address to defeat DNS rebinding.
+ *
+ * @returns the validated URL host info (no-op if allowed)
+ * @throws if the scheme is unsupported or the host is blocked
+ */
+export async function assertUrlAllowed(rawUrl: string): Promise<void> {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error(`Invalid MCP URL: ${rawUrl}`);
+  }
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`Unsupported MCP URL scheme: ${url.protocol} (only http/https allowed)`);
+  }
+
+  const host = url.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
+  const lowerHost = host.toLowerCase();
+
+  // Loopback / local MCP servers are allowed by default — running a local MCP
+  // server on localhost is the common, legitimate case. Set MCP_BLOCK_LOOPBACK=1
+  // to disallow it. The link-local cloud-metadata range and other private
+  // ranges remain blocked (the real SSRF target) unless MCP_ALLOW_PRIVATE_HOSTS=1.
+  const isLoopbackName = lowerHost === 'localhost' || lowerHost.endsWith('.localhost');
+  if (isLoopbackName || isLoopbackAddress(host)) {
+    if (!loopbackBlocked()) return;
+    throw new Error(`MCP target ${host} is a loopback address (blocked by MCP_BLOCK_LOOPBACK)`);
+  }
+
+  if (privateHostsAllowed()) return;
+
+  // Literal IP — check directly.
+  if (net.isIP(host)) {
+    if (isBlockedAddress(host)) {
+      throw new Error(`MCP target ${host} is a private/link-local address (blocked; set MCP_ALLOW_PRIVATE_HOSTS=1 to override)`);
+    }
+    return;
+  }
+
+  // Resolve and validate every address (anti-DNS-rebinding).
+  let addresses: dns.LookupAddress[];
+  try {
+    addresses = await dns.promises.lookup(host, { all: true });
+  } catch (e) {
+    throw new Error(`Failed to resolve MCP host ${host}: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  for (const { address } of addresses) {
+    if (isBlockedAddress(address)) {
+      throw new Error(`MCP host ${host} resolves to blocked address ${address} (set MCP_ALLOW_PRIVATE_HOSTS=1 to override)`);
+    }
+  }
+}
+
+// ============================================================================
 // MCP Client
 // ============================================================================
 
@@ -135,6 +275,7 @@ export function saveServers(servers: MCPServer[]): void {
  * Fetch MCP manifest from a URL
  */
 export async function fetchManifest(url: string): Promise<MCPManifest> {
+  await assertUrlAllowed(url);
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http;
 
@@ -362,6 +503,7 @@ async function mcpCall(
   method: string,
   params: Record<string, unknown>
 ): Promise<unknown> {
+  await assertUrlAllowed(serverUrl);
   return new Promise((resolve, reject) => {
     const url = new URL(serverUrl);
     const protocol = url.protocol === 'https:' ? https : http;
@@ -465,11 +607,52 @@ export async function refreshServer(idOrUrl: string): Promise<MCPServer | null> 
 // ============================================================================
 
 /**
- * Spawn a child process for a STDIO MCP server
+ * Options controlling how a stdio MCP server is spawned.
  */
-export function spawnStdioProcess(server: MCPServer): StdioProcess {
+export interface SpawnStdioOptions {
+  /**
+   * Explicit user consent to execute the (arbitrary) command. Spawning is
+   * refused unless this is true or MCP_ALLOW_STDIO_SPAWN is set. Callers MUST
+   * surface the exact command + args to the user before passing true.
+   */
+  allowSpawn?: boolean;
+}
+
+/**
+ * Minimal env passed through to stdio MCP children when the full parent
+ * environment is not inherited. Excludes secrets (API keys/tokens).
+ */
+const STDIO_ENV_ALLOWLIST = ['PATH', 'HOME', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ', 'TERM'];
+
+function buildStdioEnv(serverEnv: Record<string, string>): NodeJS.ProcessEnv {
+  if (inheritEnvAllowed()) {
+    return { ...process.env, ...serverEnv };
+  }
+  const base: NodeJS.ProcessEnv = {};
+  for (const key of STDIO_ENV_ALLOWLIST) {
+    if (process.env[key] !== undefined) base[key] = process.env[key];
+  }
+  return { ...base, ...serverEnv };
+}
+
+/**
+ * Spawn a child process for a STDIO MCP server.
+ *
+ * Spawning is gated: a stdio command is arbitrary local code execution, so the
+ * caller must pass { allowSpawn: true } (after showing the command to the user)
+ * or set MCP_ALLOW_STDIO_SPAWN. By default the child does NOT inherit the full
+ * parent environment (see MCP_STDIO_INHERIT_ENV).
+ */
+export function spawnStdioProcess(server: MCPServer, options: SpawnStdioOptions = {}): StdioProcess {
   if (!server.command) {
     throw new Error(`STDIO server ${server.id} has no command configured`);
+  }
+
+  if (!options.allowSpawn && !autoSpawnAllowed()) {
+    throw new Error(
+      `Refusing to spawn stdio MCP server without consent: ${server.command} ${(server.args || []).join(' ')}`.trim() +
+      ` (pass allowSpawn or set MCP_ALLOW_STDIO_SPAWN=1 after reviewing the command)`
+    );
   }
 
   const { expanded: serverEnv, missing } = expandEnvMap(server.env);
@@ -479,7 +662,7 @@ export function spawnStdioProcess(server: MCPServer): StdioProcess {
 
   const child = spawn(server.command, server.args || [], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ...serverEnv },
+    env: buildStdioEnv(serverEnv),
   });
 
   const entry: StdioProcess = {
@@ -600,7 +783,8 @@ export async function registerStdioServer(
   command: string,
   args?: string[],
   env?: Record<string, string>,
-  autoConnect = true
+  autoConnect = true,
+  options: SpawnStdioOptions = {}
 ): Promise<MCPServer> {
   const server: MCPServer = {
     id: `mcp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -615,8 +799,8 @@ export async function registerStdioServer(
     env,
   };
 
-  // Spawn and initialize
-  spawnStdioProcess(server);
+  // Spawn and initialize (gated on explicit consent — see spawnStdioProcess)
+  spawnStdioProcess(server, options);
 
   try {
     // Send initialize
@@ -687,16 +871,24 @@ export function stopStdioServer(serverId: string): boolean {
 }
 
 /**
- * Auto-connect all STDIO servers that have autoConnect=true
+ * Auto-connect all STDIO servers that have autoConnect=true.
+ *
+ * Persisted stdio servers are arbitrary local commands, so they are NOT spawned
+ * on startup unless the caller explicitly consents via { allowSpawn: true } (or
+ * MCP_ALLOW_STDIO_SPAWN is set) after reviewing the registered commands. Without
+ * consent this is a no-op and the latent auto-spawn path stays disabled.
  */
-export async function connectStdioServers(): Promise<void> {
+export async function connectStdioServers(options: SpawnStdioOptions = {}): Promise<void> {
+  if (!options.allowSpawn && !autoSpawnAllowed()) {
+    return;
+  }
   const servers = loadServers();
   for (const server of servers) {
     if (server.transport !== 'stdio' || !server.autoConnect) continue;
     if (stdioProcesses.has(server.id)) continue; // already running
 
     try {
-      spawnStdioProcess(server);
+      spawnStdioProcess(server, options);
 
       await stdioCall(server.id, 'initialize', {
         protocolVersion: '2024-11-05',

@@ -18,7 +18,6 @@ const SHELL_PATTERNS: Record<RiskLevel, RegExp[]> = {
     /^head\s/,
     /^tail\s/,
     /^grep\s/,
-    /^find\s/,
     /^pwd$/,
     /^echo\s/,
     /^wc\s/,
@@ -74,6 +73,11 @@ const SHELL_PATTERNS: Record<RiskLevel, RegExp[]> = {
     /^rm\s/,
     /^rmdir\s/,
     /^mv\s/,
+    /^find\s.*\s-delete(\s|$)/,
+    /^find\s.*\s-exec\s/,
+    /^find\s.*\s-execdir\s/,
+    /^shred(\s|$)/,
+    /^truncate(\s|$)/,
     /^chmod\s/,
     /^chown\s/,
     /^git\s+push/,
@@ -94,6 +98,10 @@ const SHELL_PATTERNS: Record<RiskLevel, RegExp[]> = {
     /^kill\s/,
     /^pkill\s/,
     /^killall\s/,
+    // Output redirection to a file (> truncate or >> append). The critical
+    // >/dev/ rule is checked earlier; everything else writing via redirect
+    // requires confirmation. Allows an optional leading fd (e.g. 2>).
+    /\d?>>?\s*\S/,
   ],
   
   critical: [
@@ -210,11 +218,13 @@ export function assessShellRisk(command: string): RiskAssessment {
     }
   }
   
-  // Default to medium for unknown commands
+  // Default to high-with-confirmation for unknown commands (allowlist-by-default).
+  // Anything not explicitly enumerated above could be destructive, so prompt
+  // unless god mode is on.
   return {
-    level: 'medium',
-    reason: 'Unknown command - defaulting to medium risk',
-    requiresConfirmation: false,
+    level: 'high',
+    reason: 'Unknown command - requires confirmation',
+    requiresConfirmation: true,
   };
 }
 

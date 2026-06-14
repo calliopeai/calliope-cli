@@ -123,6 +123,27 @@ const wsClients: WebSocketClient[] = [];
 let activeToken: string = '';
 
 /**
+ * Constant-time comparison of two strings to avoid leaking timing
+ * information. Guards against length mismatch first so timingSafeEqual
+ * (which throws on differing buffer lengths) is never given mismatched input.
+ */
+function constantTimeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
+ * Validate a presented Bearer token against the active token using a
+ * constant-time comparison. Returns false when no token is configured.
+ */
+function isValidToken(presented: string): boolean {
+  if (!activeToken) return false;
+  return constantTimeEqual(presented, `Bearer ${activeToken}`);
+}
+
+/**
  * Check if the request carries a valid Bearer token.
  * Returns true if auth passes, false otherwise.
  * The GET /api/health endpoint is exempt from auth.
@@ -133,10 +154,33 @@ export function checkAuth(req: http.IncomingMessage, res: http.ServerResponse): 
   if (req.method === 'GET' && url.pathname === '/api/health') return true;
 
   const authHeader = req.headers['authorization'] || '';
-  const expected = `Bearer ${activeToken}`;
-  if (authHeader === expected) return true;
+  if (isValidToken(authHeader)) return true;
 
   jsonReply(res, 401, { ok: false, error: 'Unauthorized: valid Bearer token required' });
+  return false;
+}
+
+/**
+ * Validate the Bearer token for a WebSocket upgrade request.
+ * The token may be presented via the `Authorization: Bearer <token>` header
+ * or a `Sec-WebSocket-Protocol: bearer, <token>` value (browsers cannot set
+ * Authorization on WS handshakes). Returns true only on a valid token.
+ */
+function checkWsAuth(req: http.IncomingMessage): boolean {
+  const authHeader = req.headers['authorization'] || '';
+  if (isValidToken(authHeader)) return true;
+
+  // Fallback: Sec-WebSocket-Protocol carries the bare token (no "Bearer " prefix).
+  const proto = req.headers['sec-websocket-protocol'];
+  if (proto) {
+    const tokens = (Array.isArray(proto) ? proto.join(',') : proto)
+      .split(',')
+      .map((t) => t.trim());
+    for (const t of tokens) {
+      if (t && isValidToken(`Bearer ${t}`)) return true;
+    }
+  }
+
   return false;
 }
 
@@ -234,7 +278,22 @@ export function startApiServer(opts?: Partial<ApiServerConfig & { token?: string
 
     if (enableWs) {
       server.on('upgrade', (req, socket, head) => {
-        const client = acceptWebSocket(req, socket as import('net').Socket);
+        const sock = socket as import('net').Socket;
+
+        // Authenticate the upgrade before accepting the socket. Unauthenticated
+        // clients are rejected with 401 and never added to wsClients.
+        if (!checkWsAuth(req)) {
+          sock.write(
+            'HTTP/1.1 401 Unauthorized\r\n' +
+            'Connection: close\r\n' +
+            'Content-Length: 0\r\n' +
+            '\r\n'
+          );
+          sock.destroy();
+          return;
+        }
+
+        const client = acceptWebSocket(req, sock);
         if (client) {
           wsClients.push(client);
           client.send(JSON.stringify({ type: 'connected', data: { id: client.id } }));
@@ -267,6 +326,11 @@ export function startApiServer(opts?: Partial<ApiServerConfig & { token?: string
       });
     }
 
+    // Harden against slowloris-style connection exhaustion.
+    server.requestTimeout = 30_000;   // max time to receive the entire request
+    server.headersTimeout = 10_000;   // max time to receive request headers
+    server.keepAliveTimeout = 5_000;  // idle keep-alive socket timeout
+
     server.on('error', reject);
     server.listen(port, host, () => resolve({ port, host, token: activeToken }));
   });
@@ -292,4 +356,17 @@ export function stopApiServer(): Promise<void> {
 /** Check if server is running */
 export function isApiServerRunning(): boolean {
   return server !== null && server.listening;
+}
+
+/**
+ * Timeout configuration applied to the active server, or null if not running.
+ * Exposed for diagnostics/tests.
+ */
+export function getServerTimeouts(): { requestTimeout: number; headersTimeout: number; keepAliveTimeout: number } | null {
+  if (!server) return null;
+  return {
+    requestTimeout: server.requestTimeout,
+    headersTimeout: server.headersTimeout,
+    keepAliveTimeout: server.keepAliveTimeout,
+  };
 }

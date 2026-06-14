@@ -209,8 +209,10 @@ describe('git tool - operations', () => {
     fs.mkdirSync(gitDir);
     resetScope(gitDir);
 
-    // Initialize a git repo with an initial commit
-    await executeTool(makeTool('shell', { command: 'git init && git config user.email "test@test.com" && git config user.name "Test"' }), gitDir);
+    // Initialize a git repo with an initial commit. Disable commit signing so the
+    // setup does not depend on reading ~/.ssh, which the hardened native sandbox
+    // now denies (#133).
+    await executeTool(makeTool('shell', { command: 'git init && git config user.email "test@test.com" && git config user.name "Test" && git config commit.gpgsign false' }), gitDir);
     fs.writeFileSync(path.join(gitDir, 'file.txt'), 'initial');
     await executeTool(makeTool('shell', { command: 'git add . && git commit -m "init"' }), gitDir);
   });

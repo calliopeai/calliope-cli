@@ -140,23 +140,41 @@ describe('Trust Registry', () => {
   // autoTrustIfNew
   // ============================================================================
 
-  describe('autoTrustIfNew', () => {
-    it('should auto-trust a project not yet in the registry', () => {
+  describe('autoTrustIfNew (#135 - no silent trust)', () => {
+    afterEach(() => {
+      delete process.env.CALLIOPE_AUTO_TRUST;
+    });
+
+    it('should NOT auto-trust an unknown project by default', () => {
+      const result = autoTrustIfNew(projectDir);
+      expect(result).toBe(false);
+      // Deny-by-default: unknown directory stays untrusted.
+      expect(checkTrust(projectDir).trusted).toBe(false);
+    });
+
+    it('should only auto-trust with an explicit opt-in flag', () => {
+      const result = autoTrustIfNew(projectDir, { optIn: true });
+      expect(result).toBe(true);
+      expect(checkTrust(projectDir).trusted).toBe(true);
+    });
+
+    it('should auto-trust when CALLIOPE_AUTO_TRUST env is enabled', () => {
+      process.env.CALLIOPE_AUTO_TRUST = '1';
       const result = autoTrustIfNew(projectDir);
       expect(result).toBe(true);
       expect(checkTrust(projectDir).trusted).toBe(true);
     });
 
-    it('should not overwrite an existing registry entry', () => {
+    it('should not overwrite an existing registry entry even with opt-in', () => {
       untrustProject(projectDir);
-      const result = autoTrustIfNew(projectDir);
+      const result = autoTrustIfNew(projectDir, { optIn: true });
       expect(result).toBe(false);
       expect(checkTrust(projectDir).trusted).toBe(false);
     });
 
-    it('should not overwrite an existing trusted entry', () => {
+    it('should not overwrite an existing trusted entry with opt-in', () => {
       trustProject(projectDir, 'original');
-      const result = autoTrustIfNew(projectDir);
+      const result = autoTrustIfNew(projectDir, { optIn: true });
       expect(result).toBe(false);
       const entry = listTrustedProjects().find(p => p.path === path.resolve(projectDir));
       expect(entry?.entry.note).toBe('original');

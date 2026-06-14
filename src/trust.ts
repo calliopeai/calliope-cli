@@ -173,16 +173,37 @@ export function validateProjectConfig(projectConfig: Record<string, unknown>): s
 }
 
 /**
- * Auto-trust the current working directory (for first-run convenience).
- * Only trusts if no registry entry exists yet.
+ * Auto-trust the current working directory.
+ *
+ * SECURITY (#135): Silently trusting any unknown directory on first open lets a
+ * hostile project's CALLIOPE.md be loaded straight into the system prompt with no
+ * opt-in — the exact prompt-injection scenario the trust registry (#23) was built
+ * to prevent. So by default this is a NO-OP: unknown directories stay untrusted and
+ * must be trusted by explicit user action (`/trust`, an interactive prompt, etc.).
+ *
+ * Auto-trust happens ONLY behind an explicit, documented opt-in:
+ *   - `opts.optIn === true` (e.g. a `--trust` flag), or
+ *   - the `CALLIOPE_AUTO_TRUST` environment variable set to a truthy value.
+ *
+ * Returns true only if the directory was actually trusted by this call.
  */
-export function autoTrustIfNew(projectDir: string): boolean {
+export function autoTrustIfNew(projectDir: string, opts: { optIn?: boolean } = {}): boolean {
+  const optIn = opts.optIn === true || isAutoTrustEnvEnabled();
+  if (!optIn) {
+    // Deny-by-default: do not trust unknown directories implicitly.
+    return false;
+  }
+
   const absDir = path.resolve(projectDir);
   const registry = loadRegistry();
   if (!(absDir in registry)) {
-    // Auto-trust current directory on first run
     trustProject(projectDir);
     return true;
   }
   return false;
+}
+
+function isAutoTrustEnvEnabled(): boolean {
+  const v = process.env.CALLIOPE_AUTO_TRUST;
+  return v === '1' || v === 'true' || v === 'yes';
 }

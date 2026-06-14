@@ -7,6 +7,8 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { StringDecoder } from 'string_decoder';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
 import * as nativeSandbox from './sandbox-native.js';
@@ -375,13 +377,23 @@ function validatePath(filePath: string, cwd: string): string {
     throw new Error(`Invalid path: contains null bytes`);
   }
 
-  // Check raw input for path traversal attempts before resolution
+  // Check raw input for path traversal attempts before resolution.
+  // The scope manager is the single source of truth — no /tmp escape hatch (#139).
   if (filePath.includes('..')) {
     const resolved = path.resolve(cwd, filePath);
     const normalizedCwd = path.resolve(cwd);
-    if (!resolved.startsWith(normalizedCwd + path.sep) && resolved !== normalizedCwd && !resolved.startsWith('/tmp/') && resolved !== '/tmp') {
+    if (!resolved.startsWith(normalizedCwd + path.sep) && resolved !== normalizedCwd) {
       throw new Error(`Path traversal detected: ${filePath} resolves outside allowed scope`);
     }
+  }
+
+  // Block tool access to the CLI's own state directory (~/.calliope-cli):
+  // hooks, plugins, skills, trust, and MCP server configs there are a
+  // code-execution / trust foothold if the agent can plant or read them (#141).
+  const cliStateDir = path.join(os.homedir(), '.calliope-cli');
+  const absResolved = path.resolve(cwd, filePath);
+  if (absResolved === cliStateDir || absResolved.startsWith(cliStateDir + path.sep)) {
+    throw new Error(`Refusing tool access inside the Calliope state directory (${cliStateDir}); hooks/plugins/skills/trust there are protected`);
   }
 
   // Primary validation via scope manager
@@ -742,6 +754,12 @@ export async function executeTool(
  *
  * Patterns are tested against the normalized command (see normalizeCommand())
  * to defeat common bypass techniques like quoting, env prefixes, and subshells.
+ *
+ * SECURITY NOTE (#132): This denylist is ADVISORY / defense-in-depth only. It is
+ * fundamentally unwinnable to perfectly screen an arbitrary `bash -c` string, so
+ * treat this as a best-effort tripwire, NOT a security boundary. The real control
+ * is the native sandbox (see src/sandbox-native.ts); when no sandbox is available
+ * the shell tool fails closed (see shouldUseNativeSandbox / executeShell).
  */
 const BLOCKED_COMMANDS = [
   /^sudo\s/,
@@ -803,12 +821,30 @@ function normalizeCommand(command: string): string {
 }
 
 /**
- * Check a command (and all sub-commands separated by ; or &&/||) against
- * the blocklist. Returns the matching pattern source string, or null if allowed.
+ * Split a shell command into sub-commands on every separator so anchored deny
+ * patterns (^sudo, ^su, ^rm -rf /, ...) are tested at the start of each fragment.
+ *
+ * Process two-char operators (&&, ||) before single & / | so the singles do not
+ * shred the two-char operators they are part of. Newline is also a separator.
+ * normalizeCommand() strips quotes for matching, so quoted separators are
+ * intentionally not special-cased here (advisory blocklist, #132).
+ */
+function splitSubCommands(command: string): string[] {
+  return command
+    // two-char logical operators first
+    .split(/\s*(?:&&|\|\|)\s*/)
+    // then single separators: ; & | and newline (also a trailing & background)
+    .flatMap((part) => part.split(/\s*[;&|\n]\s*/));
+}
+
+/**
+ * Check a command (and all sub-commands separated by ; && || & | or newline)
+ * against the blocklist. Returns the matching pattern source string, or null if
+ * allowed.
  */
 function matchesBlocklist(command: string): string | null {
   // Split on command separators to check each sub-command
-  const subCommands = command.split(/\s*(?:;|&&|\|\|)\s*/);
+  const subCommands = splitSubCommands(command);
 
   for (const sub of subCommands) {
     const normalized = normalizeCommand(sub);
@@ -935,10 +971,19 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
     return 'Error: Native sandbox required (sandboxMode=native) but not available on this platform.';
   }
 
+  // 'auto' is best-effort: when no native backend exists (e.g. Linux/Windows
+  // without Seatbelt/Landlock) the command runs unsandboxed rather than failing,
+  // so shell execution keeps working on every platform. Users who require
+  // enforcement set sandboxMode=native (fail-closed above) or sandboxMode=docker.
+  // The sandbox hardening (#133 — network off by default, restricted reads)
+  // still applies whenever a sandbox IS active ('use'/'require'/docker).
+
   if (sandboxDecision === 'use' || sandboxDecision === 'require') {
+    // Network is OFF by default; opt in via CALLIOPE_SHELL_NETWORK=1 (#133).
+    const networkEnabled = process.env.CALLIOPE_SHELL_NETWORK === '1';
     const result = await nativeSandbox.executeInNativeSandbox(command, cwd, {
       timeout,
-      networkEnabled: true,
+      networkEnabled,
     });
 
     // Shell tool output is transparent — same format as unsandboxed execution
@@ -1667,7 +1712,39 @@ const WALK_IGNORED_DIRS = new Set([
   '.vscode',
 ]);
 
-function walkDir(dir: string, base: string, results: string[]): void {
+/** Maximum directory recursion depth before walkDir stops descending (#154). */
+const WALK_MAX_DEPTH = 40;
+/** Maximum number of entries walkDir will collect before it stops (#154). */
+const WALK_MAX_ENTRIES = 100000;
+
+/**
+ * Recursively collect file paths under `dir` (relative to `base`).
+ *
+ * Hardened (#154): bounded recursion depth, a per-walk Set of visited real
+ * directory paths to guard against directory cycles (bind mounts / hardlinks /
+ * any future symlink-follow), and a cap on the total number of collected
+ * entries. `depth` and `visited` are internal accumulators.
+ */
+function walkDir(
+  dir: string,
+  base: string,
+  results: string[],
+  depth: number = 0,
+  visited: Set<string> = new Set(),
+): void {
+  if (depth > WALK_MAX_DEPTH) return;
+  if (results.length >= WALK_MAX_ENTRIES) return;
+
+  // Guard against directory cycles by tracking canonical (real) paths.
+  let realDir: string;
+  try {
+    realDir = fs.realpathSync(dir);
+  } catch {
+    return;
+  }
+  if (visited.has(realDir)) return;
+  visited.add(realDir);
+
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -1675,11 +1752,12 @@ function walkDir(dir: string, base: string, results: string[]): void {
     return;
   }
   for (const entry of entries) {
+    if (results.length >= WALK_MAX_ENTRIES) return;
     if (entry.isDirectory() && WALK_IGNORED_DIRS.has(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     const relPath = path.relative(base, fullPath);
     if (entry.isDirectory()) {
-      walkDir(fullPath, base, results);
+      walkDir(fullPath, base, results, depth + 1, visited);
     } else {
       results.push(relPath);
     }
@@ -1719,6 +1797,78 @@ async function globFiles(pattern: string, searchCwd: string): Promise<string> {
   }
 
   return matched.join('\n');
+}
+
+/**
+ * Scan a single file line-by-line and push matching lines into `results`,
+ * without holding the entire file in memory (#154).
+ *
+ * Reads the file in fixed-size chunks, emits complete lines as they are found,
+ * and stops as soon as `results` reaches `maxResults`.
+ */
+function grepFileStreaming(
+  filePath: string,
+  regex: RegExp,
+  relPath: string,
+  results: string[],
+  maxResults: number,
+): void {
+  const CHUNK_SIZE = 64 * 1024;
+  let fd: number;
+  try {
+    fd = fs.openSync(filePath, 'r');
+  } catch {
+    return;
+  }
+
+  try {
+    // StringDecoder buffers partial multi-byte UTF-8 sequences that straddle a
+    // chunk boundary, so lines decode correctly across reads.
+    const decoder = new StringDecoder('utf-8');
+    const buffer = Buffer.allocUnsafe(CHUNK_SIZE);
+    let leftover = '';
+    let lineNo = 0;
+    let bytesRead: number;
+
+    try {
+      do {
+        bytesRead = fs.readSync(fd, buffer, 0, CHUNK_SIZE, null);
+        if (bytesRead <= 0) break;
+        const text = leftover + decoder.write(buffer.subarray(0, bytesRead));
+        const parts = text.split('\n');
+        // The last element may be a partial line; carry it to the next chunk.
+        leftover = parts.pop() ?? '';
+        for (const line of parts) {
+          lineNo++;
+          if (regex.test(line)) {
+            results.push(`${relPath}:${lineNo}: ${line}`);
+            if (results.length >= maxResults) return;
+          }
+        }
+      } while (bytesRead > 0);
+    } catch {
+      // Unreadable file (e.g. EISDIR, binary read error) — skip it, mirroring
+      // the previous readFileSync try/catch behavior.
+      return;
+    }
+
+    // Flush any bytes the decoder was still holding.
+    leftover += decoder.end();
+
+    // Final partial line (file not ending in newline).
+    if (leftover.length > 0) {
+      lineNo++;
+      if (regex.test(leftover) && results.length < maxResults) {
+        results.push(`${relPath}:${lineNo}: ${leftover}`);
+      }
+    }
+  } finally {
+    try {
+      fs.closeSync(fd);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /**
@@ -1783,24 +1933,19 @@ async function grepFiles(
   for (const filePath of filesToSearch) {
     if (results.length >= MAX_RESULTS) break;
 
-    let content: string;
     try {
       const fileStat = fs.statSync(filePath);
+      if (!fileStat.isFile()) continue; // skip dirs / symlinked dirs / sockets
       if (fileStat.size > 5 * 1024 * 1024) continue; // skip files > 5MB
-      content = fs.readFileSync(filePath, 'utf-8');
     } catch {
       continue;
     }
 
-    const lines = content.split('\n');
     const relPath = path.relative(cwd, filePath);
-
-    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-      if (results.length >= MAX_RESULTS) break;
-      if (regex.test(lines[lineIdx])) {
-        results.push(`${relPath}:${lineIdx + 1}: ${lines[lineIdx]}`);
-      }
-    }
+    // Scan line-by-line without holding the whole file in memory (#154):
+    // stream the file and only test each line as it is produced, breaking early
+    // once MAX_RESULTS is reached.
+    grepFileStreaming(filePath, regex, relPath, results, MAX_RESULTS);
   }
 
   if (results.length === 0) {

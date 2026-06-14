@@ -178,6 +178,18 @@ beforeEach(() => {
     fs.unlinkSync(SERVERS_FILE);
   }
   vi.clearAllMocks();
+  // These tests exercise HTTP/stdio mechanics with mocked transports and fake
+  // hostnames, not the SSRF/consent guards (those are covered in mcp-ssrf.test.ts).
+  // Opt past the guards so the mechanics run without real DNS or spawn consent.
+  process.env.MCP_ALLOW_PRIVATE_HOSTS = '1';
+  process.env.MCP_ALLOW_STDIO_SPAWN = '1';
+  process.env.MCP_STDIO_INHERIT_ENV = '1';
+});
+
+afterEach(() => {
+  delete process.env.MCP_ALLOW_PRIVATE_HOSTS;
+  delete process.env.MCP_ALLOW_STDIO_SPAWN;
+  delete process.env.MCP_STDIO_INHERIT_ENV;
 });
 
 // Clean up the entire tmpHome after all tests
