@@ -746,6 +746,11 @@ describe('adaptive thinking + refusal stop reason (#147)', () => {
     expect(lastCreateParams?.thinking).toBeUndefined();
   });
 
+  it('caps non-streaming max_tokens to a timeout-safe ceiling', async () => {
+    await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-opus-4-8');
+    expect(lastCreateParams?.max_tokens as number).toBeLessThanOrEqual(8192);
+  });
+
   it('maps the refusal stop reason to an error finish', async () => {
     mockCreateResponse = {
       content: [],
