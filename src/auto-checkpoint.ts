@@ -39,6 +39,8 @@ const DESTRUCTIVE_SHELL_PATTERNS = [
 
 let enabled = true;
 let lastCheckpointHash: string | null = null;
+/** Repo root the lastCheckpointHash belongs to — revert must target this, not live cwd. */
+let lastCheckpointRoot: string | null = null;
 let checkpointCount = 0;
 
 // ============================================================================
@@ -70,15 +72,20 @@ export function createCheckpoint(tool: string, args: Record<string, unknown>): s
   if (!isGitRepo()) return null;
 
   try {
+    // Capture the repo root once, at checkpoint time, and pin every git call for
+    // this checkpoint to it. process.cwd() may change before the matching revert.
+    const root = gitRepoRoot();
+    if (!root) return null;
+
     // Check if there are any changes to commit
-    const status = git('status', '--porcelain');
+    const status = git(root, 'status', '--porcelain');
     if (!status.trim()) return null; // Nothing to checkpoint
 
     // Stage all tracked changes (don't add untracked files)
-    git('add', '-u');
+    git(root, 'add', '-u');
 
     // Check if there's anything staged
-    const staged = git('diff', '--cached', '--stat');
+    const staged = git(root, 'diff', '--cached', '--stat');
     if (!staged.trim()) return null;
 
     // Create checkpoint commit
@@ -89,11 +96,12 @@ export function createCheckpoint(tool: string, args: Record<string, unknown>): s
         : tool;
 
     const message = `[auto-checkpoint] before ${tool}: ${argSummary}`;
-    git('commit', '-m', message, '--no-gpg-sign');
+    git(root, 'commit', '-m', message, '--no-gpg-sign');
 
     // Get the commit hash
-    const hash = git('rev-parse', '--short', 'HEAD').trim();
+    const hash = git(root, 'rev-parse', '--short', 'HEAD').trim();
     lastCheckpointHash = hash;
+    lastCheckpointRoot = root;
     checkpointCount++;
     return hash;
   } catch {
@@ -106,10 +114,21 @@ export function createCheckpoint(tool: string, args: Record<string, unknown>): s
  * Revert to the last checkpoint.
  */
 export function revertToLastCheckpoint(): boolean {
-  if (!lastCheckpointHash || !isGitRepo()) return false;
+  if (!lastCheckpointHash || !lastCheckpointRoot) return false;
+
+  // Reset only the repo the checkpoint was created in. If that root has since
+  // moved or no longer resolves to the same repo, bail rather than risk a
+  // destructive cross-repo `git reset --hard` against the live cwd.
+  let currentRoot: string | null;
+  try {
+    currentRoot = gitRepoRoot(lastCheckpointRoot);
+  } catch {
+    return false;
+  }
+  if (currentRoot !== lastCheckpointRoot) return false;
 
   try {
-    git('reset', '--hard', lastCheckpointHash);
+    git(lastCheckpointRoot, 'reset', '--hard', lastCheckpointHash);
     return true;
   } catch {
     return false;
@@ -134,22 +153,35 @@ export function setEnabled(value: boolean): void {
 // Helpers
 // ============================================================================
 
-let _isGitRepo: boolean | null = null;
-
-function isGitRepo(): boolean {
-  if (_isGitRepo !== null) return _isGitRepo;
+/**
+ * Whether the given directory (default: live cwd) is inside a git work tree.
+ * Not memoized: the answer depends on cwd, which changes over a session.
+ */
+function isGitRepo(cwd: string = process.cwd()): boolean {
   try {
-    git('rev-parse', '--is-inside-work-tree');
-    _isGitRepo = true;
+    git(cwd, 'rev-parse', '--is-inside-work-tree');
+    return true;
   } catch {
-    _isGitRepo = false;
+    return false;
   }
-  return _isGitRepo;
 }
 
-function git(...args: string[]): string {
+/**
+ * Resolve the absolute repo root for the given directory (default: live cwd).
+ * Returns null if not inside a git work tree.
+ */
+function gitRepoRoot(cwd: string = process.cwd()): string | null {
+  try {
+    const root = git(cwd, 'rev-parse', '--show-toplevel').trim();
+    return root || null;
+  } catch {
+    return null;
+  }
+}
+
+function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, {
-    cwd: process.cwd(),
+    cwd,
     encoding: 'utf-8',
     timeout: 5000,
     stdio: ['pipe', 'pipe', 'pipe'],

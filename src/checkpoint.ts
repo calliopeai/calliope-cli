@@ -115,7 +115,15 @@ export function createCheckpoint(filePath: string, content?: string, sessionId?:
   const filename = makeFilename(timestamp);
   const fullPath = path.join(dir, filename);
 
-  fs.writeFileSync(fullPath, JSON.stringify(checkpoint, null, 2));
+  // Atomic write so a crash mid-write can't leave a truncated checkpoint.
+  const tmp = `${fullPath}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(checkpoint, null, 2));
+    fs.renameSync(tmp, fullPath);
+  } catch (e) {
+    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    throw e;
+  }
   return filename;
 }
 
