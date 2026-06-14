@@ -236,7 +236,7 @@ describe('SDK Backend', () => {
       expect(mockQuery).toHaveBeenCalledWith(
         expect.objectContaining({
           options: expect.objectContaining({
-            model: 'claude-sonnet-4-20250514',
+            model: 'claude-sonnet-4-6',
           }),
         })
       );

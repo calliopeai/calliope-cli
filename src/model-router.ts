@@ -50,15 +50,15 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     fast: {
       name: 'Haiku',
       provider: 'anthropic',
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5',
       maxTokens: 8192,
-      costPer1kInput: 0.00025,
-      costPer1kOutput: 0.00125,
+      costPer1kInput: 0.001,
+      costPer1kOutput: 0.005,
     },
     balanced: {
       name: 'Sonnet',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       maxTokens: 8192,
       costPer1kInput: 0.003,
       costPer1kOutput: 0.015,
@@ -66,10 +66,10 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     smart: {
       name: 'Opus',
       provider: 'anthropic',
-      model: 'claude-opus-4-20250514',
+      model: 'claude-opus-4-8',
       maxTokens: 8192,
-      costPer1kInput: 0.015,
-      costPer1kOutput: 0.075,
+      costPer1kInput: 0.005,
+      costPer1kOutput: 0.025,
     },
   },
   openai: {

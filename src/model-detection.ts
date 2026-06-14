@@ -139,6 +139,7 @@ export interface ModelInfo {
   name?: string;
   description?: string;
   contextLength?: number;
+  maxOutputTokens?: number;
   pricing?: {
     input?: number;
     output?: number;
@@ -314,17 +315,19 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
         id: model.id,
         name: model.display_name || formatModelName(model.id),
         description: getAnthropicModelDescription(model.id),
-        contextLength: 200000,
+        // The /v1/models list endpoint does not return the context window;
+        // derive it per model family rather than hardcoding a single value.
+        contextLength: getModelContextLimit('anthropic', model.id),
       }))
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
-    // Fallback to known models if API fails
+    // Emergency fallback when the API is unreachable. Keep these as the current
+    // shipping models — discovery is the source of truth; this is the offline net.
     logModelDetectionWarning('Failed to fetch Anthropic models, using fallback list', error, options);
     return [
-      { id: 'claude-opus-4-5-20251101', name: 'Claude Opus 4.5', description: 'Most capable model', contextLength: 200000 },
-      { id: 'claude-sonnet-4-20250514', name: 'Claude Sonnet 4', description: 'Balanced intelligence and speed', contextLength: 200000 },
-      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet', description: 'Previous gen flagship', contextLength: 200000 },
-      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku', description: 'Fast and affordable', contextLength: 200000 },
+      { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Most capable model', contextLength: 1000000 },
+      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Balanced intelligence and speed', contextLength: 1000000 },
+      { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fast and affordable', contextLength: 200000 },
     ];
   }
 }
@@ -1119,13 +1122,29 @@ export async function preWarmModelCache(): Promise<void> {
 export function getModelInfo(provider: LLMProvider, modelId: string): ModelInfo | undefined {
   const cached = modelCache.get(provider);
   if (!cached) return undefined;
-  return cached.models.find(m => m.id === modelId || m.id.includes(modelId) || modelId.includes(m.id));
+  // Exact match first.
+  const exact = cached.models.find(m => m.id === modelId);
+  if (exact) return exact;
+  // Otherwise only accept an UNAMBIGUOUS prefix relationship. Loose substring
+  // matching wrongly resolved e.g. `gpt-4` -> `gpt-4o` or `claude-opus-4` ->
+  // `claude-opus-4-8`, returning a different model's context/pricing.
+  const related = cached.models.filter(m => m.id.startsWith(modelId) || modelId.startsWith(m.id));
+  return related.length === 1 ? related[0] : undefined;
 }
 
 /**
  * Default context limits by model family (fallback when API doesn't provide it)
  */
 const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
+  // Anthropic — current 1M-context models matched first (longest key wins).
+  // Everything else (Haiku 4.5, Claude 3.x, and the older -20250514 IDs) falls
+  // through to the generic `claude` 200K entry below.
+  'claude-fable-5': 1000000,
+  'claude-opus-4-8': 1000000,
+  'claude-opus-4-7': 1000000,
+  'claude-opus-4-6': 1000000,
+  'claude-sonnet-4-6': 1000000,
+  'claude-haiku-4-5': 200000,
   'claude': 200000,
   'gpt-4o': 128000,
   'gpt-4-turbo': 128000,
@@ -1189,4 +1208,46 @@ export function getModelContextLimit(provider: LLMProvider, modelId: string): nu
 
   // Ultimate fallback
   return 32000;
+}
+
+/**
+ * Default max OUTPUT tokens by model family (fallback when the API doesn't
+ * report it). Replaces the old global 8192 cap so modern models can use their
+ * real output ceiling. Unknown models fall through to a conservative 8192.
+ */
+const DEFAULT_MAX_OUTPUT: Record<string, number> = {
+  'claude-fable-5': 128000,
+  'claude-opus-4-8': 128000,
+  'claude-opus-4-7': 128000,
+  'claude-opus-4-6': 128000,
+  'claude-sonnet-4-6': 64000,
+  'claude-haiku-4-5': 64000,
+  'claude': 8192,
+  'gpt-5': 128000,
+  'o1': 100000,
+  'o3': 100000,
+  'gpt-4o': 16384,
+  'gpt-4': 8192,
+  'gemini-2': 8192,
+  'gemini-1.5': 8192,
+};
+
+/**
+ * Get the max output-token ceiling for a model - cached API info first, then
+ * family fallback. Conservative 8192 default keeps unknown/local models safe.
+ */
+export function getModelMaxOutput(provider: LLMProvider, modelId: string): number {
+  const modelInfo = getModelInfo(provider, modelId);
+  if (modelInfo?.maxOutputTokens) {
+    return modelInfo.maxOutputTokens;
+  }
+  const lowerModel = modelId.toLowerCase();
+  const sortedEntries = Object.entries(DEFAULT_MAX_OUTPUT)
+    .sort((a, b) => b[0].length - a[0].length);
+  for (const [key, limit] of sortedEntries) {
+    if (lowerModel.includes(key.toLowerCase())) {
+      return limit;
+    }
+  }
+  return 8192;
 }

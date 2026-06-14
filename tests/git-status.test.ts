@@ -9,7 +9,13 @@ import { describe, it, expect, afterEach, vi, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { execSync } from 'child_process';
 import { getGitBranch, getGitStatus, type GitStatusInfo } from '../src/git-status.js';
+
+// The repo's real current branch — robust to running on a feature branch, not just main.
+const ACTUAL_BRANCH = execSync('git rev-parse --abbrev-ref HEAD', { cwd: process.cwd() })
+  .toString()
+  .trim();
 
 describe('git-status', () => {
   afterEach(() => {
@@ -31,7 +37,7 @@ describe('git-status', () => {
       const branch = getGitBranch(process.cwd());
       expect(branch).toBeTruthy();
       expect(typeof branch).toBe('string');
-      expect(branch).toBe('main');
+      expect(branch).toBe(ACTUAL_BRANCH);
     });
 
     it('returns null for a non-git directory', () => {
@@ -93,7 +99,7 @@ describe('git-status', () => {
       rmSync(td, { recursive: true, force: true });
 
       const status = getGitStatus(process.cwd());
-      expect(status.branch).toBe('main');
+      expect(status.branch).toBe(ACTUAL_BRANCH);
     });
   });
 

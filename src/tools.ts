@@ -278,7 +278,7 @@ export const TOOLS: Tool[] = [
 
 CONFIGURABLE SETTINGS:
 - defaultProvider: AI provider (anthropic, google, openai, together, openrouter, groq, fireworks, mistral, ollama, ai21, huggingface, litellm, bedrock, auto)
-- defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-20250514", "gemini-2.0-flash", "gpt-4o")
+- defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-6", "gemini-2.0-flash", "gpt-4o")
 - persona: Agent persona style (calliope, muse, minimal)
 - maxIterations: Max agent loop iterations (0 = unlimited)
 - maxIterationTime: Max seconds per iteration (0 = no limit, default: 600)

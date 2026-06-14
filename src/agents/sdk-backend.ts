@@ -182,7 +182,7 @@ export async function* executeClaudeSdk(
     const queryOptions: Record<string, unknown> = {
       prompt: task.prompt,
       options: {
-        model: task.model || 'claude-sonnet-4-20250514',
+        model: task.model || 'claude-sonnet-4-6',
         permissionMode: 'bypassPermissions',
         maxTurns: 50,
         cwd,

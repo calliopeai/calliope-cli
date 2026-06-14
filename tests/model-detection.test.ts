@@ -33,6 +33,7 @@ vi.mock('@inquirer/prompts', () => ({ select: vi.fn() }));
 
 import {
   getModelContextLimit,
+  getModelMaxOutput,
   getModelInfo,
   clearModelCache,
   getAvailableModels,
@@ -196,14 +197,14 @@ describe('getModelContextLimit', () => {
     mockFetch.mockRejectedValueOnce(new Error('network error'));
 
     return getAvailableModels('anthropic').then(() => {
-      // Cache should now contain fallback Anthropic models with contextLength 200000
-      const info = getModelInfo('anthropic', 'claude-sonnet-4-20250514');
+      // Cache should now contain the fallback Anthropic models with their context windows
+      const info = getModelInfo('anthropic', 'claude-sonnet-4-6');
       expect(info).toBeDefined();
-      expect(info?.contextLength).toBe(200000);
+      expect(info?.contextLength).toBe(1000000);
 
       // getModelContextLimit should use the cached info
-      const limit = getModelContextLimit('anthropic', 'claude-sonnet-4-20250514');
-      expect(limit).toBe(200000);
+      const limit = getModelContextLimit('anthropic', 'claude-sonnet-4-6');
+      expect(limit).toBe(1000000);
     });
   });
 
@@ -216,6 +217,32 @@ describe('getModelContextLimit', () => {
     // "deepseek-coder" (14 chars) should match before "deepseek" (8 chars)
     // Both map to 128000 in this case, but the logic should prefer longer keys
     expect(getModelContextLimit('ollama', 'deepseek-coder-v2')).toBe(128000);
+  });
+
+  it('should give current 1M-context Claude models their real window', () => {
+    // Current models are 1M; only Haiku 4.5 (and 3.x / legacy ids) stay at 200K.
+    expect(getModelContextLimit('anthropic', 'claude-opus-4-8')).toBe(1000000);
+    expect(getModelContextLimit('anthropic', 'claude-sonnet-4-6')).toBe(1000000);
+    expect(getModelContextLimit('anthropic', 'claude-haiku-4-5')).toBe(200000);
+    // Legacy/dated ids fall through to the generic 200K claude entry.
+    expect(getModelContextLimit('anthropic', 'claude-sonnet-4-20250514')).toBe(200000);
+  });
+});
+
+// ===========================================================================
+// getModelMaxOutput
+// ===========================================================================
+
+describe('getModelMaxOutput', () => {
+  it('should derive output ceiling per model family, not a global 8192', () => {
+    expect(getModelMaxOutput('anthropic', 'claude-opus-4-8')).toBe(128000);
+    expect(getModelMaxOutput('anthropic', 'claude-sonnet-4-6')).toBe(64000);
+    expect(getModelMaxOutput('anthropic', 'claude-haiku-4-5')).toBe(64000);
+  });
+
+  it('should fall back to a conservative 8192 for unknown/local models', () => {
+    expect(getModelMaxOutput('ollama', 'some-unknown-local-model')).toBe(8192);
+    expect(getModelMaxOutput('anthropic', 'claude-3-opus-20240229')).toBe(8192);
   });
 });
 
@@ -233,19 +260,20 @@ describe('getModelInfo', () => {
     mockFetch.mockRejectedValueOnce(new Error('network'));
     await getAvailableModels('anthropic');
 
-    const info = getModelInfo('anthropic', 'claude-sonnet-4-20250514');
+    const info = getModelInfo('anthropic', 'claude-sonnet-4-6');
     expect(info).toBeDefined();
-    expect(info?.id).toBe('claude-sonnet-4-20250514');
+    expect(info?.id).toBe('claude-sonnet-4-6');
   });
 
-  it('should find model by partial match (modelId includes cached ID)', async () => {
+  it('should find model by unambiguous prefix (dated id of a cached family)', async () => {
     vi.mocked(config.getApiKey).mockReturnValue('test-key');
     mockFetch.mockRejectedValueOnce(new Error('network'));
     await getAvailableModels('anthropic');
 
-    // The cached id "claude-3-5-haiku-20241022" includes "haiku"
-    const info = getModelInfo('anthropic', 'claude-3-5-haiku-20241022');
+    // Dated id "claude-haiku-4-5-20251001" uniquely prefix-matches cached "claude-haiku-4-5"
+    const info = getModelInfo('anthropic', 'claude-haiku-4-5-20251001');
     expect(info).toBeDefined();
+    expect(info?.id).toBe('claude-haiku-4-5');
   });
 
   it('should return undefined for non-matching provider', async () => {
@@ -267,10 +295,10 @@ describe('clearModelCache', () => {
     mockFetch.mockRejectedValueOnce(new Error('network'));
     await getAvailableModels('anthropic');
 
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-20250514')).toBeDefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeDefined();
 
     clearModelCache('anthropic');
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-20250514')).toBeUndefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeUndefined();
   });
 
   it('should clear all caches when no provider specified', async () => {
@@ -279,7 +307,7 @@ describe('clearModelCache', () => {
     await getAvailableModels('anthropic');
 
     clearModelCache();
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-20250514')).toBeUndefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeUndefined();
   });
 });
 

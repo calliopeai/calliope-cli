@@ -60,9 +60,9 @@ interface ProviderStrengths {
 export const MODEL_STRENGTHS: Partial<Record<LLMProvider, ProviderStrengths>> = {
   anthropic: {
     tiers: {
-      fast: { model: 'claude-3-5-haiku-20241022', costPer1kInput: 0.00025, costPer1kOutput: 0.00125 },
-      balanced: { model: 'claude-sonnet-4-20250514', costPer1kInput: 0.003, costPer1kOutput: 0.015 },
-      smart: { model: 'claude-opus-4-20250514', costPer1kInput: 0.015, costPer1kOutput: 0.075 },
+      fast: { model: 'claude-haiku-4-5', costPer1kInput: 0.001, costPer1kOutput: 0.005 },
+      balanced: { model: 'claude-sonnet-4-6', costPer1kInput: 0.003, costPer1kOutput: 0.015 },
+      smart: { model: 'claude-opus-4-8', costPer1kInput: 0.005, costPer1kOutput: 0.025 },
     },
     strengths: {
       'code': 0.95,
@@ -372,7 +372,7 @@ export function smartRoute(
     return {
       selected: {
         provider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-sonnet-4-6',
         tier,
         score: 0.5,
         reason: 'fallback - no providers available',

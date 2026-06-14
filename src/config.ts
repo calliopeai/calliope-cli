@@ -456,7 +456,7 @@ const BUILTIN_PROFILES: Record<string, Profile> = {
   },
   smart: {
     provider: 'anthropic',
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     persona: 'calliope',
     confirmMode: true,
   },

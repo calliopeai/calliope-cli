@@ -23,6 +23,7 @@ vi.mock('../src/config.js', () => ({
 
 vi.mock('../src/model-detection.js', () => ({
   getModelContextLimit: vi.fn(() => 200000),
+  getModelMaxOutput: vi.fn(() => 8192),
   getModelInfo: vi.fn(() => null),
   getOllamaFallbackModel: vi.fn(() => null),
 }));
