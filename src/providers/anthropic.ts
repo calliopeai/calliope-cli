@@ -214,10 +214,14 @@ export async function chatAnthropic(
     }
   }
 
-  // Non-streaming request
+  // Non-streaming request. The SDK rejects create() when max_tokens is large
+  // enough to risk the 10-minute request timeout — and output caps are now
+  // model-aware (up to 64K-128K, #144). Cap the non-streaming path at a safe
+  // ceiling; the interactive streaming path above keeps the full model output.
+  const NONSTREAM_MAX_TOKENS = 8192;
   const response = await client.messages.create({
     model,
-    max_tokens: dynamicMaxTokens,
+    max_tokens: Math.min(dynamicMaxTokens, NONSTREAM_MAX_TOKENS),
     system: systemMessage ? getTextContent(systemMessage.content) : '',
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
