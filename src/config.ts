@@ -79,7 +79,6 @@ export interface CalliopeConfig {
   diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
   borderStyle: 'rounded' | 'sharp' | 'double' | 'ascii' | 'none';  // Border style override
   bannerStyle: 'full' | 'compact' | 'none';  // Banner display style
-  renderer: 'ink' | 'legacy' | 'headless';  // Rendering engine
 
   // Circuit Breakers
   circuitBreakersEnabled: boolean;
@@ -127,7 +126,6 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   diffStyle: 'inline',
   borderStyle: 'rounded',
   bannerStyle: 'full',
-  renderer: 'ink',
   circuitBreakersEnabled: false,
   sandboxMode: 'auto',
   smartRoutingEnabled: false,
@@ -206,7 +204,6 @@ const config = new Conf<CalliopeConfig>({
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
     borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },
     bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
-    renderer: { type: 'string', enum: ['ink', 'legacy', 'headless'] },
     useEmojis: { type: 'boolean' },
     circuitBreakersEnabled: { type: 'boolean' },
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },

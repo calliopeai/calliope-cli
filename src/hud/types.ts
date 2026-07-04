@@ -207,5 +207,5 @@ export interface HUDConfig {
   skin: string;
   palette: string;
   companion: string;
-  renderer: 'ink' | 'legacy' | 'headless';
+  renderer: 'ink' | 'headless';
 }
