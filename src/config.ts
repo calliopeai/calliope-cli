@@ -72,7 +72,6 @@ export interface CalliopeConfig {
   activeSkin: string;           // Current skin name (default: 'clean')
   activePalette: string;        // Current palette name (default: 'default')
   activeCompanion: string;      // Current companion name (default: 'calliope')
-  activeThemePack?: string;     // Current theme pack name (optional)
   companionIntensity: 'professional' | 'immersive';  // Companion intensity mode
   useEmojis: boolean;           // Enable/disable emoji in UI decorations (default: true)
   diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
@@ -193,7 +192,6 @@ const config = new Conf<CalliopeConfig>({
     activeSkin: { type: 'string' },
     activePalette: { type: 'string' },
     activeCompanion: { type: 'string' },
-    activeThemePack: { type: 'string' },
     companionIntensity: { type: 'string', enum: ['professional', 'immersive'] },
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
     borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },

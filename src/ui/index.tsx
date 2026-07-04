@@ -48,10 +48,6 @@ import {
   SessionResumePrompt, KeybindingsModal, ProviderSelector, ApiKeySetup,
 } from './modals.js';
 import type { ProviderEntry } from './modals.js';
-import { ThemePicker } from './theme-picker.js';
-import { PackPicker } from './pack-picker.js';
-import { applyThemePack, getCurrentPack, getCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
-import type { ThemeSelection } from './theme-picker.js';
 import { ChatInput } from './chat-input.js';
 import { StatusBar } from './status-bar.js';
 import { resetContextWarnings } from './context.js';
@@ -238,7 +234,7 @@ function TerminalChat() {
   }));
 
   // Modal state
-  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'theme-picker' | 'pack-picker' | 'provider' | 'api-key-setup'>('none');
+  const [modalMode, setModalMode] = useState<'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume' | 'complexity-warning' | 'keys' | 'sessions' | 'provider' | 'api-key-setup'>('none');
   const [providerEntries, setProviderEntries] = useState<ProviderEntry[]>([]);
   const [pendingSetupProvider, setPendingSetupProvider] = useState<ProviderEntry | null>(null);
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<{ prompt: MessageContent; complexity: { isComplex: boolean; reason?: string } } | null>(null);
@@ -1281,72 +1277,6 @@ function TerminalChat() {
         />
       )}
 
-      {/* Modal: Theme Picker */}
-      {modalMode === 'theme-picker' && (
-        <ThemePicker
-          currentLayout={layout}
-          currentSkin={getCurrentSkin().name}
-          currentPalette={getCurrentPalette().name}
-          currentCompanion={getCurrentCompanion().name}
-          onApply={(selection: ThemeSelection) => {
-            // Apply all selections
-            setLayout(selection.layout as typeof layout);
-            config.set('layout', selection.layout as typeof layout);
-            applySkin(selection.skin);
-            config.set('activeSkin', selection.skin);
-            applyPalette(selection.palette);
-            config.set('activePalette', selection.palette);
-            applyCompanion(selection.companion);
-            config.set('activeCompanion', selection.companion);
-
-            const changes: string[] = [];
-            if (selection.layout !== layout) changes.push(`layout=${selection.layout}`);
-            if (selection.skin !== getCurrentSkin().name) changes.push(`skin=${selection.skin}`);
-            if (selection.palette !== getCurrentPalette().name) changes.push(`palette=${selection.palette}`);
-            if (selection.companion !== getCurrentCompanion().name) changes.push(`companion=${selection.companion}`);
-
-            addMessage('system', changes.length > 0
-              ? `Theme applied: ${changes.join(', ')}`
-              : 'Theme unchanged.');
-            setModalMode('none');
-          }}
-          onCancel={() => setModalMode('none')}
-        />
-      )}
-
-      {/* Modal: Pack Picker */}
-      {modalMode === 'pack-picker' && (
-        <PackPicker
-          onApply={async (packName: string) => {
-            setModalMode('none');
-
-            // Run transition animation if defined
-            const targetPack = getThemePack(packName);
-            if (targetPack?.skin.splash?.transition) {
-              await renderTransition(targetPack.skin.splash.transition);
-            }
-
-            const success = applyThemePack(packName, getCompanionMode());
-            if (success) {
-              const pack = getCurrentPack()!;
-              config.set('activeThemePack', packName);
-              config.set('activeSkin', pack.skin.name);
-              config.set('activePalette', pack.palette.name);
-              const companion = getCompanionMode() === 'professional'
-                ? pack.companions.professional
-                : pack.companions.immersive;
-              config.set('activeCompanion', companion.name);
-
-              addMessage('system',
-                `Theme pack: ${packName}\n` +
-                `  Skin: ${pack.skin.name}, Palette: ${pack.palette.name}, Companion: ${companion.name}\n` +
-                `  "${companion.greeting}"`
-              );
-            }
-          }}
-          onCancel={() => setModalMode('none')}
-        />
-      )}
 
       {/* Chat Input */}
       <ChatInput

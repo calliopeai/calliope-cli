@@ -81,12 +81,16 @@ function paletteToTheme(p: Palette): Theme {
   };
 }
 
+const THEME_TO_PALETTE: Record<string, string> = {
+  dark: 'default',
+  light: 'light',
+  'no-color': 'monochrome',
+};
+
 export const THEMES: Record<string, Theme> = {
-  default: paletteToTheme(PALETTES.default),
+  dark: paletteToTheme(PALETTES.default),
   light: paletteToTheme(PALETTES.light),
-  monokai: paletteToTheme(PALETTES.monokai),
-  nord: paletteToTheme(PALETTES.nord),
-  minimal: paletteToTheme(PALETTES.monochrome),
+  'no-color': paletteToTheme(PALETTES.monochrome),
 };
 
 // ============================================================================
@@ -109,38 +113,22 @@ export function getCurrentThemeName(): string {
   ensureThemesDir();
   if (fs.existsSync(THEME_FILE)) {
     const name = fs.readFileSync(THEME_FILE, 'utf-8').trim();
-    if (THEMES[name] || PALETTES[name] || fs.existsSync(path.join(THEMES_DIR, `${name}.json`))) {
-      return name;
-    }
+    if (THEMES[name]) return name;
+    // Legacy stored values (old theme or palette names) map to the nearest survivor
+    if (name === 'light') return 'light';
+    if (name === 'minimal' || name === 'monochrome') return 'no-color';
+    return 'dark';
   }
-  return 'default';
+  return 'dark';
 }
 
 /**
  * Set current theme (also applies the corresponding palette)
  */
 export function setCurrentTheme(name: string): boolean {
-  // Accept palette names as theme names
-  if (PALETTES[name]) {
-    applyPalette(name);
-    ensureThemesDir();
-    fs.writeFileSync(THEME_FILE, name);
-    clearThemeCache();
-    return true;
-  }
-  // Also accept legacy theme names
-  const legacyMap: Record<string, string> = { minimal: 'monochrome' };
-  const paletteName = legacyMap[name] || name;
-  if (PALETTES[paletteName]) {
-    applyPalette(paletteName);
-    ensureThemesDir();
-    fs.writeFileSync(THEME_FILE, name);
-    clearThemeCache();
-    return true;
-  }
-  if (!THEMES[name] && !fs.existsSync(path.join(THEMES_DIR, `${name}.json`))) {
-    return false;
-  }
+  const paletteName = THEME_TO_PALETTE[name];
+  if (!paletteName) return false;
+  applyPalette(paletteName);
   ensureThemesDir();
   fs.writeFileSync(THEME_FILE, name);
   clearThemeCache();
@@ -152,72 +140,20 @@ export function setCurrentTheme(name: string): boolean {
  */
 export function getCurrentTheme(): Theme {
   const name = getCurrentThemeName();
-
-  // Try palette system first
-  const palette = getPalette(name);
-  if (palette.name === name) {
-    return paletteToTheme(palette);
-  }
-
-  // Legacy theme name mapping
-  const legacyMap: Record<string, string> = { minimal: 'monochrome' };
-  const mappedName = legacyMap[name];
-  if (mappedName) {
-    const p = getPalette(mappedName);
-    return paletteToTheme(p);
-  }
-
-  // Check built-in themes
-  if (THEMES[name]) {
-    return THEMES[name];
-  }
-
-  // Check custom themes
-  const customPath = path.join(THEMES_DIR, `${name}.json`);
-  if (fs.existsSync(customPath)) {
-    try {
-      return JSON.parse(fs.readFileSync(customPath, 'utf-8'));
-    } catch {
-      // Fall back to default
-    }
-  }
-
-  return THEMES.default;
+  const theme = THEMES[name] ?? THEMES.dark;
+  // Carry the canonical theme name (palette snapshots use palette names)
+  return { ...theme, name };
 }
 
 /**
  * List available themes (combines legacy themes + palettes)
  */
 export function listThemes(): Array<{ name: string; description?: string; custom: boolean }> {
-  const themes: Array<{ name: string; description?: string; custom: boolean }> = [];
-
-  // Add all palettes as themes
-  for (const p of listPalettes()) {
-    themes.push({ name: p.name, description: p.description, custom: p.custom });
-  }
-
-  // Custom themes from disk
-  ensureThemesDir();
-  try {
-    const files = fs.readdirSync(THEMES_DIR);
-    for (const file of files) {
-      if (file.endsWith('.json')) {
-        const name = file.slice(0, -5);
-        if (!themes.find(t => t.name === name)) {
-          try {
-            const theme = JSON.parse(fs.readFileSync(path.join(THEMES_DIR, file), 'utf-8'));
-            themes.push({ name, description: theme.description, custom: true });
-          } catch {
-            // Skip invalid files
-          }
-        }
-      }
-    }
-  } catch {
-    // Directory read failed
-  }
-
-  return themes;
+  return [
+    { name: 'dark', description: 'Default dark theme', custom: false },
+    { name: 'light', description: 'Light terminal backgrounds', custom: false },
+    { name: 'no-color', description: 'Monochrome, no color output', custom: false },
+  ];
 }
 
 /**
