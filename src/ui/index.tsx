@@ -31,10 +31,8 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
-import * as recording from '../terminal-recording.js';
 import * as sessionTimeout from '../session-timeout.js';
 import * as idleEviction from '../idle-eviction.js';
-import { isTmux, getTmuxInfo } from '../tmux.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
 
 // Sub-module imports
@@ -434,15 +432,6 @@ function TerminalChat() {
         debugLog('hooks', 'session-start hook failed:', err instanceof Error ? err.message : err);
       });
 
-      // Start session recording (audit log) — respects config
-      recording.setRecordingEnabled(config.get('recordSessions') !== false);
-      recording.setRetentionDays(config.get('recordingRetentionDays') ?? 0);
-      recording.startRecording({
-        provider: selectProvider(provider),
-        model: model || DEFAULT_MODELS[selectProvider(provider)],
-        cwd: cwdMem,
-      });
-
       // Initialize scuttlebot integration
       scuttlebotClient.initialize(session.id, cwdMem).then((enabled) => {
         if (enabled) {
@@ -490,13 +479,6 @@ function TerminalChat() {
         }
       });
 
-      // Log tmux context if applicable
-      if (isTmux()) {
-        const info = getTmuxInfo();
-        if (info) {
-          debugLog('tmux', `session=${info.session}, windows=${info.windows}, panes=${info.panes}`);
-        }
-      }
 
       // Load templates from storage
       const savedTemplates = storage.getTemplates();
@@ -713,7 +695,6 @@ function TerminalChat() {
     // Record activity for timeout/eviction and audit log
     sessionTimeout.recordActivity();
     idleEviction.recordActivity();
-    recording.recordEvent('input', trimmed);
 
     // Add to history for up/down arrow navigation
     addToHistory(trimmed);
@@ -1519,7 +1500,6 @@ export async function startInkCLI(options: { skipPermissions?: boolean } = {}): 
       // Silent fail
     });
   }
-  recording.stopRecording();
   sessionTimeout.clearTimers();
   idleEviction.stopMonitor();
   await spawnPendingRestart();

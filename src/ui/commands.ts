@@ -26,9 +26,6 @@ import type { SmartRoutingConfig } from '../smart-router.js';
 import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud/api.js';
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
-import { createJob, runJob, cancelJob, listJobs, getJob, formatJob, formatJobsList, clearFinishedJobs } from '../background-jobs.js';
-import { listRecordings, loadRecording, formatRecording, deleteRecording } from '../terminal-recording.js';
-import { startApiServer, stopApiServer, isApiServerRunning } from '../api-server.js';
 import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
 import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
 import { getModelContextLimit } from '../model-detection.js';
@@ -235,7 +232,6 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /undo / /redo              - Undo/redo (up to 10 steps)
   /copy                      - Copy last response to clipboard
   /export [file.md]          - Export conversation to markdown
-  /branch [new|switch]       - Conversation branches
   /clear                     - Clear conversation (/c)
 
 --- Session & State ---
@@ -1105,37 +1101,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           const list = results.map((r: { highlighted: string }, i: number) => `${i + 1}. ${r.highlighted}`).join('\n');
           ctx.addMessage('system', `Found ${results.length} files:\n\n${list}`);
         }
-      }
-      break;
-    }
-
-    case '/branch': {
-      const branching = await import('../branching.js');
-      const subCmd = parts[1];
-      const sessionId = ctx.sessionRef.current?.id || storage.createSessionId();
-
-      if (subCmd === 'list' || !subCmd) {
-        const tree = branching.getBranchTree(sessionId);
-        ctx.addMessage('system', `Branches:\n${tree}`);
-      } else if (subCmd === 'new' && parts[2]) {
-        const branch = branching.createBranch(sessionId, parts[2], ctx.llmMessages.current, parts.slice(3).join(' '));
-        ctx.addMessage('system', `Created branch: ${branch.name}`);
-      } else if (subCmd === 'switch' && parts[2]) {
-        const msgs = branching.switchBranch(sessionId, parts[2], ctx.llmMessages.current);
-        if (msgs) {
-          ctx.llmMessages.current = msgs;
-          ctx.addMessage('system', `Switched to branch: ${parts[2]}`);
-        } else {
-          ctx.addMessage('error', 'Branch not found');
-        }
-      } else if (subCmd === 'delete' && parts[2]) {
-        if (branching.deleteBranch(sessionId, parts[2])) {
-          ctx.addMessage('system', 'Branch deleted');
-        } else {
-          ctx.addMessage('error', 'Cannot delete branch');
-        }
-      } else {
-        ctx.addMessage('system', 'Usage: /branch [list|new <name>|switch <name>|delete <name>]');
       }
       break;
     }
@@ -2709,170 +2674,6 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
     }
 
     // ================================================================
-    // Background Jobs
-    // ================================================================
-
-    case '/bg': {
-      const bgPrompt = parts.slice(1).join(' ');
-      if (!bgPrompt) {
-        ctx.addMessage('error', 'Usage: /bg <prompt> — run a task in the background');
-        break;
-      }
-      const bgJob = createJob(bgPrompt, { provider: ctx.actualProvider, model: ctx.actualModel });
-      ctx.addMessage('system', `Background job ${bgJob.id} created: "${bgPrompt.length > 60 ? bgPrompt.slice(0, 57) + '...' : bgPrompt}"`);
-      // Run the job using the agent
-      runJob(bgJob.id, async (prompt, signal) => {
-        const { chat } = await import('../providers/index.js');
-        const { TOOLS } = await import('../tools.js');
-        const { executeTool: execTool } = await import('../tools.js');
-        const cwd = ctx.sessionRef.current?.projectPath || process.cwd();
-        const maxIterations = resolveIterationLimit(config.get('maxIterations'));
-        const bgMessages: LLMMessage[] = [
-          { role: 'system', content: buildFullSystemPrompt(ctx.persona, cwd) },
-          { role: 'user', content: prompt },
-        ];
-        let iterations = 0;
-        let lastContent = '';
-        while (!signal.aborted && iterations < maxIterations) {
-          iterations++;
-          const response = await chat(ctx.provider, bgMessages, TOOLS, ctx.model);
-          if (!response.toolCalls?.length) {
-            lastContent = response.content;
-            break;
-          }
-          bgMessages.push({ role: 'assistant', content: response.content, toolCalls: response.toolCalls });
-          for (const tc of response.toolCalls) {
-            const result = await execTool(tc, cwd);
-            bgMessages.push({ role: 'tool', content: result.result, toolCallId: tc.id });
-            if (signal.aborted) break;
-          }
-        }
-        if (signal.aborted) {
-          const error = new Error('Background job cancelled');
-          error.name = 'AbortError';
-          throw error;
-        }
-        return { result: lastContent, iterations };
-      }).then(completed => {
-        ctx.addMessage('system', `Background job ${completed.id} ${completed.status}: ${completed.result?.slice(0, 200) || completed.error || 'done'}`);
-      }).catch(() => { /* handled in job status */ });
-      break;
-    }
-
-    case '/jobs': {
-      ctx.addMessage('system', formatJobsList());
-      break;
-    }
-
-    case '/job': {
-      const jobId = parts[1];
-      if (!jobId) {
-        ctx.addMessage('error', 'Usage: /job <id> — show job details');
-        break;
-      }
-      const jobInfo = getJob(jobId);
-      if (!jobInfo) {
-        ctx.addMessage('error', `Job "${jobId}" not found.`);
-      } else {
-        ctx.addMessage('system', formatJob(jobInfo) + (jobInfo.result ? `\n\nResult:\n${jobInfo.result.slice(0, 2000)}` : ''));
-      }
-      break;
-    }
-
-    case '/cancel': {
-      const cancelId = parts[1];
-      if (!cancelId) {
-        ctx.addMessage('error', 'Usage: /cancel <job-id>');
-        break;
-      }
-      const cancelled = cancelJob(cancelId);
-      ctx.addMessage('system', cancelled ? `Cancelled job ${cancelId}` : `Could not cancel ${cancelId} (not running or not found)`);
-      break;
-    }
-
-    case '/clear-jobs': {
-      const cleared = clearFinishedJobs();
-      ctx.addMessage('system', cleared > 0 ? `Cleared ${cleared} finished job(s).` : 'No finished jobs to clear.');
-      break;
-    }
-
-    // ================================================================
-    // Recordings
-    // ================================================================
-
-    case '/recordings': {
-      const recs = listRecordings();
-      if (recs.length === 0) {
-        ctx.addMessage('system', 'No recordings found.');
-      } else {
-        const lines = recs.slice(0, 20).map(r => {
-          const dur = r.duration > 0 ? ` (${Math.floor(r.duration / 60000)}m${Math.floor((r.duration % 60000) / 1000)}s)` : '';
-          return `  ${r.id}  ${r.startTime}  ${r.eventCount} events${dur}`;
-        });
-        ctx.addMessage('system', `Recordings (${recs.length} total):\n${lines.join('\n')}`);
-      }
-      break;
-    }
-
-    case '/recording': {
-      const recId = parts[1];
-      if (!recId) {
-        ctx.addMessage('error', 'Usage: /recording <id> — show recording details');
-        break;
-      }
-      const rec = loadRecording(recId);
-      if (!rec) {
-        ctx.addMessage('error', `Recording "${recId}" not found.`);
-      } else {
-        ctx.addMessage('system', formatRecording(rec));
-      }
-      break;
-    }
-
-    case '/delete-recording': {
-      const delRecId = parts[1];
-      if (!delRecId) {
-        ctx.addMessage('error', 'Usage: /delete-recording <id>');
-        break;
-      }
-      const delResult = deleteRecording(delRecId);
-      ctx.addMessage('system', delResult ? `Deleted recording ${delRecId}` : `Recording "${delRecId}" not found.`);
-      break;
-    }
-
-    // ================================================================
-    // API Server
-    // ================================================================
-
-    case '/serve': {
-      if (isApiServerRunning()) {
-        ctx.addMessage('system', 'API server is already running.');
-        break;
-      }
-      const servePort = parts[1] ? parseInt(parts[1], 10) : 3100;
-      if (isNaN(servePort) || servePort < 1 || servePort > 65535) {
-        ctx.addMessage('error', 'Invalid port. Usage: /serve [port]');
-        break;
-      }
-      try {
-        const info = await startApiServer({ port: servePort, host: '127.0.0.1' });
-        ctx.addMessage('system', `API server started on http://${info.host}:${info.port}`);
-      } catch (err) {
-        ctx.addMessage('error', `Failed to start API server: ${err instanceof Error ? err.message : String(err)}`);
-      }
-      break;
-    }
-
-    case '/serve-stop': {
-      if (!isApiServerRunning()) {
-        ctx.addMessage('system', 'API server is not running.');
-        break;
-      }
-      await stopApiServer();
-      ctx.addMessage('system', 'API server stopped.');
-      break;
-    }
-
     case '/exit':
     case '/quit':
       process.exit(0);

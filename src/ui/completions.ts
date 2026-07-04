@@ -41,7 +41,6 @@ export const SLASH_COMMANDS = [
   '/memory',
   '/project',
   '/find',
-  '/branch',
   '/theme',
   '/hooks',
   '/search',
@@ -84,16 +83,6 @@ export const SLASH_COMMANDS = [
   '/approve',
   '/sandbox',
   '/banner',
-  '/bg',
-  '/jobs',
-  '/job',
-  '/cancel',
-  '/clear-jobs',
-  '/recordings',
-  '/recording',
-  '/delete-recording',
-  '/serve',
-  '/serve-stop',
 ];
 
 // Commands that take a path argument (for file tab completion)
@@ -193,7 +182,6 @@ export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): strin
     '/scope', '/add-dir', '/remove-dir', '/find',
     '/summarize', '/context', '/cost', '/session',
     '/debug', '/keys', '/unstick', '/flush',
-    '/branch', '/branches', '/switch',
     '/save', '/load', '/sessions',
     '/git', '/run', '/set', '/confirm',
   ];
@@ -203,7 +191,7 @@ export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): strin
 
   // High context? Suggest compaction commands first
   if (contextPercentage > 70) {
-    prioritized.push('/summarize compact', '/clear', '/branch new');
+    prioritized.push('/summarize compact', '/clear');
   }
 
   // Mode-specific suggestions

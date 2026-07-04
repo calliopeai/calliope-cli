@@ -1,20 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Issue #158: top-level signal + error handlers must run an idempotent
-// shutdown that tears down the API server and the caffeinate sleep guard.
+// shutdown that tears down the caffeinate sleep guard.
 //
 // bin.ts runs main() at module load; CALLIOPE_NO_AUTORUN keeps it dormant so we
 // can import and exercise the exported shutdown()/registerProcessHandlers().
 
-const stopApiServer = vi.fn(async () => {});
 const stopPreventSleep = vi.fn(() => {});
 
-vi.mock('../src/api-server.js', () => ({ stopApiServer }));
 vi.mock('../src/prevent-sleep.js', () => ({ stopPreventSleep }));
 
 async function loadBin() {
   vi.resetModules();
-  stopApiServer.mockClear();
   stopPreventSleep.mockClear();
   return import('../src/bin.js');
 }
@@ -39,11 +36,10 @@ describe('bin shutdown lifecycle (#158)', () => {
   });
 
   // Happy path: cleanup of both subsystems then a clean exit.
-  it('runs stopApiServer + stopPreventSleep and exits 0', async () => {
+  it('runs stopPreventSleep and exits 0', async () => {
     const bin = await loadBin();
     await bin.shutdown(0);
 
-    expect(stopApiServer).toHaveBeenCalledTimes(1);
     expect(stopPreventSleep).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
@@ -61,13 +57,12 @@ describe('bin shutdown lifecycle (#158)', () => {
     await bin.shutdown(0);
     await bin.shutdown(0);
 
-    expect(stopApiServer).toHaveBeenCalledTimes(1);
     expect(stopPreventSleep).toHaveBeenCalledTimes(1);
     expect(exitSpy).toHaveBeenCalledTimes(1);
   });
 
   it('still exits when a cleanup routine throws', async () => {
-    stopApiServer.mockRejectedValueOnce(new Error('boom'));
+    stopPreventSleep.mockImplementationOnce(() => { throw new Error('boom'); });
     const bin = await loadBin();
 
     await bin.shutdown(1);
@@ -109,7 +104,6 @@ describe('bin shutdown lifecycle (#158)', () => {
       await new Promise((r) => setTimeout(r, 0));
 
       expect(errSpy).toHaveBeenCalled();
-      expect(stopApiServer).toHaveBeenCalledTimes(1);
       expect(stopPreventSleep).toHaveBeenCalledTimes(1);
       expect(exitSpy).toHaveBeenCalledWith(1);
     } finally {

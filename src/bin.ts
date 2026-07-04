@@ -70,9 +70,6 @@ if (args.includes('--debug')) {
   process.env.CALLIOPE_DEBUG = '1';
 }
 
-// Check for API server flag
-const useApiServer = args.includes('--serve') || args.includes('--api');
-
 // Parse --max-retries <N> flag (default 3), also honour CALLIOPE_MAX_RETRIES env var
 function parseMaxRetries(): number {
   const envVal = process.env.CALLIOPE_MAX_RETRIES;
@@ -100,9 +97,9 @@ export { skipPermissions, useHeadless, envSkin, envPalette, envCompanion, maxRet
 // ---------------------------------------------------------------------------
 // Graceful shutdown + top-level error handling
 //
-// In --serve/--api mode the process blocks forever, so without signal handlers
-// Ctrl-C (SIGINT) or SIGTERM would drop the HTTP listener, open WebSocket
-// sockets, and the caffeinate sleep guard without cleanup. We install a single
+// Without signal handlers
+// Ctrl-C (SIGINT) or SIGTERM would drop
+// the caffeinate sleep guard without cleanup. We install a single
 // idempotent shutdown path and wire it to process signals and to top-level
 // async error handlers (which main().catch() does not cover post-startup).
 // ---------------------------------------------------------------------------
@@ -111,16 +108,14 @@ let shuttingDown = false;
 
 /**
  * Run cleanup exactly once, then exit. Re-entrant calls (e.g. a second Ctrl-C
- * mid-shutdown) are ignored so cleanup never double-runs. stopApiServer() and
- * stopPreventSleep() are both safe no-ops when nothing was started.
+ * mid-shutdown) are ignored so cleanup never double-runs.
+ * stopPreventSleep() is a safe no-op when nothing was started.
  */
 export async function shutdown(exitCode = 0): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   try {
-    const { stopApiServer } = await import('./api-server.js');
     const { stopPreventSleep } = await import('./prevent-sleep.js');
-    await stopApiServer();
     stopPreventSleep();
   } catch {
     // Best-effort cleanup — never let a teardown error block exit.
@@ -286,24 +281,6 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
     ...options,
   };
 
-  // Start API server if --serve/--api flag is set
-  if (useApiServer) {
-    const { startApiServer } = await import('./api-server.js');
-    const port = 3100;
-    try {
-      const info = await startApiServer({ port, host: '127.0.0.1' });
-      console.log(`${colors.dim}  API server: http://${info.host}:${info.port}${colors.reset}`);
-      console.log(`${colors.dim}  API token:  ${info.token}${colors.reset}`);
-      console.log(`${colors.dim}  Use: Authorization: Bearer ${info.token}${colors.reset}`);
-    } catch (err) {
-      console.error(`API server failed to start: ${err instanceof Error ? err.message : String(err)}`);
-      process.exit(1);
-    }
-    // Block until the process is killed — server is the sole purpose of this invocation
-    await new Promise<void>(() => {});
-    return;
-  }
-
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
     const { runHeadless } = await import('./headless.js');
@@ -344,7 +321,6 @@ ${bold('OPTIONS')}
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
-  --serve, --api    Start API server on port 3100 (localhost)
   --headless        Headless mode (JSON/text output, no TTY)
   --batch           Alias for --headless
   --json            Output JSON events (with --headless)

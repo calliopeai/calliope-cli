@@ -93,27 +93,6 @@ vi.mock('../src/companions.js', () => ({
   listCompanions: vi.fn(() => []),
   getMoodText: vi.fn(() => ''),
 }));
-vi.mock('../src/background-jobs.js', () => ({
-  createJob: vi.fn(),
-  runJob: vi.fn(),
-  cancelJob: vi.fn(),
-  listJobs: vi.fn(() => []),
-  getJob: vi.fn(),
-  formatJob: vi.fn(() => ''),
-  formatJobsList: vi.fn(() => ''),
-  clearFinishedJobs: vi.fn(),
-}));
-vi.mock('../src/terminal-recording.js', () => ({
-  listRecordings: vi.fn(() => []),
-  loadRecording: vi.fn(),
-  formatRecording: vi.fn(() => ''),
-  deleteRecording: vi.fn(),
-}));
-vi.mock('../src/api-server.js', () => ({
-  startApiServer: vi.fn(),
-  stopApiServer: vi.fn(),
-  isApiServerRunning: vi.fn(() => false),
-}));
 vi.mock('../src/terminal-image.js', () => ({
   getTerminalImageInfo: vi.fn(() => ({})),
   getImageModeLabel: vi.fn(() => ''),
