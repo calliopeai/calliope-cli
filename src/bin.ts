@@ -59,9 +59,6 @@ const args = process.argv.slice(2);
 const skipPermissions = args.includes('--god-mode') ||
                         args.includes('-g');
 
-// Check for legacy UI flag
-const useLegacyUI = args.includes('--legacy');
-
 // Check for multi-agent orchestration mode
 
 // Check for headless mode (no-TTY agent orchestration)
@@ -322,10 +319,6 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       maxRetries,
     });
     process.exit(exitCode);
-  } else if (useLegacyUI) {
-    // Use legacy readline-based CLI
-    const { startCLI: start } = await import('./cli/index.js');
-    await start(fullOptions);
   } else {
     // Use new ink-based UI
     const { startInkCLI } = await import('./ui/index.js');
@@ -352,7 +345,6 @@ ${bold('OPTIONS')}
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
   --serve, --api    Start API server on port 3100 (localhost)
-  --legacy          Use legacy readline UI instead of ink
   --headless        Headless mode (JSON/text output, no TTY)
   --batch           Alias for --headless
   --json            Output JSON events (with --headless)
