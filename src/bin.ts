@@ -63,7 +63,6 @@ const skipPermissions = args.includes('--god-mode') ||
 const useLegacyUI = args.includes('--legacy');
 
 // Check for multi-agent orchestration mode
-const agtermEnabled = args.includes('--agents') || args.includes('--agterm') || args.includes('-a');
 
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
@@ -99,7 +98,7 @@ const envPalette = process.env.CALLIOPE_PALETTE;
 const envCompanion = process.env.CALLIOPE_COMPANION;
 
 // Export for CLI to access
-export { skipPermissions, agtermEnabled, useHeadless, envSkin, envPalette, envCompanion, maxRetries };
+export { skipPermissions, useHeadless, envSkin, envPalette, envCompanion, maxRetries };
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown + top-level error handling
@@ -232,13 +231,6 @@ async function main(): Promise<void> {
     console.log();
   }
 
-  // Show notice if agents mode enabled
-  if (agtermEnabled) {
-    console.log(`${colors.cyan}🤖 AGENTS MODE${colors.reset}`);
-    console.log(`${colors.dim}   Multi-agent orchestration active. Use /agents to see available sub-agents.${colors.reset}`);
-    console.log();
-  }
-
   // Check if setup is needed
   if (!config.isSetupComplete()) {
     // Check if we have any API keys from environment
@@ -275,7 +267,7 @@ async function main(): Promise<void> {
   await startCLI();
 }
 
-async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
+async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
   // Initialize HUD (skin + palette + companion)
   const { applySkin, applyPalette } = await import('./hud/api.js');
   const { populateLegacyRegistries } = await import('./hud/theme-packs/api.js');
@@ -295,7 +287,6 @@ async function startCLI(options: { skipPermissions?: boolean; agtermEnabled?: bo
   // Merge in global flags
   const fullOptions = {
     ...options,
-    agtermEnabled: options.agtermEnabled ?? agtermEnabled,
   };
 
   // Start API server if --serve/--api flag is set
@@ -360,8 +351,6 @@ ${bold('OPTIONS')}
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
-  -a, --agents      Enable multi-agent orchestration mode
-                    Unlock spawn_agent, swarm, coordination tools
   --serve, --api    Start API server on port 3100 (localhost)
   --legacy          Use legacy readline UI instead of ink
   --headless        Headless mode (JSON/text output, no TTY)

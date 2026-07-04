@@ -12,7 +12,6 @@ import { StringDecoder } from 'string_decoder';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox.js';
 import * as nativeSandbox from './sandbox-native.js';
-import { getAgtermTools, isAgtermTool, executeAgtermTool } from './agents/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
@@ -358,13 +357,9 @@ CONFIGURABLE SETTINGS:
 
 /**
  * Get all available tools
- * Includes agent tools when agentEnabled is true
  */
-export function getTools(agentEnabled: boolean = false): Tool[] {
+export function getTools(): Tool[] {
   const pluginTools = getPluginTools();
-  if (agentEnabled) {
-    return [...TOOLS, ...getAgtermTools(), ...pluginTools];
-  }
   return [...TOOLS, ...pluginTools];
 }
 
@@ -418,11 +413,6 @@ export async function executeTool(
     await scuttlebotClient.mirrorToolCall(name, args).catch(() => {
       // Silently fail - don't interrupt tool execution
     });
-  }
-
-  // Handle agent tools
-  if (isAgtermTool(name)) {
-    return executeAgtermTool(toolCall, cwd);
   }
 
   // Handle plugin tools

@@ -92,7 +92,6 @@ export interface SkinIcons {
   web_search?: string;
   git?: string;
   mermaid?: string;
-  spawn_agent?: string;
   check_agent?: string;
   list_agents?: string;
   cancel_agent?: string;
