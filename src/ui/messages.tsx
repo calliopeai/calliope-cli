@@ -27,11 +27,6 @@ export const TOOL_ICONS: Record<string, string> = {
   web_search: '🔍',
   git: '🔀',
   mermaid: '📊',
-  // AGTerm tools
-  spawn_agent: '🤖',
-  check_agent: '📋',
-  list_agents: '📊',
-  cancel_agent: '🛑',
 };
 
 /** Get tool icon from active skin, falling back to default TOOL_ICONS */

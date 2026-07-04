@@ -93,7 +93,6 @@ export interface AgentContext {
   actualProvider: string;
   actualModel: string;
   stats: SessionStats;
-  agtermEnabled: boolean;
 
   // Iteration Ledger
   ledger?: IterationLedger;
@@ -320,7 +319,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       }
 
       // Pre-request summarization check - summarize BEFORE sending if context is too large
-      const tools = getTools(ctx.agtermEnabled);
+      const tools = getTools();
       const contextCheck = estimateContextUsage(ctx.provider, effectiveModel || DEFAULT_MODELS[ctx.provider], validatedMessages, tools);
       ctx.debugLog('chat', 'CONTEXT CHECK', `estimated=${contextCheck.estimated}, limit=${contextCheck.limit}, percent=${contextCheck.percent}%`);
       if (contextCheck.needsSummarization) {

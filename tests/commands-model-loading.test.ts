@@ -71,22 +71,6 @@ vi.mock('../src/scope.js', () => ({
   getScopeDetails: vi.fn(() => ''),
   resetScope: vi.fn(),
 }));
-vi.mock('../src/agents/index.js', () => ({
-  getAgentStatusReport: vi.fn(() => ''),
-  swarmManager: { list: vi.fn(() => []) },
-  councilManager: { list: vi.fn(() => []) },
-  COUNCIL_TEMPLATES: {},
-  getInstallReport: vi.fn(() => ''),
-  installItem: vi.fn(),
-  installAllMissing: vi.fn(),
-  listAgentDefs: vi.fn(() => []),
-  listTeamDefs: vi.fn(() => []),
-  getAgent: vi.fn(),
-  getTeam: vi.fn(),
-  scaffoldAgentsDir: vi.fn(),
-  saveAgentDef: vi.fn(),
-  getAvailableExecutors: vi.fn(() => []),
-}));
 vi.mock('../src/circuit-breaker.js', () => ({
   CircuitBreaker: vi.fn(),
 }));
@@ -194,7 +178,6 @@ function makeCtx(provider: LLMProvider = 'anthropic'): CommandContext & { messag
     queuedMessages: [],
     bookmarks: [],
     templates: [],
-    agtermEnabled: false,
     debugEnabled: false,
     modalMode: '',
     smartRouteActive: false,

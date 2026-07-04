@@ -602,40 +602,18 @@ describe('displayResult truncation for various tools', () => {
 });
 
 // ===========================================================================
-// getTools with agterm enabled/disabled
+// getTools
 // ===========================================================================
 
 describe('getTools - tool count', () => {
   it('should have at least 11 base tools', () => {
-    const tools = getTools(false);
+    const tools = getTools();
     expect(tools.length).toBeGreaterThanOrEqual(11);
   });
 
-  it('should have more tools with agterm enabled', () => {
-    const without = getTools(false);
-    const withAgterm = getTools(true);
-    // agterm adds 10 tools
-    expect(withAgterm.length).toBeGreaterThanOrEqual(without.length + 10);
-  });
-
   it('should include create_plan in base tools', () => {
-    const tools = getTools(false);
+    const tools = getTools();
     expect(tools.find(t => t.name === 'create_plan')).toBeDefined();
-  });
-
-  it('should include agterm tool names when enabled', () => {
-    const tools = getTools(true);
-    const names = tools.map(t => t.name);
-    expect(names).toContain('spawn_agent');
-    expect(names).toContain('check_agent');
-    expect(names).toContain('list_agents');
-    expect(names).toContain('cancel_agent');
-    expect(names).toContain('start_swarm');
-    expect(names).toContain('check_swarm');
-    expect(names).toContain('cancel_swarm');
-    expect(names).toContain('start_council');
-    expect(names).toContain('check_council');
-    expect(names).toContain('cancel_council');
   });
 });
 

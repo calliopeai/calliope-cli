@@ -146,7 +146,6 @@ function makeCtx(): AgentContext & { collectedMessages: Array<{ type: string; co
       outputTokens: 0,
       cost: 0,
     },
-    agtermEnabled: false,
 
     setStats: vi.fn((value: unknown) => {
       if (typeof value === 'function') {

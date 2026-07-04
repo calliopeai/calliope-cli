@@ -66,8 +66,6 @@ import { resolveIterationLimit } from '../iteration-limit.js';
 // Wire emoji config at module load (breaks circular dep: companions → config)
 setEmojiConfig(config);
 
-// Module-level state for agterm mode
-let moduleAgtermEnabled = false;
 let pendingRestartArgs: string[] | null = null;
 
 function requestSelfRestart(args: string[] = process.argv.slice(1)): void {
@@ -571,7 +569,6 @@ function TerminalChat() {
     actualProvider,
     actualModel,
     stats,
-    agtermEnabled: moduleAgtermEnabled,
     ledger: ledgerRef.current,
     circuitBreaker: circuitBreakerRef.current || undefined,
     smartRouteActive,
@@ -635,7 +632,6 @@ function TerminalChat() {
     queuedMessages,
     bookmarks,
     templates,
-    agtermEnabled: moduleAgtermEnabled,
     debugEnabled,
     modalMode,
     circuitBreaker: circuitBreakerRef.current || undefined,
@@ -1504,9 +1500,7 @@ export async function printBanner(): Promise<void> {
   console.log();
 }
 
-export async function startInkCLI(options: { skipPermissions?: boolean; agtermEnabled?: boolean } = {}): Promise<void> {
-  // Set module-level agterm state
-  moduleAgtermEnabled = options.agtermEnabled ?? false;
+export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
 
   // Print banner BEFORE Ink starts - it stays fixed at the top
   await printBanner();

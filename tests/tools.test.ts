@@ -84,18 +84,12 @@ describe('TOOLS array', () => {
 // ===========================================================================
 
 describe('getTools', () => {
-  it('should return base tools when agterm is disabled', () => {
-    const tools = getTools(false);
+  it('should return all base tools', () => {
+    const tools = getTools();
     expect(tools.length).toBeGreaterThanOrEqual(TOOLS.length);
     for (const t of TOOLS) {
       expect(tools.find(x => x.name === t.name)).toBeDefined();
     }
-  });
-
-  it('should include agterm tools when enabled', () => {
-    const without = getTools(false);
-    const with_ = getTools(true);
-    expect(with_.length).toBeGreaterThanOrEqual(without.length);
   });
 });
 
