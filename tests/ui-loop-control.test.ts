@@ -117,9 +117,6 @@ vi.mock('../src/auto-checkpoint.js', () => ({
   createCheckpoint: vi.fn(),
 }));
 
-vi.mock('../src/terminal-recording.js', () => ({
-  recordEvent: vi.fn(),
-}));
 
 vi.mock('../src/prevent-sleep.js', () => ({
   startPreventSleep: vi.fn(),

@@ -33,7 +33,6 @@ import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './ty
 import type { Session } from '../storage.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { shouldCheckpoint, createCheckpoint } from '../auto-checkpoint.js';
-import { recordEvent } from '../terminal-recording.js';
 import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
 import {
   resolveIterationLimit,
@@ -529,8 +528,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               // both count as a failure — mirror the sequential branch.
               const failed = result.isError || !!result.error;
               const failureText = result.error || result.result;
-              recordEvent('tool_call', toolCall.name, { name: toolCall.name, arguments: args });
-              recordEvent('tool_result', (result.result || result.error || '').slice(0, 1000), { name: toolCall.name, isError: failed });
 
               // Record in iteration ledger
               ctx.ledger?.recordAction(
@@ -612,7 +609,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               }
 
               ctx.debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
-              recordEvent('tool_call', toolCall.name, { name: toolCall.name, arguments: args });
               // Auto-checkpoint before destructive operations
               if (shouldCheckpoint(toolCall.name, args)) {
                 const hash = createCheckpoint(toolCall.name, args);
@@ -631,7 +627,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               } : undefined;
               const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback);
               ctx.debugLog('tools', 'DONE', toolCall.name);
-              recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
 
               // Record in iteration ledger
               ctx.ledger?.recordAction(
@@ -715,7 +710,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.setThinkingState(null);
       ctx.llmMessages.current.push({ role: 'assistant', content: response.content });
       ctx.addMessage('assistant', response.content);
-      recordEvent('output', response.content.slice(0, 5000));
       
       // Mirror assistant message to scuttlebot
       if (scuttlebotClient.isEnabled()) {

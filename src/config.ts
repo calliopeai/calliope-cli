@@ -6,7 +6,6 @@
  */
 
 import Conf from 'conf';
-import { randomUUID } from 'crypto';
 
 // Re-export types from canonical source
 export type { LLMProvider, AgentPersona } from './types.js';
@@ -92,12 +91,9 @@ export interface CalliopeConfig {
 
   // Session Lifecycle
   sessionTimeoutMs?: number;  // Idle timeout in ms (0 or undefined = disabled)
-  recordSessions: boolean;    // Record session events as audit log (default: true)
-  recordingRetentionDays: number;  // Auto-delete recordings older than N days (0 = keep forever, default: 0)
   sessionLogLimit: number;    // Cap retained ledger entries/runs/failures per session (0 = unlimited)
 
   // API Server
-  apiToken?: string;  // Bearer token for --serve API server (auto-generated on first start)
 
   // Profiles
   profiles?: Record<string, Profile>;
@@ -130,8 +126,6 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   sandboxMode: 'auto',
   smartRoutingEnabled: false,
   smartRoutingCostSensitivity: 0.3,
-  recordSessions: true,
-  recordingRetentionDays: 0,
   sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
 };
 
@@ -209,11 +203,8 @@ const config = new Conf<CalliopeConfig>({
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
     smartRoutingEnabled: { type: 'boolean' },
     smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
-    recordSessions: { type: 'boolean' },
     sessionTimeoutMs: { type: 'number', minimum: 0 },
-    recordingRetentionDays: { type: 'number', minimum: 0 },
     sessionLogLimit: { type: 'number', minimum: 0, maximum: 100000 },
-    apiToken: { type: 'string' },
   },
 });
 
@@ -541,19 +532,6 @@ export function setActiveProfile(name: string | undefined): void {
  */
 export function getActiveProfile(): string | undefined {
   return config.get('activeProfile');
-}
-
-/**
- * Get or generate the API server Bearer token.
- * Generated once using crypto.randomUUID() and persisted in config.
- */
-export function getOrCreateApiToken(): string {
-  let token = config.get('apiToken');
-  if (!token) {
-    token = randomUUID();
-    config.set('apiToken', token);
-  }
-  return token;
 }
 
 export default config;

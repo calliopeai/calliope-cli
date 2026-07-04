@@ -83,8 +83,6 @@ vi.mock('../src/config.js', () => ({
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
     if (key === 'persona') return 'default';
-    if (key === 'recordSessions') return false;
-    if (key === 'recordingRetentionDays') return 0;
     return undefined;
   }),
   getApiKey: vi.fn(),
@@ -119,13 +117,6 @@ vi.mock('../src/memory.js', () => ({
   buildMemoryContext: vi.fn(() => ''),
 }));
 
-vi.mock('../src/terminal-recording.js', () => ({
-  setRecordingEnabled: vi.fn(),
-  setRetentionDays: vi.fn(),
-  startRecording: vi.fn(),
-  stopRecording: vi.fn(),
-  recordEvent: vi.fn(),
-}));
 
 import { runHeadless } from '../src/headless.js';
 

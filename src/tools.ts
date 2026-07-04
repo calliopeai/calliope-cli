@@ -302,9 +302,7 @@ CONFIGURABLE SETTINGS:
 - circuitBreakersEnabled: Safety circuit breakers (true/false)
 - sandboxMode: Code execution sandbox (auto, native, docker, off)
 - smartRoutingEnabled: Dynamic model routing (true/false)
-- smartRoutingCostSensitivity: Cost vs quality (0-1, 0=best quality, 1=cheapest)
-- recordSessions: Record session audit logs (true/false)
-- recordingRetentionDays: Auto-delete old recordings after N days (0 = keep forever)`,
+- smartRoutingCostSensitivity: Cost vs quality (0-1, 0=best quality, 1=cheapest)`,
     parameters: {
       type: 'object',
       properties: {
@@ -625,7 +623,7 @@ export async function executeTool(
           'companionIntensity', 'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
           'circuitBreakersEnabled', 'sandboxMode',
           'smartRoutingEnabled', 'smartRoutingCostSensitivity',
-          'recordSessions', 'recordingRetentionDays', 'sessionLogLimit',
+          'sessionLogLimit',
           'awsRegion', 'awsProfile',
         ]);
         if (!SAFE_CONFIG_KEYS.has(key)) {

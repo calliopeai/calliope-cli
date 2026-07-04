@@ -11,7 +11,6 @@ import { chat, selectProvider } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
 import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
 import * as memory from './memory.js';
-import * as recording from './terminal-recording.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import type { Message, LLMProvider, AgentPersona, ToolCall } from './types.js';
 
@@ -175,15 +174,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     { role: 'user', content: prompt },
   ];
 
-  // Start session recording — respects config
-  recording.setRecordingEnabled(config.get('recordSessions') !== false);
-  recording.setRetentionDays(config.get('recordingRetentionDays') ?? 0);
-  recording.startRecording({
-    provider: selectProvider(provider),
-    model: model || DEFAULT_MODELS[selectProvider(provider)],
-    cwd,
-  });
-  recording.recordEvent('input', prompt);
 
   emit({
     type: 'status',
@@ -212,7 +202,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
         });
 
         for (const toolCall of response.toolCalls) {
-          recording.recordEvent('tool_call', toolCall.name, { name: toolCall.name, arguments: toolCall.arguments });
           emit({
             type: 'tool_call',
             timestamp: now(),
@@ -239,7 +228,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             result = await executeTool(toolCall, cwd);
           }
 
-          recording.recordEvent('tool_result', result.result.slice(0, 1000), { name: toolCall.name, isError: result.isError });
 
           emit({
             type: 'tool_result',
@@ -268,7 +256,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
         content: response.content,
       });
 
-      recording.recordEvent('output', response.content.slice(0, 5000));
       emit({
         type: 'message',
         timestamp: now(),
@@ -281,7 +268,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       break;
     }
 
-    recording.stopRecording();
     emit({
       type: 'done',
       timestamp: now(),
@@ -290,7 +276,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
 
     return 0;
   } catch (error) {
-    recording.stopRecording();
     const msg = error instanceof Error ? error.message : String(error);
     emit({
       type: 'error',
