@@ -31,22 +31,13 @@ export type { ModelInfo } from './model-detection.js';
 
 // HUD system
 export {
-  getSkin, applySkin, getCurrentSkin, listSkins,
-  getPalette, applyPalette, getCurrentPalette, listPalettes,
-  applyHUD, discoverSkins, discoverPalettes,
+  getCurrentSkin,
+  getPalette, applyPalette, getCurrentPalette,
   getBoxChars, getSpinnerFrames, getPaletteColor, paletteColorize,
   getInkColor, getInkBorderStyle,
   clearHUDCache,
 } from './hud/api.js';
 export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfig } from './hud/types.js';
-
-// Companions
-export {
-  getCompanion, applyCompanion, getCurrentCompanion, listCompanions,
-  setMood, getMood, getMoodText,
-  getToolLabel, getThinkingPhrase, getSuccessPhrase, getErrorPhrase, getStatusMessage,
-} from './companions.js';
-export type { PersonaCompanion, CompanionMoods, CompanionImmersion, MoodState } from './companions.js';
 
 // Headless renderer
 export { runHeadless } from './headless.js';

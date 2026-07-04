@@ -393,3 +393,28 @@ export function getBoxStyle(styleName?: string): BoxStyleChars {
     return BOX_STYLE_VARIANTS.rounded;
   }
 }
+
+// ============================================================================
+// Emoji Toggle
+// ============================================================================
+
+// Cached config reference for emoji() — set lazily on first call to avoid a
+// circular import (styles → config).
+let _cachedConfig: { get: (key: string) => unknown } | null = null;
+
+/**
+ * Returns emoji if useEmojis is enabled, otherwise returns fallback (default: empty string).
+ * Usage: emoji('🔄', '[sync]') → '🔄' or '[sync]' based on config.
+ */
+export function emoji(icon: string, fallback: string = ''): string {
+  if (!_cachedConfig) {
+    // Return icon by default before config is loaded (safe default)
+    return icon;
+  }
+  return _cachedConfig.get('useEmojis') !== false ? icon : fallback;
+}
+
+/** Called once at startup to inject config reference, avoiding circular import */
+export function setEmojiConfig(config: { get: (key: any) => unknown }): void {
+  _cachedConfig = config;
+}

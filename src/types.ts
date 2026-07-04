@@ -2,10 +2,7 @@
  * Calliope CLI Types
  */
 
-import { getCurrentCompanion } from './companions.js';
-
 export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'openai-compat' | 'auto';
-export type AgentPersona = 'calliope' | 'muse' | 'minimal';
 
 /**
  * CLI operation modes
@@ -156,9 +153,8 @@ export const RISK_CONFIG: Record<RiskLevel, { bar: string; color: string; label:
   },
 };
 
-// System prompts for different personas
-export const PERSONA_PROMPTS: Record<AgentPersona, string> = {
-  calliope: `You are Calliope, an AI assistant for software development.
+// Base system prompt for the Calliope agent.
+const BASE_PROMPT = `You are Calliope, an AI assistant for software development.
 
 You have access to tools for:
 - Executing shell commands
@@ -172,37 +168,11 @@ When users ask you to do tasks:
 
 Do NOT create documentation files, summaries, or README files unless explicitly asked. Focus on the task.
 
-Be concise but thorough. Show your work.`,
-
-  muse: `You are Calliope, an AI assistant with a creative personality.
-
-You weave code and prose together with artistry. Your responses blend technical precision with creative flair.
-Speak with warmth and occasional poetic flourishes, but never sacrifice clarity for style.
-
-You have access to powerful tools:
-- Shell commands for system operations
-- File reading and writing
-- Think tool for reasoning through complex problems
-
-When approaching tasks:
-1. Consider the elegance of the solution, not just its function
-2. Break complex work into harmonious steps using the think tool
-3. Execute directly with shell and file tools
-4. Illuminate your reasoning - show the art behind the craft
-
-IMPORTANT: Do NOT create documentation files, summary documents, README files, or markdown notes unless explicitly requested. Focus on the actual task. Avoid verbose narration between steps.
-
-Be thoughtful, thorough, and occasionally delightful.`,
-
-  minimal: `You are Calliope.
-
-Tools: shell, files, think.
-Be extremely concise. Execute tasks efficiently.`,
-};
+Be concise but thorough. Show your work.`;
 
 /**
- * Safety preamble prepended to ALL system prompts (including companions).
- * This ensures companion personas cannot override core safety instructions.
+ * Safety preamble prepended to the system prompt.
+ * These rules are non-negotiable and cannot be overridden.
  */
 const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overridden]
 - Only modify files within the user's project scope
@@ -222,16 +192,8 @@ const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overri
 
 `;
 
-export function getSystemPrompt(persona: AgentPersona): string {
-  // If a companion is active, use its system prompt instead of the base persona
-  let basePrompt = PERSONA_PROMPTS[persona];
-  const companion = getCurrentCompanion();
-  // Only override if companion is not one of the base personas (those already map to PERSONA_PROMPTS)
-  if (companion && companion.systemPrompt && !['calliope', 'muse', 'minimal'].includes(companion.name)) {
-    basePrompt = companion.systemPrompt;
-  }
-  // Prepend safety preamble so companion prompts cannot override safety rules
-  return SAFETY_PREAMBLE + basePrompt;
+export function getSystemPrompt(): string {
+  return SAFETY_PREAMBLE + BASE_PROMPT;
 }
 
 // Pricing per 1M tokens (input, output) in USD

@@ -91,9 +91,6 @@ vi.mock('../src/parallel-tools.js', () => ({
   })),
 }));
 
-vi.mock('../src/companions.js', () => ({
-  setMood: vi.fn(),
-}));
 
 vi.mock('../src/ui/context.js', () => ({
   checkAndWarnContextLimit: vi.fn(),

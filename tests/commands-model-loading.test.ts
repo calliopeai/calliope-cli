@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { LLMProvider, AgentPersona, Mode } from '../src/types.js';
+import type { LLMProvider, Mode } from '../src/types.js';
 import type { CommandContext } from '../src/ui/commands.js';
 import { IterationLedger } from '../src/iteration-ledger.js';
 
@@ -82,16 +82,7 @@ vi.mock('../src/smart-router.js', () => ({
 vi.mock('../src/hud/api.js', () => ({
   getCurrentSkin: vi.fn(() => 'clean'),
   getCurrentPalette: vi.fn(() => 'default'),
-  applySkin: vi.fn(),
   applyPalette: vi.fn(),
-  listSkins: vi.fn(() => []),
-  listPalettes: vi.fn(() => []),
-}));
-vi.mock('../src/companions.js', () => ({
-  getCurrentCompanion: vi.fn(() => 'calliope'),
-  applyCompanion: vi.fn(),
-  listCompanions: vi.fn(() => []),
-  getMoodText: vi.fn(() => ''),
 }));
 vi.mock('../src/terminal-image.js', () => ({
   getTerminalImageInfo: vi.fn(() => ({})),
@@ -133,7 +124,6 @@ function makeCtx(provider: LLMProvider = 'anthropic'): CommandContext & { messag
     actualModel: 'claude-3-5-sonnet-20241022',
     provider,
     model: undefined,
-    persona: 'default' as AgentPersona,
     mode: 'hybrid' as Mode,
     confirmMode: false,
     autoRoute: false,
@@ -156,7 +146,6 @@ function makeCtx(provider: LLMProvider = 'anthropic'): CommandContext & { messag
 
     setProvider: vi.fn(),
     setModel: vi.fn(),
-    setPersona: vi.fn(),
     setMode: vi.fn(),
     setConfirmMode: vi.fn(),
     setAutoRoute: vi.fn(),

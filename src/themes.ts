@@ -12,9 +12,7 @@ import * as os from 'os';
 import { colors as ANSI } from './styles.js';
 import {
   getCurrentPalette,
-  getPalette,
   applyPalette,
-  listPalettes,
   clearHUDCache,
   getInkColor as hudGetInkColor,
 } from './hud/api.js';
@@ -136,6 +134,15 @@ export function setCurrentTheme(name: string): boolean {
 }
 
 /**
+ * Apply the palette for the currently persisted theme without rewriting it.
+ * Called at startup to initialize HUD colors from the stored theme.
+ */
+export function applyCurrentTheme(): void {
+  const paletteName = THEME_TO_PALETTE[getCurrentThemeName()] || 'default';
+  applyPalette(paletteName);
+}
+
+/**
  * Get current theme
  */
 export function getCurrentTheme(): Theme {
@@ -154,17 +161,6 @@ export function listThemes(): Array<{ name: string; description?: string; custom
     { name: 'light', description: 'Light terminal backgrounds', custom: false },
     { name: 'no-color', description: 'Monochrome, no color output', custom: false },
   ];
-}
-
-/**
- * Save a custom theme
- */
-export function saveCustomTheme(theme: Theme): void {
-  ensureThemesDir();
-  fs.writeFileSync(
-    path.join(THEMES_DIR, `${theme.name}.json`),
-    JSON.stringify(theme, null, 2)
-  );
 }
 
 // ============================================================================

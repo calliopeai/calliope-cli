@@ -2,7 +2,7 @@
  * Tests for src/themes.ts
  *
  * Covers: THEMES constant, getCurrentThemeName, setCurrentTheme, getCurrentTheme,
- * listThemes, saveCustomTheme, getTheme, clearThemeCache, colorize, createColorFn,
+ * listThemes, getTheme, clearThemeCache, colorize, createColorFn,
  * getThemeColor, getInkColor, useThemeColors, and ANSI re-export.
  */
 
@@ -16,7 +16,6 @@ import {
   setCurrentTheme,
   getCurrentTheme,
   listThemes,
-  saveCustomTheme,
   getTheme,
   clearThemeCache,
   colorize,

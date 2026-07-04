@@ -9,7 +9,6 @@ import React, { useState, useEffect } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import type { BoxProps } from 'ink';
 import { getCurrentSkin, getInkColor } from '../hud/api.js';
-import { getCurrentCompanion } from '../companions.js';
 import type { SkinFrame } from '../hud/types.js';
 
 // ============================================================================
@@ -151,8 +150,6 @@ function resolveTitleText(frame: SkinFrame): string {
   switch (frame.titleBar.content) {
     case 'skin-name':
       return getCurrentSkin().name;
-    case 'companion-name':
-      return getCurrentCompanion().name;
     case 'custom':
       return frame.titleBar.customText || '';
     default:

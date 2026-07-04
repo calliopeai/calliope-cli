@@ -8,13 +8,12 @@
 import Conf from 'conf';
 
 // Re-export types from canonical source
-export type { LLMProvider, AgentPersona } from './types.js';
-import type { LLMProvider, AgentPersona } from './types.js';
+export type { LLMProvider } from './types.js';
+import type { LLMProvider } from './types.js';
 
 export interface Profile {
   provider: LLMProvider;
   model?: string;
-  persona: AgentPersona;
   confirmMode?: boolean;
 }
 
@@ -49,7 +48,6 @@ export interface CalliopeConfig {
   openaiCompatModel?: string;    // Override model for OpenAI-compatible server
 
   // Agent settings
-  persona: AgentPersona;
   maxIterations: number;
   maxIterationTime: number;   // Max seconds per iteration (0 = no limit, default: 600)
   fancyOutput: boolean;
@@ -69,10 +67,6 @@ export interface CalliopeConfig {
   density: 'normal' | 'compact';  // Display density (compact = less whitespace)
 
   // HUD settings
-  activeSkin: string;           // Current skin name (default: 'clean')
-  activePalette: string;        // Current palette name (default: 'default')
-  activeCompanion: string;      // Current companion name (default: 'calliope')
-  companionIntensity: 'professional' | 'immersive';  // Companion intensity mode
   useEmojis: boolean;           // Enable/disable emoji in UI decorations (default: true)
   diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
   borderStyle: 'rounded' | 'sharp' | 'double' | 'ascii' | 'none';  // Border style override
@@ -102,7 +96,6 @@ export interface CalliopeConfig {
 const DEFAULT_CONFIG: CalliopeConfig = {
   setupComplete: false,
   defaultProvider: 'auto',
-  persona: 'calliope',
   maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
   maxIterationTime: 600,  // 10 minutes per iteration (seconds, 0 = no limit)
   fancyOutput: true,
@@ -113,10 +106,6 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   toolDisplayLimit: 0,  // 0 = show all expanded
   layout: 'response-bottom',  // Default: tools scroll up, response at bottom
   density: 'normal',  // normal or compact
-  activeSkin: 'clean',
-  activePalette: 'default',
-  activeCompanion: 'calliope',
-  companionIntensity: 'immersive',
   useEmojis: true,
   diffStyle: 'inline',
   borderStyle: 'rounded',
@@ -127,27 +116,6 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   smartRoutingCostSensitivity: 0.3,
   sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
 };
-
-// Pre-migrate config file before Conf validates schema
-// (Conf validates before migrations run, so we patch the JSON directly)
-function preMigrateConfig(): void {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const envPaths = require('env-paths');
-    const configPath = path.join(envPaths('calliope').config, 'config.json');
-    if (!fs.existsSync(configPath)) return;
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const data = JSON.parse(raw);
-    let changed = false;
-    const validPersonas = ['calliope', 'muse', 'minimal'];
-    if (data.persona === 'professional') { data.persona = 'calliope'; changed = true; }
-    if (data.persona && !validPersonas.includes(data.persona)) { data.persona = 'calliope'; changed = true; }
-    if (data.activeCompanion === 'professional') { data.activeCompanion = 'calliope'; changed = true; }
-    if (changed) fs.writeFileSync(configPath, JSON.stringify(data, null, '\t'));
-  } catch { /* ignore migration errors */ }
-}
-preMigrateConfig();
 
 // Create config store
 const config = new Conf<CalliopeConfig>({
@@ -177,7 +145,6 @@ const config = new Conf<CalliopeConfig>({
     openaiCompatBaseUrl: { type: 'string' },
     openaiCompatApiKey: { type: 'string' },
     openaiCompatModel: { type: 'string' },
-    persona: { type: 'string', enum: ['calliope', 'muse', 'minimal'] },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
     fancyOutput: { type: 'boolean' },
@@ -189,10 +156,6 @@ const config = new Conf<CalliopeConfig>({
     toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
     layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'] },
     density: { type: 'string', enum: ['normal', 'compact'] },
-    activeSkin: { type: 'string' },
-    activePalette: { type: 'string' },
-    activeCompanion: { type: 'string' },
-    companionIntensity: { type: 'string', enum: ['professional', 'immersive'] },
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
     borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },
     bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
@@ -437,25 +400,21 @@ const BUILTIN_PROFILES: Record<string, Profile> = {
   fast: {
     provider: 'groq',
     model: 'llama-3.3-70b-versatile',
-    persona: 'minimal',
     confirmMode: false,
   },
   smart: {
     provider: 'anthropic',
     model: 'claude-sonnet-4-6',
-    persona: 'calliope',
     confirmMode: true,
   },
   cheap: {
     provider: 'google',
     model: 'gemini-2.0-flash',
-    persona: 'calliope',
     confirmMode: true,
   },
   local: {
     provider: 'ollama',
     model: 'llama3.3',
-    persona: 'calliope',
     confirmMode: true,
   },
 };
