@@ -118,11 +118,6 @@ describe('parseConfigFile', () => {
     expect(result.model).toBe('claude-sonnet-4');
   });
 
-  it('should parse persona key-value', () => {
-    const result = parseConfigFile('persona: muse\n');
-    expect(result.persona).toBe('muse');
-  });
-
   it('should parse maxiterations', () => {
     const result = parseConfigFile('maxiterations: 100\n');
     expect(result.maxIterations).toBe(100);

@@ -31,7 +31,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { LLMProvider, AgentPersona } from './types.js';
+import type { LLMProvider } from './types.js';
 
 // ============================================================================
 // Types
@@ -47,7 +47,6 @@ export interface ProjectConfig {
   model?: string;
 
   // Agent settings
-  persona?: AgentPersona;
   maxIterations?: number;
 
   // System prompt additions
@@ -178,9 +177,6 @@ export function parseConfigFile(content: string): ProjectConfig {
           break;
         case 'model':
           config.model = value;
-          break;
-        case 'persona':
-          config.persona = value as AgentPersona;
           break;
         case 'maxiterations':
         case 'max-iterations':

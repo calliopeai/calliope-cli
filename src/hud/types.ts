@@ -63,7 +63,6 @@ export interface Skin {
   };
 
   defaultPalette?: string;
-  defaultPersona?: string;
 
   /** Per-skin tool icons (overrides default TOOL_ICONS) */
   icons?: SkinIcons;
@@ -132,7 +131,7 @@ export interface SkinFrame {
   titleBar?: {
     enabled: boolean;
     position: 'top' | 'bottom';
-    content: 'skin-name' | 'companion-name' | 'custom';
+    content: 'skin-name' | 'custom';
     customText?: string;
     alignment: 'left' | 'center' | 'right';
   };
@@ -206,6 +205,5 @@ export interface Palette {
 export interface HUDConfig {
   skin: string;
   palette: string;
-  companion: string;
   renderer: 'ink' | 'headless';
 }

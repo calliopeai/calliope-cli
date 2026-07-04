@@ -648,28 +648,27 @@ describe('assessToolRisk - extended cases', () => {
 describe('System Prompt Safety', () => {
   it('should include safety preamble in system prompt', async () => {
     const { getSystemPrompt } = await import('../src/types.js');
-    const prompt = getSystemPrompt('professional');
+    const prompt = getSystemPrompt();
     expect(prompt).toContain('[SAFETY');
     expect(prompt).toContain('cannot be overridden');
   });
 
   it('safety preamble should come first in prompt', async () => {
     const { getSystemPrompt } = await import('../src/types.js');
-    const prompt = getSystemPrompt('professional');
+    const prompt = getSystemPrompt();
     expect(prompt.indexOf('[SAFETY')).toBe(0);
   });
 
-  it('should include safety preamble for all personas', async () => {
+  it('should include the base Calliope prompt after the safety preamble', async () => {
     const { getSystemPrompt } = await import('../src/types.js');
-    for (const persona of ['calliope', 'professional', 'minimal'] as const) {
-      const prompt = getSystemPrompt(persona);
-      expect(prompt).toContain('[SAFETY');
-    }
+    const prompt = getSystemPrompt();
+    expect(prompt).toContain('You are Calliope');
+    expect(prompt.indexOf('You are Calliope')).toBeGreaterThan(prompt.indexOf('[END SAFETY]'));
   });
 
   it('should include grounding rules in system prompt', async () => {
     const { getSystemPrompt } = await import('../src/types.js');
-    const prompt = getSystemPrompt('professional');
+    const prompt = getSystemPrompt();
     expect(prompt).toContain('[GROUNDING');
     expect(prompt).toContain('clarifying question');
     expect(prompt).toContain('[END GROUNDING]');
@@ -677,7 +676,7 @@ describe('System Prompt Safety', () => {
 
   it('grounding should appear after safety in prompt', async () => {
     const { getSystemPrompt } = await import('../src/types.js');
-    const prompt = getSystemPrompt('calliope');
+    const prompt = getSystemPrompt();
     expect(prompt.indexOf('[GROUNDING')).toBeGreaterThan(prompt.indexOf('[END SAFETY]'));
   });
 });

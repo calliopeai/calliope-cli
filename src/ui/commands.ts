@@ -23,10 +23,8 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
 import type { SmartRoutingConfig } from '../smart-router.js';
-import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, listPalettes } from '../hud/api.js';
-import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
-import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
+import { getTerminalImageInfo, getImageModeLabel, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
 import * as memory from '../memory.js';
@@ -36,7 +34,7 @@ import {
   formatIterationLimit,
   isFiniteIterationLimit,
 } from '../iteration-limit.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent, ToolCall } from '../types.js';
+import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
 import type { Session } from '../storage.js';
 import type { UIMessage, SessionStats, CollapseSettings, ThinkingState, ConversationSnapshot, Bookmark, PromptTemplate, SessionInfo } from './types.js';
@@ -51,7 +49,6 @@ export interface CommandContext {
   actualModel: string;
   provider: LLMProvider;
   model: string | undefined;
-  persona: AgentPersona;
   mode: Mode;
   confirmMode: boolean;
   autoRoute: boolean;
@@ -77,7 +74,6 @@ export interface CommandContext {
   // State setters
   setProvider: (p: LLMProvider) => void;
   setModel: (m: string | undefined) => void;
-  setPersona: (p: AgentPersona) => void;
   setMode: (m: Mode | ((prev: Mode) => Mode)) => void;
   setConfirmMode: (v: boolean) => void;
   setAutoRoute: (v: boolean) => void;
@@ -128,8 +124,8 @@ export interface CommandContext {
 
 // Builds the full system prompt including memory context (project + global).
 // dir should be the project directory for the active/resumed session.
-function buildFullSystemPrompt(persona: AgentPersona, dir: string): string {
-  const base = getSystemPrompt(persona);
+function buildFullSystemPrompt(dir: string): string {
+  const base = getSystemPrompt();
   const mem = memory.buildMemoryContext(dir);
   return mem.trim() ? base + '\n\n--- Project Context ---\n' + mem : base;
 }
@@ -221,7 +217,6 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /model [name]              - Switch model (/m)
   /models                    - List available models
   /mode [plan|hybrid|work]   - Switch modes (Shift+Tab to cycle)
-  /persona [name]            - Switch personality
   /route [on|off]            - Auto model routing (/autoroute)
   /smart [on|off|cost|test]  - Cross-provider smart routing
   /breaker [status|adjust]   - Circuit breaker control (/cb)
@@ -259,15 +254,11 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /approve [notes]           - Approve pending plan & execute
 
 --- Appearance ---
-  /skin [name]               - Switch HUD skin (${(await import('../hud/api.js')).listSkins().length}+ available)
-  /palette [name]            - Switch color palette
-  /companion [name]          - Switch companion personality
   /theme [name]              - Color themes
   /layout [name]             - UI layout (classic/split/etc)
   /density [normal|compact]  - Display density
   /collapse [tools|all|off]  - Tool output visibility
   /emoji [on|off]            - Toggle emoji
-  /banner                    - Show skin banner art
 
 --- Tools & Integration ---
   /mcp [add|remove|tools]    - MCP servers
@@ -381,21 +372,10 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}`);
       }
       break;
 
-    case '/persona':
-      if (parts[1] && ['calliope', 'muse', 'minimal'].includes(parts[1])) {
-        const p = parts[1] as AgentPersona;
-        ctx.setPersona(p);
-        ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(p, getActiveProjectDir(ctx)) }];
-        ctx.addMessage('system', `Persona: ${p}`);
-      } else {
-        ctx.addMessage('system', `Persona: ${ctx.persona} | Options: calliope, muse, minimal`);
-      }
-      break;
-
     case '/clear':
     case '/c':
       ctx.setMessages([]);
-      ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
+      ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(getActiveProjectDir(ctx)) }];
       ctx.ledger?.reset();
       ctx.setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
       resetContextWarnings(); // Reset context warning state
@@ -640,7 +620,6 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}`);
 Available keys:
   maxIterations <number>  - Max agent iterations (current: ${config.get('maxIterations')})
   sessionLogLimit <number> - Cap retained session log items (current: ${formatSessionLogLimit(config.get('sessionLogLimit'))}, 0 = unlimited)
-  persona <name>          - calliope, muse, minimal
   fancyOutput <bool>      - true/false`);
         break;
       }
@@ -663,14 +642,6 @@ Available keys:
           config.set('sessionLogLimit', num);
           ctx.ledger?.setRetentionLimit(num);
           ctx.addMessage('system', `\u2713 sessionLogLimit set to ${num === 0 ? 'unlimited (set > 0 to cap)' : num}`);
-        } else if (key === 'persona') {
-          if (!['calliope', 'muse', 'minimal'].includes(value)) {
-            ctx.addMessage('error', 'persona must be: calliope, muse, or minimal');
-            break;
-          }
-          config.set('persona', value as 'calliope' | 'muse' | 'minimal');
-          ctx.setPersona(value as AgentPersona);
-          ctx.addMessage('system', `\u2713 persona set to ${value}`);
         } else if (key === 'fancyOutput') {
           const bool = value === 'true';
           config.set('fancyOutput', bool);
@@ -892,7 +863,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         config.saveProfile(name, {
           provider: ctx.provider,
           model: ctx.model,
-          persona: ctx.persona,
           confirmMode: ctx.confirmMode,
         });
         ctx.addMessage('system', `\u2713 Saved profile: ${name}`);
@@ -909,7 +879,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         if (profile) {
           ctx.setProvider(profile.provider);
           if (profile.model) ctx.setModel(profile.model);
-          ctx.setPersona(profile.persona);
           if (profile.confirmMode !== undefined) ctx.setConfirmMode(profile.confirmMode);
           config.setActiveProfile(subCmd);
           ctx.addMessage('system', `\u2713 Loaded profile: ${subCmd} (${profile.provider}/${profile.model || 'default'})`);
@@ -1124,109 +1093,6 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           ctx.addMessage('error', `Theme not found: ${subCmd}`);
         }
       }
-      break;
-    }
-
-    case '/skin': {
-      const subCmd = parts[1];
-      if (subCmd === 'list' || !subCmd) {
-        const skins = listSkins();
-        const current = getCurrentSkin();
-        const formatted = skins.map((s: { name: string; custom?: boolean; description: string }) => {
-          const marker = s.name === current.name ? ' *' : '';
-          const custom = s.custom ? ' (custom)' : '';
-          return `  ${s.name}${marker}${custom} - ${s.description}`;
-        }).join('\n');
-        ctx.addMessage('system', `Active: ${current.name}\nAvailable skins:\n${formatted}`);
-      } else {
-        applySkin(subCmd);
-        const newSkin = getCurrentSkin();
-        if (newSkin.name === subCmd) {
-          config.set('activeSkin', subCmd);
-          ctx.addMessage('system', `Skin set to: ${subCmd} \u2014 ${newSkin.description}`);
-        } else {
-          ctx.addMessage('error', `Skin not found: ${subCmd}. Available: ${listSkins().map((s: { name: string }) => s.name).join(', ')}`);
-        }
-      }
-      break;
-    }
-
-    case '/palette': {
-      const subCmd = parts[1];
-      if (subCmd === 'list' || !subCmd) {
-        const palettes = listPalettes();
-        const current = getCurrentPalette();
-        const formatted = palettes.map((p: { name: string; custom?: boolean; description: string }) => {
-          const marker = p.name === current.name ? ' *' : '';
-          const custom = p.custom ? ' (custom)' : '';
-          return `  ${p.name}${marker}${custom} - ${p.description}`;
-        }).join('\n');
-        ctx.addMessage('system', `Active: ${current.name}\nAvailable palettes:\n${formatted}`);
-      } else {
-        applyPalette(subCmd);
-        const newPal = getCurrentPalette();
-        if (newPal.name === subCmd) {
-          config.set('activePalette', subCmd);
-          ctx.addMessage('system', `Palette set to: ${subCmd} \u2014 ${newPal.description}`);
-        } else {
-          ctx.addMessage('error', `Palette not found: ${subCmd}. Available: ${listPalettes().map((p: { name: string }) => p.name).join(', ')}`);
-        }
-      }
-      break;
-    }
-
-    case '/companion': {
-      const subCmd = parts[1];
-      if (subCmd === 'list' || !subCmd) {
-        const companions = listCompanions();
-        const current = getCurrentCompanion();
-        const formatted = companions.map((comp: { name: string; description: string }) => {
-          const marker = comp.name === current.name ? ' *' : '';
-          return `  ${comp.name}${marker} - ${comp.description}`;
-        }).join('\n');
-        ctx.addMessage('system', `Active: ${current.name}\nAvailable companions:\n${formatted}`);
-      } else {
-        applyCompanion(subCmd);
-        const newComp = getCurrentCompanion();
-        if (newComp.name === subCmd) {
-          config.set('activeCompanion', subCmd);
-          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
-          ctx.addMessage('system', `Companion set to: ${subCmd} \u2014 "${newComp.greeting}"`);
-        } else {
-          ctx.addMessage('error', `Companion not found: ${subCmd}. Available: ${listCompanions().map((c: { name: string }) => c.name).join(', ')}`);
-        }
-      }
-      break;
-    }
-
-    case '/banner': {
-      const bannerSkin = getCurrentSkin();
-      const bannerPalette = getCurrentPalette();
-      const bannerColor = bannerPalette.colors.primary;
-      const imgInfo = getTerminalImageInfo();
-      const rendered = renderSkinBanner(
-        bannerSkin.banner.art,
-        bannerColor,
-        bannerSkin.banner.tagline ?? undefined,
-        imgInfo.mode,
-      );
-      ctx.addMessage('system', `${rendered}\n\nSkin: ${bannerSkin.name} | Terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''}`);
-      break;
-    }
-
-    case '/hud': {
-      const hudSkin = getCurrentSkin();
-      const hudPalette = getCurrentPalette();
-      const hudCompanion = getCurrentCompanion();
-      ctx.addMessage('system',
-        `HUD Configuration\n` +
-        `  Skin:      ${hudSkin.name} — ${hudSkin.description}\n` +
-        `  Palette:   ${hudPalette.name} — ${hudPalette.description}\n` +
-        `  Companion: ${hudCompanion.name} — ${hudCompanion.description}\n` +
-        `  Emojis:    ${config.get('useEmojis') !== false ? 'ON' : 'OFF'}\n` +
-        `  Mood:      ${getMoodText()}\n\n` +
-        `  /skin <name>  /palette <name>  /companion <name>  /emoji [on|off]`
-      );
       break;
     }
 
@@ -2164,7 +2030,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
           ctx.llmMessages.current.length = 0;
           ctx.llmMessages.current.push({
             role: 'system',
-            content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)),
+            content: buildFullSystemPrompt(getActiveProjectDir(ctx)),
           });
           for (const msg of history) {
             if (msg.role === 'user' || msg.role === 'assistant') {

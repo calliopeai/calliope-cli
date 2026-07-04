@@ -60,7 +60,6 @@ describe('get / set', () => {
   it('should return default values after reset', () => {
     expect(get('setupComplete')).toBe(false);
     expect(get('defaultProvider')).toBe('auto');
-    expect(get('persona')).toBe('calliope');
     expect(get('fancyOutput')).toBe(true);
     expect(get('maxIterations')).toBe(0);
     expect(get('sessionLogLimit')).toBe(0);
@@ -72,8 +71,8 @@ describe('get / set', () => {
   });
 
   it('should set and get a string value', () => {
-    set('activeSkin', 'neon');
-    expect(get('activeSkin')).toBe('neon');
+    set('defaultModel', 'claude-sonnet-4-6');
+    expect(get('defaultModel')).toBe('claude-sonnet-4-6');
   });
 
   it('should set and get a numeric value', () => {
@@ -137,9 +136,9 @@ describe('set validation', () => {
 
 describe('setMultiple', () => {
   it('should set multiple values at once', () => {
-    setMultiple({ fancyOutput: false, activeSkin: 'retro' });
+    setMultiple({ fancyOutput: false, density: 'compact' });
     expect(get('fancyOutput')).toBe(false);
-    expect(get('activeSkin')).toBe('retro');
+    expect(get('density')).toBe('compact');
   });
 
   it('should not set any values if one fails validation', () => {
@@ -163,7 +162,6 @@ describe('getConfig', () => {
     expect(cfg).toBeDefined();
     expect(cfg.setupComplete).toBe(false);
     expect(cfg.defaultProvider).toBe('auto');
-    expect(cfg.persona).toBe('calliope');
   });
 });
 
@@ -191,7 +189,7 @@ describe('resetConfig', () => {
     set('fancyOutput', false);
     set('maxIterations', 100);
     set('sessionLogLimit', 250);
-    set('activeSkin', 'matrix');
+    set('density', 'compact');
     markSetupComplete();
 
     resetConfig();
@@ -199,7 +197,7 @@ describe('resetConfig', () => {
     expect(get('fancyOutput')).toBe(true);
     expect(get('maxIterations')).toBe(0);
     expect(get('sessionLogLimit')).toBe(0);
-    expect(get('activeSkin')).toBe('clean');
+    expect(get('density')).toBe('normal');
     expect(isSetupComplete()).toBe(false);
   });
 });
@@ -333,7 +331,6 @@ describe('profiles', () => {
   it('should save and retrieve custom profiles', () => {
     saveProfile('myprofile', {
       provider: 'anthropic',
-      persona: 'calliope',
     });
     const p = getProfile('myprofile');
     expect(p).toBeDefined();
@@ -341,7 +338,7 @@ describe('profiles', () => {
   });
 
   it('should delete custom profiles', () => {
-    saveProfile('todelete', { provider: 'google', persona: 'minimal' });
+    saveProfile('todelete', { provider: 'google' });
     expect(deleteProfile('todelete')).toBe(true);
     expect(getProfile('todelete')).toBeUndefined();
   });
@@ -352,7 +349,7 @@ describe('profiles', () => {
   });
 
   it('should list all profiles', () => {
-    saveProfile('custom1', { provider: 'openai', persona: 'calliope' });
+    saveProfile('custom1', { provider: 'openai' });
     const list = listProfiles();
     const names = list.map(p => p.name);
     expect(names).toContain('fast');

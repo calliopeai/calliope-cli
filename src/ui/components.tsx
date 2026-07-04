@@ -8,7 +8,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { getCurrentSkin, getSpinnerFrames, getInkColor } from '../hud/api.js';
-import { getThinkingPhrase, getToolLabel, getMoodText } from '../companions.js';
 import type { ThinkingState, ActivityState } from './types.js';
 
 // ============================================================================
@@ -261,7 +260,6 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
   const [elapsed, setElapsed] = useState(0);
   const startTime = useRef(Date.now());
   const spinFrames = getStateSpinner('thinking');
-  const [immersionPhrase] = useState(() => getThinkingPhrase());
   const [animStyle] = useState(() => getAnimationStyle());
   const { stdout } = useStdout();
   const termWidth = stdout?.columns || 80;
@@ -278,7 +276,7 @@ export function ThinkingDisplay({ state }: { state: ThinkingState }) {
     return () => clearInterval(timer);
   }, []);
 
-  const displayStatus = immersionPhrase || state.status;
+  const displayStatus = state.status;
   const animWidth = Math.min(termWidth - 4, 40);
 
   // Build animation lines based on style

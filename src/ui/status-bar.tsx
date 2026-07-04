@@ -12,7 +12,6 @@ import { MODE_CONFIG } from '../types.js';
 import type { LLMProvider, Mode } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { Separator } from './components.js';
-import { getMoodText, getCurrentCompanion } from '../companions.js';
 import { getInkColor } from '../hud/api.js';
 import { getGitStatus } from '../git-status.js';
 import type { SessionStats } from './types.js';
@@ -100,15 +99,11 @@ function StatusBarInner({
         {gitBranch ? <>{' │ '}<Text dimColor>{gitBranch}{gitInfo!.dirty ? '*' : ''}</Text></> : null}
         {breakerHealth ? <>{' │ '}{healthIndicator}</> : null}
         {smartRouteActive ? <>{' │ '}<Text color={accentColor}>SMART</Text></> : null}
-        {isNarrow ? null : <>
-          {' │ '}
-          <Text dimColor>{getMoodText()}</Text>
-        </>}
       </Text>
     </Box>
   );
 }
 
-// Memoized so input keystrokes don't re-render the status bar. Mood/git refresh
+// Memoized so input keystrokes don't re-render the status bar. Git/stats refresh
 // when any prop (most commonly stats) ticks during agent activity.
 export const StatusBar = React.memo(StatusBarInner);

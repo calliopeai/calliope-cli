@@ -21,12 +21,12 @@ import { parseFileReferences, processFilesForMessage, formatFileInfo } from '../
 import * as memory from '../memory.js';
 import * as hooks from '../hooks.js';
 import * as summarization from '../summarization.js';
-import type { Message as LLMMessage, LLMProvider, AgentPersona, Mode, MessageContent } from '../types.js';
+import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../types.js';
 import type { ModelInfo } from '../model-detection.js';
-import { getCurrentSkin, getCurrentPalette, paletteColorize, applySkin, applyPalette } from '../hud/api.js';
+import { getCurrentSkin, paletteColorize } from '../hud/api.js';
 import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
 import { HUDFrame } from './frame.js';
-import { getCurrentCompanion, applyCompanion, setEmojiConfig } from '../companions.js';
+import { setEmojiConfig } from '../styles.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../smart-router.js';
@@ -57,7 +57,7 @@ import { runAgentImpl, runLoopImpl, validateAndRepairMessagesImpl } from './agen
 import type { AgentContext } from './agent.js';
 import { resolveIterationLimit } from '../iteration-limit.js';
 
-// Wire emoji config at module load (breaks circular dep: companions → config)
+// Wire emoji config at module load (breaks circular dep: styles → config)
 setEmojiConfig(config);
 
 let pendingRestartArgs: string[] | null = null;
@@ -222,7 +222,6 @@ function TerminalChat() {
     (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider'));
   const [model, setModel] = useState<string | undefined>(() =>
     process.env.CALLIOPE_MODEL || config.get('defaultModel'));
-  const [persona, setPersona] = useState<AgentPersona>(() => config.get('persona'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
   const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split' | 'zen' | 'focus' | 'dashboard' | 'minimal'>(() => config.get('layout') || 'response-bottom');
@@ -302,23 +301,8 @@ function TerminalChat() {
 
   // LLM conversation history
   const llmMessages = useRef<LLMMessage[]>([
-    { role: 'system', content: getSystemPrompt(persona) }
+    { role: 'system', content: getSystemPrompt() }
   ]);
-
-  // Keep system prompt in sync when persona changes (fixes #46 - persona lost on model fallback)
-  useEffect(() => {
-    const firstMsg = llmMessages.current[0];
-    if (firstMsg && firstMsg.role === 'system') {
-      // Preserve any appended memory context
-      const currentContent = typeof firstMsg.content === 'string' ? firstMsg.content : '';
-      const memoryIdx = currentContent.indexOf('\n\n--- Project Context ---\n');
-      const memoryPart = memoryIdx >= 0 ? currentContent.slice(memoryIdx) : '';
-      llmMessages.current[0] = {
-        role: 'system',
-        content: getSystemPrompt(persona) + memoryPart,
-      };
-    }
-  }, [persona]);
 
   // Estimate context tokens (conservative: ~2.5 chars per token + 1.35x overhead)
   const estimateContextTokens = useCallback(() => {
@@ -594,7 +578,6 @@ function TerminalChat() {
     actualModel,
     provider,
     model,
-    persona,
     mode,
     confirmMode,
     autoRoute,
@@ -619,7 +602,6 @@ function TerminalChat() {
 
     setProvider,
     setModel,
-    setPersona,
     setMode,
     setConfirmMode,
     setAutoRoute,
@@ -672,7 +654,7 @@ function TerminalChat() {
       });
     },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [actualProvider, actualModel, provider, model, persona, mode, confirmMode, autoRoute, smartRouteActive,
+  }), [actualProvider, actualModel, provider, model, mode, confirmMode, autoRoute, smartRouteActive,
        layout, density, collapseSettings, messages, stats, loopActive, isProcessing,
        thinkingState, streamingResponse, queuedMessages, bookmarks, templates, modalMode,
        addMessage, estimateContextTokens, saveUndoState, runAgent, runLoop, exit]);
@@ -983,7 +965,7 @@ function TerminalChat() {
   // Streaming response component (reused across layouts)
   const StreamingResponseBox = streamingResponse ? (
     <Box flexDirection="column">
-      <Text color="cyan">✧ {getCurrentCompanion().name}:</Text>
+      <Text color="cyan">✧ Calliope:</Text>
       {streamingResponse.split('\n').map((line, i) => (
         <Text key={i}><Text color="blue">│</Text> {line}</Text>
       ))}
@@ -1080,7 +1062,7 @@ function TerminalChat() {
       {layout === 'dashboard' && (
         <>
           <Text dimColor>
-            {'  '}{stats.inputTokens ? `tokens: ${stats.inputTokens}/${stats.outputTokens}` : ''}{stats.cost ? ` | cost: $${stats.cost.toFixed(4)}` : ''}{model ? ` | ${model}` : ''}{` | ${getCurrentCompanion().name}`}
+            {'  '}{stats.inputTokens ? `tokens: ${stats.inputTokens}/${stats.outputTokens}` : ''}{stats.cost ? ` | cost: $${stats.cost.toFixed(4)}` : ''}{model ? ` | ${model}` : ''}
           </Text>
           {StreamingResponseBox}
           {ProcessingBox}
@@ -1169,7 +1151,7 @@ function TerminalChat() {
               if (history.length > 0) {
                 llmMessages.current.length = 0;
                 const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
-                const basePrompt = getSystemPrompt(persona);
+                const basePrompt = getSystemPrompt();
                 const memoryContext = memory.buildMemoryContext(activeCwd);
                 llmMessages.current.push({
                   role: 'system',
@@ -1402,12 +1384,8 @@ export async function printBanner(): Promise<void> {
     }
   }
 
-  const companion = getCurrentCompanion();
   console.log(`${dim}  v${getVersion()} | ${provider}:${model}${reset}`);
   console.log(`${dim}  /help for commands | ESC to exit${reset}`);
-  if (companion.greeting) {
-    console.log(`${dim}  ${companion.greeting}${reset}`);
-  }
   console.log();
 }
 

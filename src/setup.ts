@@ -6,7 +6,7 @@
 
 import { input, select, confirm, password } from '@inquirer/prompts';
 import * as config from './config.js';
-import type { LLMProvider, AgentPersona } from './config.js';
+import type { LLMProvider } from './config.js';
 import { color as c } from './styles.js';
 
 const BANNER = `
@@ -216,20 +216,6 @@ export async function runSetup(force = false): Promise<boolean> {
     }
   }
 
-  // Persona selection
-  console.log();
-  const personaChoice = await select({
-    message: 'Choose Calliope\'s personality:',
-    choices: [
-      { value: 'calliope', name: 'Calliope (Recommended)', description: 'Clear, concise, and thorough' },
-      { value: 'muse', name: 'Muse (Poetic)', description: 'Creative with artistic flair' },
-      { value: 'minimal', name: 'Minimal', description: 'Extremely brief and efficient' },
-    ],
-    default: 'calliope',
-  });
-
-  config.set('persona', personaChoice as AgentPersona);
-
   // Fancy output
   console.log();
   const fancyOutput = await confirm({
@@ -259,7 +245,6 @@ export async function runSetup(force = false): Promise<boolean> {
   console.log(c('  Setup complete!', 'green'));
   console.log();
   console.log(`  ${c('Provider:', 'dim')} ${c(providerChoice, 'cyan')}`);
-  console.log(`  ${c('Persona:', 'dim')} ${c(personaChoice, 'magenta')}`);
   console.log(`  ${c('Config:', 'dim')} ${c(config.getConfigPath(), 'dim')}`);
   console.log();
   console.log(c('  Type your first message to begin, or /help for commands.', 'dim'));

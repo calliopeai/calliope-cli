@@ -974,34 +974,9 @@ describe('configure tool', () => {
       makeTool('configure', { action: 'list', category: 'all' }),
       tmpDir,
     );
-    expect(result.result).toContain('SKINS');
-    expect(result.result).toContain('PALETTES');
-    expect(result.result).toContain('COMPANIONS');
-  });
-
-  it('should list skins category only', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'list', category: 'skins' }),
-      tmpDir,
-    );
-    expect(result.result).toContain('SKINS');
-    expect(result.result).not.toContain('PALETTES');
-  });
-
-  it('should list palettes category only', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'list', category: 'palettes' }),
-      tmpDir,
-    );
-    expect(result.result).toContain('PALETTES');
-  });
-
-  it('should list companions category only', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'list', category: 'companions' }),
-      tmpDir,
-    );
-    expect(result.result).toContain('COMPANIONS');
+    expect(result.result).toContain('PROVIDERS');
+    expect(result.result).toContain('LAYOUTS');
+    expect(result.result).toContain('CURRENT SETTINGS');
   });
 
   it('should list providers category only', async () => {
@@ -1020,39 +995,13 @@ describe('configure tool', () => {
     expect(result.result).toContain('LAYOUTS');
   });
 
-  it('should return error when setting invalid skin', async () => {
+  it('should reject setting a key that is not in the allowlist', async () => {
     const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'activeSkin', value: 'nonexistent_skin_xyz' }),
+      makeTool('configure', { action: 'set', key: 'activeSkin', value: 'anything' }),
       tmpDir,
     );
     expect(result.isError).toBe(true);
-    expect(result.result).toContain('not found');
-  });
-
-  it('should return error when setting invalid palette', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'activePalette', value: 'nonexistent_palette_xyz' }),
-      tmpDir,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.result).toContain('not found');
-  });
-
-  it('should return error when setting invalid companion', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'activeCompanion', value: 'nonexistent_companion_xyz' }),
-      tmpDir,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.result).toContain('not found');
-  });
-
-  it('should set a valid companion', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'activeCompanion', value: 'calliope' }),
-      tmpDir,
-    );
-    expect(result.result).toContain('calliope');
+    expect(result.result).toContain('cannot be set through conversation');
   });
 });
 

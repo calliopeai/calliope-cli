@@ -15,7 +15,6 @@ vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
-    if (key === 'persona') return 'default';
     return undefined;
   }),
   getApiKey: vi.fn(),

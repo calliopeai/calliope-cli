@@ -15,8 +15,6 @@ import * as nativeSandbox from './sandbox-native.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
-import { applySkin, applyPalette, listSkins, listPalettes } from './hud/api.js';
-import { listCompanions } from './companions.js';
 import { generateDiff as generateFileDiff } from './diff.js';
 import { scuttlebotClient } from './scuttlebot/index.js';
 
@@ -275,12 +273,11 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'configure',
-    description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, companions, or any preference through natural conversation. Always use action "list" first if you need to show available options.
+    description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, or any preference through natural conversation. Always use action "list" first if you need to show available options.
 
 CONFIGURABLE SETTINGS:
 - defaultProvider: AI provider (anthropic, google, openai, together, openrouter, groq, fireworks, mistral, ollama, ai21, huggingface, litellm, bedrock, auto)
 - defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-6", "gemini-2.0-flash", "gpt-4o")
-- persona: Agent persona style (calliope, muse, minimal)
 - maxIterations: Max agent loop iterations (0 = unlimited)
 - maxIterationTime: Max seconds per iteration (0 = no limit, default: 600)
 - fancyOutput: Enable rich formatting (true/false)
@@ -291,10 +288,6 @@ CONFIGURABLE SETTINGS:
 - toolDisplayLimit: Show last N tools expanded (0 = all)
 - layout: UI layout (classic, response-top, response-bottom, split, zen, focus, dashboard, minimal)
 - density: Display density (normal, compact)
-- activeSkin: Terminal skin/theme name (use action "list" category "skins" to see options)
-- activePalette: Color palette name (use action "list" category "palettes" to see options)
-- activeCompanion: AI companion personality (use action "list" category "companions" to see options)
-- companionIntensity: Companion personality level (professional, immersive)
 - useEmojis: Show emojis in UI (true/false)
 - diffStyle: Diff display format (inline, unified, side-by-side)
 - borderStyle: UI border style (rounded, sharp, double, ascii, none)
@@ -321,8 +314,8 @@ CONFIGURABLE SETTINGS:
         },
         category: {
           type: 'string',
-          description: 'Category to list options for (for list action): skins, palettes, companions, providers, layouts, all',
-          enum: ['skins', 'palettes', 'companions', 'providers', 'layouts', 'all'],
+          description: 'Category to list options for (for list action): providers, layouts, all',
+          enum: ['providers', 'layouts', 'all'],
         },
       },
       required: ['action'],
@@ -537,27 +530,6 @@ export async function executeTool(
           const category = (args.category as string) || 'all';
           const sections: string[] = [];
 
-          if (category === 'skins' || category === 'all') {
-            const skins = listSkins();
-            const current = config.get('activeSkin');
-            sections.push('SKINS (activeSkin):\n' + skins.map(s =>
-              `  ${s.name === current ? '→ ' : '  '}${s.name} - ${s.description}`
-            ).join('\n'));
-          }
-          if (category === 'palettes' || category === 'all') {
-            const palettes = listPalettes();
-            const current = config.get('activePalette');
-            sections.push('PALETTES (activePalette):\n' + palettes.map(p =>
-              `  ${p.name === current ? '→ ' : '  '}${p.name} - ${p.description}`
-            ).join('\n'));
-          }
-          if (category === 'companions' || category === 'all') {
-            const companions = listCompanions();
-            const current = config.get('activeCompanion');
-            sections.push('COMPANIONS (activeCompanion):\n' + companions.map(c =>
-              `  ${c.name === current ? '→ ' : '  '}${c.name} - ${c.description}`
-            ).join('\n'));
-          }
           if (category === 'providers' || category === 'all') {
             const providers = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'ai21', 'huggingface', 'litellm', 'bedrock', 'auto'];
             const current = config.get('defaultProvider');
@@ -577,7 +549,6 @@ export async function executeTool(
             // Also show current key settings
             const currentSettings = [
               `density: ${config.get('density')}`,
-              `companionIntensity: ${config.get('companionIntensity')}`,
               `useEmojis: ${config.get('useEmojis')}`,
               `diffStyle: ${config.get('diffStyle')}`,
               `borderStyle: ${config.get('borderStyle')}`,
@@ -615,12 +586,11 @@ export async function executeTool(
 
         // Only allow setting safe keys through conversation (allowlist)
         const SAFE_CONFIG_KEYS = new Set([
-          'defaultProvider', 'defaultModel', 'persona', 'maxIterations', 'maxIterationTime',
+          'defaultProvider', 'defaultModel', 'maxIterations', 'maxIterationTime',
           'fancyOutput', 'autoSaveHistory', 'autoUpgrade',
           'collapseTools', 'collapseThinking', 'toolDisplayLimit',
           'layout', 'density',
-          'activeSkin', 'activePalette', 'activeCompanion',
-          'companionIntensity', 'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
+          'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
           'circuitBreakersEnabled', 'sandboxMode',
           'smartRoutingEnabled', 'smartRoutingCostSensitivity',
           'sessionLogLimit',
@@ -637,32 +607,6 @@ export async function executeTool(
         else if (/^\d+(\.\d+)?$/.test(rawValue)) parsedValue = Number(rawValue);
 
         try {
-          // Special handling for HUD settings that need apply functions
-          if (key === 'activeSkin') {
-            const success = applySkin(rawValue);
-            if (!success) {
-              return { toolCallId: id, result: `Error: skin "${rawValue}" not found. Use action "list" category "skins" to see available skins.`, isError: true };
-            }
-            result = `Skin changed to "${rawValue}"`;
-            break;
-          }
-          if (key === 'activePalette') {
-            const success = applyPalette(rawValue);
-            if (!success) {
-              return { toolCallId: id, result: `Error: palette "${rawValue}" not found. Use action "list" category "palettes" to see available palettes.`, isError: true };
-            }
-            result = `Palette changed to "${rawValue}"`;
-            break;
-          }
-          if (key === 'activeCompanion') {
-            if (!listCompanions().some(c => c.name === rawValue)) {
-              return { toolCallId: id, result: `Error: companion "${rawValue}" not found. Use action "list" category "companions" to see available companions.`, isError: true };
-            }
-            config.set('activeCompanion', rawValue);
-            result = `Companion changed to "${rawValue}"`;
-            break;
-          }
-
           // Generic config set
           config.set(key as keyof import('./config.js').CalliopeConfig, parsedValue as never);
           result = `Set ${key} = ${JSON.stringify(parsedValue)}`;

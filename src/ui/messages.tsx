@@ -9,7 +9,6 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import type { BoxProps } from 'ink';
 import { renderMarkdown } from '../markdown.js';
-import { getToolLabel, getCurrentCompanion } from '../companions.js';
 import { getCurrentSkin, getInkBorderStyle, getInkColor } from '../hud/api.js';
 import type { UIMessage, CollapseSettings } from './types.js';
 
@@ -84,13 +83,12 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
       }, []);
 
       const hasBorders = skin.borders.style !== 'none';
-      const companionName = getCurrentCompanion().name;
 
       if (hasBorders) {
         const bStyle = getInkBorderStyle(skin) as BoxProps['borderStyle'];
         return (
           <Box flexDirection="column" marginTop={1} marginBottom={1}>
-            <Text color={assistantColor}>{skin.decorations.assistantPrefix}{companionName}:</Text>
+            <Text color={assistantColor}>{skin.decorations.assistantPrefix}Calliope:</Text>
             <Box
               flexDirection="column"
               borderStyle={bStyle}
@@ -107,7 +105,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
 
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
-          <Text color={assistantColor}>{skin.decorations.assistantPrefix || '●'} {companionName}:</Text>
+          <Text color={assistantColor}>{skin.decorations.assistantPrefix || '●'} Calliope:</Text>
           {lines.map((line, i) => (
             <Text key={i}><Text color={borderColor}>{skin.decorations.separator || '│'}</Text> {line}</Text>
           ))}
@@ -140,10 +138,9 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
         if (match) {
           const [, toolName, preview] = match;
           const icon = getToolIcon(toolName);
-          const immersionLabel = getToolLabel(toolName);
           return (
             <Box flexDirection="column">
-              <Text><Text color={borderColor}>╭─</Text> {icon} <Text color={accentColor}>{toolName}</Text>{immersionLabel ? <Text dimColor> {immersionLabel}</Text> : null}</Text>
+              <Text><Text color={borderColor}>╭─</Text> {icon} <Text color={accentColor}>{toolName}</Text></Text>
               <Text><Text color={borderColor}>│</Text>  <Text dimColor>{preview}</Text></Text>
             </Box>
           );

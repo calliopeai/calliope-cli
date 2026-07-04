@@ -22,7 +22,6 @@ import { scuttlebotClient } from '../scuttlebot/index.js';
 import * as summarization from '../summarization.js';
 import { autoCompress } from '../auto-compressor.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
-import { setMood } from '../companions.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { IterationData, BreakerCheckResult } from '../circuit-breaker.js';
@@ -183,7 +182,6 @@ export function validateAndRepairMessagesImpl(ctx: AgentContext): boolean {
  */
 export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<void> {
   ctx.debugLog('runAgent', 'ENTER', typeof content === 'string' ? content.substring(0, 50) : '[complex]');
-  setMood('thinking');
 
   // Validate message history before adding new content
   ctx.validateAndRepairMessages();
@@ -721,7 +719,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.setStreamingResponse('');
       ctx.setContextTokens(ctx.estimateContextTokens());
       checkAndWarnContextLimit(ctx.actualProvider as LLMProvider, ctx.actualModel, ctx.estimateContextTokens(), ctx.addMessage);
-      setMood('success');
 
       // Auto-continue if response was truncated due to length
       if (response.finishReason === 'length') {
@@ -749,7 +746,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.ledger?.endIteration('error');
 
       // Format error with provider context for better suggestions
-      setMood('error');
       const errorMsg = formatError(error, { provider: ctx.actualProvider });
       ctx.addMessage('error', errorMsg);
 
@@ -875,7 +871,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
  */
 export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: number, completionPromise?: string): Promise<void> {
   ctx.setIsProcessing(true);
-  setMood('focused');
 
   // Prevent system sleep during long agent loops (macOS)
   startPreventSleep();

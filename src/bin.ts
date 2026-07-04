@@ -86,13 +86,8 @@ function parseMaxRetries(): number {
 }
 const maxRetries = parseMaxRetries();
 
-// HUD environment variable overrides
-const envSkin = process.env.CALLIOPE_SKIN;
-const envPalette = process.env.CALLIOPE_PALETTE;
-const envCompanion = process.env.CALLIOPE_COMPANION;
-
 // Export for CLI to access
-export { skipPermissions, useHeadless, envSkin, envPalette, envCompanion, maxRetries };
+export { skipPermissions, useHeadless, maxRetries };
 
 // ---------------------------------------------------------------------------
 // Graceful shutdown + top-level error handling
@@ -260,18 +255,9 @@ async function main(): Promise<void> {
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
-  // Initialize HUD (skin + palette + companion)
-  const { applySkin, applyPalette } = await import('./hud/api.js');
-  const { applyCompanion } = await import('./companions.js');
-
-
-  const skinName = envSkin || config.get('activeSkin') || 'clean';
-  const paletteName = envPalette || config.get('activePalette') || 'default';
-  const companionName = envCompanion || config.get('activeCompanion') || 'calliope';
-
-  applySkin(skinName);
-  applyPalette(paletteName);
-  applyCompanion(companionName);
+  // Initialize HUD palette from the persisted theme (dark/light/no-color).
+  const { applyCurrentTheme } = await import('./themes.js');
+  applyCurrentTheme();
 
   // Merge in global flags
   const fullOptions = {
@@ -343,16 +329,12 @@ ${bold('ENVIRONMENT VARIABLES')}
   OPENAI_COMPAT_BASE_URL   Generic OpenAI-compatible server URL (e.g. http://localhost:1234/v1)
   OPENAI_COMPAT_API_KEY    API key for the OpenAI-compatible server (if required)
 
-  CALLIOPE_SKIN         Override active skin (e.g. falcon, matrix)
-  CALLIOPE_PALETTE      Override active palette (e.g. neon, pastel)
-  CALLIOPE_COMPANION    Override active companion (e.g. copilot, wopr)
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
 
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands
   /provider         Switch AI provider
   /model            Change model
-  /persona          Change personality
   /loop             Start autonomous agent loop
   /save             Save session
   /exit             Exit
