@@ -101,14 +101,6 @@ vi.mock('../src/terminal-image.js', () => ({
   colorFg: vi.fn((c: string) => c),
   renderTransition: vi.fn(),
 }));
-vi.mock('../src/hud/theme-packs/api.js', () => ({
-  applyThemePack: vi.fn(),
-  listThemePacks: vi.fn(() => []),
-  getCurrentPack: vi.fn(() => null),
-  getCompanionMode: vi.fn(() => 'default'),
-  setCompanionMode: vi.fn(),
-  getThemePack: vi.fn(),
-}));
 vi.mock('../src/version-check.js', () => ({
   getVersion: vi.fn(() => '0.8.20'),
   getLatestVersion: vi.fn(),

@@ -27,7 +27,6 @@ import { getCurrentSkin, getCurrentPalette, applySkin, applyPalette, listSkins, 
 import { getCurrentCompanion, applyCompanion, listCompanions, getMoodText } from '../companions.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
 import { getTerminalImageInfo, getImageModeLabel, renderSkinBanner, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
-import { applyThemePack, listThemePacks, getCurrentPack, getCompanionMode, setCompanionMode, getThemePack } from '../hud/theme-packs/api.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
 import * as memory from '../memory.js';
@@ -263,12 +262,10 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
   /skin [name]               - Switch HUD skin (${(await import('../hud/api.js')).listSkins().length}+ available)
   /palette [name]            - Switch color palette
   /companion [name]          - Switch companion personality
-  /pack [name]               - Apply theme pack (skin+palette+companion)
   /theme [name]              - Color themes
   /layout [name]             - UI layout (classic/split/etc)
   /density [normal|compact]  - Display density
   /collapse [tools|all|off]  - Tool output visibility
-  /intensity [1-5]           - Immersion level
   /emoji [on|off]            - Toggle emoji
   /banner                    - Show skin banner art
 
@@ -1108,10 +1105,7 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
     case '/theme': {
       const subCmd = parts[1];
 
-      if (!subCmd) {
-        // Open interactive theme picker
-        ctx.setModalMode('theme-picker');
-      } else if (subCmd === 'list') {
+      if (!subCmd || subCmd === 'list') {
         const themes = await import('../themes.js');
         const list = themes.listThemes();
         const current = themes.getCurrentThemeName();
@@ -1224,108 +1218,15 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
       const hudSkin = getCurrentSkin();
       const hudPalette = getCurrentPalette();
       const hudCompanion = getCurrentCompanion();
-      const hudPack = getCurrentPack();
-      const hudIntensity = getCompanionMode();
       ctx.addMessage('system',
         `HUD Configuration\n` +
-        (hudPack ? `  Pack:      ${hudPack.name} — ${hudPack.description}\n` : '') +
         `  Skin:      ${hudSkin.name} — ${hudSkin.description}\n` +
         `  Palette:   ${hudPalette.name} — ${hudPalette.description}\n` +
         `  Companion: ${hudCompanion.name} — ${hudCompanion.description}\n` +
-        `  Intensity: ${hudIntensity}\n` +
         `  Emojis:    ${config.get('useEmojis') !== false ? 'ON' : 'OFF'}\n` +
         `  Mood:      ${getMoodText()}\n\n` +
-        `  /pack <name>  /intensity <pro|immersive>  /emoji [on|off]\n` +
-        `  /skin <name>  /palette <name>  /companion <name>`
+        `  /skin <name>  /palette <name>  /companion <name>  /emoji [on|off]`
       );
-      break;
-    }
-
-    case '/pack': {
-      const subCmd = parts[1];
-      if (!subCmd) {
-        ctx.setModalMode('pack-picker');
-        break;
-      }
-      if (subCmd === 'list') {
-        const category = parts[2] as any;
-        const packs = listThemePacks(category || undefined);
-        const currentP = getCurrentPack();
-        // Group by category
-        const grouped = new Map<string, typeof packs>();
-        for (const p of packs) {
-          const group = grouped.get(p.category) || [];
-          group.push(p);
-          grouped.set(p.category, group);
-        }
-        let output = 'Theme Packs:\n';
-        for (const [cat, catPacks] of grouped) {
-          output += `\n  [${cat}]\n`;
-          for (const p of catPacks) {
-            const marker = currentP && p.name === currentP.name ? ' *' : '';
-            output += `    ${p.name}${marker} — ${p.description}\n`;
-          }
-        }
-        output += '\nUse: /pack <name>';
-        ctx.addMessage('system', output);
-      } else {
-        // Run theme transition animation before applying
-        const targetPack = getThemePack(subCmd);
-        if (targetPack?.skin.splash?.transition) {
-          await renderTransition(targetPack.skin.splash.transition);
-        }
-        const success = applyThemePack(subCmd, getCompanionMode());
-        if (success) {
-          const pack = getCurrentPack()!;
-          config.set('activeThemePack', subCmd);
-          config.set('activeSkin', pack.skin.name);
-          config.set('activePalette', pack.palette.name);
-          const companion = getCompanionMode() === 'professional'
-            ? pack.companions.professional
-            : pack.companions.immersive;
-          config.set('activeCompanion', companion.name);
-          // Reset LLM system prompt to use the companion's persona
-          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
-          ctx.addMessage('system',
-            `Theme pack: ${subCmd}\n` +
-            `  Skin: ${pack.skin.name}, Palette: ${pack.palette.name}, Companion: ${companion.name}\n` +
-            `  "${companion.greeting}"`
-          );
-        } else {
-          ctx.addMessage('error', `Theme pack not found: ${subCmd}. Use /pack list to see available packs.`);
-        }
-      }
-      break;
-    }
-
-    case '/intensity': {
-      const intensity = parts[1];
-      if (intensity === 'professional' || intensity === 'pro') {
-        const success = setCompanionMode('professional');
-        if (success) {
-          const pack = getCurrentPack()!;
-          config.set('companionIntensity', 'professional');
-          config.set('activeCompanion', pack.companions.professional.name);
-          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
-          ctx.addMessage('system', `Switched to professional mode — ${pack.companions.professional.description}`);
-        } else {
-          ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
-        }
-      } else if (intensity === 'immersive' || intensity === 'imm') {
-        const success = setCompanionMode('immersive');
-        if (success) {
-          const pack = getCurrentPack()!;
-          config.set('companionIntensity', 'immersive');
-          config.set('activeCompanion', pack.companions.immersive.name);
-          ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(ctx.persona, getActiveProjectDir(ctx)) }];
-          ctx.addMessage('system', `Switched to immersive mode — ${pack.companions.immersive.description}`);
-        } else {
-          ctx.addMessage('error', 'No theme pack active. Use /pack <name> first.');
-        }
-      } else {
-        const currentIntensity = getCompanionMode();
-        ctx.addMessage('system', `Intensity: ${currentIntensity}\nOptions: /intensity professional (pro), /intensity immersive (imm)`);
-      }
       break;
     }
 

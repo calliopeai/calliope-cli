@@ -619,7 +619,7 @@ export async function executeTool(
           'fancyOutput', 'autoSaveHistory', 'autoUpgrade',
           'collapseTools', 'collapseThinking', 'toolDisplayLimit',
           'layout', 'density',
-          'activeSkin', 'activePalette', 'activeCompanion', 'activeThemePack',
+          'activeSkin', 'activePalette', 'activeCompanion',
           'companionIntensity', 'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
           'circuitBreakersEnabled', 'sandboxMode',
           'smartRoutingEnabled', 'smartRoutingCostSensitivity',

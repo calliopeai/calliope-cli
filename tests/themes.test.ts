@@ -45,12 +45,8 @@ beforeEach(() => {
 // ============================================================================
 
 describe('THEMES', () => {
-  it('should contain default, light, monokai, nord, and minimal themes', () => {
-    expect(THEMES.default).toBeDefined();
-    expect(THEMES.light).toBeDefined();
-    expect(THEMES.monokai).toBeDefined();
-    expect(THEMES.nord).toBeDefined();
-    expect(THEMES.minimal).toBeDefined();
+  it('should contain exactly dark, light, and no-color themes', () => {
+    expect(Object.keys(THEMES).sort()).toEqual(['dark', 'light', 'no-color']);
   });
 
   it('should have name and colors on each built-in theme', () => {
@@ -64,7 +60,7 @@ describe('THEMES', () => {
     }
   });
 
-  it('should have all expected color keys on the default theme', () => {
+  it('should have all expected color keys on the dark theme', () => {
     const colorKeys = [
       'primary', 'secondary', 'accent',
       'text', 'textDim', 'textBold',
@@ -75,17 +71,16 @@ describe('THEMES', () => {
       'border', 'background', 'selection',
     ];
     for (const key of colorKeys) {
-      expect(THEMES.default.colors).toHaveProperty(key);
+      expect(THEMES.dark.colors).toHaveProperty(key);
     }
   });
 
-  it('should map default theme from the default palette', () => {
-    expect(THEMES.default.name).toBe(PALETTES.default.name);
-    expect(THEMES.default.colors.primary).toBe(PALETTES.default.colors.primary);
+  it('should map dark theme from the default palette', () => {
+    expect(THEMES.dark.colors.primary).toBe(PALETTES.default.colors.primary);
   });
 
-  it('should map minimal theme from the monochrome palette', () => {
-    expect(THEMES.minimal.name).toBe(PALETTES.monochrome.name);
+  it('should map no-color theme from the monochrome palette', () => {
+    expect(THEMES['no-color'].colors.primary).toBe(PALETTES.monochrome.colors.primary);
   });
 });
 
@@ -100,11 +95,8 @@ describe('getCurrentThemeName', () => {
     expect(name.length).toBeGreaterThan(0);
   });
 
-  it('should return "default" when no theme file or an invalid theme is set', () => {
-    // If the theme file references an unknown theme, it falls back to default.
-    // We cannot easily control the file system here, but the function should not throw.
-    const name = getCurrentThemeName();
-    expect(typeof name).toBe('string');
+  it('should always return one of the three canonical names', () => {
+    expect(['dark', 'light', 'no-color']).toContain(getCurrentThemeName());
   });
 });
 
@@ -113,24 +105,22 @@ describe('getCurrentThemeName', () => {
 // ============================================================================
 
 describe('setCurrentTheme', () => {
-  it('should return true for a known palette name', () => {
-    expect(setCurrentTheme('default')).toBe(true);
+  it('should return true for dark', () => {
+    expect(setCurrentTheme('dark')).toBe(true);
   });
 
-  it('should return true for the light palette', () => {
+  it('should return true for light', () => {
     expect(setCurrentTheme('light')).toBe(true);
   });
 
-  it('should return true for the nord palette', () => {
-    expect(setCurrentTheme('nord')).toBe(true);
+  it('should return true for no-color', () => {
+    expect(setCurrentTheme('no-color')).toBe(true);
   });
 
-  it('should return true for the monokai palette', () => {
-    expect(setCurrentTheme('monokai')).toBe(true);
-  });
-
-  it('should return true for the legacy "minimal" theme name (maps to monochrome)', () => {
-    expect(setCurrentTheme('minimal')).toBe(true);
+  it('should return false for removed legacy names', () => {
+    expect(setCurrentTheme('nord')).toBe(false);
+    expect(setCurrentTheme('monokai')).toBe(false);
+    expect(setCurrentTheme('minimal')).toBe(false);
   });
 
   it('should return false for a completely unknown theme name', () => {
@@ -138,15 +128,13 @@ describe('setCurrentTheme', () => {
   });
 
   it('should persist the theme name so getCurrentThemeName returns it', () => {
-    setCurrentTheme('nord');
-    expect(getCurrentThemeName()).toBe('nord');
+    setCurrentTheme('light');
+    expect(getCurrentThemeName()).toBe('light');
   });
 
   it('should clear theme cache after setting', () => {
-    // Pre-load cache
     getTheme();
     setCurrentTheme('light');
-    // Cache should be cleared, new getTheme call should reflect 'light'
     const theme = getTheme();
     expect(theme.name).toBe('light');
   });
@@ -164,23 +152,16 @@ describe('getCurrentTheme', () => {
   });
 
   it('should return the theme matching getCurrentThemeName', () => {
-    setCurrentTheme('nord');
+    setCurrentTheme('no-color');
     const theme = getCurrentTheme();
-    expect(theme.name).toBe('nord');
+    expect(theme.name).toBe('no-color');
   });
 
   it('should return the correct theme after switching', () => {
     setCurrentTheme('light');
     expect(getCurrentTheme().name).toBe('light');
-    setCurrentTheme('monokai');
-    expect(getCurrentTheme().name).toBe('monokai');
-  });
-
-  it('should handle the minimal legacy mapping to monochrome', () => {
-    setCurrentTheme('minimal');
-    const theme = getCurrentTheme();
-    // minimal maps to monochrome palette
-    expect(theme.name).toBe('monochrome');
+    setCurrentTheme('dark');
+    expect(getCurrentTheme().name).toBe('dark');
   });
 
   it('should have all required color keys', () => {
@@ -201,39 +182,17 @@ describe('getCurrentTheme', () => {
 // ============================================================================
 
 describe('listThemes', () => {
-  it('should return a non-empty array', () => {
-    const themes = listThemes();
-    expect(themes.length).toBeGreaterThan(0);
-  });
-
-  it('should include the default palette as a theme', () => {
-    const themes = listThemes();
-    const def = themes.find(t => t.name === 'default');
-    expect(def).toBeDefined();
-    expect(def!.custom).toBe(false);
-  });
-
-  it('should include the light palette as a theme', () => {
-    const themes = listThemes();
-    const light = themes.find(t => t.name === 'light');
-    expect(light).toBeDefined();
+  it('should return exactly the three built-in themes', () => {
+    const names = listThemes().map(t => t.name).sort();
+    expect(names).toEqual(['dark', 'light', 'no-color']);
   });
 
   it('should have name, description, and custom on every entry', () => {
-    const themes = listThemes();
-    for (const theme of themes) {
+    for (const theme of listThemes()) {
       expect(theme).toHaveProperty('name');
       expect(typeof theme.name).toBe('string');
-      expect(theme).toHaveProperty('custom');
-      expect(typeof theme.custom).toBe('boolean');
-    }
-  });
-
-  it('should list all palette names', () => {
-    const themes = listThemes();
-    const names = themes.map(t => t.name);
-    for (const paletteName of Object.keys(PALETTES)) {
-      expect(names).toContain(paletteName);
+      expect(theme).toHaveProperty('description');
+      expect(theme.custom).toBe(false);
     }
   });
 });
@@ -264,13 +223,13 @@ describe('getTheme', () => {
   });
 
   it('should reflect theme changes after cache clear', () => {
-    setCurrentTheme('default');
+    setCurrentTheme('dark');
     const t1 = getTheme();
-    expect(t1.name).toBe('default');
+    expect(t1.name).toBe('dark');
 
-    setCurrentTheme('nord');
+    setCurrentTheme('no-color');
     const t2 = getTheme();
-    expect(t2.name).toBe('nord');
+    expect(t2.name).toBe('no-color');
   });
 });
 
@@ -288,10 +247,10 @@ describe('clearThemeCache', () => {
     const theme1 = getTheme();
     expect(theme1.name).toBe('light');
 
-    setCurrentTheme('nord');
+    setCurrentTheme('dark');
     // setCurrentTheme already calls clearThemeCache, so getTheme should reflect the change
     const theme2 = getTheme();
-    expect(theme2.name).toBe('nord');
+    expect(theme2.name).toBe('dark');
   });
 });
 

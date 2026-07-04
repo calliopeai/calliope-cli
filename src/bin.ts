@@ -262,11 +262,8 @@ async function main(): Promise<void> {
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
   // Initialize HUD (skin + palette + companion)
   const { applySkin, applyPalette } = await import('./hud/api.js');
-  const { populateLegacyRegistries } = await import('./hud/theme-packs/api.js');
   const { applyCompanion } = await import('./companions.js');
 
-  // Populate legacy registries from theme packs (optional @calliopelabs/cli-themes)
-  await populateLegacyRegistries();
 
   const skinName = envSkin || config.get('activeSkin') || 'clean';
   const paletteName = envPalette || config.get('activePalette') || 'default';

@@ -71,8 +71,6 @@ export const SLASH_COMMANDS = [
   '/palette',
   '/companion',
   '/hud',
-  '/pack',
-  '/intensity',
   '/emoji',
   '/breaker', '/cb',
   '/smart',
