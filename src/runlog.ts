@@ -61,6 +61,8 @@ export interface RunStartPayload {
   model: string;
   /** Config snapshot with credentials stripped (never contains apiKey/token values). */
   config: Record<string, unknown>;
+  /** How the session was driven: e.g. 'headless', 'acp'. Omitted for the default TUI. */
+  mode?: string;
 }
 
 export interface AssistantMessagePayload {

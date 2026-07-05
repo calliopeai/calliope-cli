@@ -164,6 +164,17 @@ async function main(): Promise<void> {
     process.exit(code);
   }
 
+  // Handle `acp` subcommand — run as an Agent Client Protocol agent over stdio
+  // JSON-RPC (Zed, JetBrains, Neovim, …). Runs before the setup/TUI gates and
+  // never touches Ink: stdio carries the protocol, so an interactive prompt
+  // would corrupt it. The module (and the ACP SDK) is loaded lazily here so the
+  // default path pays nothing for it.
+  if (args[0] === 'acp') {
+    const { runAcpAgent } = await import('./acp.js');
+    const code = await runAcpAgent();
+    process.exit(code);
+  }
+
   // Handle --upgrade
   if (args.includes('--upgrade') || args.includes('-u')) {
     const current = getVersion();
@@ -303,6 +314,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 ${bold('USAGE')}
   calliope [options] [prompt]
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
+  calliope acp                                 Run as an ACP agent over stdio (for editors)
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message
