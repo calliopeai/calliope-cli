@@ -1,0 +1,100 @@
+name: Release binaries
+
+# Builds the standalone single binaries (issue #187) and attaches them to a
+# GitHub Release. STAGED: this only runs when a Release is *published* — it is
+# never dispatched manually and creates no tags itself. Publishing a release
+# (e.g. the tag cut by the npm publish flow) is what fans this out.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # darwin builds on macOS (arm64 native, x64 cross-compiled by Bun).
+          - { target: bun-darwin-arm64, asset: darwin-arm64, os: macos-14 }
+          - { target: bun-darwin-x64,   asset: darwin-x64,   os: macos-14 }
+          # linux builds on Ubuntu (x64 native, arm64 cross-compiled by Bun).
+          - { target: bun-linux-x64,    asset: linux-x64,    os: ubuntu-latest }
+          - { target: bun-linux-arm64,  asset: linux-arm64,  os: ubuntu-latest }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build TypeScript (dist/bin.js is the bundle entrypoint)
+        run: npm run build
+
+      - name: Compile single binary
+        run: bun packaging/build-binary.mjs --target ${{ matrix.target }}
+
+      - name: Resolve version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Stage release asset + checksum
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          asset="calliope-${version}-${{ matrix.asset }}"
+          mkdir -p out
+          cp "packaging/dist/calliope-${{ matrix.asset }}" "out/${asset}"
+          chmod +x "out/${asset}"
+          ( cd out && shasum -a 256 "${asset}" > "${asset}.sha256" )
+          cat "out/${asset}.sha256"
+
+      - name: Attach binary to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/calliope-${{ steps.version.outputs.version }}-${{ matrix.asset }}
+
+      - name: Upload checksum for aggregation
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksum-${{ matrix.asset }}
+          path: out/calliope-${{ steps.version.outputs.version }}-${{ matrix.asset }}.sha256
+
+  checksums:
+    name: Aggregate checksums.txt
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download per-asset checksums
+        uses: actions/download-artifact@v4
+        with:
+          pattern: checksum-*
+          path: sums
+          merge-multiple: true
+
+      - name: Aggregate into checksums.txt
+        run: |
+          set -euo pipefail
+          cat sums/*.sha256 | sort -k2 > checksums.txt
+          echo "── checksums.txt ──"
+          cat checksums.txt
+
+      - name: Attach checksums.txt to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: checksums.txt

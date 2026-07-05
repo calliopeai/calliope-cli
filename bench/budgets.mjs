@@ -21,9 +21,15 @@ export const CI_TIME_MULTIPLIER = 2;
 export const BASE_BUDGETS = {
   // Bench 1 — cold start. Gated on the network-free `--help` and `--config`
   // paths plus `--version` first-byte (the version string prints before the
-  // npm update-check). Interim node-runtime budget; #187 replaces the gated
-  // artifact with the compiled binary and tightens this to 150ms.
+  // npm update-check). This is the interim node-runtime budget (`node
+  // dist/bin.js`), the default for `npm run bench`.
   coldStartMedianMs: 200,
+
+  // Bench 1, binary mode — the compiled single binary (#187). Selected by
+  // cold-start.mjs when CALLIOPE_BENCH_BINARY=<path> is set (see `bench:binary`).
+  // The binary embeds the runtime, so startup is faster than `node dist/bin.js`;
+  // the budget tightens to 150ms accordingly.
+  coldStartBinaryMedianMs: 150,
 
   // Bench 2 — keystroke-to-paint. p95 of stdin.write -> frame-containing-char,
   // measured unthrottled (ink-testing-library debug mode). One 60fps frame.
@@ -44,7 +50,7 @@ export const BASE_BUDGETS = {
   memoryAbsoluteGrowthMb: 40,
 };
 
-const TIME_KEYS = new Set(['coldStartMedianMs', 'keystrokeP95Ms']);
+const TIME_KEYS = new Set(['coldStartMedianMs', 'coldStartBinaryMedianMs', 'keystrokeP95Ms']);
 
 /** Effective budget for a key, applying the CI time multiplier where relevant. */
 export function budget(key) {

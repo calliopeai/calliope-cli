@@ -190,6 +190,29 @@ describe('version-check module', () => {
       const version = getVersion();
       expect(version).toBe('0.0.0');
     });
+
+    // Compiled single-binary builds (#187) inject the version at bundle time via
+    // a Bun `define` on `globalThis.__CALLIOPE_BINARY_VERSION__`, because the
+    // binary cannot read package.json from its virtual filesystem. These tests
+    // cover both the injected-value branch and the empty-value fall-through.
+    describe('single-binary injected version', () => {
+      const KEY = '__CALLIOPE_BINARY_VERSION__';
+      afterEach(() => {
+        delete (globalThis as Record<string, unknown>)[KEY];
+      });
+
+      it('should return the compile-time injected version when present', async () => {
+        (globalThis as Record<string, unknown>)[KEY] = '9.9.9-binary';
+        const { getVersion } = await import('../src/version-check.js');
+        expect(getVersion()).toBe('9.9.9-binary');
+      });
+
+      it('should ignore an empty injected version and fall back to package.json', async () => {
+        (globalThis as Record<string, unknown>)[KEY] = '';
+        const { getVersion } = await import('../src/version-check.js');
+        expect(getVersion()).toMatch(/^\d+\.\d+\.\d+/);
+      });
+    });
   });
 
   // ==========================================================================

@@ -46,6 +46,16 @@ function writeCache(cache: VersionCache): void {
 }
 
 function getCurrentVersion(): string {
+  // Compiled single-binary builds (issue #187) bake the version in at bundle
+  // time via a Bun `define`, because the binary cannot read package.json from
+  // its virtual filesystem ($bunfs) — the file is not on disk next to the
+  // executable. For the normal `node dist/bin.js` build this identifier is
+  // never defined, so `globalThis.__CALLIOPE_BINARY_VERSION__` is `undefined`
+  // and we fall through to reading package.json exactly as before.
+  const injected = (globalThis as { __CALLIOPE_BINARY_VERSION__?: string }).__CALLIOPE_BINARY_VERSION__;
+  if (typeof injected === 'string' && injected.length > 0) {
+    return injected;
+  }
   try {
     // Try to read from package.json in dist directory
     const packagePath = new URL('../package.json', import.meta.url);
