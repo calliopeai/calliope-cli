@@ -21,6 +21,7 @@ import * as router from '../router.js';
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { autoCompress } from '../auto-compressor.js';
+import { createStreamFlusher } from '../streaming.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
@@ -277,6 +278,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       }
     }
 
+    // Frame-bounded streaming: coalesce provider tokens so setStreamingResponse
+    // fires at most ~30fps instead of once per token (which re-rendered the
+    // transcript region on every token). The flusher is per-iteration; its
+    // pending timer is drained by flush() on success and cleared by destroy()
+    // on the error/cancel path below.
+    const streamFlusher = createStreamFlusher((delta) => {
+      ctx.setStreamingResponse(prev => prev + delta);
+    });
+
     try {
       // Update thinking state for LLM call
       ctx.setThinkingState({
@@ -291,10 +301,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         startTime: Date.now(),
       });
 
-      // Streaming callback for final response
+      // Streaming callback for final response. Clear the thinking indicator on
+      // the first token, then hand the token to the frame-bounded flusher.
+      let streamStarted = false;
       const onToken = (token: string) => {
-        ctx.setThinkingState(null); // Clear thinking when streaming starts
-        ctx.setStreamingResponse(prev => prev + token);
+        if (!streamStarted) {
+          ctx.setThinkingState(null); // Clear thinking when streaming starts
+          streamStarted = true;
+        }
+        streamFlusher.push(token);
       };
 
       // Retry callback for error recovery
@@ -330,6 +345,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       }
 
       const response = await chat(ctx.provider, validatedMessages, tools, effectiveModel, onToken, onRetry);
+      streamFlusher.flush(); // drain any batched tail before we swap to history
       ctx.debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
 
       // Update token stats and cost
@@ -736,6 +752,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       break;
 
     } catch (error) {
+      streamFlusher.destroy(); // stop any pending flush timer on error/cancel
       ctx.setThinkingState(null);
       ctx.setActivityState(null);
       ctx.setStreamingResponse('');

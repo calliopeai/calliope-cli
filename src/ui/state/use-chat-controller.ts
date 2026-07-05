@@ -91,7 +91,7 @@ export function useChatController(): ChatController {
   const queue = useQueueState();
   const loop = useLoopState();
 
-  const { messages, collapseSettings, addMessage, setMessages } = transcript;
+  const { messages, collapseSettings, clearCount, addMessage, setMessages } = transcript;
   const { isProcessing, thinkingState, streamingResponse, activityState,
     setIsProcessing, setThinkingState, setStreamingResponse, setActivityState } = proc;
   const { provider, model, mode, confirmMode, autoRoute, smartRouteActive, breakerHealth,
@@ -645,7 +645,7 @@ export function useChatController(): ChatController {
   // stable useCallback refs when unchanged. This also keeps module-level reads
   // (debugEnabled) fresh on every render, matching the original.
   const transcriptProps: TranscriptRegionProps = {
-    messages, collapseSettings, isProcessing, thinkingState, streamingResponse, activityState,
+    messages, collapseSettings, clearCount, isProcessing, thinkingState, streamingResponse, activityState,
     debugEnabled: isDebugEnabled(), mode, queuedCount: queuedMessages.length,
   };
 

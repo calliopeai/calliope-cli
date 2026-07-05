@@ -1,20 +1,28 @@
 /**
  * UI region - transcript
  *
- * Message history + the processing/thinking/streaming indicators + the optional
- * debug overlay. Owns the state-transition tracking (derived purely from the
- * processing props) so that logic lives with the only region that renders it.
+ * Splits into two zones:
+ *  - STATIC ZONE: completed messages, rendered write-once via <StaticScrollback>
+ *    (Ink <Static>) so history is emitted to stdout once and never re-traversed
+ *    on streaming/stats updates or scrollback growth.
+ *  - LIVE ZONE: the processing/thinking/streaming indicators, the streaming
+ *    response block, the state transition, and the optional debug overlay — the
+ *    only things that change per token/tick.
+ *
+ * Owns the state-transition tracking (derived purely from the processing props)
+ * so that logic lives with the only region that renders it.
  *
  * Memoized: a keystroke never changes these props, so typing does not re-render
  * the transcript. Streaming/stats updates flow in as prop changes and re-render
- * only this region.
+ * this region's live zone only — the memoized StaticScrollback skips re-render
+ * because its `messages`/`collapseSettings` props are unchanged.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
 import type { UIMessage, CollapseSettings, ThinkingState, ActivityState } from '../types.js';
 import type { Mode } from '../../types.js';
-import { MessageHistory } from '../messages.js';
+import { StaticScrollback } from './static-scrollback.js';
 import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator, StateTransition } from '../components.js';
 import { probeRender } from './render-probe.js';
 
@@ -23,6 +31,10 @@ type ProcPhase = 'idle' | 'thinking' | 'streaming' | 'done';
 export interface TranscriptRegionProps {
   messages: UIMessage[];
   collapseSettings: CollapseSettings;
+  /** Monotonic counter bumped when `messages` is cleared/replaced non-append.
+   *  Used as the StaticScrollback `key` so Static remounts (fresh emitted-count)
+   *  instead of desyncing against a truncated list. */
+  clearCount: number;
   isProcessing: boolean;
   thinkingState: ThinkingState | null;
   streamingResponse: string;
@@ -35,6 +47,7 @@ export interface TranscriptRegionProps {
 function TranscriptRegionInner({
   messages,
   collapseSettings,
+  clearCount,
   isProcessing,
   thinkingState,
   streamingResponse,
@@ -95,8 +108,9 @@ function TranscriptRegionInner({
 
   return (
     <>
-      {/* Chat history, processing indicator, then the streaming response. */}
-      <MessageHistory messages={messages} collapseSettings={collapseSettings} />
+      {/* Completed history (write-once), then the live processing indicator and
+          streaming response. `key={clearCount}` remounts Static on clear/reset. */}
+      <StaticScrollback key={clearCount} messages={messages} collapseSettings={collapseSettings} />
       {ProcessingBox}
       {StreamingResponseBox}
 

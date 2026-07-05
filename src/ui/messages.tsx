@@ -1,8 +1,10 @@
 /**
  * UI Module - Message Components
  *
- * MessageItem and MessageHistory for displaying conversation messages.
- * All colors are sourced from the active palette via getInkColor().
+ * MessageItem renders a single conversation message; it is mapped over the
+ * transcript by StaticScrollback (regions/static-scrollback.tsx), which owns the
+ * write-once <Static> emission. All colors come from the active palette via
+ * getInkColor().
  */
 
 import React from 'react';
@@ -277,6 +279,12 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
 // renderMarkdown for already-finalized messages. A message's id/content are
 // immutable once committed, so the memo only re-renders when collapse settings
 // (which affect how the tool is displayed) actually change for this item.
+// Per-item memoization: appending a new message must not re-run renderMarkdown
+// for already-finalized messages. A message's id/content are immutable once
+// committed, so the memo only re-renders when this item's collapse settings
+// change. Under <StaticScrollback> this is a second line of defense — Static
+// already renders each item exactly once — but it keeps MessageItem correct in
+// isolation and for any future non-Static caller.
 export const MessageItem = React.memo(
   MessageItemInner,
   (prev, next) =>
@@ -287,33 +295,3 @@ export const MessageItem = React.memo(
     prev.collapse?.toolIndex === next.collapse?.toolIndex &&
     prev.collapse?.totalTools === next.collapse?.totalTools,
 );
-
-function MessageHistoryInner({ messages, collapseSettings }: { messages: UIMessage[]; collapseSettings: CollapseSettings }) {
-
-  // Count tool messages for toolDisplayLimit calculation
-  const toolMessages = messages.filter(m => m.type === 'tool');
-  const totalTools = toolMessages.length;
-
-  // Track tool index
-  let toolIndex = 0;
-
-  return (
-    <Box flexDirection="column">
-      {messages.map((msg) => {
-        const msgCollapseSettings = msg.type === 'tool'
-          ? { ...collapseSettings, toolIndex: toolIndex++, totalTools }
-          : collapseSettings;
-
-        return (
-          <Box key={msg.id}>
-            <MessageItem msg={msg} collapse={msgCollapseSettings} />
-          </Box>
-        );
-      })}
-    </Box>
-  );
-}
-
-// Memoized so unrelated parent re-renders (e.g. input keystrokes) don't
-// re-render the entire message list.
-export const MessageHistory = React.memo(MessageHistoryInner);

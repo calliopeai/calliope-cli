@@ -184,6 +184,84 @@ export class TokenBuffer {
 }
 
 // ============================================================================
+// Frame-bounded stream flusher
+// ============================================================================
+
+export interface StreamFlusher {
+  /** Buffer a token. The first token flushes synchronously (leading edge);
+   *  subsequent tokens are coalesced and flushed at most once per interval. */
+  push(token: string): void;
+  /** Flush any buffered tail immediately — call on stream completion so the
+   *  last tokens are never dropped. No-op when nothing is buffered. */
+  flush(): void;
+  /** Cancel: clear the pending timer and drop buffered tokens — call on
+   *  error/cancel paths so a queued flush can't fire after teardown. */
+  destroy(): void;
+}
+
+/**
+ * Coalesce streamed tokens so UI updates are frame-rate-bounded.
+ *
+ * Providers invoke `onToken` once per token; forwarding each straight to a React
+ * setState re-renders the transcript on every token — a full-frame redraw per
+ * token on a fast stream. This batches tokens and calls `onFlush` with the
+ * concatenated delta at most once per `intervalMs` (default 33ms ≈ 30fps). The
+ * first token flushes synchronously so perceived latency is unchanged.
+ *
+ * Distinct from {@link TokenBuffer}, which smooths on word/markdown boundaries
+ * for a typing effect and can withhold content mid-code-block: this is purely a
+ * time throttle and never holds tokens back on content boundaries.
+ */
+export function createStreamFlusher(
+  onFlush: (delta: string) => void,
+  intervalMs = 33,
+): StreamFlusher {
+  let pending = '';
+  let timer: NodeJS.Timeout | null = null;
+  let lastFlush = Number.NEGATIVE_INFINITY;
+
+  const emit = (): void => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (pending.length === 0) return;
+    const delta = pending;
+    pending = '';
+    lastFlush = Date.now();
+    onFlush(delta);
+  };
+
+  const schedule = (): void => {
+    if (timer) return; // a trailing flush is already queued
+    const wait = intervalMs - (Date.now() - lastFlush);
+    if (wait <= 0) {
+      emit(); // leading edge — enough time has passed, flush now
+    } else {
+      timer = setTimeout(emit, wait);
+    }
+  };
+
+  return {
+    push(token: string): void {
+      if (token.length === 0) return;
+      pending += token;
+      schedule();
+    },
+    flush(): void {
+      emit();
+    },
+    destroy(): void {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      pending = '';
+    },
+  };
+}
+
+// ============================================================================
 // Stream Transformers
 // ============================================================================
 
