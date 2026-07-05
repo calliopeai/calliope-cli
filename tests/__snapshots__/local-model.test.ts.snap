@@ -1,0 +1,113 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`simplifyToolsForLocal > snapshot: configure (verbose description) 1`] = `
+{
+  "description": "Read, set, or list Calliope configuration options.",
+  "name": "configure",
+  "parameters": {
+    "properties": {
+      "action": {
+        "description": "Action to perform: "get" reads a setting, "set" changes a setting, "list" shows…",
+        "enum": [
+          "get",
+          "set",
+          "list",
+        ],
+        "type": "string",
+      },
+      "category": {
+        "description": "Category to list options for (for list action): providers, layouts, all",
+        "enum": [
+          "providers",
+          "layouts",
+          "all",
+        ],
+        "type": "string",
+      },
+      "key": {
+        "description": "Config key name (for get/set actions)",
+        "type": "string",
+      },
+      "value": {
+        "description": "New value to set (for set action).",
+        "type": "string",
+      },
+    },
+    "required": [
+      "action",
+    ],
+    "type": "object",
+  },
+}
+`;
+
+exports[`simplifyToolsForLocal > snapshot: edit_file (gains anchor_hash) 1`] = `
+{
+  "description": "Edit a file by replacing an exact string.",
+  "name": "edit_file",
+  "parameters": {
+    "properties": {
+      "anchor_hash": {
+        "description": "Optional 8-char hash from the last read_file of this file (stale-edit guard); echo it to confirm your view is current.",
+        "type": "string",
+      },
+      "new_string": {
+        "description": "The string to replace old_string with",
+        "type": "string",
+      },
+      "old_string": {
+        "description": "The exact string to find and replace",
+        "type": "string",
+      },
+      "path": {
+        "description": "The path to the file to edit",
+        "type": "string",
+      },
+      "replace_all": {
+        "description": "If true, replace all occurrences.",
+        "type": "boolean",
+      },
+    },
+    "required": [
+      "path",
+      "old_string",
+      "new_string",
+    ],
+    "type": "object",
+  },
+}
+`;
+
+exports[`simplifyToolsForLocal > snapshot: git (enum + trimmed description) 1`] = `
+{
+  "description": "Execute git commands safely.",
+  "name": "git",
+  "parameters": {
+    "properties": {
+      "args": {
+        "description": "Additional arguments for the git command",
+        "type": "string",
+      },
+      "operation": {
+        "description": "Git operation: status, diff, log, branch, add, commit, push, pull, stash",
+        "enum": [
+          "status",
+          "diff",
+          "log",
+          "branch",
+          "add",
+          "commit",
+          "push",
+          "pull",
+          "stash",
+        ],
+        "type": "string",
+      },
+    },
+    "required": [
+      "operation",
+    ],
+    "type": "object",
+  },
+}
+`;

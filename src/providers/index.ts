@@ -8,7 +8,8 @@ import * as config from '../config.js';
 import { withRetry } from '../errors.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
-import { validateLLMResponse, type StreamCallback, type RetryCallback } from './types.js';
+import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions } from './types.js';
+import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
 import { chatAnthropic } from './anthropic.js';
 import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
@@ -80,22 +81,29 @@ export async function chat(
   tools: Tool[],
   model?: string,
   onToken?: StreamCallback,
-  onRetry?: RetryCallback
+  onRetry?: RetryCallback,
+  options?: ChatOptions
 ): Promise<LLMResponse> {
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+
+  // Local backends see a simplified (but execution-lossless) tool schema:
+  // first-sentence descriptions, capped enums, and the edit_file anchor_hash
+  // param. Cloud providers get the full schema unchanged. This is the single
+  // seam for feature 1 — provider functions just serialize whatever they get.
+  const backendTools = isLocalBackend(actualProvider) ? simplifyToolsForLocal(tools) : tools;
 
   const doChat = async (): Promise<LLMResponse> => {
     let response: LLMResponse;
     switch (actualProvider) {
       case 'anthropic':
-        response = await chatAnthropic(messages, tools, actualModel, onToken);
+        response = await chatAnthropic(messages, backendTools, actualModel, onToken);
         break;
       case 'google':
-        response = await chatGoogle(messages, tools, actualModel, onToken);
+        response = await chatGoogle(messages, backendTools, actualModel, onToken);
         break;
       case 'openai':
-        response = await chatOpenAI(messages, tools, actualModel, onToken);
+        response = await chatOpenAI(messages, backendTools, actualModel, onToken);
         break;
       case 'openrouter':
       case 'together':
@@ -104,22 +112,22 @@ export async function chat(
       case 'mistral':
       case 'ai21':
       case 'huggingface':
-        response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
         break;
       case 'ollama':
-        response = await chatOllama(messages, tools, actualModel, onToken);
+        response = await chatOllama(messages, backendTools, actualModel, onToken, options);
         break;
       case 'litellm':
-        response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
         break;
       case 'bedrock': {
         const bedrockBase = config.getBaseUrl('bedrock');
         if (bedrockBase) {
           // Gateway/proxy mode (existing)
-          response = await chatOpenAICompatible(actualProvider, messages, tools, actualModel, onToken);
+          response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
         } else {
           // Native AWS mode
-          response = await chatBedrock(messages, tools, actualModel, onToken);
+          response = await chatBedrock(messages, backendTools, actualModel, onToken);
         }
         break;
       }
@@ -140,5 +148,5 @@ export async function chat(
 
 // Re-export everything from sub-modules for public API
 export { needsSummarization, getContextHealth, estimateContextUsage } from './types.js';
-export type { StreamCallback, RetryCallback } from './types.js';
+export type { StreamCallback, RetryCallback, ChatOptions } from './types.js';
 export { requiresResponsesAPI, toResponsesInput, toResponsesTools } from './openai.js';

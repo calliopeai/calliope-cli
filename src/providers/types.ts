@@ -40,6 +40,15 @@ export type StreamCallback = (token: string) => void;
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
 /**
+ * Per-call provider options. Currently only Ollama's grammar-constrained
+ * `format` (a JSON schema) — passed on the repair round-trip to force a
+ * well-formed tool-call envelope. Ignored by every other provider.
+ */
+export interface ChatOptions {
+  format?: unknown;
+}
+
+/**
  * Extract text from MessageContent
  */
 export function getTextContent(content: Message['content']): string {
