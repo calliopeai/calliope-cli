@@ -47,6 +47,13 @@ import {
   formatIterationProgress,
   isFiniteIterationLimit,
 } from '../iteration-limit.js';
+import { RunLog } from '../runlog.js';
+import {
+  getBudgetCaps, evaluateBudget, hasBudgetCaps,
+  recordProjectSpend, loadProjectSpend, formatBudgetHalt,
+  type BudgetVerdict,
+} from '../budget.js';
+import { evaluatePolicy, isPolicyEnabled } from '../policy.js';
 
 // ============================================================================
 // Tool Result Truncation
@@ -335,6 +342,48 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   const executeOptions = { appendAnchorHash: localBackend };
   const repairedCallIds = new Set<string>();
 
+  // Governance (#189): audit run log, budget caps, policy hook. The run log is a
+  // per-session append-only JSONL trace; each agent turn is one run within it.
+  const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
+  const projectDir = ctx.sessionRef.current?.projectPath ?? process.cwd();
+  const runlog = RunLog.open(sessionId);
+  const budgetCaps = getBudgetCaps();
+  // Only maintain the cross-run project ledger when a project cap is active.
+  const trackProjectBudget = typeof budgetCaps.maxCostPerProject === 'number';
+  const runStartedAt = Date.now();
+  let runInputTokens = 0;
+  let runOutputTokens = 0;
+  let runCostUsd = 0;
+  let runToolCalls = 0;
+  let runEnded = false;
+  let runExitReason: string | undefined;
+  let budgetVerdict: BudgetVerdict | undefined;
+
+  runlog.runStart({
+    session: sessionId,
+    cwd: projectDir,
+    provider: effectiveProvider,
+    model: effectiveModel || ctx.actualModel,
+    config: config.getConfig() as unknown as Record<string, unknown>,
+  });
+  runlog.userPrompt(summarizeMessageContent(content));
+
+  const finalizeRun = (exitReason: string): void => {
+    if (runEnded) return;
+    runEnded = true;
+    runlog.runEnd({
+      totals: {
+        inputTokens: runInputTokens,
+        outputTokens: runOutputTokens,
+        cost: runCostUsd,
+        toolCalls: runToolCalls,
+        durationMs: Date.now() - runStartedAt,
+      },
+      exitReason,
+    });
+    void runlog.flush();
+  };
+
   // Check context limit and warn if approaching capacity
   // Uses model's actual context length from API when available
   let currentContextTokens = ctx.estimateContextTokens();
@@ -483,6 +532,32 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         }
       }
 
+      // Governance: accrue run spend, audit the assistant turn, evaluate budget.
+      {
+        const turnCost = response.usage
+          ? calculateCost(ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens, response.usage.outputTokens)
+          : 0;
+        if (response.usage) {
+          runInputTokens += response.usage.inputTokens;
+          runOutputTokens += response.usage.outputTokens;
+          runCostUsd += turnCost;
+          if (trackProjectBudget) recordProjectSpend(projectDir, turnCost);
+        }
+        runlog.assistantMessage({
+          content: response.content,
+          tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 },
+          cost: turnCost,
+        });
+        if (hasBudgetCaps(budgetCaps)) {
+          const verdict = evaluateBudget(budgetCaps, {
+            runCostUsd,
+            runTokens: runInputTokens + runOutputTokens,
+            projectCostUsd: loadProjectSpend(projectDir).spentUsd,
+          });
+          if (verdict.exceeded) budgetVerdict = verdict;
+        }
+      }
+
       // Circuit breaker check after each iteration
       if (ctx.circuitBreaker) {
         const iterData: IterationData = {
@@ -537,6 +612,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
         for (const toolCall of response.toolCalls) {
           const args = toolCall.arguments as Record<string, unknown>;
+          runlog.toolCall({ id: toolCall.id, name: toolCall.name, args });
+          runToolCalls++;
           const toolPreview = String(args.command || args.path || '...');
           const risk = assessToolRisk(toolCall);
           const riskConfig = RISK_CONFIG[risk.level];
@@ -577,9 +654,30 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
               ctx.addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
             } else {
-              // Tool can be executed
-              executableTools.push(toolCall);
-              ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+              // Pre-tool policy gate (fail closed). Distinct from the hook above:
+              // the policy engine receives the tool-call JSON on stdin and denies
+              // via a non-zero exit code (see policy.ts / docs/governance.md).
+              const policyResult = isPolicyEnabled() ? await evaluatePolicy(toolCall) : undefined;
+              if (policyResult) {
+                runlog.policyEvent({
+                  tool: toolCall.name,
+                  decision: policyResult.decision,
+                  source: policyResult.source,
+                  reason: policyResult.reason,
+                  durationMs: policyResult.durationMs,
+                });
+              }
+              if (policyResult && policyResult.decision === 'deny') {
+                preCheck.blocked = true;
+                preCheck.blockReason = 'denied by policy';
+                preCheck.blockContent = `[Denied by policy: ${policyResult.reason || 'no reason given'}]`;
+                ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+                ctx.addMessage('tool', `⛨ Denied by policy: ${policyResult.reason || 'no reason given'}`);
+              } else {
+                // Tool can be executed
+                executableTools.push(toolCall);
+                ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
+              }
             }
           }
 
@@ -588,6 +686,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           // Record blocked tools in ledger and add to LLM messages
           if (preCheck.blocked) {
             ctx.ledger?.recordAction(toolCall.name, args, 'blocked', preCheck.blockReason);
+            runlog.toolResult({ id: toolCall.id, result: preCheck.blockContent!, isError: true, durationMs: 0 });
             ctx.llmMessages.current.push({
               role: 'tool',
               content: preCheck.blockContent!,
@@ -659,6 +758,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                 failed ? 'error' : 'ok',
                 failed ? failureText : undefined,
               );
+              // Audit the tool result (parallel exec has no per-call duration).
+              runlog.toolResult({ id: toolCall.id, result: failed ? failureText : result.result, isError: failed, durationMs: 0 });
 
               // Execute post-tool hooks
               hooks.executeHooks('post-tool', {
@@ -748,6 +849,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60),
                 });
               } : undefined;
+              const seqStart = Date.now();
               const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback, executeOptions);
               ctx.debugLog('tools', 'DONE', toolCall.name);
 
@@ -758,6 +860,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                 result.isError ? 'error' : 'ok',
                 result.isError ? result.result : undefined,
               );
+              // Audit the tool result.
+              runlog.toolResult({ id: toolCall.id, result: result.result, isError: result.isError || false, durationMs: Date.now() - seqStart });
 
               // Execute post-tool hooks
               hooks.executeHooks('post-tool', {
@@ -824,6 +928,24 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           }
         }
         ctx.ledger?.endIteration();
+        // Budget halt: the current tool result is finished; stop before the next
+        // provider call. Record a budget_event and summarize spend vs cap.
+        if (budgetVerdict?.exceeded) {
+          const summary = formatBudgetHalt(budgetVerdict);
+          runlog.budgetEvent({
+            scope: budgetVerdict.scope ?? 'run',
+            kind: budgetVerdict.kind ?? 'cost',
+            spent: budgetVerdict.spent ?? 0,
+            cap: budgetVerdict.cap ?? 0,
+            message: budgetVerdict.message ?? summary,
+          });
+          ctx.addMessage('system', `‖ ${summary}`);
+          runStatus = 'stopped';
+          runErrorSummary = summary;
+          runExitReason = 'budget';
+          completedNaturally = true;
+          break;
+        }
         if (completedNaturally) break; // ask_question pauses for user input (#42)
         continue;
       }
@@ -851,6 +973,20 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       }
       completedNaturally = true;
       runStatus = 'completed';
+      // The answer is already shown; if this final turn crossed a budget cap,
+      // still record it so the audit trail reflects why spend stopped here.
+      if (budgetVerdict?.exceeded) {
+        const summary = formatBudgetHalt(budgetVerdict);
+        runlog.budgetEvent({
+          scope: budgetVerdict.scope ?? 'run',
+          kind: budgetVerdict.kind ?? 'cost',
+          spent: budgetVerdict.spent ?? 0,
+          cap: budgetVerdict.cap ?? 0,
+          message: budgetVerdict.message ?? summary,
+        });
+        ctx.addMessage('system', `‖ ${summary}`);
+        runExitReason = 'budget';
+      }
 
       // End iteration ledger entry
       ctx.ledger?.endIteration('success');
@@ -931,6 +1067,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       if (runId && runStatus) {
         ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
       }
+      finalizeRun(runExitReason ?? runStatus ?? 'error');
       return; // Exit early on error - don't process queued messages
     }
   }
@@ -947,6 +1084,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   if (runId) {
     ctx.ledger?.finishRun(runId, runStatus || 'completed', { errorSummary: runErrorSummary });
   }
+  finalizeRun(runExitReason ?? runStatus ?? 'completed');
 
   // Update context tokens after agent run
   ctx.setContextTokens(ctx.estimateContextTokens());

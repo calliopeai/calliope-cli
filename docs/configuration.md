@@ -34,6 +34,9 @@ There are 16 keys. Defaults are the values applied when a key is absent.
 | `sandboxMode` | string | `auto` | Code/shell sandbox: `auto`, `native`, `docker`, or `off`. |
 | `routing` | object | *(unset)* | `{ "enabled": boolean, "costSensitivity": 0-1 }`. Smart model routing (costSensitivity `0` = best quality, `1` = cheapest). |
 | `sessionLogLimit` | number | `0` | Cap retained session-log items (`0` = unlimited; range 0-100000). |
+| `audit` | object | *(on)* | Audit run log: `{ "enabled": boolean, "dir": string, "retention": number }`. On by default. See [Governance](./governance.md#audit-run-logs). |
+| `budget` | object | *(unset)* | Spend caps: `{ "maxCostPerRun": usd, "maxTokensPerRun": n, "maxCostPerProject": usd }`. See [Governance](./governance.md#budget-caps). |
+| `policy` | object | *(unset)* | Pre-tool policy hook: `{ "command": string, "timeoutMs": number }`. See [Governance](./governance.md#policy-hook). |
 
 ### Runtime changes with `/config set`
 
@@ -49,6 +52,10 @@ There are 16 keys. Defaults are the values applied when a key is absent.
 /config set routing.enabled true
 /config set routing.costSensitivity 0.3
 /config set theme light
+/config set budget.maxCostPerRun 0.50
+/config set budget.maxCostPerProject 20
+/config set audit.enabled false
+/config set policy.command /usr/local/bin/calliope-policy
 ```
 
 The remaining keys (`setupComplete`, `defaultProvider`, `defaultModel`,

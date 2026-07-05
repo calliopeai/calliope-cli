@@ -154,6 +154,16 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Handle `replay` subcommand — render a run-log trace read-only to stdout.
+  // Runs before setup/config gates: replaying an audit trail needs no provider.
+  if (args[0] === 'replay') {
+    const { runReplay } = await import('./replay.js');
+    // First non-flag arg after `replay` is the path or session id.
+    const target = args.slice(1).find((a) => !a.startsWith('-'));
+    const code = runReplay(target, { json: args.includes('--json') });
+    process.exit(code);
+  }
+
   // Handle --upgrade
   if (args.includes('--upgrade') || args.includes('-u')) {
     const current = getVersion();
@@ -292,6 +302,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 
 ${bold('USAGE')}
   calliope [options] [prompt]
+  calliope replay <path|sessionId> [--json]   Render an audit run-log trace
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message

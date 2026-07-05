@@ -82,8 +82,10 @@ vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
+    if (key === 'audit') return { enabled: false }; // no run-log disk writes in tests
     return undefined;
   }),
+  getConfig: vi.fn(() => ({})),
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
   getConfiguredProviders: vi.fn(() => []),

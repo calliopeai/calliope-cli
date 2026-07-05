@@ -15,8 +15,10 @@ vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
+    if (key === 'audit') return { enabled: false }; // no run-log disk writes in tests
     return undefined;
   }),
+  getConfig: vi.fn(() => ({})),
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
   getConfiguredProviders: vi.fn(() => []),
@@ -39,6 +41,7 @@ vi.mock('../src/tools.js', () => ({
 vi.mock('../src/types.js', () => ({
   getSystemPrompt: vi.fn(() => 'You are a helpful assistant.'),
   DEFAULT_MODELS: { anthropic: 'claude-3-5-sonnet-20241022' },
+  calculateCost: vi.fn(() => 0),
 }));
 
 vi.mock('../src/memory.js', () => ({

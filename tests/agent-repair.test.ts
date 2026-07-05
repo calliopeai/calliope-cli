@@ -20,7 +20,12 @@ const READ_FILE_TOOL: Tool = {
 
 vi.mock('../src/config.js', () => ({
   default: {},
-  get: vi.fn((key: string) => (key === 'maxIterations' ? 3 : undefined)),
+  get: vi.fn((key: string) => {
+    if (key === 'maxIterations') return 3;
+    if (key === 'audit') return { enabled: false }; // no run-log disk writes in tests
+    return undefined;
+  }),
+  getConfig: vi.fn(() => ({})),
   getBaseUrl: vi.fn(() => 'http://localhost:11434'),
 }));
 

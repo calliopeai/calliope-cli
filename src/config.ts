@@ -63,6 +63,26 @@ export interface CalliopeConfig {
 
   // Session Lifecycle
   sessionLogLimit: number;    // Cap retained ledger entries/runs/failures per session (0 = unlimited)
+
+  // Governance (#189) — audit trail, budget caps, policy hook.
+  // Audit run logs are ON by default (local disk, cheap; the audit trail is the point).
+  audit?: {
+    enabled?: boolean;   // default true
+    dir?: string;        // override for the run-log directory (default ~/.calliope-cli/runs)
+    retention?: number;  // keep the most recent N run-log files (default 100)
+  };
+  // Spend caps. Any cap left undefined is not enforced.
+  budget?: {
+    maxCostPerRun?: number;      // USD, per agent run
+    maxTokensPerRun?: number;    // input+output tokens, per agent run
+    maxCostPerProject?: number;  // USD, accumulated across runs in a project dir
+  };
+  // Pre-tool policy hook. `command` receives the tool-call JSON on stdin;
+  // exit 0 = allow, non-zero = deny (stderr = reason), timeout = deny (fail closed).
+  policy?: {
+    command?: string;
+    timeoutMs?: number;  // default 5000
+  };
 }
 
 const DEFAULT_CONFIG: CalliopeConfig = {
@@ -101,6 +121,9 @@ const config = new Conf<CalliopeConfig>({
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
     routing: { type: 'object' },
     sessionLogLimit: { type: 'number', minimum: 0, maximum: 100000 },
+    audit: { type: 'object' },
+    budget: { type: 'object' },
+    policy: { type: 'object' },
   },
 });
 
@@ -354,6 +377,8 @@ const SURVIVOR_KEYS = new Set<string>([
   'maxIterations', 'maxIterationTime', 'autoSaveHistory', 'autoUpgrade',
   'collapseTools', 'toolDisplayLimit', 'diffStyle', 'circuitBreakersEnabled',
   'sandboxMode', 'routing', 'sessionLogLimit',
+  // Governance (#189)
+  'audit', 'budget', 'policy',
 ]);
 
 /**

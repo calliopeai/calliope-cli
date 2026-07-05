@@ -11,6 +11,7 @@ provider backends, and a small, tested command surface.
 - [Providers](./providers.md) — supported backends and how credentials resolve
 - [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Features](./features.md) — the full v3 feature set (and what was removed)
+- [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
 
 ## Quick reference
@@ -30,6 +31,7 @@ provider backends, and a small, tested command surface.
 | `/cost` | Show spend this session |
 | `/clear` | Clear the conversation |
 | `/exit` | Quit (alias `/quit`) |
+| `calliope replay <path\|id>` | Render an audit run-log trace (see [governance](./governance.md)) |
 
 ### Keyboard shortcuts
 
