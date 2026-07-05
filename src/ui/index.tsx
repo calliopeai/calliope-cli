@@ -26,13 +26,10 @@ import type { ModelInfo } from '../model-detection.js';
 import { getCurrentSkin, paletteColorize } from '../hud/api.js';
 import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
 import { HUDFrame } from './frame.js';
-import { setEmojiConfig } from '../styles.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { getDefaultSmartRoutingConfig } from '../router.js';
 import type { SmartRoutingConfig } from '../router.js';
-import * as sessionTimeout from '../session-timeout.js';
-import * as idleEviction from '../idle-eviction.js';
 import { fleetInit, fleetStatus, fleetActive, fleetStartPolling, fleetPostOnline, fleetPostOffline, fleetPostMessage } from '../fleet.js';
 
 // Sub-module imports
@@ -56,9 +53,6 @@ import type { CommandContext } from './commands.js';
 import { runAgentImpl, runLoopImpl, validateAndRepairMessagesImpl } from './agent.js';
 import type { AgentContext } from './agent.js';
 import { resolveIterationLimit } from '../iteration-limit.js';
-
-// Wire emoji config at module load (breaks circular dep: styles → config)
-setEmojiConfig(config);
 
 let pendingRestartArgs: string[] | null = null;
 
@@ -224,11 +218,9 @@ function TerminalChat() {
     process.env.CALLIOPE_MODEL || config.get('defaultModel'));
   const [mode, setMode] = useState<Mode>('hybrid'); // Default to hybrid mode
   const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
-  const [layout, setLayout] = useState<'classic' | 'response-top' | 'response-bottom' | 'split' | 'zen' | 'focus' | 'dashboard' | 'minimal'>(() => config.get('layout') || 'response-bottom');
-  const [density, setDensity] = useState<'normal' | 'compact'>(() => config.get('density') || 'normal');
   const [collapseSettings, setCollapseSettings] = useState<CollapseSettings>(() => ({
     collapseTools: config.get('collapseTools') ?? false,
-    collapseThinking: config.get('collapseThinking') ?? false,
+    collapseThinking: false,
     toolDisplayLimit: config.get('toolDisplayLimit') ?? 0,
   }));
 
@@ -329,7 +321,7 @@ function TerminalChat() {
   // Session state
   const sessionRef = useRef<storage.Session | null>(null);
   const [autoRoute, setAutoRoute] = useState<boolean>(false);  // Auto model routing
-  const [smartRouteActive, setSmartRouteActive] = useState<boolean>(() => config.get('smartRoutingEnabled') ?? false);
+  const [smartRouteActive, setSmartRouteActive] = useState<boolean>(() => config.get('routing')?.enabled ?? false);
   const [breakerHealth, setBreakerHealth] = useState<'ok' | 'warning' | 'tripped'>('ok');
   const ledgerRef = useRef<IterationLedger>(new IterationLedger());
   const circuitBreakerRef = useRef<CircuitBreaker>(
@@ -350,8 +342,8 @@ function TerminalChat() {
   );
   const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
     ...getDefaultSmartRoutingConfig(),
-    enabled: config.get('smartRoutingEnabled') ?? false,
-    costSensitivity: config.get('smartRoutingCostSensitivity') ?? 0.3,
+    enabled: config.get('routing')?.enabled ?? false,
+    costSensitivity: config.get('routing')?.costSensitivity ?? 0.3,
   });
   const [memoryLoaded, setMemoryLoaded] = useState(false);
 
@@ -427,32 +419,6 @@ function TerminalChat() {
       }).catch((err) => {
         debugLog('fleet', 'initialization failed:', err instanceof Error ? err.message : err);
       });
-
-      // Configure session timeout (opt-in via config)
-      const timeoutMs = config.get('sessionTimeoutMs');
-      if (timeoutMs) {
-        sessionTimeout.configureTimeout({
-          enabled: true,
-          idleTimeoutMs: typeof timeoutMs === 'number' ? timeoutMs : 2 * 60 * 60 * 1000,
-        });
-        sessionTimeout.onTimeout((type) => {
-          if (type === 'warning') {
-            addMessage('system', `\u23f1\ufe0f  Session will timeout in ${sessionTimeout.formatTimeRemaining()}`);
-          } else {
-            addMessage('system', '\ud83d\udeaa Session timeout. Saving and exiting...');
-            storage.saveMessageHistory(llmMessages.current);
-          }
-        });
-      }
-
-      // Start idle eviction monitor
-      idleEviction.configureEviction({ enabled: true });
-      idleEviction.onEviction((action) => {
-        if (action === 'auto-save') {
-          storage.saveMessageHistory(llmMessages.current);
-        }
-      });
-
 
       // Pre-warm model cache in background for faster model switching
       preWarmModelCache().catch((err) => {
@@ -622,10 +588,6 @@ function TerminalChat() {
   const handleSubmit = useCallback(async (value: string) => {
     const trimmed = value.trim();
     if (!trimmed || isProcessing) return;
-
-    // Record activity for timeout/eviction and audit log
-    sessionTimeout.recordActivity();
-    idleEviction.recordActivity();
 
     // Add to history for up/down arrow navigation
     addToHistory(trimmed);
@@ -840,11 +802,11 @@ function TerminalChat() {
       return;
     }
     try {
-      // Map provider → config key. Bedrock/Ollama/LiteLLM are special (base URL or AWS).
+      // Map provider → nested credential. Bedrock/Ollama/LiteLLM are special (base URL or AWS).
       if (entry.id === 'ollama') {
-        config.set('ollamaBaseUrl', value);
+        config.setProviderCred('ollama', { baseUrl: value });
       } else if (entry.id === 'litellm') {
-        config.set('litellmBaseUrl', value);
+        config.setProviderCred('litellm', { baseUrl: value });
       } else if (entry.id === 'bedrock') {
         // Simplest path: user enters AWS_PROFILE name. Write to env for this session;
         // persistence is user's responsibility (profile lives in ~/.aws).
@@ -856,22 +818,7 @@ function TerminalChat() {
         delete process.env.AWS_SESSION_TOKEN;
         addMessage('system', `AWS_PROFILE=${value} set for this session. Add to shell rc to persist.`);
       } else {
-        const keyMap: Record<string, string> = {
-          anthropic: 'anthropicApiKey',
-          openai: 'openaiApiKey',
-          google: 'googleApiKey',
-          mistral: 'mistralApiKey',
-          openrouter: 'openrouterApiKey',
-          together: 'togetherApiKey',
-          groq: 'groqApiKey',
-          fireworks: 'fireworksApiKey',
-          ai21: 'ai21ApiKey',
-          huggingface: 'huggingfaceApiKey',
-        };
-        const configKey = keyMap[entry.id];
-        if (!configKey) throw new Error(`No config mapping for ${entry.id}`);
-        // Cast through any — the mapping above guarantees a valid ApiKey field.
-        (config.set as (k: string, v: string) => void)(configKey, value);
+        config.setProviderCred(entry.id, { apiKey: value });
       }
       setProvider(entry.id);
       addMessage('system', `✓ Configured ${entry.label}. Provider switched.`);
@@ -942,95 +889,13 @@ function TerminalChat() {
     </>
   );
 
-  // Render based on layout
   return (
     <HUDFrame width={width}>
     <Box flexDirection="column" width={width}>
-      {/* Split layout: side by side */}
-      {layout === 'split' && (
-        <Box flexDirection="row" width={width}>
-          {/* Left: Tools/History */}
-          <Box flexDirection="column" width="50%">
-            <Text color="yellow" dimColor>─ Tools ─</Text>
-            <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-            {ProcessingBox}
-          </Box>
-          {/* Right: Response */}
-          <Box flexDirection="column" width="50%" borderStyle="single" borderLeft borderColor="gray">
-            <Text color="cyan" dimColor>─ Response ─</Text>
-            {StreamingResponseBox}
-          </Box>
-        </Box>
-      )}
-
-      {/* Classic layout: chronological */}
-      {layout === 'classic' && (
-        <>
-          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-          {ProcessingBox}
-          {StreamingResponseBox}
-        </>
-      )}
-
-      {/* Response-top layout */}
-      {layout === 'response-top' && (
-        <>
-          {StreamingResponseBox}
-          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-          {ProcessingBox}
-        </>
-      )}
-
-      {/* Response-bottom layout (default) */}
-      {layout === 'response-bottom' && (
-        <>
-          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-          {ProcessingBox}
-          {StreamingResponseBox}
-        </>
-      )}
-
-      {/* Zen layout: response only, tools hidden */}
-      {layout === 'zen' && (
-        <>
-          <MessageHistory
-            messages={messages.filter(m => m.type === 'user' || m.type === 'assistant')}
-            collapseSettings={{ collapseTools: true, collapseThinking: true, toolDisplayLimit: 0 }}
-          />
-          {ProcessingBox}
-          {StreamingResponseBox}
-        </>
-      )}
-
-      {/* Focus layout: latest response pinned, compact tool log */}
-      {layout === 'focus' && (
-        <>
-          {StreamingResponseBox}
-          {ProcessingBox}
-          <MessageHistory messages={messages} collapseSettings={{ collapseTools: true, collapseThinking: true, toolDisplayLimit: 3 }} />
-        </>
-      )}
-
-      {/* Dashboard layout: stats strip, response, tools */}
-      {layout === 'dashboard' && (
-        <>
-          <Text dimColor>
-            {'  '}{stats.inputTokens ? `tokens: ${stats.inputTokens}/${stats.outputTokens}` : ''}{stats.cost ? ` | cost: $${stats.cost.toFixed(4)}` : ''}{model ? ` | ${model}` : ''}
-          </Text>
-          {StreamingResponseBox}
-          {ProcessingBox}
-          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-        </>
-      )}
-
-      {/* Minimal layout: no decorations */}
-      {layout === 'minimal' && (
-        <>
-          <MessageHistory messages={messages} collapseSettings={collapseSettings} />
-          {ProcessingBox}
-          {StreamingResponseBox}
-        </>
-      )}
+      {/* Chat history, processing indicator, then the streaming response. */}
+      <MessageHistory messages={messages} collapseSettings={collapseSettings} />
+      {ProcessingBox}
+      {StreamingResponseBox}
 
       {/* Debug overlay when debug mode is enabled */}
       {debugEnabled && (
@@ -1354,7 +1219,5 @@ export async function startInkCLI(options: { skipPermissions?: boolean } = {}): 
 
   // Session cleanup
   await fleetPostOffline();
-  sessionTimeout.clearTimers();
-  idleEviction.stopMonitor();
   await spawnPendingRestart();
 }

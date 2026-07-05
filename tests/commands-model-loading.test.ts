@@ -28,6 +28,7 @@ vi.mock('../src/model-detection.js', () => ({
 vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn(),
+  set: vi.fn(),
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
   getConfiguredProviders: vi.fn(() => []),
@@ -107,6 +108,7 @@ vi.mock('react', () => ({
 // ---------------------------------------------------------------------------
 
 import { handleCommand } from '../src/ui/commands.js';
+import * as config from '../src/config.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -331,5 +333,41 @@ describe('/loop command', () => {
     expect(ctx.loopCancelledRef.current).toBe(true);
     expect(ctx.setLoopActive).toHaveBeenCalledWith(false);
     expect(msgs.at(-1)?.content).toMatch(/Loop cancelled/i);
+  });
+});
+
+describe('/config set — nested routing keys', () => {
+  afterEach(() => {
+    (config.get as any).mockReset();
+    (config.set as any).mockReset();
+  });
+
+  it('enables smart routing via routing.enabled (defaults cost when unset)', async () => {
+    const ctx = makeCtx('openai');
+    (config.get as any).mockReturnValue(undefined);  // no stored routing yet
+
+    await handleCommand('/config set routing.enabled true', ctx);
+
+    expect(config.set).toHaveBeenCalledWith('routing', { enabled: true, costSensitivity: 0.3 });
+    expect(getMessages(ctx).at(-1)?.content).toMatch(/routing\.enabled set to true/);
+  });
+
+  it('sets routing.costSensitivity while preserving enabled', async () => {
+    const ctx = makeCtx('openai');
+    (config.get as any).mockReturnValue({ enabled: true, costSensitivity: 0.3 });
+
+    await handleCommand('/config set routing.costSensitivity 0.7', ctx);
+
+    expect(config.set).toHaveBeenCalledWith('routing', { enabled: true, costSensitivity: 0.7 });
+  });
+
+  it('rejects an out-of-range routing.costSensitivity', async () => {
+    const ctx = makeCtx('openai');
+    (config.get as any).mockReturnValue(undefined);
+
+    await handleCommand('/config set routing.costSensitivity 5', ctx);
+
+    expect(config.set).not.toHaveBeenCalled();
+    expect(getMessages(ctx).at(-1)?.content).toMatch(/between 0 and 1/);
   });
 });

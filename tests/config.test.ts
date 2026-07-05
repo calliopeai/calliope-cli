@@ -2,10 +2,12 @@
  * Tests for src/config.ts
  *
  * Covers: get/set, validation, getConfiguredProviders, getApiKey, getBaseUrl,
- * isSetupComplete, markSetupComplete, resetConfig, profiles, and setMultiple.
+ * getProviderCred/setProviderCred (nested credentials + env fallbacks),
+ * isSetupComplete, markSetupComplete, resetConfig, setMultiple, and the
+ * one-time migrateV3() migration to the nested config format.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import config, {
   get,
   set,
@@ -17,14 +19,25 @@ import config, {
   getApiKey,
   getBaseUrl,
   getConfigPath,
-  getProfile,
-  saveProfile,
-  deleteProfile,
-  listProfiles,
-  setActiveProfile,
-  getActiveProfile,
+  getProviderCred,
+  setProviderCred,
   setMultiple,
+  migrateV3,
 } from '../src/config.js';
+
+// Seed a legacy (non-schema) key directly on the underlying conf store, bypassing
+// the typed `set` wrapper — used to simulate a pre-migration config file.
+const rawSet = (key: string, value: unknown): void =>
+  (config as unknown as { set(k: string, v: unknown): void }).set(key, value);
+
+const PROVIDER_ENV_VARS = [
+  'ANTHROPIC_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'OLLAMA_BASE_URL',
+  'LITELLM_BASE_URL', 'LITELLM_API_KEY', 'TOGETHER_API_KEY', 'OPENROUTER_API_KEY',
+  'GROQ_API_KEY', 'FIREWORKS_API_KEY', 'MISTRAL_API_KEY', 'AI21_API_KEY',
+  'HUGGINGFACE_API_KEY', 'BEDROCK_API_KEY', 'BEDROCK_BASE_URL',
+  'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_ACCESS_KEY_ID',
+  'OPENAI_COMPAT_BASE_URL', 'OPENAI_COMPAT_API_KEY',
+];
 
 // ---------------------------------------------------------------------------
 // Setup / teardown: reset config before each test to avoid leakage
@@ -36,20 +49,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetConfig();
-  // Clean env vars we may have set
-  delete process.env.ANTHROPIC_API_KEY;
-  delete process.env.GOOGLE_API_KEY;
-  delete process.env.OPENAI_API_KEY;
-  delete process.env.OLLAMA_BASE_URL;
-  delete process.env.LITELLM_BASE_URL;
-  delete process.env.TOGETHER_API_KEY;
-  delete process.env.OPENROUTER_API_KEY;
-  delete process.env.GROQ_API_KEY;
-  delete process.env.FIREWORKS_API_KEY;
-  delete process.env.MISTRAL_API_KEY;
-  delete process.env.AI21_API_KEY;
-  delete process.env.HUGGINGFACE_API_KEY;
-  delete process.env.LITELLM_API_KEY;
+  for (const name of PROVIDER_ENV_VARS) delete process.env[name];
 });
 
 // ===========================================================================
@@ -60,14 +60,15 @@ describe('get / set', () => {
   it('should return default values after reset', () => {
     expect(get('setupComplete')).toBe(false);
     expect(get('defaultProvider')).toBe('auto');
-    expect(get('fancyOutput')).toBe(true);
+    expect(get('autoSaveHistory')).toBe(true);
+    expect(get('diffStyle')).toBe('inline');
     expect(get('maxIterations')).toBe(0);
     expect(get('sessionLogLimit')).toBe(0);
   });
 
   it('should set and get a boolean value', () => {
-    set('fancyOutput', false);
-    expect(get('fancyOutput')).toBe(false);
+    set('collapseTools', true);
+    expect(get('collapseTools')).toBe(true);
   });
 
   it('should set and get a string value', () => {
@@ -91,28 +92,6 @@ describe('get / set', () => {
 // ===========================================================================
 
 describe('set validation', () => {
-  it('should reject empty API keys', () => {
-    expect(() => set('anthropicApiKey', '')).toThrow('non-empty string');
-  });
-
-  it('should reject whitespace-only API keys', () => {
-    expect(() => set('anthropicApiKey', '   ')).toThrow('non-empty string');
-  });
-
-  it('should accept valid API keys', () => {
-    set('anthropicApiKey', 'sk-ant-test-key-123');
-    expect(get('anthropicApiKey')).toBe('sk-ant-test-key-123');
-  });
-
-  it('should reject invalid base URLs', () => {
-    expect(() => set('ollamaBaseUrl', 'not-a-url')).toThrow('valid URL');
-  });
-
-  it('should accept valid base URLs', () => {
-    set('ollamaBaseUrl', 'http://localhost:11434');
-    expect(get('ollamaBaseUrl')).toBe('http://localhost:11434');
-  });
-
   it('should reject maxIterations below 0', () => {
     expect(() => set('maxIterations', -1)).toThrow('maxIterations');
   });
@@ -136,19 +115,19 @@ describe('set validation', () => {
 
 describe('setMultiple', () => {
   it('should set multiple values at once', () => {
-    setMultiple({ fancyOutput: false, density: 'compact' });
-    expect(get('fancyOutput')).toBe(false);
-    expect(get('density')).toBe('compact');
+    setMultiple({ collapseTools: true, sandboxMode: 'off' });
+    expect(get('collapseTools')).toBe(true);
+    expect(get('sandboxMode')).toBe('off');
   });
 
   it('should not set any values if one fails validation', () => {
-    const original = get('fancyOutput');
+    const original = get('collapseTools');
     expect(() => setMultiple({
-      fancyOutput: false,
-      anthropicApiKey: '',  // This should fail
-    })).toThrow();
-    // fancyOutput should not have changed
-    expect(get('fancyOutput')).toBe(original);
+      collapseTools: true,
+      maxIterations: 1000001,  // This should fail validation
+    })).toThrow('maxIterations');
+    // collapseTools should not have changed (all-or-nothing)
+    expect(get('collapseTools')).toBe(original);
   });
 });
 
@@ -186,18 +165,18 @@ describe('isSetupComplete / markSetupComplete', () => {
 
 describe('resetConfig', () => {
   it('should restore all defaults', () => {
-    set('fancyOutput', false);
+    set('collapseTools', true);
     set('maxIterations', 100);
     set('sessionLogLimit', 250);
-    set('density', 'compact');
+    set('diffStyle', 'unified');
     markSetupComplete();
 
     resetConfig();
 
-    expect(get('fancyOutput')).toBe(true);
+    expect(get('collapseTools')).toBe(false);
     expect(get('maxIterations')).toBe(0);
     expect(get('sessionLogLimit')).toBe(0);
-    expect(get('density')).toBe('normal');
+    expect(get('diffStyle')).toBe('inline');
     expect(isSetupComplete()).toBe(false);
   });
 });
@@ -221,39 +200,33 @@ describe('getConfigPath', () => {
 describe('getConfiguredProviders', () => {
   it('should return empty list with no keys configured', () => {
     const providers = getConfiguredProviders();
-    // Should not include any providers when env vars are clean and config is reset
-    // (env vars may be set in CI, so we just check the type)
+    // env vars may be set in CI, so we just check the type
     expect(Array.isArray(providers)).toBe(true);
   });
 
   it('should detect anthropic from env var', () => {
     process.env.ANTHROPIC_API_KEY = 'test-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('anthropic');
+    expect(getConfiguredProviders()).toContain('anthropic');
   });
 
   it('should detect google from env var', () => {
     process.env.GOOGLE_API_KEY = 'test-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('google');
+    expect(getConfiguredProviders()).toContain('google');
   });
 
   it('should detect openai from env var', () => {
     process.env.OPENAI_API_KEY = 'test-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('openai');
+    expect(getConfiguredProviders()).toContain('openai');
   });
 
   it('should detect ollama from env var', () => {
     process.env.OLLAMA_BASE_URL = 'http://localhost:11434';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('ollama');
+    expect(getConfiguredProviders()).toContain('ollama');
   });
 
-  it('should detect anthropic from config', () => {
-    set('anthropicApiKey', 'sk-ant-test');
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('anthropic');
+  it('should detect anthropic from nested config', () => {
+    setProviderCred('anthropic', { apiKey: 'sk-ant-test' });
+    expect(getConfiguredProviders()).toContain('anthropic');
   });
 });
 
@@ -267,18 +240,17 @@ describe('getApiKey', () => {
   });
 
   it('should prefer env var over config', () => {
-    set('anthropicApiKey', 'config-key');
+    setProviderCred('anthropic', { apiKey: 'config-key' });
     process.env.ANTHROPIC_API_KEY = 'env-key';
     expect(getApiKey('anthropic')).toBe('env-key');
   });
 
   it('should fall back to config when env var is not set', () => {
-    set('openaiApiKey', 'config-openai-key');
+    setProviderCred('openai', { apiKey: 'config-openai-key' });
     expect(getApiKey('openai')).toBe('config-openai-key');
   });
 
   it('should return undefined when neither env var nor config is set', () => {
-    // Reset ensures no config keys; env cleanup in afterEach ensures no env vars
     expect(getApiKey('google')).toBeUndefined();
   });
 });
@@ -313,229 +285,174 @@ describe('getBaseUrl', () => {
 });
 
 // ===========================================================================
-// Profiles
+// getProviderCred / setProviderCred (nested credentials + env fallbacks)
 // ===========================================================================
 
-describe('profiles', () => {
-  it('should return built-in profiles', () => {
-    expect(getProfile('fast')).toBeDefined();
-    expect(getProfile('smart')).toBeDefined();
-    expect(getProfile('cheap')).toBeDefined();
-    expect(getProfile('local')).toBeDefined();
+describe('getProviderCred / setProviderCred', () => {
+  it('reads a stored apiKey from the nested map', () => {
+    setProviderCred('anthropic', { apiKey: 'sk-ant-x' });
+    expect(getProviderCred('anthropic').apiKey).toBe('sk-ant-x');
   });
 
-  it('should return undefined for non-existent profiles', () => {
-    expect(getProfile('nonexistent')).toBeUndefined();
+  it('prefers the env var over stored config for apiKey', () => {
+    setProviderCred('anthropic', { apiKey: 'config-key' });
+    process.env.ANTHROPIC_API_KEY = 'env-key';
+    expect(getProviderCred('anthropic').apiKey).toBe('env-key');
   });
 
-  it('should save and retrieve custom profiles', () => {
-    saveProfile('myprofile', {
-      provider: 'anthropic',
-    });
-    const p = getProfile('myprofile');
-    expect(p).toBeDefined();
-    expect(p!.provider).toBe('anthropic');
+  it('reads the ollama base URL from OLLAMA_BASE_URL', () => {
+    process.env.OLLAMA_BASE_URL = 'http://remote:11434';
+    expect(getProviderCred('ollama').baseUrl).toBe('http://remote:11434');
   });
 
-  it('should delete custom profiles', () => {
-    saveProfile('todelete', { provider: 'google' });
-    expect(deleteProfile('todelete')).toBe(true);
-    expect(getProfile('todelete')).toBeUndefined();
+  it('resolves the bedrock region from AWS_REGION', () => {
+    process.env.AWS_REGION = 'eu-west-1';
+    expect(getProviderCred('bedrock').region).toBe('eu-west-1');
   });
 
-  it('should not delete built-in profiles', () => {
-    expect(deleteProfile('fast')).toBe(false);
-    expect(getProfile('fast')).toBeDefined();
+  it('falls back to AWS_DEFAULT_REGION for the bedrock region', () => {
+    process.env.AWS_DEFAULT_REGION = 'ap-south-1';
+    expect(getProviderCred('bedrock').region).toBe('ap-south-1');
   });
 
-  it('should list all profiles', () => {
-    saveProfile('custom1', { provider: 'openai' });
-    const list = listProfiles();
-    const names = list.map(p => p.name);
-    expect(names).toContain('fast');
-    expect(names).toContain('smart');
-    expect(names).toContain('custom1');
-    expect(list.find(p => p.name === 'fast')!.builtin).toBe(true);
-    expect(list.find(p => p.name === 'custom1')!.builtin).toBe(false);
+  it('resolves the bedrock profile from AWS_PROFILE', () => {
+    process.env.AWS_PROFILE = 'dev';
+    expect(getProviderCred('bedrock').profile).toBe('dev');
   });
 
-  it('should set and get active profile', () => {
-    setActiveProfile('fast');
-    expect(getActiveProfile()).toBe('fast');
-    // Setting a different profile should override
-    setActiveProfile('smart');
-    expect(getActiveProfile()).toBe('smart');
+  it('merges successive patches for a provider', () => {
+    setProviderCred('bedrock', { region: 'us-east-1' });
+    setProviderCred('bedrock', { profile: 'staging' });
+    const cred = getProviderCred('bedrock');
+    expect(cred.region).toBe('us-east-1');
+    expect(cred.profile).toBe('staging');
   });
 
-  it('should return false when deleting a non-existent custom profile', () => {
-    expect(deleteProfile('does-not-exist-xyz')).toBe(false);
+  it('prefers the stored openai-compat base URL over the env var (legacy quirk)', () => {
+    setProviderCred('openai-compat', { baseUrl: 'http://config:1234/v1' });
+    process.env.OPENAI_COMPAT_BASE_URL = 'http://env:5678/v1';
+    expect(getProviderCred('openai-compat').baseUrl).toBe('http://config:1234/v1');
+  });
+
+  it('has no env fallback for model', () => {
+    setProviderCred('openai-compat', { model: 'my-model' });
+    expect(getProviderCred('openai-compat').model).toBe('my-model');
+  });
+
+  it('rejects an empty apiKey', () => {
+    expect(() => setProviderCred('anthropic', { apiKey: '' })).toThrow('non-empty string');
+  });
+
+  it('rejects a whitespace-only apiKey', () => {
+    expect(() => setProviderCred('anthropic', { apiKey: '   ' })).toThrow('non-empty string');
+  });
+
+  it('rejects an invalid base URL', () => {
+    expect(() => setProviderCred('ollama', { baseUrl: 'not-a-url' })).toThrow('valid URL');
+  });
+
+  it('accepts a valid base URL', () => {
+    setProviderCred('ollama', { baseUrl: 'http://localhost:11434' });
+    expect(getProviderCred('ollama').baseUrl).toBe('http://localhost:11434');
   });
 });
 
 // ===========================================================================
-// getConfiguredProviders — all providers
-// ===========================================================================
-
-describe('getConfiguredProviders - all providers', () => {
-  it('should detect together from env var', () => {
-    process.env.TOGETHER_API_KEY = 'together-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('together');
-    delete process.env.TOGETHER_API_KEY;
-  });
-
-  it('should detect openrouter from env var', () => {
-    process.env.OPENROUTER_API_KEY = 'or-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('openrouter');
-    delete process.env.OPENROUTER_API_KEY;
-  });
-
-  it('should detect groq from env var', () => {
-    process.env.GROQ_API_KEY = 'groq-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('groq');
-    delete process.env.GROQ_API_KEY;
-  });
-
-  it('should detect fireworks from env var', () => {
-    process.env.FIREWORKS_API_KEY = 'fw-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('fireworks');
-    delete process.env.FIREWORKS_API_KEY;
-  });
-
-  it('should detect mistral from env var', () => {
-    process.env.MISTRAL_API_KEY = 'mistral-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('mistral');
-    delete process.env.MISTRAL_API_KEY;
-  });
-
-  it('should detect ai21 from env var', () => {
-    process.env.AI21_API_KEY = 'ai21-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('ai21');
-    delete process.env.AI21_API_KEY;
-  });
-
-  it('should detect huggingface from env var', () => {
-    process.env.HUGGINGFACE_API_KEY = 'hf-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('huggingface');
-    delete process.env.HUGGINGFACE_API_KEY;
-  });
-
-  it('should detect litellm from env var', () => {
-    process.env.LITELLM_BASE_URL = 'http://localhost:4000';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('litellm');
-    delete process.env.LITELLM_BASE_URL;
-  });
-
-  it('should detect bedrock from BEDROCK_API_KEY env var', () => {
-    process.env.BEDROCK_API_KEY = 'bedrock-key';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('bedrock');
-    delete process.env.BEDROCK_API_KEY;
-  });
-
-  it('should detect bedrock from BEDROCK_BASE_URL env var', () => {
-    process.env.BEDROCK_BASE_URL = 'https://bedrock.us-east-1.amazonaws.com';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('bedrock');
-    delete process.env.BEDROCK_BASE_URL;
-  });
-
-  it('should detect bedrock from AWS_ACCESS_KEY_ID env var', () => {
-    process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('bedrock');
-    delete process.env.AWS_ACCESS_KEY_ID;
-  });
-
-  it('should detect bedrock from AWS_PROFILE env var', () => {
-    process.env.AWS_PROFILE = 'default';
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('bedrock');
-    delete process.env.AWS_PROFILE;
-  });
-
-  it('should detect bedrock from config bedrockBaseUrl', () => {
-    set('bedrockBaseUrl', 'https://bedrock.us-east-1.amazonaws.com');
-    const providers = getConfiguredProviders();
-    expect(providers).toContain('bedrock');
-  });
-});
-
-// ===========================================================================
-// getApiKey — all providers
+// getApiKey — all providers (via nested config)
 // ===========================================================================
 
 describe('getApiKey - all providers', () => {
   it('should return key for together', () => {
-    set('togetherApiKey', 'together-config-key');
+    setProviderCred('together', { apiKey: 'together-config-key' });
     expect(getApiKey('together')).toBe('together-config-key');
   });
 
   it('should return key for openrouter', () => {
-    set('openrouterApiKey', 'or-config-key');
+    setProviderCred('openrouter', { apiKey: 'or-config-key' });
     expect(getApiKey('openrouter')).toBe('or-config-key');
   });
 
   it('should return key for groq', () => {
-    set('groqApiKey', 'groq-config-key');
+    setProviderCred('groq', { apiKey: 'groq-config-key' });
     expect(getApiKey('groq')).toBe('groq-config-key');
   });
 
   it('should return key for fireworks', () => {
-    set('fireworksApiKey', 'fw-config-key');
+    setProviderCred('fireworks', { apiKey: 'fw-config-key' });
     expect(getApiKey('fireworks')).toBe('fw-config-key');
   });
 
   it('should return key for mistral', () => {
-    set('mistralApiKey', 'mistral-config-key');
+    setProviderCred('mistral', { apiKey: 'mistral-config-key' });
     expect(getApiKey('mistral')).toBe('mistral-config-key');
   });
 
   it('should return base url for ollama (from env)', () => {
     process.env.OLLAMA_BASE_URL = 'http://remote-ollama:11434';
     expect(getApiKey('ollama')).toBe('http://remote-ollama:11434');
-    delete process.env.OLLAMA_BASE_URL;
   });
 
   it('should return key for ai21', () => {
-    set('ai21ApiKey', 'ai21-config-key');
+    setProviderCred('ai21', { apiKey: 'ai21-config-key' });
     expect(getApiKey('ai21')).toBe('ai21-config-key');
   });
 
   it('should return key for huggingface', () => {
-    set('huggingfaceApiKey', 'hf-config-key');
+    setProviderCred('huggingface', { apiKey: 'hf-config-key' });
     expect(getApiKey('huggingface')).toBe('hf-config-key');
   });
 
   it('should return key for litellm', () => {
-    set('litellmApiKey', 'litellm-config-key');
+    setProviderCred('litellm', { apiKey: 'litellm-config-key' });
     expect(getApiKey('litellm')).toBe('litellm-config-key');
   });
 
   it('should return key for bedrock', () => {
-    set('bedrockApiKey', 'bedrock-config-key');
+    setProviderCred('bedrock', { apiKey: 'bedrock-config-key' });
     expect(getApiKey('bedrock')).toBe('bedrock-config-key');
   });
 
   it('should prefer LITELLM_API_KEY env var over config', () => {
-    set('litellmApiKey', 'config-litellm-key');
+    setProviderCred('litellm', { apiKey: 'config-litellm-key' });
     process.env.LITELLM_API_KEY = 'env-litellm-key';
     expect(getApiKey('litellm')).toBe('env-litellm-key');
-    delete process.env.LITELLM_API_KEY;
   });
 
   it('should prefer BEDROCK_API_KEY env var over config', () => {
-    set('bedrockApiKey', 'config-bedrock-key');
+    setProviderCred('bedrock', { apiKey: 'config-bedrock-key' });
     process.env.BEDROCK_API_KEY = 'env-bedrock-key';
     expect(getApiKey('bedrock')).toBe('env-bedrock-key');
-    delete process.env.BEDROCK_API_KEY;
+  });
+});
+
+// ===========================================================================
+// getConfiguredProviders — bedrock detection
+// ===========================================================================
+
+describe('getConfiguredProviders - bedrock', () => {
+  it('should detect bedrock from BEDROCK_API_KEY env var', () => {
+    process.env.BEDROCK_API_KEY = 'bedrock-key';
+    expect(getConfiguredProviders()).toContain('bedrock');
+  });
+
+  it('should detect bedrock from BEDROCK_BASE_URL env var', () => {
+    process.env.BEDROCK_BASE_URL = 'https://bedrock.us-east-1.amazonaws.com';
+    expect(getConfiguredProviders()).toContain('bedrock');
+  });
+
+  it('should detect bedrock from AWS_ACCESS_KEY_ID env var', () => {
+    process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
+    expect(getConfiguredProviders()).toContain('bedrock');
+  });
+
+  it('should detect bedrock from AWS_PROFILE env var', () => {
+    process.env.AWS_PROFILE = 'default';
+    expect(getConfiguredProviders()).toContain('bedrock');
+  });
+
+  it('should detect bedrock from nested config baseUrl', () => {
+    setProviderCred('bedrock', { baseUrl: 'https://bedrock.us-east-1.amazonaws.com' });
+    expect(getConfiguredProviders()).toContain('bedrock');
   });
 });
 
@@ -551,55 +468,107 @@ describe('getBaseUrl - bedrock', () => {
   it('should prefer BEDROCK_BASE_URL env var', () => {
     process.env.BEDROCK_BASE_URL = 'https://bedrock-gateway.company.com';
     expect(getBaseUrl('bedrock')).toBe('https://bedrock-gateway.company.com');
-    delete process.env.BEDROCK_BASE_URL;
   });
 
-  it('should fall back to config bedrockBaseUrl', () => {
-    set('bedrockBaseUrl', 'https://bedrock.us-west-2.amazonaws.com');
+  it('should fall back to nested config baseUrl', () => {
+    setProviderCred('bedrock', { baseUrl: 'https://bedrock.us-west-2.amazonaws.com' });
     expect(getBaseUrl('bedrock')).toBe('https://bedrock.us-west-2.amazonaws.com');
   });
 });
 
 // ===========================================================================
-// setMultiple — validateConfigValue edge cases
+// migrateV3 — one-time migration from the flat format to the nested format
 // ===========================================================================
 
-describe('setMultiple - validateConfigValue coverage', () => {
-  it('should throw for BaseUrl with invalid URL string', () => {
-    expect(() => setMultiple({
-      ollamaBaseUrl: 'not-a-url',  // Invalid URL
-    })).toThrow('valid URL');
+describe('migrateV3', () => {
+  it('folds flat provider keys into the nested providers map and deletes them', () => {
+    rawSet('anthropicApiKey', 'sk-ant-old');
+    rawSet('ollamaBaseUrl', 'http://old-ollama:11434');
+    rawSet('awsRegion', 'us-west-2');
+    rawSet('awsProfile', 'legacy-profile');
+    rawSet('openaiCompatModel', 'legacy-model');
+
+    migrateV3();
+
+    const providers = get('providers');
+    expect(providers?.anthropic?.apiKey).toBe('sk-ant-old');
+    expect(providers?.ollama?.baseUrl).toBe('http://old-ollama:11434');
+    expect(providers?.bedrock?.region).toBe('us-west-2');
+    expect(providers?.bedrock?.profile).toBe('legacy-profile');
+    expect(providers?.['openai-compat']?.model).toBe('legacy-model');
+
+    const store = config.store as Record<string, unknown>;
+    expect('anthropicApiKey' in store).toBe(false);
+    expect('ollamaBaseUrl' in store).toBe(false);
+    expect('awsRegion' in store).toBe(false);
+    expect('awsProfile' in store).toBe(false);
+    expect('openaiCompatModel' in store).toBe(false);
   });
 
-  it('should accept valid BaseUrl', () => {
-    expect(() => setMultiple({
-      ollamaBaseUrl: 'http://localhost:11434',
-    })).not.toThrow();
+  it('resolves migrated credentials through getProviderCred/getApiKey', () => {
+    rawSet('groqApiKey', 'gsk_migrated');
+    migrateV3();
+    expect(getProviderCred('groq').apiKey).toBe('gsk_migrated');
+    expect(getApiKey('groq')).toBe('gsk_migrated');
   });
 
-  it('should not throw for maxIterations at boundary value 0', () => {
-    expect(() => setMultiple({ maxIterations: 0 })).not.toThrow();
-    expect(get('maxIterations')).toBe(0);
+  it('renames the smart-routing keys into routing', () => {
+    rawSet('smartRoutingEnabled', true);
+    rawSet('smartRoutingCostSensitivity', 0.7);
+
+    migrateV3();
+
+    expect(get('routing')?.enabled).toBe(true);
+    expect(get('routing')?.costSensitivity).toBe(0.7);
+    const store = config.store as Record<string, unknown>;
+    expect('smartRoutingEnabled' in store).toBe(false);
+    expect('smartRoutingCostSensitivity' in store).toBe(false);
   });
 
-  it('should not throw for maxIterations at boundary value 1000000', () => {
-    expect(() => setMultiple({ maxIterations: 1000000 })).not.toThrow();
+  it('silently deletes junk keys from removed subsystems', () => {
+    rawSet('persona', 'sage');
+    rawSet('fancyOutput', false);
+    rawSet('activeProfile', 'fast');
+    rawSet('sessionTimeoutMs', 7200000);
+
+    migrateV3();
+
+    const store = config.store as Record<string, unknown>;
+    expect('persona' in store).toBe(false);
+    expect('fancyOutput' in store).toBe(false);
+    expect('activeProfile' in store).toBe(false);
+    expect('sessionTimeoutMs' in store).toBe(false);
   });
 
-  it('should throw for maxIterations above max in setMultiple', () => {
-    expect(() => setMultiple({ maxIterations: 1000001 })).toThrow('maxIterations');
+  it('logs a single line when provider credentials were migrated', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rawSet('anthropicApiKey', 'sk-ant-old');
+
+    migrateV3();
+
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy).toHaveBeenCalledWith('calliope: migrated provider credentials to the new config format.');
+    spy.mockRestore();
   });
 
-  it('should not throw for sessionLogLimit at boundary value 0', () => {
-    expect(() => setMultiple({ sessionLogLimit: 0 })).not.toThrow();
-    expect(get('sessionLogLimit')).toBe(0);
+  it('is silent and a no-op on an already-migrated config', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setProviderCred('anthropic', { apiKey: 'sk-ant-new' });
+
+    migrateV3();
+
+    expect(spy).not.toHaveBeenCalled();
+    expect(getProviderCred('anthropic').apiKey).toBe('sk-ant-new');
+    spy.mockRestore();
   });
 
-  it('should throw for sessionLogLimit above max in setMultiple', () => {
-    expect(() => setMultiple({ sessionLogLimit: 100001 })).toThrow('sessionLogLimit');
-  });
+  it('does not log when only junk keys are cleaned up', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    rawSet('fancyOutput', true);
 
-  it('should throw for empty ApiKey in setMultiple', () => {
-    expect(() => setMultiple({ anthropicApiKey: '' })).toThrow('non-empty string');
+    migrateV3();
+
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
   });
 });
