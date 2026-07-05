@@ -912,10 +912,10 @@ describe('configure tool', () => {
 
   it('should get a config value', async () => {
     const result = await executeTool(
-      makeTool('configure', { action: 'get', key: 'density' }),
+      makeTool('configure', { action: 'get', key: 'collapseTools' }),
       tmpDir,
     );
-    expect(result.result).toContain('density');
+    expect(result.result).toContain('collapseTools');
   });
 
   it('should return error for set with missing key', async () => {
@@ -929,7 +929,7 @@ describe('configure tool', () => {
 
   it('should return error for set with missing value', async () => {
     const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'density' }),
+      makeTool('configure', { action: 'set', key: 'collapseTools' }),
       tmpDir,
     );
     expect(result.isError).toBe(true);
@@ -947,18 +947,18 @@ describe('configure tool', () => {
 
   it('should set a safe config key', async () => {
     const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'density', value: 'compact' }),
+      makeTool('configure', { action: 'set', key: 'diffStyle', value: 'unified' }),
       tmpDir,
     );
-    expect(result.result).toContain('density');
+    expect(result.result).toContain('diffStyle');
   });
 
   it('should set boolean config key', async () => {
     const result = await executeTool(
-      makeTool('configure', { action: 'set', key: 'useEmojis', value: 'true' }),
+      makeTool('configure', { action: 'set', key: 'collapseTools', value: 'true' }),
       tmpDir,
     );
-    expect(result.result).toContain('useEmojis');
+    expect(result.result).toContain('collapseTools');
   });
 
   it('should set numeric config key', async () => {
@@ -975,7 +975,6 @@ describe('configure tool', () => {
       tmpDir,
     );
     expect(result.result).toContain('PROVIDERS');
-    expect(result.result).toContain('LAYOUTS');
     expect(result.result).toContain('CURRENT SETTINGS');
   });
 
@@ -985,14 +984,6 @@ describe('configure tool', () => {
       tmpDir,
     );
     expect(result.result).toContain('PROVIDERS');
-  });
-
-  it('should list layouts category only', async () => {
-    const result = await executeTool(
-      makeTool('configure', { action: 'list', category: 'layouts' }),
-      tmpDir,
-    );
-    expect(result.result).toContain('LAYOUTS');
   });
 
   it('should reject setting a key that is not in the allowlist', async () => {

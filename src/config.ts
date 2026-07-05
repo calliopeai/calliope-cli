@@ -11,10 +11,17 @@ import Conf from 'conf';
 export type { LLMProvider } from './types.js';
 import type { LLMProvider } from './types.js';
 
-export interface Profile {
-  provider: LLMProvider;
+/**
+ * Provider credentials. One entry per provider in the nested `providers` map.
+ * Not every field applies to every provider (e.g. `region`/`profile` are Bedrock,
+ * `baseUrl` is Ollama/LiteLLM/Bedrock/openai-compat).
+ */
+export interface ProviderCred {
+  apiKey?: string;
+  baseUrl?: string;
   model?: string;
-  confirmMode?: boolean;
+  region?: string;
+  profile?: string;
 }
 
 export interface CalliopeConfig {
@@ -25,53 +32,25 @@ export interface CalliopeConfig {
   defaultProvider: LLMProvider;
   defaultModel?: string;
 
-  // API Keys (stored securely via conf)
-  anthropicApiKey?: string;
-  googleApiKey?: string;
-  openaiApiKey?: string;
-  togetherApiKey?: string;
-  openrouterApiKey?: string;
-  groqApiKey?: string;
-  fireworksApiKey?: string;
-  mistralApiKey?: string;
-  ollamaBaseUrl?: string;  // Ollama uses base URL, not API key
-  ai21ApiKey?: string;
-  huggingfaceApiKey?: string;
-  litellmBaseUrl?: string;  // LiteLLM proxy URL
-  litellmApiKey?: string;
-  bedrockApiKey?: string;   // AWS Bedrock API key (for gateway/proxy auth)
-  bedrockBaseUrl?: string;  // AWS Bedrock gateway/proxy URL
-  awsRegion?: string;       // AWS region for Bedrock (default: us-east-1)
-  awsProfile?: string;      // AWS named profile
-  openaiCompatBaseUrl?: string;  // Generic OpenAI-compatible server base URL
-  openaiCompatApiKey?: string;   // Generic OpenAI-compatible server API key
-  openaiCompatModel?: string;    // Override model for OpenAI-compatible server
+  // Provider credentials, keyed by provider name (e.g. 'anthropic', 'ollama',
+  // 'bedrock', 'openai-compat'). Replaces the old flat *ApiKey / *BaseUrl keys.
+  providers?: Partial<Record<string, ProviderCred>>;
 
   // Agent settings
   fleet?: { enabled: boolean };
   maxIterations: number;
   maxIterationTime: number;   // Max seconds per iteration (0 = no limit, default: 600)
-  fancyOutput: boolean;
 
   // Session settings
   autoSaveHistory: boolean;
-  workspaceRoot?: string;
 
   // Update settings
   autoUpgrade: boolean;  // Prompt to upgrade on startup if update available
 
   // Display settings
   collapseTools: boolean;      // Auto-collapse tool output
-  collapseThinking: boolean;   // Auto-collapse think blocks
   toolDisplayLimit: number;    // Show last N tools expanded, rest collapsed (0 = all expanded)
-  layout: 'classic' | 'response-top' | 'response-bottom' | 'split' | 'zen' | 'focus' | 'dashboard' | 'minimal';  // UI layout preference
-  density: 'normal' | 'compact';  // Display density (compact = less whitespace)
-
-  // HUD settings
-  useEmojis: boolean;           // Enable/disable emoji in UI decorations (default: true)
   diffStyle: 'inline' | 'unified' | 'side-by-side';  // Diff display style
-  borderStyle: 'rounded' | 'sharp' | 'double' | 'ascii' | 'none';  // Border style override
-  bannerStyle: 'full' | 'compact' | 'none';  // Banner display style
 
   // Circuit Breakers
   circuitBreakersEnabled: boolean;
@@ -80,18 +59,10 @@ export interface CalliopeConfig {
   sandboxMode: 'auto' | 'native' | 'docker' | 'off';
 
   // Smart Routing
-  smartRoutingEnabled: boolean;
-  smartRoutingCostSensitivity: number;  // 0-1: 0 = best quality, 1 = cheapest
+  routing?: { enabled: boolean; costSensitivity: number };  // costSensitivity 0-1 (0 = best quality, 1 = cheapest)
 
   // Session Lifecycle
-  sessionTimeoutMs?: number;  // Idle timeout in ms (0 or undefined = disabled)
   sessionLogLimit: number;    // Cap retained ledger entries/runs/failures per session (0 = unlimited)
-
-  // API Server
-
-  // Profiles
-  profiles?: Record<string, Profile>;
-  activeProfile?: string;
 }
 
 const DEFAULT_CONFIG: CalliopeConfig = {
@@ -99,22 +70,13 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   defaultProvider: 'auto',
   maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
   maxIterationTime: 600,  // 10 minutes per iteration (seconds, 0 = no limit)
-  fancyOutput: true,
   autoSaveHistory: true,
   autoUpgrade: true,
   collapseTools: false,
-  collapseThinking: false,
   toolDisplayLimit: 0,  // 0 = show all expanded
-  layout: 'response-bottom',  // Default: tools scroll up, response at bottom
-  density: 'normal',  // normal or compact
-  useEmojis: true,
   diffStyle: 'inline',
-  borderStyle: 'rounded',
-  bannerStyle: 'full',
   circuitBreakersEnabled: false,
   sandboxMode: 'auto',
-  smartRoutingEnabled: false,
-  smartRoutingCostSensitivity: 0.3,
   sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
 };
 
@@ -126,50 +88,108 @@ const config = new Conf<CalliopeConfig>({
     setupComplete: { type: 'boolean' },
     defaultProvider: { type: 'string' },
     defaultModel: { type: 'string' },
-    anthropicApiKey: { type: 'string' },
-    googleApiKey: { type: 'string' },
-    openaiApiKey: { type: 'string' },
-    togetherApiKey: { type: 'string' },
-    openrouterApiKey: { type: 'string' },
-    groqApiKey: { type: 'string' },
-    fireworksApiKey: { type: 'string' },
-    mistralApiKey: { type: 'string' },
-    ollamaBaseUrl: { type: 'string' },
-    ai21ApiKey: { type: 'string' },
-    huggingfaceApiKey: { type: 'string' },
-    litellmBaseUrl: { type: 'string' },
-    litellmApiKey: { type: 'string' },
-    bedrockApiKey: { type: 'string' },
-    bedrockBaseUrl: { type: 'string' },
-    awsRegion: { type: 'string' },
-    awsProfile: { type: 'string' },
-    openaiCompatBaseUrl: { type: 'string' },
-    openaiCompatApiKey: { type: 'string' },
-    openaiCompatModel: { type: 'string' },
+    providers: { type: 'object' },
     fleet: { type: 'object' },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
-    fancyOutput: { type: 'boolean' },
     autoSaveHistory: { type: 'boolean' },
-    workspaceRoot: { type: 'string' },
     autoUpgrade: { type: 'boolean' },
     collapseTools: { type: 'boolean' },
-    collapseThinking: { type: 'boolean' },
     toolDisplayLimit: { type: 'number', minimum: 0, maximum: 100 },
-    layout: { type: 'string', enum: ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'] },
-    density: { type: 'string', enum: ['normal', 'compact'] },
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
-    borderStyle: { type: 'string', enum: ['rounded', 'sharp', 'double', 'ascii', 'none'] },
-    bannerStyle: { type: 'string', enum: ['full', 'compact', 'none'] },
-    useEmojis: { type: 'boolean' },
     circuitBreakersEnabled: { type: 'boolean' },
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
-    smartRoutingEnabled: { type: 'boolean' },
-    smartRoutingCostSensitivity: { type: 'number', minimum: 0, maximum: 1 },
-    sessionTimeoutMs: { type: 'number', minimum: 0 },
+    routing: { type: 'object' },
     sessionLogLimit: { type: 'number', minimum: 0, maximum: 100000 },
   },
 });
+
+// ---------------------------------------------------------------------------
+// Provider credential resolution
+//
+// Environment variables take precedence over stored config for every provider
+// except the openai-compat base URL, which historically preferred the stored
+// value — preserved here byte-for-byte. `model` has no environment fallback.
+// ---------------------------------------------------------------------------
+
+const PROVIDER_ENV: Record<string, { apiKey?: string; baseUrl?: string; region?: string[]; profile?: string }> = {
+  anthropic: { apiKey: 'ANTHROPIC_API_KEY' },
+  google: { apiKey: 'GOOGLE_API_KEY' },
+  openai: { apiKey: 'OPENAI_API_KEY' },
+  together: { apiKey: 'TOGETHER_API_KEY' },
+  openrouter: { apiKey: 'OPENROUTER_API_KEY' },
+  groq: { apiKey: 'GROQ_API_KEY' },
+  fireworks: { apiKey: 'FIREWORKS_API_KEY' },
+  mistral: { apiKey: 'MISTRAL_API_KEY' },
+  ollama: { baseUrl: 'OLLAMA_BASE_URL' },
+  ai21: { apiKey: 'AI21_API_KEY' },
+  huggingface: { apiKey: 'HUGGINGFACE_API_KEY' },
+  litellm: { apiKey: 'LITELLM_API_KEY', baseUrl: 'LITELLM_BASE_URL' },
+  bedrock: { apiKey: 'BEDROCK_API_KEY', baseUrl: 'BEDROCK_BASE_URL', region: ['AWS_REGION', 'AWS_DEFAULT_REGION'], profile: 'AWS_PROFILE' },
+  'openai-compat': { apiKey: 'OPENAI_COMPAT_API_KEY', baseUrl: 'OPENAI_COMPAT_BASE_URL' },
+};
+
+function firstEnv(names?: string | string[]): string | undefined {
+  if (!names) return undefined;
+  for (const name of Array.isArray(names) ? names : [names]) {
+    const value = process.env[name];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve credentials for a provider, merging the stored nested config with the
+ * same environment-variable fallbacks that existed before the config shrink.
+ */
+export function getProviderCred(provider: string): ProviderCred {
+  const stored: ProviderCred = (config.get('providers') ?? {})[provider] ?? {};
+  const env = PROVIDER_ENV[provider] ?? {};
+  // openai-compat prefers the stored base URL over the env var; all others prefer env.
+  const baseUrl = provider === 'openai-compat'
+    ? (stored.baseUrl || firstEnv(env.baseUrl))
+    : (firstEnv(env.baseUrl) || stored.baseUrl);
+  return {
+    apiKey: firstEnv(env.apiKey) || stored.apiKey,
+    baseUrl,
+    model: stored.model,
+    region: firstEnv(env.region) || stored.region,
+    profile: firstEnv(env.profile) || stored.profile,
+  };
+}
+
+/**
+ * Write (merge) credentials for a provider into the nested `providers` map.
+ * Only the fields present in `patch` are updated. Validates non-empty API keys
+ * and well-formed base URLs, matching the old flat-key validation.
+ */
+export function setProviderCred(provider: string, patch: ProviderCred): void {
+  if (patch.apiKey !== undefined) {
+    if (typeof patch.apiKey !== 'string' || patch.apiKey.trim().length === 0) {
+      throw new Error(`API key for ${provider} must be a non-empty string`);
+    }
+  }
+  if (patch.baseUrl !== undefined) {
+    if (typeof patch.baseUrl !== 'string') {
+      throw new Error(`Base URL for ${provider} must be a string`);
+    }
+    try {
+      new URL(patch.baseUrl);
+    } catch {
+      throw new Error(`Base URL for ${provider} must be a valid URL`);
+    }
+  }
+
+  const all = { ...(config.get('providers') ?? {}) };
+  const merged: ProviderCred = { ...(all[provider] ?? {}) };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value !== undefined) {
+      (merged as Record<string, unknown>)[key] = value;
+    }
+  }
+  all[provider] = merged;
+  config.set('providers', all);
+}
 
 /**
  * Get the full config object
@@ -189,37 +209,7 @@ export function get<K extends keyof CalliopeConfig>(key: K): CalliopeConfig[K] {
  * Set a config value with validation
  */
 export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfig[K]): void {
-  // Validate API keys are non-empty strings when set
-  if (key.toString().endsWith('ApiKey') && value !== undefined) {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`API key for ${key} must be a non-empty string`);
-    }
-  }
-
-  // Validate URLs are proper format
-  if (key.toString().endsWith('BaseUrl') && value !== undefined) {
-    if (typeof value !== 'string') {
-      throw new Error(`Base URL for ${key} must be a string`);
-    }
-    try {
-      new URL(value);
-    } catch {
-      throw new Error(`Base URL for ${key} must be a valid URL`);
-    }
-  }
-
-  // Validate numeric bounds
-  if (key === 'maxIterations' && typeof value === 'number') {
-    if (value < 0 || value > 1000000) {
-      throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
-    }
-  }
-  if (key === 'sessionLogLimit' && typeof value === 'number') {
-    if (value < 0 || value > 100000) {
-      throw new Error('sessionLogLimit must be between 0 and 100000 (0 = unlimited)');
-    }
-  }
-
+  validateConfigValue(key, value);
   config.set(key, value);
 }
 
@@ -229,9 +219,7 @@ export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfi
 export function setMultiple(values: Partial<CalliopeConfig>): void {
   // Validate all values first before setting any
   for (const [key, value] of Object.entries(values)) {
-    const typedKey = key as keyof CalliopeConfig;
-    // Will throw if validation fails
-    validateConfigValue(typedKey, value);
+    validateConfigValue(key as keyof CalliopeConfig, value);
   }
   // All validations passed, now set values
   for (const [key, value] of Object.entries(values)) {
@@ -243,21 +231,6 @@ export function setMultiple(values: Partial<CalliopeConfig>): void {
  * Validate a single config value without setting it
  */
 function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
-  if (key.toString().endsWith('ApiKey') && value !== undefined) {
-    if (typeof value !== 'string' || value.trim().length === 0) {
-      throw new Error(`API key for ${key} must be a non-empty string`);
-    }
-  }
-  if (key.toString().endsWith('BaseUrl') && value !== undefined && value !== null) {
-    if (typeof value !== 'string') {
-      throw new Error(`Base URL for ${key} must be a string`);
-    }
-    try {
-      new URL(value);
-    } catch {
-      throw new Error(`Base URL for ${key} must be a valid URL`);
-    }
-  }
   if (key === 'maxIterations' && typeof value === 'number') {
     if (value < 0 || value > 1000000) {
       throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
@@ -304,20 +277,21 @@ export function resetConfig(): void {
 export function getConfiguredProviders(): LLMProvider[] {
   const providers: LLMProvider[] = [];
 
-  if (config.get('anthropicApiKey') || process.env.ANTHROPIC_API_KEY) providers.push('anthropic');
-  if (config.get('googleApiKey') || process.env.GOOGLE_API_KEY) providers.push('google');
-  if (config.get('openaiApiKey') || process.env.OPENAI_API_KEY) providers.push('openai');
-  if (config.get('togetherApiKey') || process.env.TOGETHER_API_KEY) providers.push('together');
-  if (config.get('openrouterApiKey') || process.env.OPENROUTER_API_KEY) providers.push('openrouter');
-  if (config.get('groqApiKey') || process.env.GROQ_API_KEY) providers.push('groq');
-  if (config.get('fireworksApiKey') || process.env.FIREWORKS_API_KEY) providers.push('fireworks');
-  if (config.get('mistralApiKey') || process.env.MISTRAL_API_KEY) providers.push('mistral');
-  if (config.get('ollamaBaseUrl') || process.env.OLLAMA_BASE_URL) providers.push('ollama');
-  if (config.get('ai21ApiKey') || process.env.AI21_API_KEY) providers.push('ai21');
-  if (config.get('huggingfaceApiKey') || process.env.HUGGINGFACE_API_KEY) providers.push('huggingface');
-  if (config.get('litellmBaseUrl') || process.env.LITELLM_BASE_URL) providers.push('litellm');
-  if (config.get('bedrockApiKey') || process.env.BEDROCK_API_KEY || config.get('bedrockBaseUrl') || process.env.BEDROCK_BASE_URL || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
-  if (config.get('openaiCompatBaseUrl') || process.env.OPENAI_COMPAT_BASE_URL) providers.push('openai-compat');
+  if (getProviderCred('anthropic').apiKey) providers.push('anthropic');
+  if (getProviderCred('google').apiKey) providers.push('google');
+  if (getProviderCred('openai').apiKey) providers.push('openai');
+  if (getProviderCred('together').apiKey) providers.push('together');
+  if (getProviderCred('openrouter').apiKey) providers.push('openrouter');
+  if (getProviderCred('groq').apiKey) providers.push('groq');
+  if (getProviderCred('fireworks').apiKey) providers.push('fireworks');
+  if (getProviderCred('mistral').apiKey) providers.push('mistral');
+  if (getProviderCred('ollama').baseUrl) providers.push('ollama');
+  if (getProviderCred('ai21').apiKey) providers.push('ai21');
+  if (getProviderCred('huggingface').apiKey) providers.push('huggingface');
+  if (getProviderCred('litellm').baseUrl) providers.push('litellm');
+  const bedrock = getProviderCred('bedrock');
+  if (bedrock.apiKey || bedrock.baseUrl || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
+  if (getProviderCred('openai-compat').baseUrl) providers.push('openai-compat');
 
   return providers;
 }
@@ -326,171 +300,112 @@ export function getConfiguredProviders(): LLMProvider[] {
  * Get API key for a provider
  */
 export function getApiKey(provider: LLMProvider): string | undefined {
-  // Special handling for openai-compat: check env/config, default to 'openai-compat'
-  if (provider === 'openai-compat') {
-    return process.env.OPENAI_COMPAT_API_KEY || config.get('openaiCompatApiKey') || 'openai-compat';
-  }
-
-  const keyMap: Record<LLMProvider, keyof CalliopeConfig | undefined> = {
-    anthropic: 'anthropicApiKey',
-    google: 'googleApiKey',
-    openai: 'openaiApiKey',
-    together: 'togetherApiKey',
-    openrouter: 'openrouterApiKey',
-    groq: 'groqApiKey',
-    fireworks: 'fireworksApiKey',
-    mistral: 'mistralApiKey',
-    ollama: 'ollamaBaseUrl',  // Returns base URL for Ollama
-    ai21: 'ai21ApiKey',
-    huggingface: 'huggingfaceApiKey',
-    litellm: 'litellmApiKey',
-    bedrock: 'bedrockApiKey',
-    'openai-compat': undefined,  // handled above
-    auto: undefined,
-  };
-
-  const key = keyMap[provider];
-  if (!key) return undefined;
-
-  // Check environment variable first, then config
-  const envMap: Record<string, string> = {
-    anthropicApiKey: 'ANTHROPIC_API_KEY',
-    googleApiKey: 'GOOGLE_API_KEY',
-    openaiApiKey: 'OPENAI_API_KEY',
-    togetherApiKey: 'TOGETHER_API_KEY',
-    openrouterApiKey: 'OPENROUTER_API_KEY',
-    groqApiKey: 'GROQ_API_KEY',
-    fireworksApiKey: 'FIREWORKS_API_KEY',
-    mistralApiKey: 'MISTRAL_API_KEY',
-    ollamaBaseUrl: 'OLLAMA_BASE_URL',
-    ai21ApiKey: 'AI21_API_KEY',
-    huggingfaceApiKey: 'HUGGINGFACE_API_KEY',
-    litellmApiKey: 'LITELLM_API_KEY',
-    bedrockApiKey: 'BEDROCK_API_KEY',
-    bedrockBaseUrl: 'BEDROCK_BASE_URL',
-  };
-
-  const envVar = envMap[key];
-  if (envVar && process.env[envVar]) {
-    return process.env[envVar];
-  }
-
-  return config.get(key) as string | undefined;
+  // Ollama has no API key — its "key" is the base URL.
+  if (provider === 'ollama') return getProviderCred('ollama').baseUrl;
+  // openai-compat defaults to a placeholder key when none is configured.
+  if (provider === 'openai-compat') return getProviderCred('openai-compat').apiKey || 'openai-compat';
+  return getProviderCred(provider).apiKey;
 }
 
 /**
- * Get base URL for a provider (for Ollama/LiteLLM)
+ * Get base URL for a provider (for Ollama/LiteLLM/Bedrock/openai-compat)
  */
 export function getBaseUrl(provider: LLMProvider): string | undefined {
-  if (provider === 'ollama') {
-    return process.env.OLLAMA_BASE_URL || config.get('ollamaBaseUrl') || 'http://localhost:11434';
-  }
-  if (provider === 'litellm') {
-    return process.env.LITELLM_BASE_URL || config.get('litellmBaseUrl') || 'http://localhost:4000';
-  }
-  if (provider === 'bedrock') {
-    return process.env.BEDROCK_BASE_URL || config.get('bedrockBaseUrl') || undefined;
-  }
-  if (provider === 'openai-compat') {
-    return config.get('openaiCompatBaseUrl') || process.env.OPENAI_COMPAT_BASE_URL;
-  }
+  if (provider === 'ollama') return getProviderCred('ollama').baseUrl || 'http://localhost:11434';
+  if (provider === 'litellm') return getProviderCred('litellm').baseUrl || 'http://localhost:4000';
+  if (provider === 'bedrock') return getProviderCred('bedrock').baseUrl;
+  if (provider === 'openai-compat') return getProviderCred('openai-compat').baseUrl;
   return undefined;
 }
 
-// Built-in profiles
-const BUILTIN_PROFILES: Record<string, Profile> = {
-  fast: {
-    provider: 'groq',
-    model: 'llama-3.3-70b-versatile',
-    confirmMode: false,
-  },
-  smart: {
-    provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
-    confirmMode: true,
-  },
-  cheap: {
-    provider: 'google',
-    model: 'gemini-2.0-flash',
-    confirmMode: true,
-  },
-  local: {
-    provider: 'ollama',
-    model: 'llama3.3',
-    confirmMode: true,
-  },
-};
+// ---------------------------------------------------------------------------
+// One-time migration to the nested provider-credential config format (#193)
+// ---------------------------------------------------------------------------
+
+// Old flat credential keys → [nested provider, field].
+const LEGACY_FLAT_CREDS: Array<[string, string, keyof ProviderCred]> = [
+  ['anthropicApiKey', 'anthropic', 'apiKey'],
+  ['googleApiKey', 'google', 'apiKey'],
+  ['openaiApiKey', 'openai', 'apiKey'],
+  ['togetherApiKey', 'together', 'apiKey'],
+  ['openrouterApiKey', 'openrouter', 'apiKey'],
+  ['groqApiKey', 'groq', 'apiKey'],
+  ['fireworksApiKey', 'fireworks', 'apiKey'],
+  ['mistralApiKey', 'mistral', 'apiKey'],
+  ['ai21ApiKey', 'ai21', 'apiKey'],
+  ['huggingfaceApiKey', 'huggingface', 'apiKey'],
+  ['ollamaBaseUrl', 'ollama', 'baseUrl'],
+  ['litellmBaseUrl', 'litellm', 'baseUrl'],
+  ['litellmApiKey', 'litellm', 'apiKey'],
+  ['bedrockApiKey', 'bedrock', 'apiKey'],
+  ['bedrockBaseUrl', 'bedrock', 'baseUrl'],
+  ['awsRegion', 'bedrock', 'region'],
+  ['awsProfile', 'bedrock', 'profile'],
+  ['openaiCompatBaseUrl', 'openai-compat', 'baseUrl'],
+  ['openaiCompatApiKey', 'openai-compat', 'apiKey'],
+  ['openaiCompatModel', 'openai-compat', 'model'],
+];
+
+// The complete set of keys the current schema recognises. Anything else in a
+// stored config is legacy (old flat creds, renamed routing keys, or junk from
+// removed subsystems) and is dropped by the migration.
+const SURVIVOR_KEYS = new Set<string>([
+  'setupComplete', 'defaultProvider', 'defaultModel', 'providers', 'fleet',
+  'maxIterations', 'maxIterationTime', 'autoSaveHistory', 'autoUpgrade',
+  'collapseTools', 'toolDisplayLimit', 'diffStyle', 'circuitBreakersEnabled',
+  'sandboxMode', 'routing', 'sessionLogLimit',
+]);
 
 /**
- * Get a profile by name (built-in or custom)
+ * Migrate a stored config from the pre-#193 flat format to the nested format.
+ * Runs once at startup and is idempotent — a second run is a no-op.
+ *
+ * Steps: (1) fold the old flat credential keys into `providers`, (2) rename the
+ * smart-routing keys into `routing`, (3) drop every remaining non-survivor key
+ * (cut settings + junk from removed subsystems). Values are read from a snapshot
+ * so the live deletes below don't disturb the reads.
  */
-export function getProfile(name: string): Profile | undefined {
-  // Check built-in profiles first
-  if (BUILTIN_PROFILES[name]) {
-    return BUILTIN_PROFILES[name];
-  }
-  // Check custom profiles
-  const profiles = config.get('profiles') || {};
-  return profiles[name];
-}
+export function migrateV3(): void {
+  const store = { ...(config.store as unknown as Record<string, unknown>) };
+  const raw = config as unknown as { delete(key: string): void };
 
-/**
- * Save a custom profile
- */
-export function saveProfile(name: string, profile: Profile): void {
-  const profiles = config.get('profiles') || {};
-  profiles[name] = profile;
-  config.set('profiles', profiles);
-}
+  let hadFlatCred = false;
+  const providers: Record<string, ProviderCred> = { ...((store.providers as Record<string, ProviderCred>) ?? {}) };
 
-/**
- * Delete a custom profile
- */
-export function deleteProfile(name: string): boolean {
-  if (BUILTIN_PROFILES[name]) {
-    return false; // Can't delete built-in profiles
-  }
-  const profiles = config.get('profiles') || {};
-  if (profiles[name]) {
-    delete profiles[name];
-    config.set('profiles', profiles);
-    return true;
-  }
-  return false;
-}
-
-/**
- * List all available profiles
- */
-export function listProfiles(): { name: string; profile: Profile; builtin: boolean }[] {
-  const result: { name: string; profile: Profile; builtin: boolean }[] = [];
-
-  // Add built-in profiles
-  for (const [name, profile] of Object.entries(BUILTIN_PROFILES)) {
-    result.push({ name, profile, builtin: true });
+  for (const [flatKey, provider, field] of LEGACY_FLAT_CREDS) {
+    if (flatKey in store) {
+      hadFlatCred = true;
+      const value = store[flatKey];
+      if (typeof value === 'string' && value.length > 0) {
+        providers[provider] = { ...(providers[provider] ?? {}), [field]: value };
+      }
+    }
   }
 
-  // Add custom profiles
-  const customProfiles = config.get('profiles') || {};
-  for (const [name, profile] of Object.entries(customProfiles)) {
-    result.push({ name, profile, builtin: false });
+  // Fold the old smart-routing keys into the nested `routing` object.
+  if (('smartRoutingEnabled' in store || 'smartRoutingCostSensitivity' in store) && !('routing' in store)) {
+    const enabled = store.smartRoutingEnabled === true;
+    const costSensitivity = typeof store.smartRoutingCostSensitivity === 'number'
+      ? (store.smartRoutingCostSensitivity as number)
+      : 0.3;
+    config.set('routing', { enabled, costSensitivity });
   }
 
-  return result;
+  if (hadFlatCred && Object.keys(providers).length > 0) {
+    config.set('providers', providers);
+  }
+
+  // Drop every stored key not in the current schema: old flat creds, the renamed
+  // routing keys, cut display settings, and junk from removed subsystems.
+  for (const key of Object.keys(store)) {
+    if (!SURVIVOR_KEYS.has(key)) raw.delete(key);
+  }
+
+  if (hadFlatCred) {
+    console.error('calliope: migrated provider credentials to the new config format.');
+  }
 }
 
-/**
- * Set the active profile
- */
-export function setActiveProfile(name: string | undefined): void {
-  config.set('activeProfile', name);
-}
-
-/**
- * Get the active profile name
- */
-export function getActiveProfile(): string | undefined {
-  return config.get('activeProfile');
-}
+migrateV3();
 
 export default config;

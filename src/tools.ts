@@ -279,22 +279,14 @@ CONFIGURABLE SETTINGS:
 - defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-6", "gemini-2.0-flash", "gpt-4o")
 - maxIterations: Max agent loop iterations (0 = unlimited)
 - maxIterationTime: Max seconds per iteration (0 = no limit, default: 600)
-- fancyOutput: Enable rich formatting (true/false)
 - autoSaveHistory: Auto-save session history (true/false)
 - autoUpgrade: Check for updates on startup (true/false)
 - collapseTools: Auto-collapse tool output (true/false)
-- collapseThinking: Auto-collapse think blocks (true/false)
 - toolDisplayLimit: Show last N tools expanded (0 = all)
-- layout: UI layout (classic, response-top, response-bottom, split, zen, focus, dashboard, minimal)
-- density: Display density (normal, compact)
-- useEmojis: Show emojis in UI (true/false)
 - diffStyle: Diff display format (inline, unified, side-by-side)
-- borderStyle: UI border style (rounded, sharp, double, ascii, none)
-- bannerStyle: Startup banner (full, compact, none)
 - circuitBreakersEnabled: Safety circuit breakers (true/false)
 - sandboxMode: Code execution sandbox (auto, native, docker, off)
-- smartRoutingEnabled: Dynamic model routing (true/false)
-- smartRoutingCostSensitivity: Cost vs quality (0-1, 0=best quality, 1=cheapest)`,
+- sessionLogLimit: Cap retained session log items (0 = unlimited)`,
     parameters: {
       type: 'object',
       properties: {
@@ -534,24 +526,16 @@ export async function executeTool(
               `  ${p === current ? '→ ' : '  '}${p}`
             ).join('\n'));
           }
-          if (category === 'layouts' || category === 'all') {
-            const layouts = ['classic', 'response-top', 'response-bottom', 'split', 'zen', 'focus', 'dashboard', 'minimal'];
-            const current = config.get('layout');
-            sections.push('LAYOUTS (layout):\n' + layouts.map(l =>
-              `  ${l === current ? '→ ' : '  '}${l}`
-            ).join('\n'));
-          }
-
           if (category === 'all') {
             // Also show current key settings
             const currentSettings = [
-              `density: ${config.get('density')}`,
-              `useEmojis: ${config.get('useEmojis')}`,
               `diffStyle: ${config.get('diffStyle')}`,
-              `borderStyle: ${config.get('borderStyle')}`,
-              `bannerStyle: ${config.get('bannerStyle')}`,
               `sandboxMode: ${config.get('sandboxMode')}`,
-              `smartRoutingEnabled: ${config.get('smartRoutingEnabled')}`,
+              `collapseTools: ${config.get('collapseTools')}`,
+              `toolDisplayLimit: ${config.get('toolDisplayLimit')}`,
+              `maxIterations: ${config.get('maxIterations')}`,
+              `sessionLogLimit: ${config.get('sessionLogLimit')}`,
+              `routing.enabled: ${config.get('routing')?.enabled ?? false}`,
               `defaultModel: ${config.get('defaultModel') || '(auto)'}`,
             ];
             sections.push('CURRENT SETTINGS:\n' + currentSettings.map(s => `  ${s}`).join('\n'));
@@ -584,14 +568,10 @@ export async function executeTool(
         // Only allow setting safe keys through conversation (allowlist)
         const SAFE_CONFIG_KEYS = new Set([
           'defaultProvider', 'defaultModel', 'maxIterations', 'maxIterationTime',
-          'fancyOutput', 'autoSaveHistory', 'autoUpgrade',
-          'collapseTools', 'collapseThinking', 'toolDisplayLimit',
-          'layout', 'density',
-          'useEmojis', 'diffStyle', 'borderStyle', 'bannerStyle',
+          'autoSaveHistory', 'autoUpgrade',
+          'collapseTools', 'toolDisplayLimit', 'diffStyle',
           'circuitBreakersEnabled', 'sandboxMode',
-          'smartRoutingEnabled', 'smartRoutingCostSensitivity',
           'sessionLogLimit',
-          'awsRegion', 'awsProfile',
         ]);
         if (!SAFE_CONFIG_KEYS.has(key)) {
           return { toolCallId: id, result: `Error: "${key}" cannot be set through conversation. Use /keys command, environment variables, or edit the config file directly.`, isError: true };
@@ -1018,9 +998,7 @@ function generateDiff(oldContent: string, newContent: string, maxLines = 20): st
   let deletions = 0;
   let changesShown = 0;
   let contextLines = 0;
-  // Use density setting: compact = 1 context line, normal = 3
-  const density = config.get('density') || 'normal';
-  const contextWindow = density === 'compact' ? 1 : 3;
+  const contextWindow = 3;
 
   // Compute line number width
   const lineNumWidth = Math.max(4, maxIdx.toString().length);

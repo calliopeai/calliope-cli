@@ -794,7 +794,7 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
   let accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
   let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
   let sessionToken = process.env.AWS_SESSION_TOKEN;
-  const profile = process.env.AWS_PROFILE || config.get('awsProfile') || 'default';
+  const profile = config.getProviderCred('bedrock').profile || 'default';
 
   // Parse an INI-style AWS file. Handles both ~/.aws/credentials sections
   // ([name]) and ~/.aws/config sections ([profile name]).
@@ -849,7 +849,7 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
     );
   }
 
-  const region = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || config.get('awsRegion') || 'us-east-1';
+  const region = config.getProviderCred('bedrock').region || 'us-east-1';
   const host = `bedrock.${region}.amazonaws.com`;
 
   const signedGet = async (path: string, query: string): Promise<Response> => {

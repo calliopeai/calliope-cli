@@ -91,7 +91,7 @@ export async function runSetup(force = false): Promise<boolean> {
       message: 'Enter your Ollama base URL:',
       default: 'http://localhost:11434',
     });
-    config.set('ollamaBaseUrl', baseUrl);
+    config.setProviderCred('ollama', { baseUrl });
   } else if (providerChoice === 'litellm' && needsKey) {
     console.log();
     console.log(c(`  LiteLLM is a proxy server for multiple providers.`, 'dim'));
@@ -99,7 +99,7 @@ export async function runSetup(force = false): Promise<boolean> {
       message: 'Enter your LiteLLM proxy URL:',
       default: 'http://localhost:4000',
     });
-    config.set('litellmBaseUrl', baseUrl);
+    config.setProviderCred('litellm', { baseUrl });
 
     const needsApiKey = await confirm({
       message: 'Does your LiteLLM proxy require an API key?',
@@ -111,7 +111,7 @@ export async function runSetup(force = false): Promise<boolean> {
         mask: '*',
       });
       if (apiKey && apiKey.length > 0) {
-        config.set('litellmApiKey', apiKey);
+        config.setProviderCred('litellm', { apiKey });
       }
     }
   } else if (providerChoice === 'bedrock' && needsKey) {
@@ -121,7 +121,7 @@ export async function runSetup(force = false): Promise<boolean> {
       message: 'Enter your Bedrock gateway/proxy URL:',
       default: 'http://localhost:8080',
     });
-    config.set('bedrockBaseUrl', baseUrl);
+    config.setProviderCred('bedrock', { baseUrl });
 
     const needsApiKey = await confirm({
       message: 'Does your Bedrock gateway require an API key?',
@@ -133,7 +133,7 @@ export async function runSetup(force = false): Promise<boolean> {
         mask: '*',
       });
       if (apiKey && apiKey.length > 0) {
-        config.set('bedrockApiKey', apiKey);
+        config.setProviderCred('bedrock', { apiKey });
       }
     }
   } else if (providerChoice === 'openai-compat' && needsKey) {
@@ -141,11 +141,13 @@ export async function runSetup(force = false): Promise<boolean> {
     console.log(c('  Any server that speaks the OpenAI chat completions API.', 'dim'));
     console.log(c('  Examples: AnythingLLM (port 3001), LocalAI (8080), Jan (1337), LM Studio (1234), vLLM (8000)', 'dim'));
     const baseUrl = await input({ message: 'Enter base URL:', default: 'http://localhost:1234/v1' });
-    config.set('openaiCompatBaseUrl', baseUrl);
+    config.setProviderCred('openai-compat', { baseUrl });
     const needsApiKey = await confirm({ message: 'Does this server require an API key?', default: false });
     if (needsApiKey) {
       const apiKey = await input({ message: 'Enter API key:' });
-      config.set('openaiCompatApiKey', apiKey);
+      if (apiKey && apiKey.length > 0) {
+        config.setProviderCred('openai-compat', { apiKey });
+      }
     }
   } else if (needsKey) {
     console.log();
@@ -197,33 +199,9 @@ export async function runSetup(force = false): Promise<boolean> {
       },
     });
 
-    // Store the key
-    const keyMap: Record<string, keyof config.CalliopeConfig> = {
-      anthropic: 'anthropicApiKey',
-      google: 'googleApiKey',
-      openai: 'openaiApiKey',
-      openrouter: 'openrouterApiKey',
-      together: 'togetherApiKey',
-      groq: 'groqApiKey',
-      fireworks: 'fireworksApiKey',
-      mistral: 'mistralApiKey',
-      ai21: 'ai21ApiKey',
-      huggingface: 'huggingfaceApiKey',
-    };
-
-    if (keyMap[providerChoice]) {
-      config.set(keyMap[providerChoice], apiKey);
-    }
+    // Store the key under the provider's nested credentials.
+    config.setProviderCred(providerChoice, { apiKey });
   }
-
-  // Fancy output
-  console.log();
-  const fancyOutput = await confirm({
-    message: 'Enable fancy terminal output (colors, spinners, ASCII art)?',
-    default: true,
-  });
-
-  config.set('fancyOutput', fancyOutput);
 
   // Optional: Additional providers
   console.log();
@@ -259,15 +237,15 @@ export async function runSetup(force = false): Promise<boolean> {
  */
 async function configureAdditionalProviders(existingEnvProviders: string[]): Promise<void> {
   const providers = [
-    { id: 'anthropic', name: 'Anthropic Claude', envKey: 'ANTHROPIC_API_KEY', configKey: 'anthropicApiKey' },
-    { id: 'google', name: 'Google Gemini', envKey: 'GOOGLE_API_KEY', configKey: 'googleApiKey' },
-    { id: 'openai', name: 'OpenAI GPT', envKey: 'OPENAI_API_KEY', configKey: 'openaiApiKey' },
-    { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY', configKey: 'openrouterApiKey' },
-    { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY', configKey: 'togetherApiKey' },
-    { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY', configKey: 'groqApiKey' },
-    { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY', configKey: 'mistralApiKey' },
-    { id: 'ai21', name: 'AI21 Labs', envKey: 'AI21_API_KEY', configKey: 'ai21ApiKey' },
-    { id: 'huggingface', name: 'HuggingFace', envKey: 'HUGGINGFACE_API_KEY', configKey: 'huggingfaceApiKey' },
+    { id: 'anthropic', name: 'Anthropic Claude', envKey: 'ANTHROPIC_API_KEY' },
+    { id: 'google', name: 'Google Gemini', envKey: 'GOOGLE_API_KEY' },
+    { id: 'openai', name: 'OpenAI GPT', envKey: 'OPENAI_API_KEY' },
+    { id: 'openrouter', name: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
+    { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY' },
+    { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY' },
+    { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY' },
+    { id: 'ai21', name: 'AI21 Labs', envKey: 'AI21_API_KEY' },
+    { id: 'huggingface', name: 'HuggingFace', envKey: 'HUGGINGFACE_API_KEY' },
   ];
 
   for (const provider of providers) {
@@ -276,7 +254,7 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
       continue;
     }
 
-    const existing = config.get(provider.configKey as keyof config.CalliopeConfig);
+    const existing = config.getProviderCred(provider.id).apiKey;
     if (existing) {
       continue;
     }
@@ -293,7 +271,7 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
       });
 
       if (apiKey && apiKey.length > 10) {
-        config.set(provider.configKey as keyof config.CalliopeConfig, apiKey);
+        config.setProviderCred(provider.id, { apiKey });
         console.log(c(`  ✓ ${provider.name} configured`, 'green'));
       }
     }

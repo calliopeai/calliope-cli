@@ -62,7 +62,7 @@ const skipPermissions = args.includes('--god-mode') ||
 // Check for multi-agent orchestration mode
 
 // Check for headless mode (no-TTY agent orchestration)
-const useHeadless = args.includes('--headless') || args.includes('--batch') || args.includes('--pipe') || !process.stdout.isTTY;
+const useHeadless = args.includes('--headless') || !process.stdout.isTTY;
 
 // --debug enables verbose file logging to /tmp/calliope-debug.log
 // (console output would corrupt Ink rendering, so we log to file).
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
   }
 
   // Handle --setup (force reconfigure)
-  if (args.includes('--setup') || args.includes('--configure')) {
+  if (args.includes('--setup')) {
     await runSetup(true);
     return startCLI({ skipPermissions });
   }
@@ -300,18 +300,16 @@ ${bold('OPTIONS')}
   --setup           Run setup wizard (reconfigure)
   --config          Show config file path and status
   --reset           Reset all configuration
-  --skip-setup      Skip setup if API keys in environment
 
   -g, --god-mode    Run tools without confirmation prompts
                     Enables unrestricted autonomous execution
-  --headless        Headless mode (JSON/text output, no TTY)
-  --batch           Alias for --headless
+  --headless        Headless mode (JSON/text output, no TTY; auto-detected when piped)
   --json            Output JSON events (with --headless)
-  --pipe            Read from stdin, write to stdout (alias)
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
   --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
 ${bold('ENVIRONMENT VARIABLES')}
+  Used as fallbacks when a provider is not configured via the setup wizard:
   ANTHROPIC_API_KEY     Anthropic Claude API key
   GOOGLE_API_KEY        Google Gemini API key
   OPENAI_API_KEY        OpenAI API key
@@ -343,7 +341,7 @@ ${bold('EXAMPLES')}
   calliope                    Start interactive session
   calliope "explain this"     Start with a prompt
   calliope --setup            Run setup wizard
-  calliope --batch "fix lint" Non-interactive batch execution
+  calliope --headless "fix lint" Non-interactive execution
   echo "review" | calliope    Pipe prompt via stdin
   calliope --headless --json  JSON event stream output
 

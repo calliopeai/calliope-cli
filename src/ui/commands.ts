@@ -178,7 +178,7 @@ Extend
   /skills [add|remove]        Agent skills
 
 System
-  /config [set <key> <value>] Show or change settings (maxIterations, sessionLogLimit, fancyOutput, theme)
+  /config [set <key> <value>] Show or change settings (maxIterations, sessionLogLimit, diffStyle, theme)
   /setup                      Reconfigure Calliope
   /cost                       Cost tracking summary
   /loop ["prompt"|stop]       Iterative agent loop
@@ -415,10 +415,15 @@ File references: @filename, ./path, /absolute/path`;
         if (!key || !value) {
           ctx.addMessage('system', `Usage: /config set <key> <value>
 Available keys:
-  maxIterations <number>       - Max agent iterations (current: ${config.get('maxIterations')})
-  sessionLogLimit <number>     - Cap retained session log items (current: ${formatSessionLogLimit(config.get('sessionLogLimit'))}, 0 = unlimited)
-  fancyOutput <bool>           - true/false
-  theme <dark|light|no-color>  - Color theme`);
+  maxIterations <number>                  - Max agent iterations (current: ${config.get('maxIterations')})
+  sessionLogLimit <number>                - Cap retained session log items (current: ${formatSessionLogLimit(config.get('sessionLogLimit'))}, 0 = unlimited)
+  collapseTools <bool>                    - Auto-collapse tool output
+  toolDisplayLimit <number>               - Tools shown expanded (0 = all)
+  diffStyle <inline|unified|side-by-side> - Diff display style
+  sandboxMode <auto|native|docker|off>    - Code execution sandbox
+  routing.enabled <bool>                  - Smart model routing
+  routing.costSensitivity <0-1>           - Cost vs quality (0 = best, 1 = cheapest)
+  theme <dark|light|no-color>             - Color theme`);
           break;
         }
 
@@ -440,10 +445,46 @@ Available keys:
             config.set('sessionLogLimit', num);
             ctx.ledger?.setRetentionLimit(num);
             ctx.addMessage('system', `✓ sessionLogLimit set to ${num === 0 ? 'unlimited (set > 0 to cap)' : num}`);
-          } else if (key === 'fancyOutput') {
+          } else if (key === 'collapseTools') {
             const bool = value === 'true';
-            config.set('fancyOutput', bool);
-            ctx.addMessage('system', `✓ fancyOutput set to ${bool}`);
+            config.set('collapseTools', bool);
+            ctx.addMessage('system', `✓ collapseTools set to ${bool}`);
+          } else if (key === 'toolDisplayLimit') {
+            const num = parseInt(value, 10);
+            if (isNaN(num) || num < 0 || num > 100) {
+              ctx.addMessage('error', 'toolDisplayLimit must be 0-100 (0 = all expanded)');
+              break;
+            }
+            config.set('toolDisplayLimit', num);
+            ctx.addMessage('system', `✓ toolDisplayLimit set to ${num}`);
+          } else if (key === 'diffStyle') {
+            if (value !== 'inline' && value !== 'unified' && value !== 'side-by-side') {
+              ctx.addMessage('error', 'diffStyle must be inline, unified, or side-by-side');
+              break;
+            }
+            config.set('diffStyle', value);
+            ctx.addMessage('system', `✓ diffStyle set to ${value}`);
+          } else if (key === 'sandboxMode') {
+            if (value !== 'auto' && value !== 'native' && value !== 'docker' && value !== 'off') {
+              ctx.addMessage('error', 'sandboxMode must be auto, native, docker, or off');
+              break;
+            }
+            config.set('sandboxMode', value);
+            ctx.addMessage('system', `✓ sandboxMode set to ${value}`);
+          } else if (key === 'routing.enabled') {
+            const bool = value === 'true';
+            const routing = config.get('routing') ?? { enabled: false, costSensitivity: 0.3 };
+            config.set('routing', { ...routing, enabled: bool });
+            ctx.addMessage('system', `✓ routing.enabled set to ${bool}`);
+          } else if (key === 'routing.costSensitivity') {
+            const num = Number(value);
+            if (isNaN(num) || num < 0 || num > 1) {
+              ctx.addMessage('error', 'routing.costSensitivity must be between 0 and 1');
+              break;
+            }
+            const routing = config.get('routing') ?? { enabled: false, costSensitivity: 0.3 };
+            config.set('routing', { ...routing, costSensitivity: num });
+            ctx.addMessage('system', `✓ routing.costSensitivity set to ${num}`);
           } else if (key === 'theme') {
             const themes = await import('../themes.js');
             if (themes.setCurrentTheme(value)) {

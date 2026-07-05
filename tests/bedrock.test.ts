@@ -22,6 +22,13 @@ vi.mock('../src/config.js', () => ({
   set: vi.fn(),
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
+  // Mirror the real bedrock env resolution so region/profile tests work.
+  getProviderCred: vi.fn((provider: string) => provider === 'bedrock' ? {
+    apiKey: process.env.BEDROCK_API_KEY,
+    baseUrl: process.env.BEDROCK_BASE_URL,
+    region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION,
+    profile: process.env.AWS_PROFILE,
+  } : {}),
 }));
 
 import * as config from '../src/config.js';

@@ -112,7 +112,7 @@ async function getAWSCredentials(): Promise<AWSCredentials> {
   }
 
   // 2. Named profile from env or config
-  const profile = process.env.AWS_PROFILE || config.get('awsProfile') || 'default';
+  const profile = config.getProviderCred('bedrock').profile || 'default';
   const awsDir = join(homedir(), '.aws');
 
   // Check credentials file
@@ -153,12 +153,7 @@ async function getAWSCredentials(): Promise<AWSCredentials> {
  * Get the AWS region to use.
  */
 function getAWSRegion(): string {
-  return (
-    process.env.AWS_REGION ||
-    process.env.AWS_DEFAULT_REGION ||
-    config.get('awsRegion') ||
-    'us-east-1'
-  );
+  return config.getProviderCred('bedrock').region || 'us-east-1';
 }
 
 // ---------------------------------------------------------------------------
