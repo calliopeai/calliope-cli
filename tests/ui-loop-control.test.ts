@@ -64,8 +64,10 @@ vi.mock('../src/hooks.js', () => ({
   executeHooks: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('../src/model-router.js', () => ({
+vi.mock('../src/router.js', () => ({
   routeRequest: vi.fn(),
+  smartRoute: vi.fn(),
+  getDefaultSmartRoutingConfig: vi.fn(() => ({ enabled: false })),
 }));
 
 vi.mock('../src/summarization.js', () => ({
@@ -100,16 +102,11 @@ vi.mock('../src/circuit-breaker.js', () => ({
   CircuitBreaker: vi.fn(),
 }));
 
-vi.mock('../src/smart-router.js', () => ({
-  smartRoute: vi.fn(),
-  getDefaultSmartRoutingConfig: vi.fn(() => ({ enabled: false })),
-}));
-
 vi.mock('../src/iteration-ledger.js', () => ({
   IterationLedger: vi.fn(),
 }));
 
-vi.mock('../src/auto-checkpoint.js', () => ({
+vi.mock('../src/checkpoint.js', () => ({
   shouldCheckpoint: vi.fn(() => false),
   createCheckpoint: vi.fn(),
 }));

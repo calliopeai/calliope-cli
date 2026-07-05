@@ -10,8 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { StringDecoder } from 'string_decoder';
 import type { Tool, ToolCall, ToolResult } from './types.js';
-import * as sandbox from './sandbox.js';
-import * as nativeSandbox from './sandbox-native.js';
+import * as sandbox from './sandbox/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
@@ -690,7 +689,7 @@ export async function executeTool(
  * SECURITY NOTE (#132): This denylist is ADVISORY / defense-in-depth only. It is
  * fundamentally unwinnable to perfectly screen an arbitrary `bash -c` string, so
  * treat this as a best-effort tripwire, NOT a security boundary. The real control
- * is the native sandbox (see src/sandbox-native.ts); when no sandbox is available
+ * is the native sandbox (see src/sandbox/native.ts); when no sandbox is available
  * the shell tool fails closed (see shouldUseNativeSandbox / executeShell).
  */
 const BLOCKED_COMMANDS = [
@@ -864,23 +863,6 @@ function validateShellPaths(command: string, cwd: string): string | null {
 }
 
 /**
- * Determine whether to use native sandboxing for shell commands based on config.
- *
- * sandboxMode values:
- *  - 'auto':   use native sandbox when available, otherwise run unsandboxed
- *  - 'native': require native sandbox (fail if unavailable)
- *  - 'docker': defer to Docker sandbox (handled elsewhere)
- *  - 'off':    no sandboxing
- */
-function shouldUseNativeSandbox(): 'use' | 'skip' | 'require' {
-  const mode = config.get('sandboxMode') || 'auto';
-  if (mode === 'off' || mode === 'docker') return 'skip';
-  if (mode === 'native') return 'require';
-  // 'auto': use if available
-  return nativeSandbox.isNativeSandboxAvailable() ? 'use' : 'skip';
-}
-
-/**
  * Execute a shell command
  */
 async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
@@ -897,9 +879,9 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
   }
 
   // Check if native sandbox should be used
-  const sandboxDecision = shouldUseNativeSandbox();
+  const sandboxDecision = sandbox.shouldUseNativeSandbox();
 
-  if (sandboxDecision === 'require' && !nativeSandbox.isNativeSandboxAvailable()) {
+  if (sandboxDecision === 'require' && !sandbox.isNativeSandboxAvailable()) {
     return 'Error: Native sandbox required (sandboxMode=native) but not available on this platform.';
   }
 
@@ -913,7 +895,7 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
   if (sandboxDecision === 'use' || sandboxDecision === 'require') {
     // Network is OFF by default; opt in via CALLIOPE_SHELL_NETWORK=1 (#133).
     const networkEnabled = process.env.CALLIOPE_SHELL_NETWORK === '1';
-    const result = await nativeSandbox.executeInNativeSandbox(command, cwd, {
+    const result = await sandbox.executeInNativeSandbox(command, cwd, {
       timeout,
       networkEnabled,
     });
@@ -1120,16 +1102,6 @@ async function writeFile(filePath: string, content: string, cwd: string): Promis
     }
   }
 
-  // Auto-checkpoint before overwriting existing files (#20)
-  if (!isNewFile && oldContent) {
-    try {
-      const { createCheckpoint } = require('./checkpoint.js');
-      createCheckpoint(absPath, oldContent);
-    } catch {
-      // Checkpoint module not available or failed - continue with write
-    }
-  }
-
   fs.writeFileSync(absPath, content);
 
   // Generate diff output (#119)
@@ -1244,14 +1216,12 @@ async function executeCode(
   cwd: string,
   timeout: number
 ): Promise<string> {
-  const mode = config.get('sandboxMode') || 'auto';
   const sandboxLang = language === 'node' ? 'node' : language;
 
-  // Determine execution strategy
-  const useDocker = mode === 'docker' || (mode === 'auto' && sandbox.isDockerAvailable());
-  const useNative = mode === 'native' || (mode === 'auto' && !sandbox.isDockerAvailable() && nativeSandbox.isNativeSandboxAvailable());
+  // Determine execution strategy from sandboxMode config
+  const strategy = sandbox.selectCodeSandbox();
 
-  if (useDocker) {
+  if (strategy === 'docker') {
     // Docker sandbox path (existing behaviour)
     const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
       timeout,
@@ -1269,7 +1239,7 @@ async function executeCode(
     return output;
   }
 
-  if (useNative) {
+  if (strategy === 'native') {
     // Native OS sandbox path — write code to temp file and execute
     const fs = await import('fs');
     const os = await import('os');
@@ -1284,7 +1254,7 @@ async function executeCode(
       : `bash "${codePath}"`;
 
     const startTime = Date.now();
-    const result = await nativeSandbox.executeInNativeSandbox(cmd, cwd, {
+    const result = await sandbox.executeInNativeSandbox(cmd, cwd, {
       timeout,
       readOnlyPaths: [tempDir],
     });

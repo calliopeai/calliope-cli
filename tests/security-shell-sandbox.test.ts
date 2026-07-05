@@ -36,8 +36,8 @@ vi.mock('../src/config.js', async (importOriginal) => {
   };
 });
 
-vi.mock('../src/sandbox-native.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../src/sandbox-native.js')>();
+vi.mock('../src/sandbox/native.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/sandbox/native.js')>();
   return {
     ...actual,
     isNativeSandboxAvailable: () => mockNativeAvailable,
@@ -46,7 +46,7 @@ vi.mock('../src/sandbox-native.js', async (importOriginal) => {
 
 import { executeTool } from '../src/tools.js';
 import { resetScope, isInScope, validatePath } from '../src/scope.js';
-import { buildSeatbeltProfile } from '../src/sandbox-native.js';
+import { buildSeatbeltProfile } from '../src/sandbox/native.js';
 import type { ToolCall } from '../src/types.js';
 
 let tmpDir: string;

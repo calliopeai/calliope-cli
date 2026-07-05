@@ -3,8 +3,8 @@
  *
  * Covers issue #152: autoCompress must not emit a message array with an
  * orphaned tool_use/tool_result across the keep boundary (would 400 on the
- * next provider call). Issues #151 (auto-checkpoint) and #153 (idle-eviction)
- * are covered in tests/auto-checkpoint.test.ts and tests/idle-eviction.test.ts.
+ * next provider call). Issues #151 (git checkpoints) and #153 (idle-eviction)
+ * are covered in tests/checkpoint.test.ts and tests/idle-eviction.test.ts.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

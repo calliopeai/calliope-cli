@@ -1,5 +1,5 @@
 /**
- * Extended coverage tests for src/sandbox-native.ts
+ * Extended coverage tests for src/sandbox/native.ts
  *
  * Targets uncovered branches:
  * - sanitizeSeatbeltPath: null byte throws, backslash/quote escaping
@@ -50,7 +50,7 @@ import {
   executeInNativeSandbox,
   resetDetectionCache,
   // @ts-ignore - buildSeatbeltProfile is not exported, test via effects
-} from '../src/sandbox-native.js';
+} from '../src/sandbox/native.js';
 
 // We need access to buildSeatbeltProfile to test it directly
 // It's not exported, but we can test it through the profile content that gets used

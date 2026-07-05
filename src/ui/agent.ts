@@ -17,7 +17,7 @@ import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
 import * as hooks from '../hooks.js';
-import * as modelRouter from '../model-router.js';
+import * as router from '../router.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
 import * as summarization from '../summarization.js';
 import { autoCompress } from '../auto-compressor.js';
@@ -25,13 +25,13 @@ import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { IterationData, BreakerCheckResult } from '../circuit-breaker.js';
-import { smartRoute, getDefaultSmartRoutingConfig } from '../smart-router.js';
-import type { SmartRoutingConfig } from '../smart-router.js';
+import { smartRoute, getDefaultSmartRoutingConfig } from '../router.js';
+import type { SmartRoutingConfig } from '../router.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall } from '../types.js';
 import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
 import { IterationLedger } from '../iteration-ledger.js';
-import { shouldCheckpoint, createCheckpoint } from '../auto-checkpoint.js';
+import { shouldCheckpoint, createCheckpoint } from '../checkpoint.js';
 import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
 import {
   resolveIterationLimit,
@@ -204,7 +204,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.addMessage('system', `[Smart route: ${decision.selected.provider}/${decision.selected.tier} - ${decision.taskType}/${decision.complexity}]`);
     }
   } else if (ctx.autoRoute && typeof content === 'string') {
-    const routeDecision = modelRouter.routeRequest(content, ctx.provider, {
+    const routeDecision = router.routeRequest(content, ctx.provider, {
       messageCount: ctx.stats.messageCount,
       hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
     });
@@ -611,7 +611,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               if (shouldCheckpoint(toolCall.name, args)) {
                 const hash = createCheckpoint(toolCall.name, args);
                 if (hash) {
-                  ctx.debugLog('checkpoint', `auto-checkpoint ${hash} before ${toolCall.name}`);
+                  ctx.debugLog('checkpoint', `checkpoint ${hash} before ${toolCall.name}`);
                 }
               }
               // Stream shell output in real-time (#15)

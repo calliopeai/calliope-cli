@@ -58,10 +58,13 @@ vi.mock('../src/skills.js', () => ({
   listSkills: vi.fn(() => []),
   getSkillsContext: vi.fn(() => ''),
 }));
-vi.mock('../src/model-router.js', () => ({
+vi.mock('../src/router.js', () => ({
   getModelRouterConfig: vi.fn(() => ({})),
   setModelRouterConfig: vi.fn(),
   isAutoRouteEnabled: vi.fn(() => false),
+  smartRoute: vi.fn(),
+  getDefaultSmartRoutingConfig: vi.fn(() => ({})),
+  detectTaskType: vi.fn(() => 'general'),
 }));
 vi.mock('../src/summarization.js', () => ({ summarize: vi.fn() }));
 vi.mock('../src/scope.js', () => ({
@@ -73,11 +76,6 @@ vi.mock('../src/scope.js', () => ({
 }));
 vi.mock('../src/circuit-breaker.js', () => ({
   CircuitBreaker: vi.fn(),
-}));
-vi.mock('../src/smart-router.js', () => ({
-  smartRoute: vi.fn(),
-  getDefaultSmartRoutingConfig: vi.fn(() => ({})),
-  detectTaskType: vi.fn(() => 'general'),
 }));
 vi.mock('../src/hud/api.js', () => ({
   getCurrentSkin: vi.fn(() => 'clean'),
