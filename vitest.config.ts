@@ -25,6 +25,14 @@ export default defineConfig({
         'src/ui/completions.ts',
         'src/ui/context.ts',
         'src/ui/pack-picker.tsx',
+        // UI state hooks + orchestration (moved out of index.tsx; same category
+        // as the above — exercised by the render-isolation integration test).
+        'src/ui/state/**',
+        'src/ui/animations.ts',
+        'src/ui/chat-input-keys.ts',
+        'src/ui/debug-log.ts',
+        'src/ui/self-restart.ts',
+        'src/ui/regions/render-probe.ts',
         // Theme pack registries (data only, no logic)
         'src/hud/theme-packs/index.ts',
         'src/hud/theme-packs/gaming/index.ts',
