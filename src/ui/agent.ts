@@ -18,7 +18,7 @@ import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
 import * as hooks from '../hooks.js';
 import * as router from '../router.js';
-import { scuttlebotClient } from '../scuttlebot/index.js';
+import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { autoCompress } from '../auto-compressor.js';
 import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
@@ -389,8 +389,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         });
 
         // Mirror any text the assistant produced alongside the tool calls
-        if (scuttlebotClient.isEnabled() && response.content) {
-          scuttlebotClient.mirrorAssistant(response.content).catch(() => {});
+        if (fleetActive() && response.content) {
+          fleetMirrorAssistant(response.content);
         }
 
         // ============================================================
@@ -709,11 +709,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       ctx.llmMessages.current.push({ role: 'assistant', content: response.content });
       ctx.addMessage('assistant', response.content);
       
-      // Mirror assistant message to scuttlebot
-      if (scuttlebotClient.isEnabled()) {
-        scuttlebotClient.mirrorAssistant(response.content).catch(() => {
-          // Silent fail
-        });
+      // Mirror assistant message to the fleet channel
+      if (fleetActive()) {
+        fleetMirrorAssistant(response.content);
       }
       
       ctx.setStreamingResponse('');

@@ -15,7 +15,7 @@ import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from '.
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
 import { generateDiff as generateFileDiff } from './diff.js';
-import { scuttlebotClient } from './scuttlebot/index.js';
+import { fleetActive, fleetMirrorToolCall } from './fleet.js';
 
 /**
  * Available tools for the agent
@@ -398,11 +398,9 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
 
-  // Mirror tool call to scuttlebot
-  if (scuttlebotClient.isEnabled()) {
-    await scuttlebotClient.mirrorToolCall(name, args).catch(() => {
-      // Silently fail - don't interrupt tool execution
-    });
+  // Mirror tool call to the fleet channel
+  if (fleetActive()) {
+    await fleetMirrorToolCall(name, args);
   }
 
   // Handle plugin tools

@@ -33,7 +33,7 @@ import { getDefaultSmartRoutingConfig } from '../router.js';
 import type { SmartRoutingConfig } from '../router.js';
 import * as sessionTimeout from '../session-timeout.js';
 import * as idleEviction from '../idle-eviction.js';
-import { scuttlebotClient } from '../scuttlebot/index.js';
+import { fleetInit, fleetStatus, fleetActive, fleetStartPolling, fleetPostOnline, fleetPostOffline, fleetPostMessage } from '../fleet.js';
 
 // Sub-module imports
 import type {
@@ -263,7 +263,7 @@ function TerminalChat() {
     queuedMessagesRef.current = queuedMessages;
   }, [queuedMessages]);
 
-  // Refs for scuttlebot polling — avoids stale closures across re-renders
+  // Refs for fleet polling — avoids stale closures across re-renders
   const isProcessingRef = useRef(false);
   const handleSubmitRef = useRef<(value: string) => Promise<void>>(async () => {});
   const openProviderPickerRef = useRef<(() => void) | null>(null);
@@ -412,17 +412,17 @@ function TerminalChat() {
         debugLog('hooks', 'session-start hook failed:', err instanceof Error ? err.message : err);
       });
 
-      // Initialize scuttlebot integration
-      scuttlebotClient.initialize(session.id, cwdMem).then((enabled) => {
+      // Initialize fleet mode (no-op unless fleet.enabled)
+      fleetInit(session.id, cwdMem).then((enabled) => {
         if (enabled) {
-          const status = scuttlebotClient.getStatus();
-          debugLog('scuttlebot', `enabled, nick=${status.nick}, irc=${status.config?.ircAddr}`);
+          const status = fleetStatus();
+          debugLog('fleet', `active, nick=${status?.nick}, irc=${status?.config?.ircAddr}`);
           // Show nick in system messages so operators know how to address calliope
-          addMessage('system', `IRC connected — address me as: ${status.nick}`);
-          scuttlebotClient.postOnline().catch(() => {});
-          scuttlebotClient.postMessage(`connected — address me as: ${status.nick}`).catch(() => {});
-          // Route incoming IRC instructions into the agent loop
-          scuttlebotClient.startPolling((instruction) => {
+          addMessage('system', `Fleet connected — address me as: ${status?.nick}`);
+          fleetPostOnline();
+          fleetPostMessage(`connected — address me as: ${status?.nick}`);
+          // Route incoming fleet instructions into the agent loop
+          fleetStartPolling((instruction) => {
             if (isProcessingRef.current) {
               setQueuedMessages(prev => [...prev, instruction]);
             } else {
@@ -431,7 +431,7 @@ function TerminalChat() {
           });
         }
       }).catch((err) => {
-        debugLog('scuttlebot', 'initialization failed:', err instanceof Error ? err.message : err);
+        debugLog('fleet', 'initialization failed:', err instanceof Error ? err.message : err);
       });
 
       // Configure session timeout (opt-in via config)
@@ -644,8 +644,8 @@ function TerminalChat() {
     runAgent,
     runLoop,
     exit,
-    startScuttlebotPolling: () => {
-      scuttlebotClient.startPolling((instruction) => {
+    startFleetPolling: () => {
+      fleetStartPolling((instruction) => {
         if (isProcessingRef.current) {
           setQueuedMessages(prev => [...prev, instruction]);
         } else {
@@ -733,8 +733,8 @@ function TerminalChat() {
     }
 
     // Mirror user input to IRC so observers see what prompted each agent run
-    if (scuttlebotClient.isEnabled()) {
-      scuttlebotClient.postMessage(cleanText || trimmed).catch(() => {});
+    if (fleetActive()) {
+      fleetPostMessage(cleanText || trimmed);
     }
 
     setIsProcessing(true);
@@ -765,7 +765,7 @@ function TerminalChat() {
     }
   }, [isProcessing, handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, addToHistory, mode, setInputValue]);
 
-  // Keep handleSubmitRef current so scuttlebot polling never captures a stale closure
+  // Keep handleSubmitRef current so fleet polling never captures a stale closure
   useEffect(() => {
     handleSubmitRef.current = handleSubmit;
   }, [handleSubmit]);
@@ -1400,14 +1400,7 @@ export async function startInkCLI(options: { skipPermissions?: boolean } = {}): 
   await waitUntilExit();
 
   // Session cleanup
-  if (scuttlebotClient.isEnabled()) {
-    await scuttlebotClient.postOffline().catch(() => {
-      // Silent fail
-    });
-    await scuttlebotClient.disconnect().catch(() => {
-      // Silent fail
-    });
-  }
+  await fleetPostOffline();
   sessionTimeout.clearTimers();
   idleEviction.stopMonitor();
   await spawnPendingRestart();

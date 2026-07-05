@@ -23,7 +23,7 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../router.js';
 import type { SmartRoutingConfig } from '../router.js';
-import { scuttlebotClient } from '../scuttlebot/index.js';
+import { fleetConfigured, fleetActive, fleetStatus, fleetEnable, fleetDisable, fleetPostMessage } from '../fleet.js';
 import { getTerminalImageInfo, getImageModeLabel, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { resetContextWarnings } from './context.js';
@@ -118,7 +118,7 @@ export interface CommandContext {
   runAgent: (content: MessageContent) => Promise<void>;
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
   exit: () => void;
-  startScuttlebotPolling: () => void;
+  startFleetPolling: () => void;
   openProviderPicker?: () => void;
 }
 
@@ -510,100 +510,77 @@ Modes: Plan | Hybrid | Work | Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}`);
       const imgInfo = getTerminalImageInfo();
       let statusMsg = `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`;
       
-      // Add scuttlebot status if enabled
-      if (scuttlebotClient.isEnabled()) {
-        const sbStatus = scuttlebotClient.getStatus();
-        statusMsg += `\nScuttlebot: enabled (${sbStatus.nick}) | irc:${sbStatus.config?.ircAddr} | #${sbStatus.config?.channel}`;
+      // Add fleet status if active
+      const fs = fleetStatus();
+      if (fs) {
+        statusMsg += `\nFleet: active (${fs.nick}) | irc:${fs.config?.ircAddr} | #${fs.config?.channel}`;
       }
       
       ctx.addMessage('system', statusMsg);
       break;
     }
 
-    case '/scuttlebot': {
+    case '/fleet': {
       const subCmd = parts[1];
-      const sbStatus = scuttlebotClient.getStatus();
-      
-      // /scuttlebot enable - enable mid-session
+
       if (subCmd === 'enable') {
-        if (sbStatus.enabled) {
-          ctx.addMessage('system', 'Scuttlebot is already enabled.');
+        if (fleetActive()) {
+          ctx.addMessage('system', 'Fleet mode is already active.');
           break;
         }
-        
-        // Initialize scuttlebot — config is loaded from ~/.config/scuttlebot-relay.env,
-        // process.env, and .scuttlebot.yaml inside initialize()
         const sessionId = ctx.sessionRef.current?.id || 'default';
         const cwd = getActiveProjectDir(ctx);
-        scuttlebotClient.initialize(sessionId, cwd).then(async (enabled) => {
+        fleetEnable(sessionId, cwd).then((enabled) => {
           if (enabled) {
-            const status = scuttlebotClient.getStatus();
-            let msg = '✓ Scuttlebot enabled!\n';
-            msg += `  Nick:      ${status.nick}\n`;
-            msg += `  IRC:       ${status.config?.ircAddr}\n`;
-            msg += `  Channel:   #${status.config?.channel}`;
-            if (status.config?.channels && status.config.channels.length > 1) {
-              msg += `\n  Channels:  ${status.config.channels.map((c: string) => '#' + c).join(', ')}`;
-            }
+            const status = fleetStatus();
+            let msg = '\u2713 Fleet mode enabled\n';
+            msg += `  Nick:      ${status?.nick}\n`;
+            msg += `  IRC:       ${status?.config?.ircAddr}\n`;
+            msg += `  Channel:   #${status?.config?.channel}`;
             ctx.addMessage('system', msg);
-
-            // Post online status and start routing IRC instructions
-            await scuttlebotClient.postOnline();
-            ctx.startScuttlebotPolling();
+            ctx.startFleetPolling();
           } else {
-            ctx.addMessage('system', 'Failed to enable scuttlebot');
+            ctx.addMessage('system', 'Failed to enable fleet mode — check relay config (~/.config/scuttlebot-relay.env, .scuttlebot.yaml).');
           }
         }).catch((err: unknown) => {
-          ctx.addMessage('system', `Failed to enable scuttlebot: ${err instanceof Error ? err.message : String(err)}`);
+          ctx.addMessage('system', `Failed to enable fleet mode: ${err instanceof Error ? err.message : String(err)}`);
         });
         break;
       }
-      
-      // /scuttlebot disable - disable mid-session
+
       if (subCmd === 'disable') {
-        if (!sbStatus.enabled) {
-          ctx.addMessage('system', 'Scuttlebot is not enabled.');
+        if (!fleetConfigured() && !fleetActive()) {
+          ctx.addMessage('system', 'Fleet mode is not enabled.');
           break;
         }
-        
-        scuttlebotClient.postOffline().then(() => {
-          return scuttlebotClient.disconnect();
-        }).then(() => {
-          ctx.addMessage('system', 'Scuttlebot disabled');
+        fleetDisable().then(() => {
+          ctx.addMessage('system', 'Fleet mode disabled.');
         }).catch((err: unknown) => {
-          ctx.addMessage('system', `Error disabling scuttlebot: ${err instanceof Error ? err.message : String(err)}`);
+          ctx.addMessage('system', `Error disabling fleet mode: ${err instanceof Error ? err.message : String(err)}`);
         });
         break;
       }
-      
-      // Show status
-      if (!sbStatus.enabled) {
-        ctx.addMessage('system', 'Scuttlebot not enabled.\n\nRun: /scuttlebot enable\n\nConfig is loaded automatically from ~/.config/scuttlebot-relay.env\nChannel is read from .scuttlebot.yaml');
+
+      if (!fleetActive()) {
+        ctx.addMessage('system', 'Fleet mode is off.\n\nRun: /fleet enable\n\nRelay config is read from ~/.config/scuttlebot-relay.env and .scuttlebot.yaml.\nDocs: docs/fleet.md');
         break;
       }
-      
-      let statusText = 'Scuttlebot Status\n────────────────────────────────────────\n';
-      statusText += `Enabled:     yes\n`;
-      statusText += `Nick:        ${sbStatus.nick}\n`;
-      statusText += `IRC:         ${sbStatus.config?.ircAddr}\n`;
-      statusText += `Channel:     #${sbStatus.config?.channel}\n`;
-      statusText += `Connected:   ${sbStatus.connected ? 'yes' : 'no'}`;
-      if (sbStatus.config?.channels && sbStatus.config.channels.length > 1) {
-        statusText += `\nChannels:    ${sbStatus.config.channels.map((c: string) => '#' + c).join(', ')}`;
-      }
-      statusText += '\n\nCommands:\n  /scuttlebot <message>  Post a message\n  /scuttlebot disable    Disable integration';
-      
-      ctx.addMessage('system', statusText);
-      
-      // Allow manual message posting
-      if (subCmd && subCmd !== 'enable' && subCmd !== 'disable') {
+
+      if (subCmd) {
         const message = parts.slice(1).join(' ');
-        scuttlebotClient.postMessage(message).then(() => {
-          ctx.addMessage('system', 'Message posted to scuttlebot.');
-        }).catch((err: unknown) => {
-          ctx.addMessage('system', `Failed to post message: ${err instanceof Error ? err.message : String(err)}`);
-        });
+        fleetPostMessage(message);
+        ctx.addMessage('system', 'Message posted to the fleet channel.');
+        break;
       }
+
+      const status = fleetStatus();
+      let statusText = 'Fleet Status\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n';
+      statusText += `Nick:        ${status?.nick}\n`;
+      statusText += `IRC:         ${status?.config?.ircAddr}\n`;
+      statusText += `Channel:     #${status?.config?.channel}\n`;
+      statusText += `Connected:   ${status?.connected ? 'yes' : 'no'}`;
+      statusText += '\n\nCommands:\n  /fleet <message>  Post to the fleet channel\n  /fleet disable    Disable fleet mode';
+      ctx.addMessage('system', statusText);
       break;
     }
 

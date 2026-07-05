@@ -48,6 +48,7 @@ export interface CalliopeConfig {
   openaiCompatModel?: string;    // Override model for OpenAI-compatible server
 
   // Agent settings
+  fleet?: { enabled: boolean };
   maxIterations: number;
   maxIterationTime: number;   // Max seconds per iteration (0 = no limit, default: 600)
   fancyOutput: boolean;
@@ -145,6 +146,7 @@ const config = new Conf<CalliopeConfig>({
     openaiCompatBaseUrl: { type: 'string' },
     openaiCompatApiKey: { type: 'string' },
     openaiCompatModel: { type: 'string' },
+    fleet: { type: 'object' },
     maxIterations: { type: 'number', minimum: 0, maximum: 1000000 },
     maxIterationTime: { type: 'number', minimum: 0, maximum: 3600 },
     fancyOutput: { type: 'boolean' },
