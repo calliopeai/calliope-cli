@@ -129,6 +129,16 @@ calliope --headless "fix the failing lint rule"
 echo "summarize the recent changes" | calliope --headless --json
 ```
 
+## Governance
+
+For agent-in-CI and enterprise use: a tamper-evident **audit run log** (on by
+default) at `~/.calliope-cli/runs/<sessionId>.jsonl`, a `calliope replay
+<path|sessionId>` command to render and verify it, **budget caps**
+(`budget.maxCostPerRun`, `budget.maxTokensPerRun`, `budget.maxCostPerProject`)
+that halt a run cleanly before it overspends (headless exit code 3), and a
+pre-tool **policy hook** (`policy.command`) for an external allow/deny engine.
+See [Governance](./governance.md).
+
 ## Fleet mode
 
 Optional agent-to-agent and operator-to-agent coordination over a shared IRC

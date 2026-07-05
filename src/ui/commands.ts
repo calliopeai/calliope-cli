@@ -24,6 +24,7 @@ import { fleetConfigured, fleetActive, fleetStatus, fleetEnable, fleetDisable, f
 import { getTerminalImageInfo, getImageModeLabel } from '../terminal-image.js';
 import { resetContextWarnings } from './context.js';
 import * as memory from '../memory.js';
+import { getBudgetCaps, hasBudgetCaps, loadProjectSpend } from '../budget.js';
 import type { IterationLedger } from '../iteration-ledger.js';
 import {
   resolveIterationLimit,
@@ -140,6 +141,27 @@ function getActiveProjectDir(ctx: Pick<CommandContext, 'sessionRef'>): string {
 
 function formatSessionLogLimit(limit: number): string {
   return limit > 0 ? String(limit) : 'unlimited';
+}
+
+/**
+ * Apply a `budget.*` config key. `off`/`none`/empty clears the cap. Throws on an
+ * invalid number so the caller's try/catch surfaces the message.
+ */
+function applyBudgetKey(field: 'maxCostPerRun' | 'maxTokensPerRun' | 'maxCostPerProject', value: string): string {
+  const budget = { ...(config.get('budget') ?? {}) } as Record<string, number>;
+  if (value === 'off' || value === 'none' || value === '') {
+    delete budget[field];
+    config.set('budget', budget);
+    return `✓ ${field} cleared`;
+  }
+  const num = Number(value);
+  if (isNaN(num) || num < 0) {
+    throw new Error(`${field} must be a non-negative number (or 'off' to clear)`);
+  }
+  budget[field] = field === 'maxTokensPerRun' ? Math.floor(num) : num;
+  config.set('budget', budget);
+  const unit = field === 'maxTokensPerRun' ? ' tokens' : ' USD';
+  return `✓ ${field} set to ${budget[field]}${unit}`;
 }
 
 // ============================================================================
@@ -341,6 +363,19 @@ File references: @filename, ./path, /absolute/path`;
         statusMsg += `\nFleet: active (${fleetSt.nick}) | irc:${fleetSt.config?.ircAddr} | #${fleetSt.config?.channel}`;
       }
 
+      // Show budget state when any cap is configured.
+      const caps = getBudgetCaps();
+      if (hasBudgetCaps(caps)) {
+        const parts: string[] = [];
+        if (typeof caps.maxCostPerRun === 'number') parts.push(`run<=$${caps.maxCostPerRun}`);
+        if (typeof caps.maxTokensPerRun === 'number') parts.push(`run<=${caps.maxTokensPerRun}tok`);
+        if (typeof caps.maxCostPerProject === 'number') {
+          const spent = loadProjectSpend(getActiveProjectDir(ctx)).spentUsd;
+          parts.push(`project $${spent.toFixed(4)}/$${caps.maxCostPerProject}`);
+        }
+        statusMsg += `\nBudget: ${parts.join(' | ')}`;
+      }
+
       ctx.addMessage('system', statusMsg);
       break;
     }
@@ -425,7 +460,12 @@ Available keys:
   sandboxMode <auto|native|docker|off>    - Code execution sandbox
   routing.enabled <bool>                  - Smart model routing
   routing.costSensitivity <0-1>           - Cost vs quality (0 = best, 1 = cheapest)
-  theme <dark|light|no-color>             - Color theme`);
+  theme <dark|light|no-color>             - Color theme
+  budget.maxCostPerRun <usd|off>          - Halt a run at this spend (0/off = no cap)
+  budget.maxTokensPerRun <n|off>          - Halt a run at this token count
+  budget.maxCostPerProject <usd|off>      - Halt when project spend reaches this
+  audit.enabled <bool>                    - Audit run log (on by default)
+  policy.command <path|off>               - Pre-tool policy hook script`);
           break;
         }
 
@@ -494,6 +534,26 @@ Available keys:
               ctx.addMessage('system', `✓ theme set to ${value}`);
             } else {
               ctx.addMessage('error', `Theme not found: ${value}. Options: dark, light, no-color`);
+            }
+          } else if (key === 'budget.maxCostPerRun') {
+            ctx.addMessage('system', applyBudgetKey('maxCostPerRun', value));
+          } else if (key === 'budget.maxTokensPerRun') {
+            ctx.addMessage('system', applyBudgetKey('maxTokensPerRun', value));
+          } else if (key === 'budget.maxCostPerProject') {
+            ctx.addMessage('system', applyBudgetKey('maxCostPerProject', value));
+          } else if (key === 'audit.enabled') {
+            const bool = value === 'true';
+            config.set('audit', { ...(config.get('audit') ?? {}), enabled: bool });
+            ctx.addMessage('system', `✓ audit.enabled set to ${bool}`);
+          } else if (key === 'policy.command') {
+            const policy = { ...(config.get('policy') ?? {}) } as Record<string, unknown>;
+            if (value === 'off' || value === 'none') {
+              delete policy.command;
+              config.set('policy', policy);
+              ctx.addMessage('system', '✓ policy.command cleared');
+            } else {
+              config.set('policy', { ...policy, command: value });
+              ctx.addMessage('system', '✓ policy.command set');
             }
           } else {
             ctx.addMessage('error', `Unknown config key: ${key}`);

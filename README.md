@@ -17,6 +17,7 @@ coming with the v3.0.0 stable release — see
 - **Built for models you run yourself.** Ollama and self-hosted OpenAI-compatible servers are first-class targets, not checkboxes. Run fully air-gapped.
 - **Sandbox-first execution.** Shell and code tools run inside macOS Seatbelt or Docker sandboxes (`auto`/`native`/`docker`/`off`). Blocklists are advisory; the sandbox is the boundary.
 - **Safety rails that survive long sessions.** Circuit breakers, iteration budgets, git-based checkpoints with `/restore`, and automatic context compaction.
+- **Governance built in.** Tamper-evident audit run logs (on by default), a `replay` command to inspect and verify them, budget caps that halt a run before it overspends, and a pre-tool policy hook for an external allow/deny engine. See [docs/governance.md](docs/governance.md).
 - **Small on purpose.** 22 commands. 16 config keys. 11 flags. v3 removed more code than it kept — the changelog lists everything that went and why.
 - **Tested like infrastructure.** 3,500 tests, 93%+ line coverage with an enforced 90% floor.
 
@@ -76,7 +77,7 @@ Drop a `CALLIOPE.md` in your repo and every session starts knowing your conventi
 
 v3 is a deliberate reduction: 84 commands, 40 config keys, and ~20k lines of speculative features (theme packs, companions, multi-agent orchestration, an embedded API server, and more) were removed to make the core fast, predictable, and maintainable. The full list and rationale live in [CHANGELOG.md](CHANGELOG.md) and the [v3.0 roadmap](https://github.com/calliopeai/calliope-cli/issues/195).
 
-Coming in v3.0 stable: single-binary installs (brew/curl, no Node required) and enforced performance budgets. Coming after: local-model edit-reliability hardening and governance primitives — replayable run logs, budget caps, audit trails.
+Coming in v3.0 stable: single-binary installs (brew/curl, no Node required) and enforced performance budgets. Governance primitives — replayable audit run logs, budget caps, and a policy hook — have landed; see [docs/governance.md](docs/governance.md). Coming after: local-model edit-reliability hardening.
 
 ## Contributing
 

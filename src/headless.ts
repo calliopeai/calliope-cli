@@ -9,10 +9,16 @@
 import * as config from './config.js';
 import { chat, selectProvider } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
-import { DEFAULT_MODELS } from './types.js';
+import { DEFAULT_MODELS, calculateCost } from './types.js';
 import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
 import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
+import { RunLog } from './runlog.js';
+import {
+  getBudgetCaps, evaluateBudget, hasBudgetCaps,
+  recordProjectSpend, loadProjectSpend, formatBudgetHalt,
+} from './budget.js';
+import { evaluatePolicy, isPolicyEnabled } from './policy.js';
 import type { Message, LLMProvider, ToolCall } from './types.js';
 
 // ============================================================================
@@ -195,13 +201,87 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     },
   }, outputMode);
 
+  // ---- Governance (#189): audit run log, budget caps, policy hook ----------
+  const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const runlog = RunLog.open(sessionId);
+  const costModel = model || DEFAULT_MODELS[resolvedProvider];
+  const budgetCaps = getBudgetCaps();
+  // Only maintain the cross-run project ledger when a project cap is active.
+  const trackProjectBudget = typeof budgetCaps.maxCostPerProject === 'number';
+  const runStartedAt = Date.now();
+  let runInputTokens = 0;
+  let runOutputTokens = 0;
+  let runCostUsd = 0;
+  let runToolCalls = 0;
+
+  runlog.runStart({
+    session: sessionId,
+    cwd,
+    provider: resolvedProvider,
+    model: costModel,
+    config: config.getConfig() as unknown as Record<string, unknown>,
+  });
+  runlog.userPrompt(prompt);
+  if (runlog.enabled) {
+    emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
+  }
+
+  const runTotals = () => ({
+    inputTokens: runInputTokens,
+    outputTokens: runOutputTokens,
+    cost: runCostUsd,
+    toolCalls: runToolCalls,
+    durationMs: Date.now() - runStartedAt,
+  });
+
   try {
     let iteration = 0;
+    let budgetVerdict: ReturnType<typeof evaluateBudget> | undefined;
 
-    while (iteration < maxIterations) {
+    // Up-front project-budget guard: refuse to start a run whose project has
+    // already spent its cap (the CI hard stop) before making any provider call.
+    if (hasBudgetCaps(budgetCaps)) {
+      const pre = evaluateBudget(budgetCaps, {
+        runCostUsd: 0,
+        runTokens: 0,
+        projectCostUsd: loadProjectSpend(cwd).spentUsd,
+      });
+      if (pre.exceeded) budgetVerdict = pre;
+    }
+
+    while (!budgetVerdict && iteration < maxIterations) {
       iteration++;
 
       const response = await chat(provider, messages, TOOLS, model);
+
+      // Accumulate spend, persist it to the project ledger, and audit it.
+      if (response.usage) {
+        const usageCost = calculateCost(costModel, response.usage.inputTokens, response.usage.outputTokens);
+        runInputTokens += response.usage.inputTokens;
+        runOutputTokens += response.usage.outputTokens;
+        runCostUsd += usageCost;
+        if (trackProjectBudget) recordProjectSpend(cwd, usageCost);
+        runlog.assistantMessage({
+          content: response.content,
+          tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
+          cost: usageCost,
+        });
+      } else {
+        runlog.assistantMessage({ content: response.content, tokens: { input: 0, output: 0 }, cost: 0 });
+      }
+
+      // Budget check: finish the current turn cleanly if a cap is now exceeded.
+      if (hasBudgetCaps(budgetCaps)) {
+        const verdict = evaluateBudget(budgetCaps, {
+          runCostUsd,
+          runTokens: runInputTokens + runOutputTokens,
+          projectCostUsd: loadProjectSpend(cwd).spentUsd,
+        });
+        if (verdict.exceeded) {
+          budgetVerdict = verdict;
+          break;
+        }
+      }
 
       if (response.toolCalls && response.toolCalls.length > 0) {
         // Add assistant message with tool calls
@@ -221,10 +301,37 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
               arguments: toolCall.arguments,
             },
           }, outputMode);
+          runlog.toolCall({ id: toolCall.id, name: toolCall.name, args: toolCall.arguments as Record<string, unknown> });
+          runToolCalls++;
+
+          // Pre-tool policy gate (fail closed). A deny short-circuits execution;
+          // the agent sees the denial as the tool result and can adapt.
+          if (isPolicyEnabled()) {
+            const verdict = await evaluatePolicy(toolCall);
+            runlog.policyEvent({
+              tool: toolCall.name,
+              decision: verdict.decision,
+              source: verdict.source,
+              reason: verdict.reason,
+              durationMs: verdict.durationMs,
+            });
+            if (verdict.decision === 'deny') {
+              const denyText = `[Policy denied: ${verdict.reason || 'no reason given'}]`;
+              runlog.toolResult({ id: toolCall.id, result: denyText, isError: true, durationMs: verdict.durationMs });
+              emit({
+                type: 'tool_result',
+                timestamp: now(),
+                data: { toolCallId: toolCall.id, name: toolCall.name, result: denyText, isError: true },
+              }, outputMode);
+              messages.push({ role: 'tool', content: denyText, toolCallId: toolCall.id });
+              continue;
+            }
+          }
 
           // Execute tool with a guarded retry budget.
           // Only retry classified-transient errors, never re-run mutating tools
           // (avoids duplicated side effects), and back off between attempts.
+          const toolStart = Date.now();
           let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend });
           let attempt = 0;
           while (
@@ -249,6 +356,12 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
               isError: result.isError || false,
             },
           }, outputMode);
+          runlog.toolResult({
+            id: toolCall.id,
+            result: result.result,
+            isError: result.isError || false,
+            durationMs: Date.now() - toolStart,
+          });
 
           messages.push({
             role: 'tool',
@@ -278,12 +391,31 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       break;
     }
 
+    // Budget halt: emit the event, summarize spend vs cap, exit code 3.
+    if (budgetVerdict?.exceeded) {
+      const summary = formatBudgetHalt(budgetVerdict);
+      runlog.budgetEvent({
+        scope: budgetVerdict.scope ?? 'run',
+        kind: budgetVerdict.kind ?? 'cost',
+        spent: budgetVerdict.spent ?? 0,
+        cap: budgetVerdict.cap ?? 0,
+        message: budgetVerdict.message ?? summary,
+      });
+      emit({ type: 'status', timestamp: now(), data: { message: summary } }, outputMode);
+      process.stderr.write(summary + '\n');
+      runlog.runEnd({ totals: runTotals(), exitReason: 'budget' });
+      await runlog.flush();
+      return 3;
+    }
+
     emit({
       type: 'done',
       timestamp: now(),
       data: { iterations: iteration },
     }, outputMode);
 
+    runlog.runEnd({ totals: runTotals(), exitReason: 'completed' });
+    await runlog.flush();
     return 0;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -292,6 +424,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       timestamp: now(),
       data: { message: msg },
     }, outputMode);
+    runlog.runEnd({ totals: runTotals(), exitReason: 'error' });
+    await runlog.flush();
     return 1;
   }
 }
