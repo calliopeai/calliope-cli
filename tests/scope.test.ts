@@ -124,7 +124,7 @@ describe('Scope Manager', () => {
       const result = scopeManager.isInScope('/etc/hosts', '/tmp/project-xyz');
       expect(result.allowed).toBe(false);
       expect(result.suggestedAction).toBeDefined();
-      expect(result.suggestedAction).toContain('add-dir');
+      expect(result.suggestedAction).toContain('/scope add');
     });
 
     it('should match path exactly equal to allowed dir', () => {
@@ -160,7 +160,7 @@ describe('Scope Manager', () => {
       } catch (e) {
         const err = e as Error;
         expect(err.message).toContain('Access denied');
-        expect(err.message).toContain('add-dir');
+        expect(err.message).toContain('/scope add');
       }
     });
 

@@ -221,7 +221,7 @@ export function classifyError(error: unknown): ClassifiedError {
     return {
       category: 'invalid_request',
       message: `File not found: ${filePath}`,
-      suggestion: 'Check the file path. Use /find <name> to search for files, or list_files to explore.',
+      suggestion: 'Check the file path. Use list_files to explore the directory, or read_file with a corrected path.',
       retryable: false,
     };
   }
@@ -265,7 +265,7 @@ export function classifyError(error: unknown): ClassifiedError {
     return {
       category: 'invalid_request',
       message: 'Context limit exceeded',
-      suggestion: 'Use /summarize compact to reduce context, or /clear to start fresh.',
+      suggestion: 'Use /compact to reduce context, or /clear to start fresh.',
       retryable: false,
     };
   }
@@ -279,7 +279,7 @@ export function classifyError(error: unknown): ClassifiedError {
     return {
       category: 'invalid_request',
       message: 'Model not available',
-      suggestion: 'Use /models to see available models, or /provider to switch providers.',
+      suggestion: 'Use /model to see available models, or /provider to switch providers.',
       retryable: false,
     };
   }

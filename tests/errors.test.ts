@@ -249,7 +249,7 @@ describe('withRetry', () => {
       const result = classifyError(new Error("ENOENT: no such file or directory, open '/path/to/file.txt'"));
       expect(result.category).toBe('invalid_request');
       expect(result.message).toContain('File not found');
-      expect(result.suggestion).toContain('/find');
+      expect(result.suggestion).toContain('list_files');
     });
 
     it('should classify permission denied', () => {
@@ -264,7 +264,7 @@ describe('withRetry', () => {
     it('should classify context length exceeded', () => {
       const result = classifyError(new Error('Maximum context length exceeded'));
       expect(result.category).toBe('invalid_request');
-      expect(result.suggestion).toContain('/summarize compact');
+      expect(result.suggestion).toContain('/compact');
     });
   });
 
@@ -272,7 +272,7 @@ describe('withRetry', () => {
     it('should classify model not found', () => {
       const result = classifyError(new Error('Model not found: gpt-5-turbo'));
       expect(result.category).toBe('invalid_request');
-      expect(result.suggestion).toContain('/models');
+      expect(result.suggestion).toContain('/model');
     });
   });
 

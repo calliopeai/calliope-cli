@@ -854,7 +854,7 @@ function validateShellPaths(command: string, cwd: string): string | null {
   for (const p of extractedPaths) {
     const allowed = isInScope(p, cwd);
     if (!allowed) {
-      return 'Shell command blocked: "' + p + '" is outside allowed scope. Use /add-dir to expand scope.';
+      return 'Shell command blocked: "' + p + '" is outside allowed scope. Use /scope add to expand scope.';
     }
   }
   return null;

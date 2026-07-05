@@ -92,22 +92,22 @@ export function checkAndWarnContextLimit(
     case 'emergency':
       message = `\x1b[31m\x1b[1m🚨 EMERGENCY: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
 \x1b[31m   Responses WILL be truncated. Take action NOW:\x1b[0m
-\x1b[2m   /summarize compact - Auto-compress (recommended)
+\x1b[2m   /compact - Auto-compress (recommended)
    /clear - Fresh start
    /branch new "save" - Save and branch\x1b[0m`;
       break;
     case 'critical':
       message = `\x1b[31m🔴 CRITICAL: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
 \x1b[2m   Approaching limits. Action recommended:
-   /summarize compact | /clear | shorter messages\x1b[0m`;
+   /compact | /clear | shorter messages\x1b[0m`;
       break;
     case 'warning':
       message = `\x1b[33m⚠️  WARNING: Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
-\x1b[2m   Consider: /summarize compact | /clear\x1b[0m`;
+\x1b[2m   Consider: /compact | /clear\x1b[0m`;
       break;
     case 'caution':
       message = `\x1b[36m💡 Context at ${Math.round(percentage)}% (${used}K/${limitK}K)\x1b[0m
-\x1b[2m   Monitor usage. /context summary for details\x1b[0m`;
+\x1b[2m   Monitor usage. /compact for a summary\x1b[0m`;
       break;
     default:
       return;
@@ -118,8 +118,8 @@ export function checkAndWarnContextLimit(
   // Also add to UI messages if callback provided (for critical+)
   if (addMessage && (level === 'critical' || level === 'emergency')) {
     const uiMessage = level === 'emergency'
-      ? `🚨 EMERGENCY: Context at ${Math.round(percentage)}% - responses will be truncated! Use /summarize compact NOW`
-      : `🔴 Context at ${Math.round(percentage)}% - consider /summarize compact`;
+      ? `🚨 EMERGENCY: Context at ${Math.round(percentage)}% - responses will be truncated! Use /compact NOW`
+      : `🔴 Context at ${Math.round(percentage)}% - consider /compact`;
     addMessage('system', uiMessage);
   }
 }
