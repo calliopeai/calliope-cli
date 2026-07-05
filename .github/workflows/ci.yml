@@ -30,3 +30,31 @@ jobs:
 
       - name: Check types
         run: npx tsc --noEmit
+
+  bench:
+    # Performance budgets (issue #186). Runs after build/test so a red build
+    # fails fast before we spend time benchmarking.
+    needs: build
+    runs-on: ubuntu-latest
+
+    # CI runners are slower and noisier than a dev laptop. CALLIOPE_BENCH_CI=1
+    # doubles the TIME budgets (cold start, keystroke) so the gate catches real
+    # regressions (2x+ slowdowns) rather than runner jitter. Memory budgets are
+    # deterministic and are NOT scaled. See docs/performance.md.
+    env:
+      CALLIOPE_BENCH_CI: '1'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run performance benches (builds, then gates all budgets)
+        run: npm run bench
