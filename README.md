@@ -7,6 +7,10 @@ npm install -g @calliopelabs/cli
 calliope
 ```
 
+Single-binary installs (Homebrew and a `curl` installer, no Node.js required) are
+coming with the v3.0.0 stable release — see
+[Install as a single binary](docs/getting-started.md#install-as-a-single-binary).
+
 ## Why Calliope
 
 - **Any backend, live-discovered.** 13 providers — Anthropic, OpenAI, Google, AWS Bedrock, Ollama, OpenRouter, Together, Groq, Fireworks, Mistral, AI21, Hugging Face, LiteLLM, plus any OpenAI-compatible server. No hardcoded model lists: models and capabilities are discovered from each provider's API, so new models work the day they ship.

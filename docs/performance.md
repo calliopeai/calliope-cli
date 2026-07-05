@@ -14,21 +14,26 @@ that. "CI budget" is the effective gate when `CALLIOPE_BENCH_CI=1` (see
 
 | Bench | Gated metric | Budget | CI budget | Baseline (this machine) |
 |-------|--------------|--------|-----------|-------------------------|
-| Cold start | `--help` spawn→exit median | ≤ 200 ms | ≤ 400 ms | ~91 ms (p95 ~105 ms) |
+| Cold start (node) | `--help` spawn→exit median | ≤ 200 ms | ≤ 400 ms | ~91 ms (p95 ~105 ms) |
+| Cold start (binary) | `--help` spawn→exit median | ≤ 150 ms | ≤ 300 ms | ~75 ms (p95 ~86 ms) |
 | Keystroke-to-paint | stdin.write→painted-frame p95 | ≤ 16 ms | ≤ 32 ms | ~2.5 ms (median ~0.8 ms) |
 | Memory flatness | post-GC heap slope, final 300 msgs | ≤ 40 KB/msg | ≤ 40 KB/msg | ~23.6 KB/msg |
 | Memory flatness | absolute post-GC growth (500 msgs) | < 40 MB | < 40 MB | ~14.2 MB |
 
-The cold-start budget is **interim, for the node runtime** (`node dist/bin.js`).
-**#187** ships the compiled single binary and takes over this budget, tightening
-it to **150 ms** and switching the gated artifact from `node dist/bin.js` to the
-compiled binary.
+Cold start has **two modes**. The default (`node dist/bin.js`) is gated at
+200 ms and is what `npm run bench` measures. The compiled single binary (#187,
+`packaging/build-binary.mjs`) embeds its own runtime, so it starts faster and is
+gated at the tighter **150 ms** — measured by `npm run bench:binary`. Both are
+driven by the same `bench/cold-start.mjs`; setting `CALLIOPE_BENCH_BINARY=<path>`
+switches it to the binary target and budget. The default CI gate stays in node
+mode; the binary budget is exercised by `bench:binary`.
 
 ## Running
 
 ```bash
 npm run bench        # build, then all three benches + summary table (the CI gate)
-npm run bench:cold   # build, then cold-start only
+npm run bench:cold   # build, then cold-start only (node mode, 200 ms budget)
+npm run bench:binary # build + compile the native single binary, then cold-start it (150 ms budget)
 npm run bench:ui     # keystroke-to-paint only (vitest)
 npm run bench:mem    # memory flatness only (vitest, sets --expose-gc)
 ```
@@ -59,6 +64,25 @@ spawn→process-exit, reporting min/median/p95.
 without either a provider network call or a TTY, so `--help` is the honest
 module-load proxy. The bench probes headless once and prints the finding, but
 does not gate on it.
+
+**Binary mode (#187).** Setting `CALLIOPE_BENCH_BINARY=<path>` measures a
+compiled single binary spawned directly (not via `node`) and gates on the 150 ms
+budget instead of 200 ms. `npm run bench:binary` builds the native binary
+(`packaging/build-binary.mjs --native`) and runs this in binary mode. Measured
+on the baseline machine (Darwin arm64, M2 Max), the darwin-arm64 binary:
+
+| metric | min | median | p95 | gate |
+|--------|-----|--------|-----|------|
+| `--help` first-byte | 71.3 ms | 73.8 ms | 83.8 ms | ≤ 150 ms |
+| `--help` exit | 72.6 ms | 75.0 ms | 85.7 ms | ≤ 150 ms |
+| `--config` exit | 73.2 ms | 75.7 ms | 79.7 ms | ≤ 150 ms |
+| `--version` first-byte | 71.0 ms | 73.8 ms | 78.7 ms | ≤ 150 ms |
+
+The binary's floor is higher than node's (bun runtime init + a one-time
+extraction of the embedded bundle) but its spread is tighter and its **median is
+lower** (~75 ms vs ~91 ms on the gated `--help` exit), so it clears the tighter
+budget with ~2× headroom. The four cross-compiled binaries are ~60 MB
+(darwin-arm64), ~65 MB (darwin-x64), and ~96 MB (linux-x64/arm64).
 
 ### 2. Keystroke-to-paint — `bench/keystroke.bench.test.ts`
 

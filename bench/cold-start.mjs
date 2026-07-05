@@ -21,15 +21,19 @@
  *                once, print the finding, and do not gate on it. See
  *                docs/performance.md.
  *
- * The gated node-runtime budget is interim. #187 (compiled single binary)
- * replaces the gated artifact with the compiled binary and tightens the budget
- * to 150ms.
+ * ARTIFACT / BUDGET (node mode vs. binary mode):
+ *   - Default (`npm run bench`, `npm run bench:cold`): measures `node dist/bin.js`
+ *     against the interim 200ms node-runtime budget.
+ *   - Binary mode (#187): set CALLIOPE_BENCH_BINARY=<path> to measure a compiled
+ *     single binary spawned DIRECTLY (its embedded runtime is faster than
+ *     spawning node), gated on the tighter 150ms budget. `npm run bench:binary`
+ *     builds the native binary and runs this in binary mode.
  */
 
 import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { summarize, fmtMs } from './lib/stats.mjs';
 import { budget as budgetFor, CI } from './budgets.mjs';
@@ -39,8 +43,22 @@ const repoRoot = join(__dirname, '..');
 const BIN = join(repoRoot, 'dist', 'bin.js');
 const RESULTS = join(__dirname, '.results');
 
-if (!existsSync(BIN)) {
-  console.error(`dist/bin.js not found at ${BIN}\nRun \`npm run build\` first (or use \`npm run bench:cold\` / \`npm run bench\`, which build for you).`);
+// Binary mode: when CALLIOPE_BENCH_BINARY points at a compiled single binary,
+// measure IT (spawned directly) rather than `node dist/bin.js`, and gate on the
+// tighter 150ms budget. `npm run bench` leaves this unset (node mode unchanged).
+const BINARY = process.env.CALLIOPE_BENCH_BINARY
+  ? resolve(process.env.CALLIOPE_BENCH_BINARY)
+  : null;
+const BINARY_MODE = BINARY !== null;
+const TARGET = BINARY_MODE ? BINARY : BIN;
+const BUDGET_KEY = BINARY_MODE ? 'coldStartBinaryMedianMs' : 'coldStartMedianMs';
+
+if (!existsSync(TARGET)) {
+  console.error(
+    BINARY_MODE
+      ? `CALLIOPE_BENCH_BINARY set but not found at ${TARGET}\nBuild it first with \`npm run bench:binary\` (or \`bun packaging/build-binary.mjs --native\`).`
+      : `dist/bin.js not found at ${TARGET}\nRun \`npm run build\` first (or use \`npm run bench:cold\` / \`npm run bench\`, which build for you).`,
+  );
   process.exit(1);
 }
 
@@ -52,10 +70,15 @@ function runOnce(args, { env = {}, timeoutMs = 10_000 } = {}) {
     const t0 = performance.now();
     let firstByte = null;
     let exitAt = null;
-    const child = spawn(process.execPath, [BIN, ...args], {
-      env: { ...process.env, ...env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // Node mode: `node dist/bin.js ...`. Binary mode: run the binary directly.
+    const child = spawn(
+      BINARY_MODE ? TARGET : process.execPath,
+      BINARY_MODE ? [...args] : [BIN, ...args],
+      {
+        env: { ...process.env, ...env },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
     const onFirstOut = () => {
       if (firstByte === null) firstByte = performance.now() - t0;
     };
@@ -101,7 +124,8 @@ async function measure(label, args, opts) {
 }
 
 async function main() {
-  console.log(`\n=== Bench 1: Cold start (node ${process.version}, N=${N}${CI ? ', CI mode' : ''}) ===\n`);
+  const modeLabel = BINARY_MODE ? `binary: ${TARGET}` : `node ${process.version}`;
+  console.log(`\n=== Bench 1: Cold start (${modeLabel}, N=${N}${CI ? ', CI mode' : ''}) ===\n`);
 
   const help = await measure('--help', ['--help']);
   const config = await measure('--config', ['--config']);
@@ -117,7 +141,7 @@ async function main() {
   }
   const headless = await runOnce(['--headless', 'noop'], { env: keylessEnv, timeoutMs: 4000 });
 
-  const coldBudget = budgetFor('coldStartMedianMs');
+  const coldBudget = budgetFor(BUDGET_KEY);
 
   // Gated metrics: network-free medians.
   const gates = [
@@ -175,6 +199,8 @@ async function main() {
     JSON.stringify(
       {
         bench: 'cold-start',
+        mode: BINARY_MODE ? 'binary' : 'node',
+        target: TARGET,
         node: process.version,
         ci: CI,
         budgetMs: coldBudget,

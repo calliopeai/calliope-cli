@@ -15,6 +15,37 @@ Requires Node.js 20 or later. Verify the install:
 calliope --version
 ```
 
+## Install as a single binary
+
+> Available from **v3.0.0** stable releases. No Node.js, npm, or Bun required —
+> one self-contained executable per platform (macOS arm64/x64, Linux arm64/x64).
+
+**curl installer** (detects your OS/arch, verifies the SHA-256, installs to
+`/usr/local/bin` or `~/.local/bin`):
+
+```
+curl -fsSL https://raw.githubusercontent.com/calliopeai/calliope-cli/main/packaging/install.sh | bash
+```
+
+**Homebrew** (macOS):
+
+```
+brew install calliopeai/tap/calliope
+```
+
+**Manual** — download the asset for your platform from the
+[latest release](https://github.com/calliopeai/calliope-cli/releases/latest)
+(`calliope-<version>-<os>-<arch>`), verify it against `checksums.txt`, then:
+
+```
+chmod +x calliope-*-darwin-arm64 && sudo mv calliope-*-darwin-arm64 /usr/local/bin/calliope
+```
+
+The binary is a drop-in replacement for the npm-installed `calliope` — same
+flags, same TUI. It starts in ~75 ms cold (vs ~90 ms for `node`), and self-update
+via `calliope --upgrade` still routes through npm, so binary users should
+re-download from releases (or re-run the installer) to upgrade.
+
 ## Configure a provider
 
 Run the setup wizard and follow the prompts to pick a provider and enter a key:

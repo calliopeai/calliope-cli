@@ -44,6 +44,7 @@
     "test:coverage": "vitest run --coverage",
     "bench": "node bench/run.mjs",
     "bench:cold": "npm run build && node bench/cold-start.mjs",
+    "bench:binary": "npm run build && bun packaging/build-binary.mjs --native && CALLIOPE_BENCH_BINARY=packaging/dist/calliope-native node bench/cold-start.mjs",
     "bench:ui": "vitest run -c bench/vitest.bench.config.ts bench/keystroke.bench.test.ts",
     "bench:mem": "NODE_OPTIONS=--expose-gc vitest run -c bench/vitest.bench.config.ts bench/memory.bench.test.ts",
     "prepublishOnly": "npm run build && npm test"
