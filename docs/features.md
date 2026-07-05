@@ -1,604 +1,173 @@
 # Features
 
-Deep-dive into Calliope CLI's capabilities.
+The v3 feature set. Everything below is current; if you are coming from v2, read
+[Removed in v3](#removed-in-v3) for what changed.
 
-## Autonomous Loops
+## Agent loop with tools
 
-Execute multi-step tasks automatically with human oversight.
+Calliope runs a single agent loop: the model plans, calls tools, observes the
+results, and repeats until the task is done. Built-in tools include `shell`,
+file `read_file` / `write_file` / `edit_file`, `list_files`, `glob`, `grep`,
+`git`, `web_search`, `execute_code` (sandboxed), `think`, `create_plan`, and
+`ask_question`. Independent tool calls run in parallel.
 
-### Basic Usage
-```bash
-/loop "Fix all TypeScript errors"
+Start a bounded autonomous run with `/loop`:
+
+```
+/loop "Fix all type errors in src/" --max-iterations 50
 ```
 
-### With Options
-```bash
-/loop "Refactor to use async/await" --max-iterations 15
-/loop "Add tests until coverage > 80%" --completion-promise "Coverage: 80%"
+## Model backends and live discovery
+
+Thirteen provider backends are supported, plus a generic OpenAI-compatible
+endpoint. Models are discovered live from each provider's API — there are no
+hardcoded model lists, so new models appear as soon as the provider ships them.
+Browse the current provider's models with `/model`. See [Providers](./providers.md).
+
+## Modes: plan, hybrid, work
+
+Three operating modes control how much the agent does on its own:
+
+- `plan` — chat and planning only; no tools run.
+- `hybrid` — plan before complex work, then execute (default).
+- `work` — execute directly.
+
+Switch with `/mode <name>` or cycle with `Shift+Tab`.
+
+## Sandboxing
+
+Shell and code execution can run inside a sandbox. Set the mode with
+`/config set sandboxMode <auto|native|docker|off>`:
+
+- `auto` (default) — use Docker if available, else the native OS sandbox
+  (macOS Seatbelt), else run unsandboxed.
+- `native` — require the native OS sandbox; fail closed if it is unavailable.
+- `docker` — run inside a Docker container.
+- `off` — no sandboxing.
+
+## Circuit breakers
+
+Opt-in guardrails for long or autonomous runs, off by default
+(`circuitBreakersEnabled: false`). When enabled, the loop halts on repeated
+consecutive failures, cost runaway (per-session and per-minute spend), infinite
+or oscillating tool-call patterns, excessive token burn, stalls with no
+progress, and per-iteration wall-clock limits. They make `maxIterations: 0`
+(unlimited) safe to run.
+
+## Project memory (CALLIOPE.md)
+
+At startup Calliope loads project context from `CALLIOPE.md` in the working
+directory and merges in your global preferences. Create and edit it through
+`/memory`:
+
 ```
-
-### How It Works
-1. AI analyzes the task
-2. Plans the approach
-3. Executes steps iteratively
-4. Stops when complete or max iterations reached
-
-### Controlling Loops
-```bash
-/stop          # Cancel current loop
-/cancel-loop   # Same as /stop
-```
-
-### Configuration
-```bash
-/set maxIterations 50    # Increase limit
-```
-
----
-
-## Multi-Model Support
-
-Switch between 13+ providers seamlessly.
-
-### Quick Switch
-```bash
-/provider anthropic
-/provider openai
-/provider google
-/provider groq
-```
-
-### Interactive Selection
-```bash
-/provider      # Shows provider picker
-/model         # Shows model picker
-/models        # Browse available models
-```
-
-### Auto-Routing
-Let Calliope pick the best model for each task:
-```bash
-/route on
-```
-
-- Simple queries → Fast models (Haiku, Flash)
-- Complex tasks → Capable models (Sonnet, GPT-4o)
-- Coding → Code-optimized models
-
----
-
-## Project Memory
-
-Persistent context across sessions.
-
-### Automatic Loading
-Calliope reads from:
-- `CALLIOPE.md` - Primary project memory
-- `CLAUDE.md` - Claude-specific context
-- `README.md`, `SPEC.md`, `TODO.md`
-- `ARCHITECTURE.md`, `DESIGN.md`
-- `.cursorrules`, `.github/copilot-instructions.md`
-
-### Create Memory File
-```bash
 /memory init
-```
-
-Creates `CALLIOPE.md` with sections for:
-- Project overview
-- Tech stack
-- Coding preferences
-- Important files
-
-### Add Memory
-```bash
-/memory add context "React 18 with TypeScript"
+/memory add context "React 18 + TypeScript, ESM only"
 /memory add preference "Use functional components"
-/memory add note "Auth module was refactored on Jan 10"
 ```
 
-### View Memory
-```bash
-/memory show      # Project memory
-/memory global    # Global preferences
-/context          # All loaded context
+## MCP servers
+
+Connect [Model Context Protocol](https://modelcontextprotocol.io) servers to
+extend the agent's toolset:
+
 ```
-
----
-
-## Templates
-
-Save and reuse prompts.
-
-### Save Template
-```bash
-/template save review "Review this code for bugs, performance, and best practices"
-/template save test "Write comprehensive unit tests for this function"
-/template save refactor "Refactor this code to improve readability and maintainability"
-```
-
-### Use Template
-```bash
-/template use review
-# Loads prompt into input, press Enter to send
-```
-
-### List Templates
-```bash
-/template list
-```
-
-Templates persist across sessions in `~/.calliope-cli/templates/`.
-
----
-
-## TODOs
-
-Track tasks within your session.
-
-### Add TODOs
-```bash
-/todo add Fix the login bug
-/todo add Deploy to production --priority high
-/todo add Research caching options --global
-```
-
-### View TODOs
-```bash
-/todo              # List all
-/todo list         # Same
-```
-
-### Work on TODO
-```bash
-/todo work abc1    # Set as active, AI knows context
-```
-
-### Complete TODO
-```bash
-/todo done abc1
-```
-
-### Clear Active
-```bash
-/todo clear
-```
-
----
-
-## Plans
-
-Save and rerun execution plans.
-
-### View Plans
-```bash
-/plans              # List recent plans
-/plans view abc1    # See plan details
-```
-
-### Rerun Plan
-```bash
-/plans rerun abc1   # Re-execute a saved plan
-```
-
-Plans are created automatically in Hybrid mode when executing complex tasks.
-
----
-
-## Bookmarks
-
-Mark important points in conversation.
-
-### Create Bookmark
-```bash
-/bookmark "Got authentication working"
-/bm "checkpoint"
-```
-
-### List Bookmarks
-```bash
-/bookmark list
-```
-
-### Jump to Bookmark
-```bash
-/goto 1
-```
-
-### Delete Bookmark
-```bash
-/bookmark delete 1
-```
-
----
-
-## Undo/Redo
-
-Navigate conversation history.
-
-### Undo
-```bash
-/undo    # Removes last exchange (your message + AI response)
-```
-
-### Redo
-```bash
-/redo    # Restores undone exchange
-```
-
-Full state is preserved, including tool executions.
-
----
-
-## Session Management
-
-### View Current Session
-```bash
-/session info
-```
-
-### List Sessions
-```bash
-/session list
-```
-
-### Resume Session
-On startup, Calliope offers to resume recent sessions. Or manually:
-```bash
-/resume
-```
-
-### Export Session
-```bash
-/export                  # To conversation.md
-/export my-session.md    # To specific file
-```
-
----
-
-## Conversation Branches
-
-Explore different approaches without losing work.
-
-### Create Branch
-```bash
-/branch new experiment "Try approach B"
-```
-
-### Switch Branch
-```bash
-/branch switch experiment
-```
-
-### List Branches
-```bash
-/branch list
-```
-
-### Delete Branch
-```bash
-/branch delete experiment
-```
-
----
-
-## Scope Management
-
-Control which directories the AI can access.
-
-### Add to Scope
-```bash
-/scope add ./src
-/scope add ./tests
-```
-
-### Remove from Scope
-```bash
-/scope remove ./node_modules
-```
-
-### View Scope
-```bash
-/scope list
-```
-
-### Reset Scope
-```bash
-/scope reset    # Clears all restrictions
-```
-
-When scope is set, AI can only access listed directories.
-
----
-
-## Context Management
-
-### View Usage
-Status bar shows: `45K/200K` (used/limit)
-
-### Progressive Warnings
-- 70%: Info notice
-- 85%: Warning
-- 95%: Critical
-- 98%: Emergency
-
-### Compress Context
-```bash
-/summarize compact
-```
-
-### Clear Context
-```bash
-/clear
-```
-
----
-
-## Cost Tracking
-
-Monitor API usage and costs.
-
-### View Costs
-```bash
-/cost
-```
-
-Shows:
-- Total cost
-- Today's cost
-- Cost by provider
-- Last 7 days
-
-Costs persist across sessions in `~/.calliope-cli/costs.json`.
-
----
-
-## MCP Servers
-
-Connect external tools via Model Context Protocol.
-
-### Add Server
-```bash
-/mcp add https://mcp-server.example.com
-```
-
-### List Servers
-```bash
-/mcp list
-```
-
-### View Available Tools
-```bash
+/mcp add https://mcp.example.com
 /mcp tools
 ```
 
-### Refresh Connections
-```bash
-/mcp refresh
-```
-
----
-
 ## Skills
 
-Install community skills from AgentSkills.io.
+Install agent skills from the registry, a GitHub URL, or a local path. Skills
+are stored under `~/.calliope-cli/`.
 
-### Install Skill
-```bash
+```
 /skills add git-workflow
-/skills add code-review
+/skills add https://github.com/org/skill
 ```
 
-### List Installed
-```bash
-/skills list
+## Hooks (file-driven)
+
+Run shell commands on lifecycle events — `pre-tool` / `post-tool`,
+`pre-shell` / `post-shell`, `pre-write` / `post-write`, `pre-read`,
+`session-start` / `session-end`, `error`, and `message`. Hooks are configured by
+editing `~/.calliope-cli/hooks/hooks.json`; there is no slash command for them in
+v3. A `pre-*` hook can veto the operation it precedes. For safety the file is
+refused if it is group- or world-writable (`chmod 600` it).
+
+## Checkpoints and undo (git-based)
+
+Inside a git repository, Calliope commits a checkpoint before a destructive tool
+call and records a lightweight ref under `refs/calliope/checkpoints/`. List and
+restore with `/restore` — history is never rewritten. Within a session, `/undo`
+reverts the last conversational change (up to 10 steps).
+
+```
+/restore                 # list checkpoints
+/restore src/app.ts 1    # restore a file from checkpoint index 1
 ```
 
-### Skill Info
-```bash
-/skills info git-workflow
+## Context compaction
+
+`/compact` compresses older messages into a summary to free context; compaction
+also triggers automatically as the context approaches the model's limit.
+`/compact status` previews what would be summarized without changing anything.
+
+## Cost tracking
+
+`/cost` reports spend per session and per provider. Totals persist in
+`~/.calliope-cli/costs.json`; `/cost reset` clears them.
+
+## Headless / CI mode
+
+Run non-interactively with `--headless` (auto-detected when stdout is not a TTY).
+`--json` emits a structured event stream and `--max-retries N` retries failed
+tool calls. Provide the prompt as an argument or on stdin.
+
+```
+calliope --headless "fix the failing lint rule"
+echo "summarize the recent changes" | calliope --headless --json
 ```
 
-### Remove Skill
-```bash
-/skills remove git-workflow
-```
+## Fleet mode
 
----
-
-## Hooks
-
-Run custom scripts before/after operations.
-
-### Initialize Defaults
-```bash
-/hooks init
-```
-
-### Add Hook
-```bash
-/hooks add pre-shell "echo Running: $CALLIOPE_COMMAND"
-/hooks add post-write "prettier --write $CALLIOPE_FILE"
-```
-
-### List Hooks
-```bash
-/hooks list
-```
-
-### Hook Events
-- `pre-tool`, `post-tool` - Any tool execution
-- `pre-shell`, `post-shell` - Shell commands
-- `pre-write`, `post-write` - File writes
-- `session-start`, `session-end` - Session lifecycle
-
----
+Optional agent-to-agent and operator-to-agent coordination over a shared IRC
+channel, off by default. See [Fleet mode](./fleet.md).
 
 ## Themes
 
-Customize visual appearance.
-
-### Available Themes
-- `default` - Standard colors
-- `light` - Light backgrounds
-- `monokai` - Monokai scheme
-- `nord` - Nord scheme
-- `minimal` - Reduced noise
-
-### Set Theme
-```bash
-/theme monokai
-```
-
-### Cycle Themes
-```bash
-/theme
-```
+Three built-in themes: `dark` (default), `light`, and `no-color`. Switch with
+`/config set theme <name>`; the choice persists in
+`~/.calliope-cli/themes/current.txt`.
 
 ---
 
-## Profiles
+## Removed in v3
 
-Quick-switch configurations.
+v3.0 removed a large amount of surface area to keep the tool small and
+predictable. If you relied on any of the following in v2, here is what happened
+and why:
 
-### Built-in Profiles
-```bash
-/profile fast    # Groq - speed
-/profile smart   # Claude - quality
-/profile cheap   # Gemini - cost
-/profile local   # Ollama - privacy
-```
+- Personas and companions — removed; the assistant has one consistent voice.
+- Theme packs, skins, and palettes — removed; three plain themes remain
+  (`dark`, `light`, `no-color`), and the rest was cosmetic surface with a real
+  maintenance cost.
+- Multi-agent orchestration (`/agents`, `/swarm`, `/council`) — removed; one
+  agent and one loop is easier to reason about. Use [fleet mode](./fleet.md) for
+  agent-to-agent coordination.
+- The API server and `--serve` — removed; Calliope is a CLI, not a daemon.
+- Terminal recording — removed; it duplicated what terminal multiplexers and
+  screen recorders already do.
+- Conversation branching (`/branch`) and bookmarks (`/bookmark`) — removed; use
+  `/export` and git checkpoints instead.
+- Prompt templates (`/template`) and TODOs (`/todo`) — removed; keep task lists
+  in your project files.
+- Configuration profiles — removed; switch provider and model directly, or use
+  environment variables.
+- Background jobs (`/bg`) and tmux integration — removed; run separate shells.
+- The legacy readline UI (`--legacy`) — removed; the Ink UI is the only front end.
+- The `/scuttlebot` integration — renamed to [fleet mode](./fleet.md).
 
-### Save Custom Profile
-```bash
-/profile save work
-```
-
-### Load Profile
-```bash
-/profile work
-```
-
----
-
-## Search
-
-### Find Files
-```bash
-/find auth           # Fuzzy search
-/find *.test.ts      # Pattern search
-```
-
-### Search History
-```bash
-/search error handling
-```
-
-### Search Chat
-```bash
-/history auth
-```
-
----
-
-## Copy & Export
-
-### Copy Last Response
-```bash
-/copy
-```
-
-Copies to clipboard (supports macOS, Windows, Linux).
-
-### Export Conversation
-```bash
-/export                  # To conversation.md
-/export session.md       # To specific file
-```
-
----
-
-## Parallel Tool Execution
-
-When the AI needs to run multiple independent operations, they execute in parallel for 2-5x speedup.
-
-```
-Sequential: Read file1 → wait → Read file2 → wait → Read file3
-Parallel:   Read file1, file2, file3 → all at once
-```
-
-This happens automatically when:
-- Multiple tool calls have no dependencies
-- Operations can safely run concurrently
-
----
-
-## AGTerm (Multi-Agent Orchestration)
-
-Spawn other agent CLIs from within Calliope to parallelize work or leverage different models.
-
-### Supported Agents
-
-| Agent | CLI | Best For |
-|-------|-----|----------|
-| `calliope` | Calliope (self) | Full-featured, all tools, god mode |
-| `claude` | Claude Code | Complex coding, file ops, analysis |
-| `gemini` | Gemini CLI | Research, explanation, creative tasks |
-| `codex` | Codex CLI | Code generation and completion |
-
-Calliope auto-detects which agent CLIs are installed.
-
-### Spawn a Sub-Agent
-```bash
-# Delegate a task to Claude
-/spawn claude "Write unit tests for src/auth.ts"
-
-# Run in background
-/spawn claude "Refactor the database module" --background
-
-# Use Gemini for research
-/spawn gemini "Research best practices for JWT refresh tokens"
-
-# Self-spawn for parallel work
-/spawn calliope "Fix all lint errors in src/ui/"
-```
-
-### Check on Tasks
-```bash
-/agent status task-abc-123    # Check a specific task
-/agent list                   # See all running/queued tasks
-```
-
-### Cancel a Task
-```bash
-/agent cancel task-abc-123
-```
-
-### Task Priority
-```bash
-/spawn claude "Critical hotfix" --priority critical
-```
-
-Priority levels: `critical` > `high` > `normal` > `low`
-
-### Task Lifecycle
-
-Tasks move through: `queued` → `running` → `completed` | `failed` | `cancelled`
-
-The orchestrator manages queuing, prioritization, and depth tracking for nested agent execution.
-
----
-
-## Risk Assessment
-
-Every operation is classified:
-
-| Level | Examples |
-|-------|----------|
-| None | Read file, list files |
-| Low | Git status, ls |
-| Medium | Write file, git commit |
-| High | Delete file, git push |
-| Critical | rm -rf, sudo, system paths |
-
-Critical operations always require confirmation, even in god mode.
+The slash-command surface dropped from 84 commands to 22, and configuration from
+40 keys to 16. The guiding principle was simplicity: fewer moving parts, each one
+documented and tested.

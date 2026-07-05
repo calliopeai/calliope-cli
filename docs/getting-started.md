@@ -1,239 +1,134 @@
-# Getting Started
+# Getting started
 
-Get up and running with Calliope CLI in minutes.
+Calliope is a multi-model AI agent for the terminal. This guide takes you from
+install to your first session.
 
-## Installation
+## Install
 
-### Quick Install (recommended)
-```bash
-curl -fsSL https://calliope.ai/install.sh | bash
+```
+npm i -g @calliopelabs/cli
 ```
 
-### npm
-```bash
-npm install -g @calliopelabs/cli
-```
+Requires Node.js 20 or later. Verify the install:
 
-### Verify Installation
-```bash
+```
 calliope --version
 ```
 
----
+## Configure a provider
 
-## Initial Setup
+Run the setup wizard and follow the prompts to pick a provider and enter a key:
 
-### Option 1: Interactive Setup
-Run Calliope and follow the setup wizard:
-```bash
-calliope
+```
+calliope --setup
 ```
 
-The wizard will guide you through:
-1. Selecting your preferred AI provider
-2. Entering your API key
-3. Choosing a default model
+The first time you run `calliope` with no configuration, the wizard starts
+automatically. If a provider API key is already in your environment (for example
+`ANTHROPIC_API_KEY`), Calliope uses it and skips the wizard. See
+[Providers](./providers.md) for every backend and
+[Configuration](./configuration.md) for keys and environment variables.
 
-### Option 2: Environment Variables
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-calliope
+## Your first session
+
 ```
-
-### Option 3: Config File
-Create `~/.config/calliope/config.json`:
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "apiKeys": {
-    "anthropic": "sk-ant-..."
-  }
-}
-```
-
----
-
-## Your First Session
-
-### Start Calliope
-```bash
 cd your-project
 calliope
 ```
 
-### Basic Interaction
-```
-calliope 🔄> Hello! Can you help me understand this codebase?
-```
+Type a request at the prompt and press Enter:
 
-### Try Some Commands
-```bash
-/status              # Check current provider/model
-/help                # See all commands
-/find auth           # Search for files
-/clear               # Start fresh
+```
+Explain what src/index.ts does, then add error handling to the init function.
 ```
 
----
+Calliope reads the relevant files, proposes changes, and — outside plan mode —
+applies them, asking for confirmation on risky operations.
 
-## Quick Examples
+## Modes
 
-### Ask Questions
+Calliope has three modes. It starts in `hybrid`.
+
+| Mode | Behavior |
+|------|----------|
+| `plan` | Chat and planning only; no tools run. Good for exploring. |
+| `hybrid` | Plans before complex work, then executes. Default. |
+| `work` | Executes directly. |
+
+Switch with `/mode <name>`, or press `Shift+Tab` to cycle. Start in plan mode
+when you want to think through an approach before any files change:
+
 ```
-What does the main function do in index.ts?
-```
-
-### Make Changes
-```
-Add error handling to the login function
-```
-
-### Run Tasks
-```
-Fix all TypeScript errors in src/
-```
-
-### Autonomous Mode
-```bash
-/loop "Refactor all components to use hooks"
-```
-
----
-
-## Key Concepts
-
-### Modes
-
-Calliope has three operating modes:
-
-| Mode | When to Use |
-|------|-------------|
-| **Hybrid** (default) | Most tasks - auto-plans when needed |
-| **Work** | Simple tasks - direct execution |
-| **Plan** | Exploration - no tool execution |
-
-Switch modes:
-```bash
-/mode work
 /mode plan
-/mode hybrid
+How should I structure the auth module?
 ```
 
-### God Mode
+## Key commands
 
-Skip confirmation prompts for faster execution:
-```bash
-calliope -g
+```
+/help                 # list all commands
+/status               # provider, model, token usage
+/model                # browse and switch models
+/provider anthropic   # switch provider
+/loop "<prompt>"      # run an autonomous agent loop
+/compact              # compress context when it fills up
+/undo                 # revert the last change
+/cost                 # show spend this session
+/clear                # clear the conversation
+/exit                 # quit
 ```
 
-Or during session:
-```bash
-/confirm off
+See the [Commands reference](./commands.md) for all 22 commands and their subcommands.
+
+## Non-interactive use
+
+Run a single task without the TUI — useful in scripts and CI:
+
+```
+calliope --headless "fix the failing lint rule"
+echo "summarize the recent changes" | calliope --headless --json
 ```
 
-### Context Management
+## Project memory
 
-Monitor context usage in the status bar:
+Calliope loads `CALLIOPE.md` from your project directory at startup and treats it
+as standing context. Create one and add notes:
+
 ```
-anthropic:claude-sonnet-4 │ 45K/200K │ $0.23
-```
-
-When context fills up:
-```bash
-/summarize compact    # Compress history
-/clear                # Start fresh
-```
-
----
-
-## Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `Tab` | Autocomplete commands/paths |
-| `Up/Down` | Navigate input history |
-| `Ctrl+C` | Cancel current operation |
-| `Ctrl+L` | Clear screen |
-| `Esc` | Exit |
-
----
-
-## Project Memory
-
-Calliope automatically reads context from:
-- `CALLIOPE.md` - Project memory
-- `CLAUDE.md` - Claude context
-- `README.md` - Project readme
-- `.cursorrules` - Cursor rules
-
-Create project memory:
-```bash
 /memory init
-```
-
-Add context:
-```bash
-/memory add context "This is a React TypeScript project"
+/memory add context "React 18 + TypeScript, ESM only"
 /memory add preference "Use functional components"
 ```
 
----
+## Command-line flags
 
-## Sessions
-
-### Resume Previous Session
-On startup, Calliope offers to resume recent sessions:
 ```
-Found previous session (2 hours ago)
-  • 12 messages
-[R]esume  [N]ew session
-```
-
-### Manual Resume
-```bash
-/resume
-```
-
-### View Sessions
-```bash
-/session list
+-h, --help          show help
+-v, --version       show version
+-u, --upgrade       upgrade to the latest version
+    --setup         run the setup wizard
+    --config        show config path and status
+    --reset         clear all configuration
+-g, --god-mode      run tools without confirmation prompts
+    --headless      non-interactive mode (auto-detected when piped)
+    --json          emit a JSON event stream (with --headless)
+    --max-retries N retry failed tool calls N times in headless mode (default 3)
+    --debug         verbose logging to /tmp/calliope-debug.log
 ```
 
----
+## Upgrading from v2
 
-## Next Steps
+v3 is a major simplification. Your existing configuration migrates automatically
+the first time v3 runs — see [Configuration → Migration](./configuration.md#migration).
+Several v2 subsystems were removed; the full list and rationale is in
+[Removed in v3](./features.md#removed-in-v3).
 
-- [Commands Reference](./commands.md) - All available commands
-- [Configuration](./configuration.md) - Customize your setup
-- [Providers](./providers.md) - Available AI providers
-- [Features](./features.md) - Deep-dive into features
+## Next steps
 
----
+- [Commands](./commands.md) — every command and subcommand
+- [Configuration](./configuration.md) — keys, defaults, environment variables
+- [Providers](./providers.md) — supported backends and credentials
+- [Features](./features.md) — the full feature set
+- [Fleet mode](./fleet.md) — multi-agent coordination
 
-## Troubleshooting
-
-### "No API keys configured"
-```bash
-calliope --setup
-# Or set environment variable:
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### "Empty response from API"
-- Check API key validity
-- Verify account has credits
-- Try a different provider: `/provider openai`
-
-### Context limit warnings
-```bash
-/summarize compact    # Compress context
-/clear                # Start fresh
-```
-
-### Need help?
-```bash
-/help
-```
-
-Or visit: https://github.com/calliopeai/calliope-cli/issues
+Questions or bugs: https://github.com/calliopeai/calliope-cli/issues

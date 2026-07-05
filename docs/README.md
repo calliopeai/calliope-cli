@@ -1,40 +1,46 @@
-# Calliope CLI Documentation
+# Calliope CLI documentation
 
-Comprehensive documentation for the Calliope CLI - a multi-model AI agent CLI.
+Calliope is a multi-model AI agent for the terminal: one agent, one loop, 13
+provider backends, and a small, tested command surface.
 
-## Table of Contents
+## Contents
 
-- [Getting Started](./getting-started.md) - Installation and first steps
-- [Commands Reference](./commands.md) - Complete command documentation
-- [Configuration](./configuration.md) - Config files and environment variables
-- [Features](./features.md) - Deep-dive into features
-- [Providers](./providers.md) - Supported AI providers and models
+- [Getting started](./getting-started.md) — install, setup, first session
+- [Commands](./commands.md) — all 22 commands and their subcommands
+- [Configuration](./configuration.md) — config keys, defaults, environment variables
+- [Providers](./providers.md) — supported backends and how credentials resolve
+- [Features](./features.md) — the full v3 feature set (and what was removed)
+- [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
 
-## Quick Reference
+## Quick reference
 
-### Most Used Commands
+### Common commands
 
 | Command | Description |
 |---------|-------------|
-| `/help` | Show all commands |
-| `/provider <name>` | Switch AI provider |
-| `/model <name>` | Switch model |
-| `/loop "<prompt>"` | Start autonomous loop |
-| `/clear` | Clear conversation |
-| `/undo` | Undo last exchange |
-| `/exit` | Exit Calliope |
+| `/help` | List all commands |
+| `/status` | Provider, model, token usage |
+| `/model [name]` | Browse or switch models |
+| `/provider [name]` | Switch provider |
+| `/mode [plan\|hybrid\|work]` | Switch operating mode |
+| `/loop "<prompt>"` | Run an autonomous agent loop |
+| `/compact` | Compress conversation context |
+| `/undo` | Revert the last change |
+| `/cost` | Show spend this session |
+| `/clear` | Clear the conversation |
+| `/exit` | Quit (alias `/quit`) |
 
-### Keyboard Shortcuts
+### Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+C` | Cancel current operation |
-| `Ctrl+L` | Clear screen |
-| `Up/Down` | Navigate input history |
-| `Tab` | Autocomplete commands/paths |
-| `Esc` | Exit |
+| `Tab` | Complete commands and paths |
+| `Shift+Tab` | Cycle mode (plan -> hybrid -> work) |
+| `Up` / `Down` | Navigate input history |
+| `Ctrl+C` | Cancel the current operation |
+| `Esc` | Dismiss a picker or modal |
 
-## Getting Help
+## Getting help
 
-- GitHub Issues: https://github.com/calliopeai/calliope-cli/issues
-- GitHub Discussions: https://github.com/calliopeai/calliope-cli/discussions
+- Issues: https://github.com/calliopeai/calliope-cli/issues
+- Discussions: https://github.com/calliopeai/calliope-cli/discussions

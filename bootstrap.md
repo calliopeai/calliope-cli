@@ -6,7 +6,7 @@
 > wins**. Keep it updated as the codebase evolves.
 
 `@calliopelabs/cli` (`calliope`) — a multi-model AI agent CLI. TypeScript +
-React/Ink, ESM. v2.4.2. Node ≥ 20.
+React/Ink, ESM. v3.0.0-alpha.1. Node ≥ 20.
 
 ---
 
@@ -19,7 +19,7 @@ React/Ink, ESM. v2.4.2. Node ≥ 20.
 | Entry | `src/bin.ts` → `dist/bin.js` (the `calliope` bin) |
 | Config store | `conf` (schema-validated JSON under the OS config dir) |
 | Providers | `@anthropic-ai/sdk`, `@google/generative-ai`, `openai` (+ OpenAI-compatible endpoints) |
-| Tests | Vitest — **4602 tests across 104 files** under `tests/` |
+| Tests | Vitest — **~3,500 tests across 94 files** under `tests/`; coverage floor 90% lines (enforced by `npm run test:coverage`) |
 | Lint/format | Prettier + ESLint (community defaults; no custom bikeshedding) |
 
 **Local commands**
@@ -45,20 +45,17 @@ React/Ink, ESM. v2.4.2. Node ≥ 20.
 
 ---
 
-## Architecture — the barrel pattern
+## Architecture
 
 Large modules were split into subdirectories **without changing any import
-paths**: the original file became a barrel that re-exports from the subdirectory.
-Import from the barrel, not the internal files.
+Modules live in subdirectories; import via each package's index.
 
 ```
 src/
 ├── bin.ts            # entry point
-├── cli.ts            # barrel → src/cli/      (REPL agent loop, commands)
-├── providers.ts      # barrel → src/providers/ (anthropic, google, openai, compat, index, types)
-├── hud.ts            # barrel → src/hud/       (skins, palettes, api, types; theme-packs loader)
-├── ui-cli.tsx        # barrel → src/ui/        (Ink components, chat-input, status-bar, messages, modals, agent loop)
-├── companions.ts     # base + EXPANDED_COMPANIONS
+├── providers/        # 13 backends (anthropic, google, openai, bedrock, ollama, compat)
+├── hud/              # color api, 3 palettes, single skin
+├── ui/               # Ink components, chat-input, status-bar, messages, modals, agent loop
 ├── tools.ts          # tool definitions, registry, execution (shell/file/web/etc.)
 ├── config.ts         # conf store, schema, pre-migration
 ├── types.ts          # core types, DEFAULT_MODELS, pricing
@@ -66,18 +63,17 @@ src/
 ├── sandbox.ts / sandbox-native.ts / risk.ts / trust.ts / scope.ts  # security boundary
 ├── storage.ts / memory.ts / checkpoint.ts / branching.ts    # persistence + session state
 ├── auto-compressor.ts / summarization.ts                    # context management
-├── agterm/           # multi-agent orchestration
+├── fleet.ts          # flag-gated IRC fleet bus (sole importer of scuttlebot/)
 ├── agents/           # dynamic/custom tool definitions
-└── hud/theme-packs/  # thin loader; theme content lives in @calliopelabs/cli-themes (optional dep)
+└── sandbox/          # docker + seatbelt backends behind one interface
 ```
 
-**Adding to a barrelled module:** add the new code in the subdirectory and
-re-export it from the barrel. Never reintroduce a monolithic file.
+**Adding to a module:** add the new code in the subdirectory and export it from that directory's index.
 
 **Circular-dependency workarounds (keep these patterns):**
 - `setStartLoop()` injection in `src/cli/commands.ts` breaks a cycle with the agent loop.
 - `require()` (not `import`) is used for lazy loading in `styles.ts` and the
-  `emoji()` helper in `companions.ts` to avoid import cycles.
+  `emoji()` helper in `styles.ts` to avoid import cycles.
 
 ---
 

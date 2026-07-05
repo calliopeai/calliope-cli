@@ -1,708 +1,83 @@
 # Calliope CLI
 
-> The Muse of Digital Eloquence
-
-Multi-model AI agent CLI with autonomous loops, project memory, and advanced tooling. Use Claude, Gemini, GPT, and more from a single elegant interface.
-
-```
- ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗
-██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝
-██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗
-██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝
-╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗
- ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝
-
-        The Muse of Digital Eloquence
-```
-
-## Installation
+**The private-AI agent CLI.** One terminal agent for any model backend — including the ones you run yourself. MIT-licensed, small core, no lock-in.
 
 ```bash
-# Quick install
-curl -fsSL https://calliope.ai/install.sh | bash
-
-# Or via npm
 npm install -g @calliopelabs/cli
-```
-
-## Quick Start
-
-```bash
-# Run Calliope (first run will prompt for setup)
-calliope
-
-# Or set API key via environment
-export ANTHROPIC_API_KEY=sk-ant-...
-calliope
-
-# Run in god mode (no permission prompts)
-calliope -g
-calliope --god-mode
-```
-
-## Features
-
-### 🚀 Scuttlebot Integration (New!)
-
-Native support for [scuttlebot](https://scuttlebot.dev) - real-time IRC mirroring and fleet coordination:
-
-```bash
-export SCUTTLEBOT_URL=http://localhost:8080
-export SCUTTLEBOT_TOKEN=your-token
 calliope
 ```
 
-- **Real-time Mirroring**: Tool calls and responses stream to IRC as they happen
-- **Operator Intervention**: Address your session by name in IRC to redirect it mid-task
-- **Fleet Coordination**: Run multiple agents (Claude, Gemini, Calliope) in parallel
-- **Secret Sanitization**: Automatic redaction of API keys and tokens
+## Why Calliope
 
-See [scuttlebot integration docs](docs/scuttlebot-integration.md) for details.
+- **Any backend, live-discovered.** 13 providers — Anthropic, OpenAI, Google, AWS Bedrock, Ollama, OpenRouter, Together, Groq, Fireworks, Mistral, AI21, Hugging Face, LiteLLM, plus any OpenAI-compatible server. No hardcoded model lists: models and capabilities are discovered from each provider's API, so new models work the day they ship.
+- **Built for models you run yourself.** Ollama and self-hosted OpenAI-compatible servers are first-class targets, not checkboxes. Run fully air-gapped.
+- **Sandbox-first execution.** Shell and code tools run inside macOS Seatbelt or Docker sandboxes (`auto`/`native`/`docker`/`off`). Blocklists are advisory; the sandbox is the boundary.
+- **Safety rails that survive long sessions.** Circuit breakers, iteration budgets, git-based checkpoints with `/restore`, and automatic context compaction.
+- **Small on purpose.** 22 commands. 16 config keys. 11 flags. v3 removed more code than it kept — the changelog lists everything that went and why.
+- **Tested like infrastructure.** 3,500 tests, 93%+ line coverage with an enforced 90% floor.
 
-### Multi-Model Support
-
-Switch between 12+ providers on the fly:
-
-```
-/provider anthropic    # Use Claude
-/provider google       # Use Gemini
-/provider openai       # Use GPT
-/provider mistral      # Use Mistral
-/provider ollama       # Use local models
-/provider openrouter   # Use any model via OpenRouter
-```
-
-**Supported Providers:**
-- Anthropic (Claude): Sonnet 4, Opus 4, Haiku
-- OpenAI: GPT-4o, o1, o3-mini
-- Google: Gemini 2.0 Flash, 1.5 Pro
-- Mistral: Large, Small
-- Groq: Llama 3.3, Mixtral
-- Cerebras: Llama 3.3
-- Fireworks: Llama models
-- xAI: Grok
-- Ollama: Local models
-- OpenRouter: 100+ models
-- GitHub Models: Via Azure
-- DeepSeek: R1, V3
-
-### 🔒 Scope Management
-
-Control which directories your AI can access for enhanced security:
+## Quick start
 
 ```bash
-/scope add ./src              # Grant access to src directory
-/scope add ./tests            # Add tests directory
-/scope list                   # View current scope
-/scope remove ./src           # Revoke access
-/scope reset                  # Clear all scope restrictions
+calliope --setup        # pick a provider, paste a key (or point at Ollama)
+calliope                # start a session in the current directory
 ```
 
-**Benefits:**
-- 🔒 **Security** - Prevent accidental modifications outside project areas
-- 🎯 **Focus** - Keep AI operations within relevant directories
-- ⚡ **Performance** - Reduce unnecessary file scanning
-- 📋 **Audit trail** - Track which directories are in scope
+Inside a session:
 
-### 🔁 Session Management & Continuity
+```
+/mode plan              think first — the agent proposes, you approve
+/model list             see live-discovered models for your provider
+/scope add ../lib       widen file access deliberately
+/compact                compress context when it grows
+/restore                list git checkpoints; /restore <path> to roll back
+/help                   everything else — it fits on one screen
+```
 
-Seamless continuity between sessions:
+Headless, for CI and scripts:
 
 ```bash
-# On startup, Calliope detects previous sessions:
-╭─ 🎭 Calliope v0.6.11
-│  Found previous session (2 hours ago)
-│    • 12 messages, 2 TODOs pending
-╰─ [R]esume  [N]ew session
-
-# Commands
-/session list          # List all sessions
-/session info          # Current session details
-/history               # View conversation history
-/export [file.md]      # Export conversation to markdown
-```
-
-### 🔖 Bookmarks & Navigation
-
-Mark and return to important moments in your conversation:
-
-```bash
-/bookmark "Got auth working"    # Create a bookmark
-/bookmarks                      # List all bookmarks
-/goto bookmark-1                # Jump to that point in history
-/bookmark delete 1              # Remove a bookmark
-```
-
-**Use cases:**
-- Mark successful implementations
-- Save decision points
-- Quick navigation in long conversations
-
-### 📋 Templates
-
-Save and reuse common prompts and workflows:
-
-```bash
-/template save code-review "Review this code for bugs, performance, and best practices"
-/template list                  # View all templates
-/template use code-review       # Use a saved template
-/template delete code-review    # Remove a template
-```
-
-**Built-in templates include:**
-- Code review
-- Bug investigation
-- Refactoring plans
-- Testing strategies
-
-### ↩️ Undo/Redo
-
-Navigate conversation history with full state management:
-
-```bash
-/undo                  # Undo last exchange (message + all responses)
-/redo                  # Redo previously undone exchange
-/history               # View full conversation timeline
-```
-
-**Features:**
-- Preserves entire conversation state
-- Works across tool executions
-- Unlimited undo/redo stack
-- Shows available undo/redo count
-
-### 💰 Cost Tracking
-
-Monitor API usage and costs across sessions:
-
-```bash
-# Automatic tracking in status bar:
-# anthropic:claude-sonnet-4 │ 5.2K/200K │ 12.5K used │ $0.45
-
-/cost                  # Detailed cost breakdown
-```
-
-**Tracks:**
-- Current session cost
-- Total cost across all sessions
-- Cost per provider
-- Token usage (input/output)
-- Persists across sessions
-
-### ⌨️ Advanced Input Experience
-
-Enhanced input with modern conveniences:
-
-- **Tab completion** - Slash commands and file paths autocomplete
-- **History navigation** - Up/down arrows to browse previous inputs
-- **Multi-line editing** - Shift+Enter for new lines (if supported)
-- **Path suggestions** - Real-time file path completion
-- **Command hints** - Footer shows available options
-
-**Example:**
-```
-> /boo[TAB]           → /bookmark
-> /scope add ./[TAB]  → ./src/  ./tests/  ./docs/
-> [Up Arrow]          → Previous command
-```
-
-### 🚀 Parallel Tool Execution
-
-Automatically executes independent tool calls in parallel for 2-5x speedup:
-
-```
-# When AI needs to read 3 files:
-Sequential: Read file1 → wait → Read file2 → wait → Read file3
-Parallel:   Read file1, file2, file3 → all at once!
-
-# Dependency-aware:
-- Detects when tools depend on each other
-- Executes in optimal order
-- Shows parallel execution progress
-```
-
-### ⚡ Autonomous Loops
-
-Enable continuous execution for complex multi-step tasks:
-
-```bash
-/loop on               # Enable autonomous loops
-/loop off              # Disable
-/loop 10               # Set max iterations
-
-# The AI will:
-# 1. Plan the approach
-# 2. Execute tools
-# 3. Evaluate results
-# 4. Continue until goal achieved or max iterations
-```
-
-### 🧠 Project Memory (CALLIOPE.md)
-
-Persistent memory across sessions using markdown files:
-
-```
-/memory init           # Create CALLIOPE.md
-/memory add context "This is a TypeScript project"
-/memory add preference "Use functional components"
-/memory show           # View project memory
-/memory global         # View global preferences
-```
-
-Calliope automatically loads context from standard files:
-- `CALLIOPE.md` - Project memory
-- `CLAUDE.md` - Claude context
-- `README.md`, `SPEC.md`, `TODO.md`
-- `ARCHITECTURE.md`, `DESIGN.md`, `NOTES.md`
-- `.cursorrules`, `.github/copilot-instructions.md`
-
-### 🛠️ Tools
-
-Built-in tools for autonomous operation:
-
-| Tool | Description |
-|------|-------------|
-| `shell` | Execute shell commands with safety checks |
-| `read_file` | Read file contents |
-| `write_file` | Write files with diff preview |
-| `list_files` | Directory listing |
-| `think` | Structured reasoning (visible in output) |
-| `execute_code` | Run Python/Node/Bash in sandbox |
-| `web_search` | Search the web for information |
-| `git` | Git operations (status, diff, log, etc.) |
-| `mermaid` | Generate diagrams |
-
-### 🐳 Sandboxed Code Execution
-
-Execute code safely in Docker containers:
-
-```
-The execute_code tool automatically:
-- Uses Docker when available (recommended)
-- Falls back to local execution if needed
-- Shows [sandboxed] or [unsandboxed] status
-- Enforces resource limits and timeouts
-```
-
-### 🌐 MCP Server Support
-
-Connect external tools via Model Context Protocol:
-
-```bash
-/mcp add https://mcp-server.example.com
-/mcp list              # Show connected servers
-/mcp tools             # List available tools from all servers
-/mcp refresh           # Reconnect all servers
-```
-
-### 📦 Agent Skills (AgentSkills.io)
-
-Install reusable skills from the community registry:
-
-```bash
-/skills add git-workflow
-/skills add code-review
-/skills list           # Show installed skills
-/skills info <name>    # Skill details
-```
-
-### 🌲 Conversation Branching
-
-Fork conversations to explore different approaches:
-
-```bash
-/branch new experiment "Try approach B"
-/branch list           # Show all branches
-/branch switch experiment
-/branch delete experiment
-```
-
-### 🎨 Themes & Personas
-
-Customize the visual style and AI personality:
-
-```bash
-# Themes
-/theme list            # Show available themes
-/theme monokai         # Set theme
-/theme                 # Cycle through themes
-
-# Personas
-/persona professional  # Professional, concise responses
-/persona minimal       # Minimal output, just essentials
-/persona calliope      # Poetic, elegant responses (default)
-```
-
-**Available themes:** `default`, `light`, `monokai`, `nord`, `minimal`
-
-### 🪝 Hooks System
-
-Run custom scripts before/after tool execution:
-
-```bash
-/hooks init            # Initialize default hooks
-/hooks list            # Show configured hooks
-/hooks add pre-shell "echo Running: $CALLIOPE_COMMAND"
-```
-
-**Hook events:** `pre-tool`, `post-tool`, `pre-shell`, `post-shell`, `pre-write`, `post-write`, `session-start`, `session-end`
-
-### 📊 Context Management & Warnings
-
-Smart context tracking with proactive warnings:
-
-```
-⚠️  Context at 85% capacity (170K/200K tokens)
-   Consider: /summarize compact | /clear | shorter messages
-
-🚨 Context at 95% capacity! (190K/200K tokens)
-   Action required: /summarize compact | /clear
-```
-
-**Commands:**
-```bash
-/summarize context     # View conversation summary
-/summarize compact     # Compress context to fit limits
-/clear                 # Clear conversation
-```
-
-### 🔍 Smart Search
-
-Find anything in your conversation or project:
-
-```bash
-/search error handling    # Fuzzy search through history
-/find auth               # Find files in project
-```
-
-### ⚙️ Modes
-
-Three distinct operating modes for different workflows:
-
-```bash
-/mode plan             # Analyze and plan, don't execute
-/mode hybrid           # Plan then execute (default)
-/mode work             # Execute directly without planning
-```
-
-| Mode | Icon | Behavior | Use Case |
-|------|------|----------|----------|
-| **Plan** | 📋 | Chat only, no execution | Design discussions, exploration |
-| **Hybrid** | 🔄 | Smart planning before complex ops | Default for most users |
-| **Work** | 🔧 | Direct execution | Experienced users, simple tasks |
-
-### 🛡️ Risk Assessment & Safety
-
-Built-in safety for potentially dangerous operations:
-
-- Automatic risk classification (low/medium/high/critical)
-- Permission prompts for risky operations
-- God mode (`-g`) to bypass prompts for trusted tasks
-- Detailed explanations of risks
-- Scope restrictions for file access
-
-### 🚄 Streaming & Real-time Feedback
-
-Live response rendering for immediate feedback:
-
-- Token-by-token streaming for text responses
-- Live tool execution status with progress indicators
-- Visual diffs for file changes
-- Parallel tool execution visualization
-- Thinking process display
-
-## Commands Reference
-
-### Core Commands
-```bash
-/help, /h              # Show all commands
-/exit, /quit, /q       # Exit Calliope
-/clear, /c             # Clear conversation
-/status, /s            # Show current status
-/config                # Show configuration
-/debug [on|off]        # Toggle debug mode
-```
-
-### Model & Provider
-```bash
-/provider, /p [name]   # Switch AI provider
-/model, /m [name]      # Set model (interactive if no name)
-/models                # Browse available models
-/persona [name]        # Switch persona (calliope/professional/minimal)
-```
-
-### Modes & Settings
-```bash
-/mode [plan|hybrid|work]  # Switch operating mode
-/loop [on|off|N]       # Toggle/configure autonomous mode
-/confirm [on|off]      # Toggle risky operation confirmation
-/theme [name]          # Switch theme
-```
-
-### Scope Management
-```bash
-/scope add <path>      # Add directory to scope
-/scope remove <path>   # Remove directory from scope
-/scope list            # Show current scope
-/scope reset           # Clear all scope restrictions
-```
-
-### Session & History
-```bash
-/session list          # List all sessions
-/session info          # Current session details
-/history [search]      # View/search conversation history
-/bookmark [name]       # Create bookmark
-/bookmarks             # List bookmarks
-/goto <id>             # Jump to bookmark
-/undo                  # Undo last exchange
-/redo                  # Redo exchange
-```
-
-### Templates & Memory
-```bash
-/template save <name> <prompt>  # Save template
-/template list         # View all templates
-/template use <name>   # Use template
-/template delete <name> # Remove template
-
-/memory init           # Initialize project memory
-/memory add <text>     # Add to memory
-/memory show           # View project memory
-/memory global         # View global memory
-```
-
-### Context & Search
-```bash
-/summarize [context|compact]  # Summarize/compress conversation
-/search <query>        # Search conversation history
-/find <pattern>        # Fuzzy file search in project
-/branch [new|switch|list]  # Conversation branches
-```
-
-### Tools & Extensions
-```bash
-/mcp [list|add|remove|tools]  # MCP server management
-/skills [list|add|remove|info] # Agent skills
-/hooks [list|add|init] # Pre/post tool hooks
-```
-
-### Tasks & Planning
-```bash
-/todo [add|done|work|clear|list]  # Manage TODOs
-/plans [list|view|rerun]          # View and rerun plans
-```
-
-### Utility
-```bash
-/cost                  # Show cost breakdown
-/copy                  # Copy last response
-/export [file.md]      # Export conversation to file
-/upgrade               # Check for updates
-/set <key> <value>     # Set runtime config (e.g., maxIterations)
-/context               # Show loaded project context
-```
-
-## Environment Variables
-
-```bash
-# API Keys
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=...
-MISTRAL_API_KEY=...
-GROQ_API_KEY=...
-XAI_API_KEY=...
-CEREBRAS_API_KEY=...
-FIREWORKS_API_KEY=...
-DEEPSEEK_API_KEY=...
-OPENROUTER_API_KEY=...
-
-# Configuration
-CALLIOPE_PROVIDER=anthropic
-CALLIOPE_MODEL=claude-sonnet-4-20250514
-CALLIOPE_GOD_MODE=false
-CALLIOPE_DEBUG=false
-
-# Ollama
-OLLAMA_BASE_URL=http://localhost:11434
-
-# LiteLLM
-LITELLM_BASE_URL=http://localhost:4000
-LITELLM_API_KEY=...
+calliope --headless --json "run the tests and summarize failures"
 ```
 
 ## Configuration
 
-Config is stored in `~/.config/calliope/config.json` (or platform equivalent).
+One file, 16 keys. Credentials live in a per-provider map with environment-variable fallbacks:
 
-```bash
-# Show config location
-calliope --config
-
-# Reset config
-calliope --reset
-
-# Force setup wizard
-calliope --setup
-```
-
-### Sample config.json
-```json
+```jsonc
 {
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "apiKeys": {
-    "anthropic": "sk-ant-...",
-    "openai": "sk-...",
-    "google": "..."
+  "defaultProvider": "anthropic",
+  "providers": {
+    "anthropic": { "apiKey": "sk-ant-..." },
+    "ollama":    { "baseUrl": "http://localhost:11434" }
   },
-  "theme": "default",
-  "persona": "calliope",
-  "godMode": false,
-  "maxIterations": 25,
-  "scope": ["./src", "./tests"]
+  "sandboxMode": "auto",
+  "routing": { "enabled": false, "costSensitivity": 0.3 }
 }
 ```
 
-### Profiles
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`, and friends work as before. v2 configs migrate automatically on first run.
 
-Save and switch between configurations:
+Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
 
-```bash
-/profile save work     # Save current settings as "work"
-/profile work          # Load "work" profile
-/profile delete work   # Delete profile
-/profile list          # Show all profiles
-```
+## Fleet mode
 
-**Built-in profiles:** `fast`, `smart`, `cheap`, `local`
+Coordinate a fleet of agents and human operators over a self-hosted IRC channel that doubles as an audit trail. Off by default, zero cost when disabled. See [docs/fleet.md](docs/fleet.md).
 
-## Keyboard Shortcuts
+## Project memory
 
-| Key | Action |
-|-----|--------|
-| `ESC` | Exit Calliope |
-| `Ctrl+C` | Cancel current operation |
-| `Ctrl+L` | Clear screen |
-| `Up/Down` | Navigate input history |
-| `Tab` | Autocomplete commands/paths |
-| `Shift+Enter` | Multi-line input (where supported) |
+Drop a `CALLIOPE.md` in your repo and every session starts knowing your conventions. `/memory` manages it.
 
-## File References
+## v3.0
 
-Reference files directly in your messages:
+v3 is a deliberate reduction: 84 commands, 40 config keys, and ~20k lines of speculative features (theme packs, companions, multi-agent orchestration, an embedded API server, and more) were removed to make the core fast, predictable, and maintainable. The full list and rationale live in [CHANGELOG.md](CHANGELOG.md) and the [v3.0 roadmap](https://github.com/calliopeai/calliope-cli/issues/195).
 
-```
-@filename.ts           # Include file content
-./path/to/file         # Relative path
-/absolute/path/file    # Absolute path
-```
-
-Images are automatically detected and sent for vision-capable models.
-
-## Security & Best Practices
-
-### API Key Storage
-- Keys stored in `~/.config/calliope/config.json`
-- Prefer environment variables for better security
-- Never commit config to version control
-
-### Tool Execution Safety
-- Path traversal protection
-- Sandboxed code execution via Docker
-- Timeout limits on all commands
-- Risk assessment for dangerous operations
-- Scope restrictions for file access
-- Hook system for custom validation
-
-### Best Practices
-1. Use `/scope` to limit directory access
-2. Review tool calls before execution (unless in god mode)
-3. Set iteration limits on autonomous loops
-4. Work from project directories, not system directories
-5. Regular `/summarize` to manage context
-6. Use bookmarks for important moments
-
-## Development
-
-```bash
-# Clone and setup
-git clone https://github.com/calliopeai/calliope-cli.git
-cd calliope-cli
-npm install
-
-# Build
-npm run build
-
-# Run locally
-node dist/bin.js
-
-# Run tests
-npm test
-
-# Watch mode for development
-npm run dev
-```
-
-## Architecture
-
-- **TypeScript** - Full type safety throughout
-- **Ink (React)** - Declarative CLI rendering
-- **Vitest** - Fast unit testing framework
-- **Multi-provider** - Unified interface for 12+ LLM providers
-- **Modular design** - Clean separation of concerns
-- **Parallel execution** - Dependency-aware tool execution
-- **Error boundaries** - Graceful crash recovery
-
-## Troubleshooting
-
-**"No API keys configured"**
-- Run `calliope --setup` to configure keys
-- Or set environment variables (see above)
-
-**"Empty response from API"**
-- Check API key validity
-- Verify account credits/quota
-- Try a different provider
-
-**Context limit warnings**
-- Use `/summarize compact` to compress
-- Or `/clear` to start fresh
-- Consider shorter messages
-
-**"Access denied" for file operations**
-- Operations restricted to cwd and home directory
-- Check `/scope list` for current restrictions
-- Use `/scope add <path>` to grant access
-
-**Docker not available for sandbox**
-- Install Docker for safer code execution
-- Without Docker, code runs locally (less safe)
+Coming in v3.0 stable: single-binary installs (brew/curl, no Node required) and enforced performance budgets. Coming after: local-model edit-reliability hardening and governance primitives — replayable run logs, budget caps, audit trails.
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Issues and PRs welcome — [CONTRIBUTING.md](CONTRIBUTING.md). The codebase is TypeScript ESM with React/Ink; `npm test` must stay green and coverage must stay above 90%.
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/calliopeai/calliope-cli/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/calliopeai/calliope-cli/discussions)
-- **Twitter**: [@calliopelabs](https://twitter.com/calliopelabs)
-
-## Acknowledgments
-
-Built with love by the Calliope team. Special thanks to:
-- Anthropic for Claude
-- OpenAI for GPT
-- Google for Gemini
-- The open-source community
-- All contributors and users
-
----
-
-*May your code be elegant, your execution swift, and your automation poetic.* 🎭✨
+MIT © Calliope Labs Inc
