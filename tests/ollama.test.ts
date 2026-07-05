@@ -1005,4 +1005,88 @@ describe('chatOllama', () => {
       expect(body.stream).toBe(true);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Text-based (XML-style) tool call parsing — parseTextToolCalls
+  // Used when a model emits <function=...> markup instead of structured
+  // tool_calls (e.g. some quantized/older models).
+  // --------------------------------------------------------------------------
+
+  describe('text-based tool call parsing', () => {
+    it('extracts an XML-style tool call and strips it from the content (non-streaming)', async () => {
+      const data = makeResponse({
+        message: {
+          role: 'assistant',
+          content:
+            'Let me read that <function=read_file><parameter=path>/tmp/a.txt</parameter></function>',
+          tool_calls: undefined,
+        },
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(data) as Response);
+
+      const result = await chatOllama([{ role: 'user', content: 'Read it' }], [sampleTool], 'llama3.3');
+
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls![0].name).toBe('read_file');
+      expect(result.toolCalls![0].arguments).toEqual({ path: '/tmp/a.txt' });
+      expect(result.content).toBe('Let me read that');
+      expect(result.finishReason).toBe('tool_use');
+    });
+
+    it('JSON-parses numeric/typed parameter values, keeping non-JSON as strings', async () => {
+      const data = makeResponse({
+        message: {
+          role: 'assistant',
+          content:
+            '<function=set><parameter=count>5</parameter><parameter=label>hello world</parameter></function>',
+          tool_calls: undefined,
+        },
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(data) as Response);
+
+      const result = await chatOllama([{ role: 'user', content: 'Set' }], [sampleTool], 'llama3.3');
+
+      expect(result.toolCalls![0].arguments).toEqual({ count: 5, label: 'hello world' });
+    });
+
+    it('leaves content untouched when the <function= marker has no complete block', async () => {
+      const data = makeResponse({
+        message: {
+          role: 'assistant',
+          content: 'thinking about <function=incomplete but never closed',
+          tool_calls: undefined,
+        },
+      });
+      vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(data) as Response);
+
+      const result = await chatOllama([{ role: 'user', content: 'Hi' }], [sampleTool], 'llama3.3');
+
+      expect(result.toolCalls).toBeUndefined();
+      expect(result.content).toBe('thinking about <function=incomplete but never closed');
+      expect(result.finishReason).toBe('stop');
+    });
+
+    it('parses XML-style tool calls out of streamed content', async () => {
+      const chunks = [
+        JSON.stringify({ message: { role: 'assistant', content: 'ok ' }, done: false }),
+        JSON.stringify({
+          message: {
+            role: 'assistant',
+            content: '<function=read_file><parameter=path>/etc/hosts</parameter></function>',
+          },
+          done: false,
+        }),
+        JSON.stringify({ message: { role: 'assistant', content: '' }, done: true, prompt_eval_count: 2, eval_count: 4 }),
+      ];
+      vi.mocked(fetch).mockResolvedValueOnce(mockStreamResponse(chunks) as unknown as Response);
+
+      const result = await chatOllama([{ role: 'user', content: 'Read' }], [sampleTool], 'llama3.3', () => {});
+
+      expect(result.toolCalls).toHaveLength(1);
+      expect(result.toolCalls![0].name).toBe('read_file');
+      expect(result.toolCalls![0].arguments).toEqual({ path: '/etc/hosts' });
+      expect(result.content).toBe('ok');
+      expect(result.finishReason).toBe('tool_use');
+    });
+  });
 });

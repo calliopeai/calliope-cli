@@ -9,6 +9,13 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],
       include: ['src/**/*.ts'],
+      // Thresholds only apply when coverage is collected (the `test:coverage`
+      // script, which passes --coverage). Plain `npm test` runs `vitest run`
+      // without --coverage, so it never evaluates these and stays gate-free
+      // for the per-PR CI check.
+      thresholds: {
+        lines: 90,
+      },
       exclude: [
         'src/bin.ts',
         // React/Ink UI — needs integration testing, not unit tests
