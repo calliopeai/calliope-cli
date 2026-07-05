@@ -14,7 +14,7 @@
 
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
-import { debugLog, type StreamCallback } from './types.js';
+import { debugLog, type StreamCallback, type ChatOptions } from './types.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 
 // ============================================================================
@@ -49,6 +49,8 @@ interface OllamaChatRequest {
   messages: OllamaMessage[];
   tools?: OllamaTool[];
   stream: boolean;
+  /** JSON-schema grammar constraint (repair round-trip only). */
+  format?: unknown;
 }
 
 interface OllamaChatResponse {
@@ -225,7 +227,8 @@ export async function chatOllama(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  options?: ChatOptions
 ): Promise<LLMResponse> {
   const baseUrl = getBaseUrl();
   const skipCount = toolUnsupportedModels.get(model) ?? 0;
@@ -241,10 +244,10 @@ export async function chatOllama(
   if (skipTools && tools.length > 0) {
     debugLog(`ollama: skipping tools for ${model} (retry in ${skipCount - 1} calls)`);
   }
-  debugLog(`ollama native request: model=${model}, tools=${ollamaTools.length}, stream=${!!onToken}`);
+  debugLog(`ollama native request: model=${model}, tools=${ollamaTools.length}, stream=${!!onToken}, format=${!!options?.format}`);
 
   try {
-    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken);
+    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format);
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
 
@@ -270,20 +273,38 @@ async function doChat(
   model: string,
   messages: OllamaMessage[],
   tools: OllamaTool[],
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  format?: unknown
 ): Promise<LLMResponse> {
   const requestBody: OllamaChatRequest = {
     model,
     messages,
     tools: tools.length > 0 ? tools : undefined,
     stream: !!onToken,
+    ...(format !== undefined ? { format } : {}),
   };
 
-  const response = await fetch(`${baseUrl}/api/chat`, {
+  let response = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
   });
+
+  // Grammar-constrained `format` is best-effort: if this Ollama build rejects
+  // the schema (older versions, or a server that doesn't implement it), degrade
+  // silently and retry the same request without it rather than failing the call.
+  if (!response.ok && format !== undefined) {
+    const peek = await response.clone().text().catch(() => '');
+    if (response.status === 400 || /format/i.test(peek)) {
+      debugLog(`ollama: format param rejected (${response.status}), retrying without it`);
+      const { format: _dropped, ...withoutFormat } = requestBody;
+      response = await fetch(`${baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(withoutFormat),
+      });
+    }
+  }
 
   if (!response.ok) {
     const errText = await response.text();

@@ -16,6 +16,7 @@ import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
 import { generateDiff as generateFileDiff } from './diff.js';
 import { fleetActive, fleetMirrorToolCall } from './fleet.js';
+import { computeAnchorHash, anchorHashFooter } from './local-model.js';
 
 /**
  * Available tools for the agent
@@ -380,13 +381,24 @@ function validatePath(filePath: string, cwd: string): string {
 }
 
 /**
+ * Options that vary tool execution by the active backend without threading
+ * provider identity through every call. `appendAnchorHash` makes read_file emit
+ * the current content hash (local backends only) so the model can echo it back
+ * on a subsequent anchored edit_file (feature 4).
+ */
+export interface ExecuteToolOptions {
+  appendAnchorHash?: boolean;
+}
+
+/**
  * Execute a tool call
  */
 export async function executeTool(
   toolCall: ToolCall,
   cwd: string,
   timeout = 60000,
-  onOutput?: (chunk: string) => void
+  onOutput?: (chunk: string) => void,
+  options?: ExecuteToolOptions
 ): Promise<ToolResult> {
   const { id, name, arguments: args } = toolCall;
 
@@ -416,7 +428,7 @@ export async function executeTool(
         if (typeof args.path !== 'string') {
           return { toolCallId: id, result: 'Error: path must be a string', isError: true };
         }
-        result = await readFile(args.path, cwd);
+        result = await readFile(args.path, cwd, options?.appendAnchorHash === true);
         break;
       }
 
@@ -614,7 +626,10 @@ export async function executeTool(
           return { toolCallId: id, result: 'Error: new_string must be a string', isError: true };
         }
         const replaceAll = args.replace_all === true;
-        result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd);
+        // anchor_hash is optional and accepted from any caller; it is only
+        // advertised in the simplified local schema (feature 4).
+        const anchorHash = typeof args.anchor_hash === 'string' ? args.anchor_hash : undefined;
+        result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd, anchorHash);
         break;
       }
 
@@ -954,8 +969,12 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
 
 /**
  * Read a file
+ *
+ * When `appendAnchorHash` is set (local backends only), the current content hash
+ * is appended so the model can echo it back on a subsequent anchored edit_file
+ * (stale-view protection, feature 4).
  */
-async function readFile(filePath: string, cwd: string): Promise<string> {
+async function readFile(filePath: string, cwd: string, appendAnchorHash = false): Promise<string> {
   const absPath = validatePath(filePath, cwd);
 
   if (!fs.existsSync(absPath)) {
@@ -980,7 +999,8 @@ async function readFile(filePath: string, cwd: string): Promise<string> {
   const totalLines = content.split('\n').length;
   const header = `[file: ${filePath} \u2014 ${totalLines} line${totalLines !== 1 ? 's' : ''}]\n${'─'.repeat(40)}`;
 
-  return `${header}\n${content}`;
+  const footer = appendAnchorHash ? anchorHashFooter(computeAnchorHash(content)) : '';
+  return `${header}\n${content}${footer}`;
 }
 
 /**
@@ -1449,6 +1469,7 @@ async function editFile(
   newString: string,
   replaceAll: boolean,
   cwd: string,
+  anchorHash?: string,
 ): Promise<string> {
   const absPath = validatePath(filePath, cwd);
 
@@ -1462,6 +1483,19 @@ async function editFile(
   }
 
   const content = fs.readFileSync(absPath, 'utf-8');
+
+  // Stale-view protection (feature 4): if the caller supplied an anchor_hash, it
+  // must match the file's current content. A mismatch means the model is acting
+  // on an out-of-date view — fail loudly and tell it to re-read. Absent hash =
+  // no check (inert for cloud providers, which never see the param).
+  if (anchorHash !== undefined) {
+    const currentHash = computeAnchorHash(content);
+    if (anchorHash !== currentHash) {
+      throw new Error(
+        `anchor_hash mismatch: file has changed since you read it (you sent "${anchorHash}", current is "${currentHash}"). Re-read ${filePath} before editing.`,
+      );
+    }
+  }
 
   // Helper to build a compact edit diff from old_string/new_string (#119)
   const buildEditDiff = (oldStr: string, newStr: string, fPath: string, count: number): string => {

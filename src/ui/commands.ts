@@ -12,7 +12,8 @@ import * as path from 'path';
 import React from 'react';
 import * as config from '../config.js';
 import { selectProvider, getAvailableProviders } from '../providers/index.js';
-import { getSystemPrompt, MODE_CONFIG } from '../types.js';
+import { MODE_CONFIG } from '../types.js';
+import { getSystemPromptForProvider } from '../local-model.js';
 import { getAvailableModels, getModelContextLimit } from '../model-detection.js';
 import * as storage from '../storage.js';
 import * as mcp from '../mcp.js';
@@ -125,9 +126,10 @@ export interface CommandContext {
 }
 
 // Builds the full system prompt including memory context (project + global).
-// dir should be the project directory for the active/resumed session.
-function buildFullSystemPrompt(dir: string): string {
-  const base = getSystemPrompt();
+// dir should be the project directory for the active/resumed session; provider
+// selects the compact (local) vs full (cloud) base prompt (feature 5).
+function buildFullSystemPrompt(dir: string, provider: LLMProvider): string {
+  const base = getSystemPromptForProvider(provider);
   const mem = memory.buildMemoryContext(dir);
   return mem.trim() ? base + '\n\n--- Project Context ---\n' + mem : base;
 }
@@ -269,7 +271,7 @@ File references: @filename, ./path, /absolute/path`;
 
     case '/clear':
       ctx.setMessages([]);
-      ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(getActiveProjectDir(ctx)) }];
+      ctx.llmMessages.current = [{ role: 'system', content: buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider) }];
       ctx.ledger?.reset();
       ctx.setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
       resetContextWarnings(); // Reset context warning state
@@ -919,7 +921,7 @@ Stop a running loop with /loop stop`);
           ctx.llmMessages.current.length = 0;
           ctx.llmMessages.current.push({
             role: 'system',
-            content: buildFullSystemPrompt(getActiveProjectDir(ctx)),
+            content: buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider),
           });
           for (const msg of history) {
             if (msg.role === 'user' || msg.role === 'assistant') {

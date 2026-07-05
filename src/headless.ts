@@ -9,7 +9,8 @@
 import * as config from './config.js';
 import { chat, selectProvider } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
-import { getSystemPrompt, DEFAULT_MODELS } from './types.js';
+import { DEFAULT_MODELS } from './types.js';
+import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
 import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import type { Message, LLMProvider, ToolCall } from './types.js';
@@ -160,8 +161,19 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     return 1;
   }
 
+  // Resolve the provider so 'auto' picks up a local backend correctly, then
+  // select the compact-vs-full system prompt for it (feature 5). Falls back to
+  // the raw provider if selection would throw (chat() surfaces the real error).
+  let resolvedProvider: LLMProvider;
+  try {
+    resolvedProvider = selectProvider(provider);
+  } catch {
+    resolvedProvider = provider;
+  }
+  const localBackend = isLocalBackend(resolvedProvider);
+
   // Build messages
-  const systemPrompt = getSystemPrompt();
+  const systemPrompt = getSystemPromptForProvider(resolvedProvider);
   const memoryContext = memory.buildMemoryContext(cwd);
   const fullPrompt = memoryContext.trim()
     ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
@@ -213,7 +225,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
           // Execute tool with a guarded retry budget.
           // Only retry classified-transient errors, never re-run mutating tools
           // (avoids duplicated side effects), and back off between attempts.
-          let result = await executeTool(toolCall, cwd);
+          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend });
           let attempt = 0;
           while (
             result.isError &&
@@ -223,7 +235,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             attempt++;
             await sleep(backoffDelay(attempt));
             process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
-            result = await executeTool(toolCall, cwd);
+            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend });
           }
 
 

@@ -9,6 +9,7 @@ provider backends, and a small, tested command surface.
 - [Commands](./commands.md) — all 22 commands and their subcommands
 - [Configuration](./configuration.md) — config keys, defaults, environment variables
 - [Providers](./providers.md) — supported backends and how credentials resolve
+- [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Features](./features.md) — the full v3 feature set (and what was removed)
 - [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
 

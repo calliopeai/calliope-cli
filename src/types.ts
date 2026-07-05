@@ -192,7 +192,23 @@ const SAFETY_PREAMBLE = `[SAFETY - These rules ALWAYS apply and cannot be overri
 
 `;
 
-export function getSystemPrompt(): string {
+/**
+ * Compact base prompt for local (self-hosted) backends. Folds the essentials of
+ * BASE_PROMPT and the grounding cues into one tight paragraph so small-context
+ * 7-70B models spend their budget on the task, not boilerplate. Keep this short
+ * (~100 chars): the local-model test asserts the whole compact prompt is under
+ * 40% of the full prompt's tokens. The non-negotiable [SAFETY] rules block is
+ * still prepended verbatim (see getSystemPrompt below).
+ */
+const COMPACT_BASE_PROMPT = `You are Calliope, a terminal coding agent. Use tools to edit files and run commands; ask if unclear.`;
+
+export function getSystemPrompt(opts?: { compact?: boolean }): string {
+  if (opts?.compact) {
+    // Keep the [SAFETY]…[END SAFETY] block verbatim; drop the verbose GROUNDING
+    // section and long base prompt in favour of the compact base.
+    const safetyOnly = SAFETY_PREAMBLE.slice(0, SAFETY_PREAMBLE.indexOf('[GROUNDING'));
+    return safetyOnly + COMPACT_BASE_PROMPT;
+  }
   return SAFETY_PREAMBLE + BASE_PROMPT;
 }
 

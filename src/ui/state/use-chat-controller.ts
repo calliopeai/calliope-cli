@@ -12,7 +12,8 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useApp } from 'ink';
 import * as config from '../../config.js';
 import { selectProvider } from '../../providers/index.js';
-import { getSystemPrompt, DEFAULT_MODELS, supportsVision } from '../../types.js';
+import { DEFAULT_MODELS, supportsVision } from '../../types.js';
+import { getSystemPromptForProvider } from '../../local-model.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../../types.js';
 import { getModelContextLimit } from '../../model-detection.js';
 import type { ModelInfo } from '../../model-detection.js';
@@ -106,7 +107,7 @@ export function useChatController(): ChatController {
   const sessionRef = useRef<storage.Session | null>(null);
   const undoStack = useRef<ConversationSnapshot[]>([]);
   const redoStack = useRef<ConversationSnapshot[]>([]);
-  const llmMessages = useRef<LLMMessage[]>([{ role: 'system', content: getSystemPrompt() }]);
+  const llmMessages = useRef<LLMMessage[]>([{ role: 'system', content: getSystemPromptForProvider(provider) }]);
   const ledgerRef = useRef<IterationLedger>(new IterationLedger());
   const circuitBreakerRef = useRef<CircuitBreaker>(makeCircuitBreaker());
   const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
@@ -552,7 +553,7 @@ export function useChatController(): ChatController {
       if (history.length > 0) {
         llmMessages.current.length = 0;
         const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
-        const basePrompt = getSystemPrompt();
+        const basePrompt = getSystemPromptForProvider(actualProvider);
         const memoryContext = memory.buildMemoryContext(activeCwd);
         llmMessages.current.push({
           role: 'system',
@@ -571,7 +572,7 @@ export function useChatController(): ChatController {
     }
     modal.setModalMode('none');
     modal.setPreviousSession(null);
-  }, [addMessage, estimateContextTokens, stats, modal]);
+  }, [addMessage, estimateContextTokens, stats, modal, actualProvider]);
 
   const handleSessionResumeNew = useCallback(() => {
     addMessage('system', '✓ Starting fresh session');
@@ -629,12 +630,12 @@ export function useChatController(): ChatController {
     modal.reset();
     queue.reset();
     loop.reset();
-    llmMessages.current = [{ role: 'system', content: getSystemPrompt() }];
+    llmMessages.current = [{ role: 'system', content: getSystemPromptForProvider(actualProvider) }];
     undoStack.current = [];
     redoStack.current = [];
     ledgerRef.current.reset();
     resetContextWarnings();
-  }, [proc, transcript, stats, modelState, modal, queue, loop]);
+  }, [proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
 
   // -- Mount initialization -------------------------------------------------
   useSessionInit({ sessionRef, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });

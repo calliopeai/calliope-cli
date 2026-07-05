@@ -28,7 +28,15 @@ import { CircuitBreaker } from '../circuit-breaker.js';
 import type { IterationData, BreakerCheckResult } from '../circuit-breaker.js';
 import { smartRoute, getDefaultSmartRoutingConfig } from '../router.js';
 import type { SmartRoutingConfig } from '../router.js';
-import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall } from '../types.js';
+import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall, LLMResponse } from '../types.js';
+import {
+  isLocalBackend,
+  detectMalformedToolCall,
+  buildRepairMessage,
+  buildToolCallEnvelopeSchema,
+  extractRepairedToolCall,
+  getLocalModelProfile,
+} from '../local-model.js';
 import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
 import { IterationLedger } from '../iteration-ledger.js';
@@ -174,6 +182,95 @@ export function validateAndRepairMessagesImpl(ctx: AgentContext): boolean {
 }
 
 // ============================================================================
+// Local-model tool-call repair (features 2 & 3)
+// ============================================================================
+
+/**
+ * When a LOCAL backend returns a malformed tool call, spend ONE corrective
+ * round-trip trying to fix it before the error surfaces naturally through
+ * executeTool. At most one call is repaired per response (cost control on
+ * self-hosted hardware); each call id gets at most one repair (`repairedCallIds`).
+ *
+ * On Ollama we grammar-constrain the repair reply with the tool-call envelope
+ * schema (the `format` param) — but only here, never on normal prose turns.
+ *
+ * Cloud backends and well-formed responses pass straight through unchanged.
+ */
+async function maybeRepairLocalToolCalls(
+  ctx: AgentContext,
+  baseMessages: LLMMessage[],
+  response: LLMResponse,
+  effectiveModel: string | undefined,
+  repairedCallIds: Set<string>,
+): Promise<LLMResponse> {
+  if (!response.toolCalls?.length) return response;
+  const provider = ctx.actualProvider as LLMProvider;
+  if (!isLocalBackend(provider)) return response;
+
+  const tools = getTools();
+  let target: { call: ToolCall; reason: string } | undefined;
+  for (const call of response.toolCalls) {
+    if (repairedCallIds.has(call.id)) continue;
+    const fault = detectMalformedToolCall(call, tools);
+    if (fault) {
+      target = { call, reason: fault.reason };
+      break;
+    }
+  }
+  if (!target) return response;
+
+  const { call, reason } = target;
+  repairedCallIds.add(call.id); // one repair per tool call, whatever the outcome
+  ctx.debugLog('repair', 'malformed local tool call', call.name, reason);
+  ctx.addMessage('system', `🔧 Malformed tool call from local model (${reason}); attempting one repair…`);
+
+  // Grammar-constrain the reply when the backend supports JSON-schema format.
+  let format: unknown;
+  try {
+    const profile = await getLocalModelProfile(provider, effectiveModel || ctx.actualModel);
+    if (profile.supportsJsonSchemaFormat) {
+      format = buildToolCallEnvelopeSchema(tools.map(t => t.name));
+    }
+  } catch {
+    // No format constraint — the corrective message alone still helps.
+  }
+
+  const repairMessages: LLMMessage[] = [
+    ...baseMessages,
+    { role: 'assistant', content: typeof response.content === 'string' ? response.content : '', toolCalls: response.toolCalls },
+    { role: 'user', content: buildRepairMessage(call, { reason }) },
+  ];
+
+  let repaired: LLMResponse;
+  try {
+    repaired = await chat(ctx.provider, repairMessages, tools, effectiveModel, undefined, undefined, format ? { format } : undefined);
+  } catch (err) {
+    ctx.ledger?.recordAction('repair', { tool: call.name }, 'error', reason);
+    ctx.debugLog('repair', 'repair round-trip threw', err instanceof Error ? err.message : String(err));
+    return response; // let the original error surface through executeTool
+  }
+
+  const corrected = extractRepairedToolCall(
+    typeof repaired.content === 'string' ? repaired.content : '',
+    repaired.toolCalls,
+    call.id,
+  );
+  if (!corrected) {
+    ctx.ledger?.recordAction('repair', { tool: call.name }, 'error', reason);
+    ctx.addMessage('system', '🔧 Repair produced no usable tool call; surfacing the original error.');
+    return response;
+  }
+
+  const stillBad = detectMalformedToolCall(corrected, tools);
+  ctx.ledger?.recordAction('repair', { tool: call.name, to: corrected.name }, stillBad ? 'error' : 'ok', stillBad?.reason);
+  ctx.addMessage('system', stillBad
+    ? '🔧 Repair did not resolve the malformed call; surfacing the error.'
+    : `🔧 Repaired tool call → ${corrected.name}`);
+
+  return { ...response, toolCalls: response.toolCalls.map(tc => (tc.id === call.id ? corrected : tc)) };
+}
+
+// ============================================================================
 // Run Agent
 // ============================================================================
 
@@ -230,6 +327,13 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     : undefined;
   let runStatus: 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'stopped' | undefined;
   let runErrorSummary: string | undefined;
+
+  // Local-backend behaviours (features 2 & 4): whether to append anchor hashes
+  // to read_file output, and which tool-call ids have already spent their one
+  // repair round-trip.
+  const localBackend = isLocalBackend(ctx.actualProvider as LLMProvider);
+  const executeOptions = { appendAnchorHash: localBackend };
+  const repairedCallIds = new Set<string>();
 
   // Check context limit and warn if approaching capacity
   // Uses model's actual context length from API when available
@@ -344,9 +448,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         }
       }
 
-      const response = await chat(ctx.provider, validatedMessages, tools, effectiveModel, onToken, onRetry);
+      let response = await chat(ctx.provider, validatedMessages, tools, effectiveModel, onToken, onRetry);
       streamFlusher.flush(); // drain any batched tail before we swap to history
       ctx.debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
+
+      // Local backends: give a malformed tool call ONE corrective round-trip
+      // before it surfaces as an execution error (features 2 & 3). No-op for
+      // cloud providers and well-formed responses.
+      response = await maybeRepairLocalToolCalls(ctx, validatedMessages, response, effectiveModel, repairedCallIds);
 
       // Update token stats and cost
       if (response.usage) {
@@ -513,7 +622,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             const results = await executeParallel(
               executableTools,
               async (call) => {
-                const result = await executeTool(call, ctx.sessionRef.current?.projectPath ?? process.cwd());
+                const result = await executeTool(call, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, undefined, executeOptions);
                 return { result: result.result, isError: result.isError };
               },
               (completed, total, current) => {
@@ -639,7 +748,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                   detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60),
                 });
               } : undefined;
-              const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback);
+              const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback, executeOptions);
               ctx.debugLog('tools', 'DONE', toolCall.name);
 
               // Record in iteration ledger
