@@ -53,6 +53,7 @@
     "@anthropic-ai/sdk": "^0.104.1",
     "@google/generative-ai": "^0.24.1",
     "@inquirer/prompts": "^7.2.0",
+    "@zed-industries/agent-client-protocol": "^0.4.5",
     "conf": "^13.0.1",
     "ink": "^6.6.0",
     "openai": "^4.77.0",

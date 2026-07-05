@@ -12,6 +12,7 @@ provider backends, and a small, tested command surface.
 - [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Features](./features.md) — the full v3 feature set (and what was removed)
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
+- [Editors (ACP)](./acp.md) — run Calliope as an Agent Client Protocol agent in Zed, JetBrains, and more
 - [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
 
 ## Quick reference

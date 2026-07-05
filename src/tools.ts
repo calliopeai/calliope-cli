@@ -381,13 +381,30 @@ function validatePath(filePath: string, cwd: string): string {
 }
 
 /**
+ * A filesystem delegate that routes file reads/writes for the file tools
+ * (read_file / write_file / edit_file) through an external owner of the file
+ * rather than local disk. The marquee use is an ACP session preferring the
+ * editor's (possibly unsaved) buffers over what is on disk.
+ *
+ * Only the methods present are delegated; a missing method falls back to local
+ * fs, so a client that advertises only reads (or only writes) still works. The
+ * `absPath` passed in is already scope-validated and absolute.
+ */
+export interface FsDelegate {
+  readTextFile?(absPath: string): Promise<string>;
+  writeTextFile?(absPath: string, content: string): Promise<void>;
+}
+
+/**
  * Options that vary tool execution by the active backend without threading
  * provider identity through every call. `appendAnchorHash` makes read_file emit
  * the current content hash (local backends only) so the model can echo it back
- * on a subsequent anchored edit_file (feature 4).
+ * on a subsequent anchored edit_file (feature 4). `fs` routes file ops through a
+ * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
   appendAnchorHash?: boolean;
+  fs?: FsDelegate;
 }
 
 /**
@@ -428,7 +445,7 @@ export async function executeTool(
         if (typeof args.path !== 'string') {
           return { toolCallId: id, result: 'Error: path must be a string', isError: true };
         }
-        result = await readFile(args.path, cwd, options?.appendAnchorHash === true);
+        result = await readFile(args.path, cwd, options?.appendAnchorHash === true, options?.fs);
         break;
       }
 
@@ -439,7 +456,7 @@ export async function executeTool(
         if (typeof args.content !== 'string') {
           return { toolCallId: id, result: 'Error: content must be a string', isError: true };
         }
-        result = await writeFile(args.path, args.content, cwd);
+        result = await writeFile(args.path, args.content, cwd, options?.fs);
         break;
       }
 
@@ -629,7 +646,7 @@ export async function executeTool(
         // anchor_hash is optional and accepted from any caller; it is only
         // advertised in the simplified local schema (feature 4).
         const anchorHash = typeof args.anchor_hash === 'string' ? args.anchor_hash : undefined;
-        result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd, anchorHash);
+        result = await editFile(args.path, args.old_string, args.new_string, replaceAll, cwd, anchorHash, options?.fs);
         break;
       }
 
@@ -974,24 +991,32 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
  * is appended so the model can echo it back on a subsequent anchored edit_file
  * (stale-view protection, feature 4).
  */
-async function readFile(filePath: string, cwd: string, appendAnchorHash = false): Promise<string> {
+async function readFile(filePath: string, cwd: string, appendAnchorHash = false, fsDelegate?: FsDelegate): Promise<string> {
   const absPath = validatePath(filePath, cwd);
 
-  if (!fs.existsSync(absPath)) {
-    throw new Error(`File not found: ${absPath}`);
-  }
+  let content: string;
+  if (fsDelegate?.readTextFile) {
+    // Client-side fs (e.g. an ACP editor buffer that may hold unsaved changes).
+    // The client owns existence/size; a missing file surfaces as a thrown error
+    // that executeTool turns into a normal tool error.
+    content = await fsDelegate.readTextFile(absPath);
+  } else {
+    if (!fs.existsSync(absPath)) {
+      throw new Error(`File not found: ${absPath}`);
+    }
 
-  const stats = fs.statSync(absPath);
-  if (stats.isDirectory()) {
-    throw new Error(`Path is a directory: ${absPath}`);
-  }
+    const stats = fs.statSync(absPath);
+    if (stats.isDirectory()) {
+      throw new Error(`Path is a directory: ${absPath}`);
+    }
 
-  // Check file size (limit to 1MB)
-  if (stats.size > 1024 * 1024) {
-    throw new Error(`File too large (${Math.round(stats.size / 1024)}KB). Max 1MB.`);
-  }
+    // Check file size (limit to 1MB)
+    if (stats.size > 1024 * 1024) {
+      throw new Error(`File too large (${Math.round(stats.size / 1024)}KB). Max 1MB.`);
+    }
 
-  const content = fs.readFileSync(absPath, 'utf-8');
+    content = fs.readFileSync(absPath, 'utf-8');
+  }
 
   // Inline file preview header (#119). The header carries the line count;
   // the full content follows once — no preview/footer, those duplicated the
@@ -1074,31 +1099,47 @@ function generateDiff(oldContent: string, newContent: string, maxLines = 20): st
 /**
  * Write a file
  */
-async function writeFile(filePath: string, content: string, cwd: string): Promise<string> {
+async function writeFile(filePath: string, content: string, cwd: string, fsDelegate?: FsDelegate): Promise<string> {
   const absPath = validatePath(filePath, cwd);
-
-  // Create directory if needed
-  const dir = path.dirname(absPath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
 
   // Read existing content for diff
   let oldContent = '';
   let isNewFile = true;
-  if (fs.existsSync(absPath)) {
-    try {
-      const stats = fs.statSync(absPath);
-      if (!stats.isDirectory() && stats.size < 100 * 1024) {
-        oldContent = fs.readFileSync(absPath, 'utf-8');
-        isNewFile = false;
-      }
-    } catch {
-      // Ignore errors reading old content
-    }
-  }
 
-  fs.writeFileSync(absPath, content);
+  if (fsDelegate?.writeTextFile) {
+    // Client-side fs: read the current buffer for the diff (absent = new file),
+    // then write through the client instead of touching local disk.
+    if (fsDelegate.readTextFile) {
+      try {
+        oldContent = await fsDelegate.readTextFile(absPath);
+        isNewFile = false;
+      } catch {
+        oldContent = '';
+        isNewFile = true;
+      }
+    }
+    await fsDelegate.writeTextFile(absPath, content);
+  } else {
+    // Create directory if needed
+    const dir = path.dirname(absPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    if (fs.existsSync(absPath)) {
+      try {
+        const stats = fs.statSync(absPath);
+        if (!stats.isDirectory() && stats.size < 100 * 1024) {
+          oldContent = fs.readFileSync(absPath, 'utf-8');
+          isNewFile = false;
+        }
+      } catch {
+        // Ignore errors reading old content
+      }
+    }
+
+    fs.writeFileSync(absPath, content);
+  }
 
   // Generate diff output (#119)
   const DIFF_CAP = 50;
@@ -1470,19 +1511,35 @@ async function editFile(
   replaceAll: boolean,
   cwd: string,
   anchorHash?: string,
+  fsDelegate?: FsDelegate,
 ): Promise<string> {
   const absPath = validatePath(filePath, cwd);
 
-  if (!fs.existsSync(absPath)) {
-    throw new Error(`File not found: ${absPath}`);
+  let content: string;
+  if (fsDelegate?.readTextFile) {
+    // Client-side fs: edit against the editor's current buffer, not disk.
+    content = await fsDelegate.readTextFile(absPath);
+  } else {
+    if (!fs.existsSync(absPath)) {
+      throw new Error(`File not found: ${absPath}`);
+    }
+
+    const stats = fs.statSync(absPath);
+    if (stats.isDirectory()) {
+      throw new Error(`Path is a directory: ${absPath}`);
+    }
+
+    content = fs.readFileSync(absPath, 'utf-8');
   }
 
-  const stats = fs.statSync(absPath);
-  if (stats.isDirectory()) {
-    throw new Error(`Path is a directory: ${absPath}`);
-  }
-
-  const content = fs.readFileSync(absPath, 'utf-8');
+  // Persist the edited content through the delegate when available, else disk.
+  const writeUpdated = async (updated: string): Promise<void> => {
+    if (fsDelegate?.writeTextFile) {
+      await fsDelegate.writeTextFile(absPath, updated);
+    } else {
+      fs.writeFileSync(absPath, updated);
+    }
+  };
 
   // Stale-view protection (feature 4): if the caller supplied an anchor_hash, it
   // must match the file's current content. A mismatch means the model is acting
@@ -1532,7 +1589,7 @@ async function editFile(
     if (count === 0) {
       throw new Error(`old_string not found in file: ${absPath}`);
     }
-    fs.writeFileSync(absPath, updated);
+    await writeUpdated(updated);
     return buildEditDiff(oldString, newString, filePath, count);
   }
 
@@ -1548,7 +1605,7 @@ async function editFile(
   }
 
   const updated = content.replace(oldString, newString);
-  fs.writeFileSync(absPath, updated);
+  await writeUpdated(updated);
   return buildEditDiff(oldString, newString, filePath, 1);
 }
 
