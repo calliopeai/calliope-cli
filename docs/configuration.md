@@ -1,329 +1,158 @@
 # Configuration
 
-Calliope CLI can be configured via environment variables, config files, or runtime commands.
+Calliope stores its configuration through the `conf` library (a JSON file under
+your platform's config directory, e.g. `~/.config/calliope/config.json`). Print
+the exact path and current state with:
 
-## Configuration Hierarchy
-
-1. **Command-line flags** (highest priority)
-2. **Environment variables**
-3. **Config file** (`~/.config/calliope/config.json`)
-4. **Defaults** (lowest priority)
-
----
-
-## Config File
-
-Located at `~/.config/calliope/config.json` (or platform equivalent).
-
-### View Location
-```bash
+```
 calliope --config
 ```
 
-### Sample Configuration
+Most users never edit the file by hand — the setup wizard writes it, and a
+handful of settings are changed at runtime with `/config set`. The full key
+reference is below.
 
-```json
-{
-  "provider": "anthropic",
-  "model": "claude-sonnet-4-20250514",
-  "apiKeys": {
-    "anthropic": "sk-ant-...",
-    "openai": "sk-...",
-    "google": "...",
-    "mistral": "...",
-    "groq": "gsk_...",
-    "openrouter": "sk-or-..."
-  },
-  "theme": "default",
-  "persona": "calliope",
-  "godMode": false,
-  "maxIterations": 25,
-  "confirmRiskyOperations": true,
-  "scope": ["./src", "./tests"],
-  "autoRoute": false
-}
-```
+## Config keys
 
-### Configuration Options
+There are 16 keys. Defaults are the values applied when a key is absent.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `provider` | string | `"anthropic"` | Default AI provider |
-| `model` | string | `"claude-sonnet-4-20250514"` | Default model |
-| `apiKeys` | object | `{}` | API keys by provider |
-| `theme` | string | `"default"` | Visual theme |
-| `persona` | string | `"calliope"` | AI persona |
-| `godMode` | boolean | `false` | Skip all confirmations |
-| `maxIterations` | number | `25` | Max autonomous loop iterations |
-| `confirmRiskyOperations` | boolean | `true` | Confirm dangerous operations |
-| `scope` | string[] | `[]` | Allowed directories |
-| `autoRoute` | boolean | `false` | Auto-select model by task |
+| `setupComplete` | boolean | `false` | Whether first-run setup has finished. |
+| `defaultProvider` | string | `auto` | Provider used at startup (`auto` picks the first configured one). |
+| `defaultModel` | string | *(unset)* | Model used at startup; falls back to the provider's default. |
+| `providers` | object | *(unset)* | Per-provider credentials. See [Provider credentials](#provider-credentials). |
+| `fleet` | object | *(unset)* | `{ "enabled": boolean }`. When absent, fleet mode is off. See [Fleet mode](./fleet.md). |
+| `maxIterations` | number | `0` | Max agent-loop iterations (`0` = unlimited; range 0-1000000). |
+| `maxIterationTime` | number | `600` | Max seconds per iteration (`0` = no limit; range 0-3600). |
+| `autoSaveHistory` | boolean | `true` | Auto-save conversation history for `/resume`. |
+| `autoUpgrade` | boolean | `true` | Prompt to upgrade on startup when a new version is available. |
+| `collapseTools` | boolean | `false` | Auto-collapse tool output in the TUI. |
+| `toolDisplayLimit` | number | `0` | Show the last N tool calls expanded (`0` = all; range 0-100). |
+| `diffStyle` | string | `inline` | Diff display: `inline`, `unified`, or `side-by-side`. |
+| `circuitBreakersEnabled` | boolean | `false` | Enable runaway-loop guardrails. See [Features](./features.md#circuit-breakers). |
+| `sandboxMode` | string | `auto` | Code/shell sandbox: `auto`, `native`, `docker`, or `off`. |
+| `routing` | object | *(unset)* | `{ "enabled": boolean, "costSensitivity": 0-1 }`. Smart model routing (costSensitivity `0` = best quality, `1` = cheapest). |
+| `sessionLogLimit` | number | `0` | Cap retained session-log items (`0` = unlimited; range 0-100000). |
 
-### Reset Configuration
-```bash
-calliope --reset
-```
+### Runtime changes with `/config set`
 
-### Run Setup Wizard
-```bash
-calliope --setup
-```
-
----
-
-## Environment Variables
-
-### API Keys
-
-```bash
-# Primary providers
-export ANTHROPIC_API_KEY=sk-ant-...
-export OPENAI_API_KEY=sk-...
-export GOOGLE_API_KEY=...
-
-# Additional providers
-export MISTRAL_API_KEY=...
-export GROQ_API_KEY=gsk_...
-export XAI_API_KEY=xai-...
-export CEREBRAS_API_KEY=...
-export FIREWORKS_API_KEY=...
-export DEEPSEEK_API_KEY=sk-...
-export OPENROUTER_API_KEY=sk-or-...
-
-# GitHub
-export GITHUB_TOKEN=ghp_...
-```
-
-### Provider Configuration
-
-```bash
-# Default provider and model
-export CALLIOPE_PROVIDER=anthropic
-export CALLIOPE_MODEL=claude-sonnet-4-20250514
-
-# Local provider URLs
-export OLLAMA_BASE_URL=http://localhost:11434
-export LITELLM_BASE_URL=http://localhost:4000
-export LITELLM_API_KEY=...
-```
-
-### Behavior Configuration
-
-```bash
-# Enable god mode (skip confirmations)
-export CALLIOPE_GOD_MODE=true
-
-# Enable debug output
-export CALLIOPE_DEBUG=true
-
-# Set max iterations for loops
-export CALLIOPE_MAX_ITERATIONS=50
-```
-
----
-
-## Command-Line Flags
-
-```bash
-# Run with god mode (no confirmations)
-calliope -g
-calliope --god-mode
-
-# Show config location
-calliope --config
-
-# Reset configuration
-calliope --reset
-
-# Run setup wizard
-calliope --setup
-
-# Show version
-calliope --version
-calliope -v
-
-# Show help
-calliope --help
-```
-
----
-
-## Runtime Configuration
-
-### `/set` Command
-
-Change settings during a session:
-
-```bash
-/set maxIterations 50    # Set max loop iterations
-```
-
-### `/confirm` Command
-
-Toggle confirmation prompts:
-
-```bash
-/confirm on     # Require confirmations
-/confirm off    # Skip confirmations
-```
-
-### `/debug` Command
-
-Toggle debug mode:
-
-```bash
-/debug on       # Enable verbose output
-/debug off      # Disable debug output
-```
-
----
-
-## Profiles
-
-Save and load configuration profiles:
-
-### Save Current Config as Profile
-```bash
-/profile save work
-```
-
-### Load Profile
-```bash
-/profile work
-/profile load work
-```
-
-### List Profiles
-```bash
-/profile list
-```
-
-### Delete Profile
-```bash
-/profile delete work
-```
-
-### Built-in Profiles
-
-| Profile | Provider | Model | Use Case |
-|---------|----------|-------|----------|
-| `fast` | Groq | llama-3.3-70b | Speed priority |
-| `smart` | Anthropic | claude-sonnet-4 | Quality priority |
-| `cheap` | Google | gemini-flash | Cost priority |
-| `local` | Ollama | llama3.2 | Privacy priority |
-
-```bash
-/profile fast    # Quick switch to fast config
-```
-
----
-
-## Data Storage
-
-Calliope stores data in `~/.calliope-cli/`:
+`/config set` changes a subset of keys during a session without editing the file:
 
 ```
-~/.calliope-cli/
-├── config.json              # User configuration (legacy location)
-├── costs.json               # Cost tracking data
-├── sessions/                # Session data
-│   ├── current -> ...       # Symlink to active session
-│   └── 2025-01-13_project/
-│       ├── session.json     # Session metadata
-│       ├── chat.log         # Conversation history
-│       ├── todos.txt        # Session TODOs
-│       ├── active-todo.json # Currently active TODO
-│       └── plans/           # Saved plans
-├── todos/
-│   ├── global.txt           # Global TODOs
-│   └── by-project/          # Project-specific TODOs
-├── templates/
-│   └── prompts.json         # Saved prompt templates
-├── plugins/                 # Custom plugins
-└── history/
-    └── commands.txt         # Command history
+/config set maxIterations 50
+/config set sessionLogLimit 500
+/config set collapseTools true
+/config set toolDisplayLimit 5
+/config set diffStyle side-by-side
+/config set sandboxMode docker
+/config set routing.enabled true
+/config set routing.costSensitivity 0.3
+/config set theme light
 ```
 
----
+The remaining keys (`setupComplete`, `defaultProvider`, `defaultModel`,
+`providers`, `fleet`, `maxIterationTime`, `autoSaveHistory`, `autoUpgrade`,
+`circuitBreakersEnabled`) are set by the setup wizard, environment variables,
+or by editing the config file directly.
 
-## Scope Configuration
+> `theme` is accepted by `/config set` but is **not** stored in the config file.
+> It persists separately in `~/.calliope-cli/themes/current.txt`. See
+> [Themes](#themes).
 
-Restrict which directories the AI can access:
+## Provider credentials
 
-### Via Config File
+Credentials live in the nested `providers` map, keyed by provider name. Each
+entry is a subset of these fields:
+
+| Field | Applies to | Notes |
+|-------|-----------|-------|
+| `apiKey` | most providers | The API key/token. |
+| `baseUrl` | ollama, litellm, bedrock (gateway), openai-compat | Server or proxy URL. |
+| `model` | any | Pins a default model for the provider (no environment fallback). |
+| `region` | bedrock | AWS region for the native Bedrock backend. |
+| `profile` | bedrock | AWS named profile for the native Bedrock backend. |
+
+Example:
+
 ```json
 {
-  "scope": ["./src", "./tests", "./docs"]
+  "defaultProvider": "anthropic",
+  "providers": {
+    "anthropic": { "apiKey": "sk-ant-..." },
+    "ollama": { "baseUrl": "http://localhost:11434" },
+    "bedrock": { "region": "us-east-1", "profile": "dev" },
+    "openai-compat": { "baseUrl": "http://localhost:1234/v1" }
+  }
 }
 ```
 
-### Via Commands
-```bash
-/scope add ./src
-/scope add ./tests
-/scope remove ./docs
-/scope list
-/scope reset
+### Environment-variable fallbacks
+
+Every provider resolves credentials from `providers.<name>` **and** from
+environment variables. Environment variables take precedence over stored config
+for every field except the `openai-compat` base URL (where the stored value
+wins). The `model` field has no environment fallback.
+
+| Provider | API key env | Base URL env | Other |
+|----------|-------------|--------------|-------|
+| anthropic | `ANTHROPIC_API_KEY` | — | — |
+| google | `GOOGLE_API_KEY` | — | — |
+| openai | `OPENAI_API_KEY` | — | — |
+| openrouter | `OPENROUTER_API_KEY` | — | — |
+| together | `TOGETHER_API_KEY` | — | — |
+| groq | `GROQ_API_KEY` | — | — |
+| fireworks | `FIREWORKS_API_KEY` | — | — |
+| mistral | `MISTRAL_API_KEY` | — | — |
+| ai21 | `AI21_API_KEY` | — | — |
+| huggingface | `HUGGINGFACE_API_KEY` | — | — |
+| ollama | — | `OLLAMA_BASE_URL` | — |
+| litellm | `LITELLM_API_KEY` | `LITELLM_BASE_URL` | — |
+| bedrock | `BEDROCK_API_KEY` | `BEDROCK_BASE_URL` | `AWS_REGION` / `AWS_DEFAULT_REGION` (region), `AWS_PROFILE` (profile) |
+| openai-compat | `OPENAI_COMPAT_API_KEY` | `OPENAI_COMPAT_BASE_URL` | — |
+
+Calliope also reads `.env` and `cli.env` files from the current directory (and
+`.env` from your home directory) at startup, so exported keys need not be global.
+
+See [Providers](./providers.md) for how each backend uses these values.
+
+## Themes
+
+Three built-in themes ship with Calliope:
+
+- `dark` — default
+- `light` — for light terminal backgrounds
+- `no-color` — monochrome output
+
+Switch with:
+
+```
+/config set theme light
 ```
 
-### Scope Behavior
-- When scope is empty: AI can access cwd and subdirectories
-- When scope is set: AI can only access listed directories
-- Always blocked: System directories, parent directories
+The current theme is stored in `~/.calliope-cli/themes/current.txt` and applied
+on the next startup.
 
----
+## Migration
 
-## Theme Configuration
+Configs from v2 are migrated automatically the first time v3 starts. The
+migration is idempotent (running it again is a no-op) and does not touch keys
+that are already in the current format:
 
-### Available Themes
-- `default` - Standard colors
-- `light` - Light mode friendly
-- `monokai` - Monokai color scheme
-- `nord` - Nord color scheme
-- `minimal` - Reduced visual noise
+- Flat credential keys (e.g. `anthropicApiKey`, `ollamaBaseUrl`, `awsRegion`)
+  are folded into the nested `providers.<name>` map.
+- The old smart-routing keys are folded into the `routing` object.
+- Keys that no longer exist in v3 are dropped.
 
-### Set Theme
-```bash
-/theme monokai
+When credentials are migrated, Calliope prints a one-line notice to stderr.
+Nothing else is required on your part.
+
+## Command-line flags
+
+```
+calliope --config     # show config path and status
+calliope --setup      # run the setup wizard (reconfigure)
+calliope --reset      # clear all configuration
 ```
 
-### Cycle Themes
-```bash
-/theme
-```
-
----
-
-## Persona Configuration
-
-### Available Personas
-- `calliope` - Poetic, elegant responses (default)
-- `professional` - Concise, business-like
-- `minimal` - Minimal output, just essentials
-
-### Set Persona
-```bash
-/persona professional
-```
-
----
-
-## Security Considerations
-
-### API Key Storage
-- Keys in config file are stored in plain text
-- Prefer environment variables for better security
-- Never commit config files to version control
-
-### Recommended `.gitignore`
-```gitignore
-# Calliope config
-.calliope-cli/
-~/.config/calliope/
-```
-
-### God Mode Warning
-When running with `-g` or `godMode: true`:
-- All tool executions proceed without confirmation
-- Critical operations (like `rm -rf`) still require confirmation
-- Use only in trusted environments
+See [Getting started](./getting-started.md) for the full flag list.

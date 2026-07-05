@@ -6,14 +6,13 @@
 
 ## Project
 
-Multi-model AI agent CLI (`@calliopelabs/cli` v2.4.2). TypeScript + React/Ink, ESM modules. Node ≥ 20.
+Multi-model AI agent CLI (`@calliopelabs/cli` v3.0.0-alpha.1). TypeScript + React/Ink, ESM modules. Node ≥ 20.
 
 ## Development Rules
 
 - No co-authorship messages in commits
 - Import paths must use `.js` extension (ESM)
 - All changes must pass `npx tsc --noEmit` and `npx vitest run`
-- Barrel pattern: original files re-export from subdirectories (zero import path changes)
 - Circular dep workaround: `setStartLoop()` injection pattern, `require()` for lazy loading
 - No hardcoded model lists — discover models + capabilities from each provider's models API (see `bootstrap.md`)
 
@@ -22,16 +21,13 @@ Multi-model AI agent CLI (`@calliopelabs/cli` v2.4.2). TypeScript + React/Ink, E
 ```
 src/
 ├── bin.ts              # Entry point
-├── cli.ts              # Barrel → src/cli/
-├── providers.ts        # Barrel → src/providers/
-├── hud.ts              # Barrel → src/hud/
-├── ui-cli.tsx          # Barrel → src/ui/
-├── companions.ts       # Base + expanded companions
+├── providers/          # 13 backends, live model discovery
+├── ui/                 # Ink UI, agent loop, 22 commands
 ├── tools.ts            # Tool definitions & registry
-├── config.ts           # Configuration (conf library)
+├── config.ts           # Configuration (conf library, 16 keys)
 ├── types.ts            # Core type definitions
-├── agterm/             # Multi-agent orchestration
-└── hud/theme-packs/    # 102+ theme packs (7 categories)
+├── fleet.ts            # Flag-gated IRC fleet bus
+└── sandbox/            # Docker + Seatbelt backends, one interface
 ```
 
 ## Issue Tracking & Workflow
@@ -44,15 +40,14 @@ src/
 
 ### Roadmap themes
 
-Smart routing (dynamic model selection across providers), swarm mode (parallel
-task delegation with overseers), agent councils (consensus / competitive /
-collaborative / overseer coordination), and long-running sessions (no iteration
-cap, circuit breakers) — track live status in GitHub issues rather than here.
+v3.0: radical simplification (M1, done), performance + single-binary
+distribution (M2), local-model excellence + governance primitives (M3) —
+track live status in the roadmap epic (#195) and milestones.
 
 ## Testing
 
 - Framework: Vitest
-- 4602 tests across 104 test files (`tests/*.test.ts`)
+- ~3,500 tests across 94 test files (`tests/*.test.ts`); 90% line-coverage floor via `npm run test:coverage`
 - Run: `npx vitest run`
 - Watch: `npx vitest --watch`
 - Every fix gets a regression test; cover happy path and error/denied path

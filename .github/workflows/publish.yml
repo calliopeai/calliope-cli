@@ -52,14 +52,26 @@ jobs:
           npm version ${{ github.event.inputs.version }} -m "Release v%s"
           git push --follow-tags
 
-      - name: Publish to npm
-        run: npm publish --access public
-
-      - name: Get published version
+      - name: Get version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> $GITHUB_OUTPUT
+          case "$V" in
+            *-*) echo "prerelease=true"  >> $GITHUB_OUTPUT ;;
+            *)   echo "prerelease=false" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Publish to npm
+        run: |
+          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
+            npm publish --access public --tag alpha
+          else
+            npm publish --access public
+          fi
 
       - name: Trigger desktop rebuild
+        if: steps.version.outputs.prerelease == 'false'
         run: |
           echo "Triggering desktop rebuild for calliope-cli v${{ steps.version.outputs.version }}"
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
@@ -84,6 +96,7 @@ jobs:
           fi
 
       - name: Trigger calliope-agents rebuild
+        if: steps.version.outputs.prerelease == 'false'
         run: |
           echo "Triggering calliope-agents rebuild for calliope runtime v${{ steps.version.outputs.version }}"
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
@@ -108,6 +121,7 @@ jobs:
           fi
 
       - name: Trigger agterm update
+        if: steps.version.outputs.prerelease == 'false'
         run: |
           echo "Triggering agterm update for version ${{ steps.version.outputs.version }}"
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \

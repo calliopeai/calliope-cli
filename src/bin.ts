@@ -334,7 +334,6 @@ ${bold('INTERACTIVE COMMANDS')}
   /provider         Switch AI provider
   /model            Change model
   /loop             Start autonomous agent loop
-  /save             Save session
   /exit             Exit
 
 ${bold('EXAMPLES')}

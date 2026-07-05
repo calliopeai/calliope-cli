@@ -1,418 +1,150 @@
-# AI Providers
+# Providers
 
-Calliope CLI supports 13+ AI providers. This document details each provider, their models, and configuration.
+Calliope supports 13 provider backends, plus a generic OpenAI-compatible
+endpoint for any other server that speaks the OpenAI chat-completions API.
+Models are discovered live from each provider — there are no hardcoded model
+lists. Use `/model` to browse what a provider offers.
 
-## Quick Comparison
+## Backends at a glance
 
-| Provider | Best For | Context | Speed | Cost |
-|----------|----------|---------|-------|------|
-| Anthropic | Complex reasoning | 200K | Medium | $$ |
-| OpenAI | General purpose | 128K | Fast | $$ |
-| Google | Long context | 2M | Fast | $ |
-| Groq | Speed | 128K | Fastest | $ |
-| Mistral | European hosting | 128K | Fast | $ |
-| Ollama | Privacy (local) | Varies | Varies | Free |
-| OpenRouter | Model variety | Varies | Varies | Varies |
+| Backend | Kind | Credential | Notes |
+|---------|------|-----------|-------|
+| `anthropic` | Native SDK | API key | Claude models. |
+| `google` | Native SDK | API key | Gemini models. |
+| `openai` | Native SDK | API key | GPT / o-series models. |
+| `bedrock` | AWS | region + profile, or gateway URL | AWS Bedrock, native or via gateway. |
+| `ollama` | Local | base URL | Local models; no API key. |
+| `litellm` | Proxy | base URL (+ optional key) | Unified proxy for many providers. |
+| `openrouter` | OpenAI-compatible | API key | Aggregator for many models. |
+| `together` | OpenAI-compatible | API key | Open-weight models. |
+| `groq` | OpenAI-compatible | API key | Fast inference. |
+| `fireworks` | OpenAI-compatible | API key | Open-weight models. |
+| `mistral` | OpenAI-compatible | API key | Mistral models. |
+| `ai21` | OpenAI-compatible | API key | Jamba models. |
+| `huggingface` | OpenAI-compatible | API key | Hosted inference. |
+| `openai-compat` | Generic | base URL (+ optional key) | Any OpenAI-compatible server. |
 
----
+Select a provider in a session with `/provider <name>`, or set `defaultProvider`
+during setup. `auto` selects the first configured provider (priority order:
+anthropic, openai, google, mistral, openrouter, together, groq, fireworks, ai21,
+huggingface, bedrock, ollama, litellm).
 
-## Anthropic (Claude)
+## How credentials resolve
 
-The default provider. Claude excels at complex reasoning, coding, and nuanced tasks.
+For every provider, Calliope merges two sources:
 
-### Setup
-```bash
+1. Stored config under `providers.<name>` (written by the setup wizard).
+2. Environment variables.
+
+Environment variables take precedence, except for the `openai-compat` base URL
+where the stored value wins. The full environment-variable table is in
+[Configuration → Environment-variable fallbacks](./configuration.md#environment-variable-fallbacks).
+
+## Native SDK backends
+
+`anthropic`, `google`, and `openai` use each vendor's own API. Provide an API key:
+
+```
 export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-### Models
-
-| Model | Description | Context | Best For |
-|-------|-------------|---------|----------|
-| `claude-opus-4-5-20251101` | Most capable | 200K | Complex analysis, research |
-| `claude-sonnet-4-20250514` | Balanced | 200K | Daily coding (default) |
-| `claude-3-5-sonnet-20241022` | Previous flagship | 200K | General tasks |
-| `claude-3-5-haiku-20241022` | Fast & cheap | 200K | Simple tasks, high volume |
-
-### Usage
-```bash
-/provider anthropic
-/model claude-sonnet-4-20250514
-```
-
-### Pricing (per 1M tokens)
-- Input: $3.00 (Sonnet), $15.00 (Opus)
-- Output: $15.00 (Sonnet), $75.00 (Opus)
-
----
-
-## OpenAI (GPT)
-
-Industry standard with strong tool use and broad capabilities.
-
-### Setup
-```bash
+export GOOGLE_API_KEY=...
 export OPENAI_API_KEY=sk-...
 ```
 
-### Models
+Or store them via the setup wizard, which writes them to `providers.<name>.apiKey`.
 
-| Model | Description | Context | Best For |
-|-------|-------------|---------|----------|
-| `gpt-4o` | Flagship multimodal | 128K | Complex tasks, vision |
-| `gpt-4o-mini` | Fast & cheap | 128K | Simple tasks |
-| `gpt-4-turbo` | Previous flagship | 128K | Legacy compatibility |
-| `o1` | Reasoning model | 128K | Math, logic, planning |
-| `o1-mini` | Fast reasoning | 128K | Quick reasoning tasks |
-| `o3-mini` | Next-gen reasoning | 128K | Advanced reasoning |
+## Hosted OpenAI-compatible backends
 
-### Usage
-```bash
-/provider openai
-/model gpt-4o
+`openrouter`, `together`, `groq`, `fireworks`, `mistral`, `ai21`, and
+`huggingface` speak the OpenAI chat-completions API and each have a built-in
+base URL, so you only supply an API key:
+
+| Provider | Base URL |
+|----------|----------|
+| openrouter | `https://openrouter.ai/api/v1` |
+| together | `https://api.together.xyz/v1` |
+| groq | `https://api.groq.com/openai/v1` |
+| fireworks | `https://api.fireworks.ai/inference/v1` |
+| mistral | `https://api.mistral.ai/v1` |
+| ai21 | `https://api.ai21.com/studio/v1` |
+| huggingface | `https://api-inference.huggingface.co/v1` |
+
 ```
-
-### Pricing (per 1M tokens)
-- Input: $2.50 (GPT-4o), $0.15 (GPT-4o-mini)
-- Output: $10.00 (GPT-4o), $0.60 (GPT-4o-mini)
-
----
-
-## Google (Gemini)
-
-Massive context windows and competitive pricing.
-
-### Setup
-```bash
-export GOOGLE_API_KEY=...
-```
-
-### Models
-
-| Model | Description | Context | Best For |
-|-------|-------------|---------|----------|
-| `gemini-2.5-pro-preview-06-05` | Most capable | 1M | Complex reasoning |
-| `gemini-2.5-flash-preview-05-20` | Fast next-gen | 1M | Speed + quality |
-| `gemini-2.0-flash` | Multimodal | 1M | General use |
-| `gemini-1.5-pro-latest` | Long context | 2M | Large codebases |
-| `gemini-1.5-flash-latest` | Fast | 1M | High volume |
-
-### Usage
-```bash
-/provider google
-/model gemini-2.0-flash
-```
-
-### Pricing (per 1M tokens)
-- Input: $1.25 (Pro), $0.075 (Flash)
-- Output: $5.00 (Pro), $0.30 (Flash)
-
----
-
-## Groq
-
-Fastest inference speeds via custom LPU hardware.
-
-### Setup
-```bash
 export GROQ_API_KEY=gsk_...
 ```
 
-### Models
+## Ollama and local models
 
-| Model | Description | Context | Best For |
-|-------|-------------|---------|----------|
-| `llama-3.3-70b-versatile` | Best quality | 128K | Complex tasks |
-| `llama-3.1-70b-versatile` | Previous gen | 128K | General use |
-| `mixtral-8x7b-32768` | MoE model | 32K | Fast inference |
-| `llama-3.2-90b-vision-preview` | Vision | 128K | Image tasks |
+`ollama` runs models on your machine and needs no API key — its "credential" is
+the base URL. The default is `http://localhost:11434`.
 
-### Usage
-```bash
-/provider groq
-/model llama-3.3-70b-versatile
 ```
+# install and pull a model
+ollama pull llama3.3
 
-### Pricing
-- Free tier available
-- Paid: ~$0.59-$0.79 per 1M tokens
-
----
-
-## Mistral
-
-European AI provider with strong open-weight models.
-
-### Setup
-```bash
-export MISTRAL_API_KEY=...
-```
-
-### Models
-
-| Model | Description | Context | Best For |
-|-------|-------------|---------|----------|
-| `mistral-large-latest` | Most capable | 128K | Complex tasks |
-| `mistral-medium-latest` | Balanced | 128K | General use |
-| `mistral-small-latest` | Fast | 128K | Simple tasks |
-| `codestral-latest` | Code-focused | 32K | Coding |
-
-### Usage
-```bash
-/provider mistral
-/model mistral-large-latest
-```
-
----
-
-## Ollama (Local)
-
-Run models locally for privacy and offline use.
-
-### Setup
-1. Install Ollama: https://ollama.ai
-2. Pull models: `ollama pull llama3.2`
-3. Ollama runs on `http://localhost:11434` by default
-
-```bash
-# Optional: custom URL
+# optional: point Calliope at a non-default host
 export OLLAMA_BASE_URL=http://localhost:11434
 ```
 
-### Models
-
-Pull any model from Ollama's library:
-```bash
-ollama pull llama3.2
-ollama pull codellama
-ollama pull mistral
-ollama pull deepseek-coder
 ```
-
-### Usage
-```bash
 /provider ollama
-/model llama3.2
+/model llama3.3
 ```
 
-### Benefits
-- No API costs
-- Complete privacy
-- Works offline
-- No rate limits
+Local models run offline, cost nothing, and keep data on your machine.
 
----
+## LiteLLM proxy
 
-## OpenRouter
+`litellm` targets a [LiteLLM](https://docs.litellm.ai/docs/proxy) proxy that
+fronts other providers. Point Calliope at the proxy URL (default
+`http://localhost:4000`) and, if the proxy requires it, an API key:
 
-Access 100+ models through a single API.
-
-### Setup
-```bash
-export OPENROUTER_API_KEY=sk-or-...
 ```
-
-### Popular Models
-
-| Model | Provider | Best For |
-|-------|----------|----------|
-| `anthropic/claude-3.5-sonnet` | Anthropic | General |
-| `openai/gpt-4o` | OpenAI | Multimodal |
-| `google/gemini-pro-1.5` | Google | Long context |
-| `meta-llama/llama-3.1-405b` | Meta | Open source |
-| `deepseek/deepseek-coder` | DeepSeek | Coding |
-
-### Usage
-```bash
-/provider openrouter
-/model anthropic/claude-3.5-sonnet
-```
-
-### Benefits
-- Single API for all models
-- Pay-per-use pricing
-- Model fallback support
-- Usage tracking
-
----
-
-## DeepSeek
-
-Chinese AI lab with strong coding models.
-
-### Setup
-```bash
-export DEEPSEEK_API_KEY=sk-...
-```
-
-### Models
-
-| Model | Description | Best For |
-|-------|-------------|----------|
-| `deepseek-chat` | General chat | Conversation |
-| `deepseek-coder` | Code-focused | Programming |
-| `deepseek-r1` | Reasoning | Complex logic |
-
-### Usage
-```bash
-/provider deepseek
-/model deepseek-coder
-```
-
----
-
-## xAI (Grok)
-
-Elon Musk's AI company.
-
-### Setup
-```bash
-export XAI_API_KEY=xai-...
-```
-
-### Models
-
-| Model | Description |
-|-------|-------------|
-| `grok-beta` | Latest Grok model |
-| `grok-2` | Grok 2 |
-
-### Usage
-```bash
-/provider xai
-/model grok-beta
-```
-
----
-
-## Cerebras
-
-Ultra-fast inference on custom wafer-scale chips.
-
-### Setup
-```bash
-export CEREBRAS_API_KEY=...
-```
-
-### Usage
-```bash
-/provider cerebras
-/model llama3.1-70b
-```
-
----
-
-## Fireworks AI
-
-Fast inference for open models.
-
-### Setup
-```bash
-export FIREWORKS_API_KEY=...
-```
-
-### Usage
-```bash
-/provider fireworks
-/model accounts/fireworks/models/llama-v3p1-70b-instruct
-```
-
----
-
-## LiteLLM (Proxy)
-
-Use LiteLLM as a unified proxy for multiple providers.
-
-### Setup
-1. Run LiteLLM proxy: https://docs.litellm.ai/docs/proxy
-2. Configure endpoint:
-
-```bash
 export LITELLM_BASE_URL=http://localhost:4000
-export LITELLM_API_KEY=sk-...
+export LITELLM_API_KEY=...      # only if your proxy requires it
 ```
 
-### Usage
-```bash
-/provider litellm
-/model gpt-4  # Or any model configured in your proxy
+## Generic OpenAI-compatible servers
+
+`openai-compat` connects to any server implementing the OpenAI chat-completions
+API — for example LM Studio, vLLM, Jan, LocalAI, or AnythingLLM. Supply the base
+URL, plus a key if the server requires one:
+
+```
+export OPENAI_COMPAT_BASE_URL=http://localhost:1234/v1
+export OPENAI_COMPAT_API_KEY=...   # only if required
 ```
 
----
+The base URL you store in config is preferred over the environment variable for
+this backend.
 
-## GitHub Models
+## AWS Bedrock
 
-Access models via GitHub's API (requires GitHub account).
+`bedrock` has two modes:
 
-### Setup
-```bash
-export GITHUB_TOKEN=ghp_...
-```
+- **Native** — calls the Bedrock Converse API directly. Provide an AWS region and
+  (optionally) a named profile, via config or the environment:
 
-### Usage
-```bash
-/provider github
-/model gpt-4o
-```
+  ```
+  export AWS_REGION=us-east-1        # or AWS_DEFAULT_REGION
+  export AWS_PROFILE=dev             # optional named profile
+  ```
 
----
+  Standard AWS credential resolution applies (`AWS_ACCESS_KEY_ID` /
+  `AWS_PROFILE` are detected automatically).
 
-## Auto-Routing
+- **Gateway** — if you set a Bedrock gateway/proxy base URL, Calliope treats it
+  as an OpenAI-compatible endpoint instead:
 
-Let Calliope automatically select the best model based on task complexity.
+  ```
+  export BEDROCK_BASE_URL=http://localhost:8080
+  export BEDROCK_API_KEY=...         # only if the gateway requires it
+  ```
 
-### Enable
-```bash
-/route on
-```
+Store region and profile permanently under `providers.bedrock.region` and
+`providers.bedrock.profile`.
 
-### How It Works
-- Simple queries → Fast/cheap model (Flash, Haiku)
-- Complex tasks → Capable model (Sonnet, GPT-4o)
-- Coding tasks → Code-specialized model
+## Default models
 
-### Test Routing
-```bash
-/route test "Explain quantum computing"
-```
-
----
-
-## Provider Profiles
-
-Quick-switch between configurations:
-
-```bash
-/profile fast    # Groq for speed
-/profile smart   # Claude for quality
-/profile cheap   # Gemini for cost
-/profile local   # Ollama for privacy
-```
-
----
-
-## Environment Variables Summary
-
-```bash
-# Primary providers
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=...
-
-# Additional providers
-MISTRAL_API_KEY=...
-GROQ_API_KEY=gsk_...
-XAI_API_KEY=xai-...
-CEREBRAS_API_KEY=...
-FIREWORKS_API_KEY=...
-DEEPSEEK_API_KEY=sk-...
-OPENROUTER_API_KEY=sk-or-...
-
-# Local/proxy
-OLLAMA_BASE_URL=http://localhost:11434
-LITELLM_BASE_URL=http://localhost:4000
-LITELLM_API_KEY=...
-
-# GitHub
-GITHUB_TOKEN=ghp_...
-```
+Each provider has an offline emergency-fallback model used only when live
+discovery is unavailable (for example, with no network). In normal use the model
+is chosen by discovery or by your `/model` selection, not from a fixed list.
