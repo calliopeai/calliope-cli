@@ -4,6 +4,7 @@
  * Slash command list, path completion, and context-aware command suggestions.
  */
 
+import config from '../config.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { Mode } from '../types.js';
@@ -12,7 +13,7 @@ import type { Mode } from '../types.js';
 // Slash Commands (for tab completion)
 // ============================================================================
 
-export const SLASH_COMMANDS = [
+const BASE_SLASH_COMMANDS = [
   '/help', '/h',
   '/mode', '/m',
   '/provider', '/p',
@@ -76,6 +77,11 @@ export const SLASH_COMMANDS = [
   '/approve',
   '/sandbox',
 ];
+
+/** Slash commands offered in completions. /fleet appears only when fleet mode is enabled. */
+export const SLASH_COMMANDS: string[] = config.get('fleet')?.enabled === true
+  ? [...BASE_SLASH_COMMANDS, '/fleet']
+  : BASE_SLASH_COMMANDS;
 
 // Commands that take a path argument (for file tab completion)
 export const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find', '/restore'];
