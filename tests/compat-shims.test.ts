@@ -1,5 +1,5 @@
 /**
- * Tests for src/providers/openai-compat-shims.ts
+ * Tests for the OpenAI-compatible server shims (merged into src/providers/compat.ts)
  *
  * Covers:
  * - detectShim: URL-based detection for each server type
@@ -9,8 +9,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { detectShim, resetToolWarnings } from '../src/providers/openai-compat-shims.js';
-import type { CompatShim } from '../src/providers/openai-compat-shims.js';
+import { detectShim, resetToolWarnings } from '../src/providers/compat.js';
+import type { CompatShim } from '../src/providers/compat.js';
 import type { ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions.js';
 
 // ---------------------------------------------------------------------------

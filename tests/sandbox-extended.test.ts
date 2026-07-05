@@ -32,8 +32,8 @@ import {
   executeInSandbox,
   executeUnsafe,
   execute,
-} from '../src/sandbox.js';
-import type { SandboxConfig, Language, ExecutionResult } from '../src/sandbox.js';
+} from '../src/sandbox/docker.js';
+import type { SandboxConfig, Language, ExecutionResult } from '../src/sandbox/docker.js';
 
 // ============================================================================
 // Helpers
@@ -124,7 +124,7 @@ describe('isDockerAvailable', () => {
       spawn: vi.fn(),
     }));
 
-    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox.js');
+    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox/docker.js');
     const result = freshIsDockerAvailable();
     expect(result).toBe(true);
   });
@@ -138,7 +138,7 @@ describe('isDockerAvailable', () => {
       spawn: vi.fn(),
     }));
 
-    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox.js');
+    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox/docker.js');
     const result = freshIsDockerAvailable();
     expect(result).toBe(false);
   });
@@ -153,7 +153,7 @@ describe('isDockerAvailable', () => {
       spawn: vi.fn(),
     }));
 
-    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox.js');
+    const { isDockerAvailable: freshIsDockerAvailable } = await import('../src/sandbox/docker.js');
     freshIsDockerAvailable();
     freshIsDockerAvailable();
     freshIsDockerAvailable();
@@ -177,7 +177,7 @@ describe('imageExists', () => {
       spawn: vi.fn(),
     }));
 
-    const { imageExists: freshImageExists } = await import('../src/sandbox.js');
+    const { imageExists: freshImageExists } = await import('../src/sandbox/docker.js');
     const result = freshImageExists('python:3.11-slim');
     expect(result).toBe(true);
   });
@@ -194,7 +194,7 @@ describe('imageExists', () => {
       spawn: vi.fn(),
     }));
 
-    const { imageExists: freshImageExists } = await import('../src/sandbox.js');
+    const { imageExists: freshImageExists } = await import('../src/sandbox/docker.js');
     const result = freshImageExists('nonexistent-image:latest');
     expect(result).toBe(false);
   });
@@ -214,7 +214,7 @@ describe('ensureImage', () => {
       spawn: vi.fn(),
     }));
 
-    const { ensureImage: freshEnsureImage } = await import('../src/sandbox.js');
+    const { ensureImage: freshEnsureImage } = await import('../src/sandbox/docker.js');
     const result = await freshEnsureImage('python:3.11-slim');
     expect(result).toBe(true);
   });
@@ -229,7 +229,7 @@ describe('ensureImage', () => {
       spawn: vi.fn().mockReturnValue(mockProc),
     }));
 
-    const { ensureImage: freshEnsureImage } = await import('../src/sandbox.js');
+    const { ensureImage: freshEnsureImage } = await import('../src/sandbox/docker.js');
     const result = await freshEnsureImage('python:3.11-slim');
     expect(result).toBe(true);
   });
@@ -244,7 +244,7 @@ describe('ensureImage', () => {
       spawn: vi.fn().mockReturnValue(mockProc),
     }));
 
-    const { ensureImage: freshEnsureImage } = await import('../src/sandbox.js');
+    const { ensureImage: freshEnsureImage } = await import('../src/sandbox/docker.js');
     const result = await freshEnsureImage('nonexistent:latest');
     expect(result).toBe(false);
   });
@@ -259,7 +259,7 @@ describe('ensureImage', () => {
       spawn: vi.fn().mockReturnValue(mockProc),
     }));
 
-    const { ensureImage: freshEnsureImage } = await import('../src/sandbox.js');
+    const { ensureImage: freshEnsureImage } = await import('../src/sandbox/docker.js');
     const result = await freshEnsureImage('broken:latest');
     expect(result).toBe(false);
   });
@@ -279,7 +279,7 @@ describe('executeInSandbox', () => {
       spawn: vi.fn(),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'print("hello")');
 
     expect(result.success).toBe(false);
@@ -304,7 +304,7 @@ describe('executeInSandbox', () => {
       spawn: vi.fn().mockReturnValue(pullProc),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'print("hello")');
 
     expect(result.success).toBe(false);
@@ -323,7 +323,7 @@ describe('executeInSandbox', () => {
       spawn: vi.fn().mockReturnValue(runProc),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'print("hello")');
 
     expect(result.success).toBe(true);
@@ -343,7 +343,7 @@ describe('executeInSandbox', () => {
       spawn: vi.fn().mockReturnValue(runProc),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'invalid code!!!');
 
     expect(result.success).toBe(false);
@@ -362,7 +362,7 @@ describe('executeInSandbox', () => {
       spawn: vi.fn().mockReturnValue(errProc),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'print("hello")');
 
     expect(result.success).toBe(false);
@@ -379,7 +379,7 @@ describe('executeUnsafe', () => {
   it('should return unsupported language error for go', async () => {
     vi.resetModules();
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('go', 'package main');
 
     expect(result.success).toBe(false);
@@ -390,7 +390,7 @@ describe('executeUnsafe', () => {
   it('should return unsupported language error for rust', async () => {
     vi.resetModules();
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('rust', 'fn main() {}');
 
     expect(result.success).toBe(false);
@@ -408,7 +408,7 @@ describe('executeUnsafe', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('node', 'console.log(42)');
 
     expect(result.success).toBe(true);
@@ -427,7 +427,7 @@ describe('executeUnsafe', () => {
       spawn: vi.fn().mockReturnValue(errProc),
     }));
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('ruby', 'puts "hi"');
 
     expect(result.success).toBe(false);
@@ -446,7 +446,7 @@ describe('executeUnsafe', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('python', 'print("hello")');
 
     expect(result.success).toBe(true);
@@ -463,7 +463,7 @@ describe('executeUnsafe', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox.js');
+    const { executeUnsafe: freshExecUnsafe } = await import('../src/sandbox/docker.js');
     const result = await freshExecUnsafe('bash', 'echo ok');
 
     expect(result.success).toBe(true);
@@ -486,7 +486,7 @@ describe('execute', () => {
       spawn: vi.fn().mockReturnValue(runProc),
     }));
 
-    const { execute: freshExecute } = await import('../src/sandbox.js');
+    const { execute: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('python', 'print("sandboxed")', { enabled: true });
 
     expect(result.sandboxed).toBe(true);
@@ -503,7 +503,7 @@ describe('execute', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { execute: freshExecute } = await import('../src/sandbox.js');
+    const { execute: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('node', 'console.log("unsafe")', { enabled: false });
 
     expect(result.sandboxed).toBe(false);
@@ -523,7 +523,7 @@ describe('execute', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { execute: freshExecute } = await import('../src/sandbox.js');
+    const { execute: freshExecute } = await import('../src/sandbox/docker.js');
     const result = await freshExecute('node', 'console.log("fallback")');
 
     expect(result.sandboxed).toBe(false);
@@ -540,7 +540,7 @@ describe('execute', () => {
       spawn: vi.fn().mockReturnValue(proc),
     }));
 
-    const { execute: freshExecute } = await import('../src/sandbox.js');
+    const { execute: freshExecute } = await import('../src/sandbox/docker.js');
     // Partial config should be merged with defaults
     const result = await freshExecute('node', 'console.log(1)', {
       timeout: 5000,
@@ -605,7 +605,7 @@ describe('Docker argument building', () => {
       }),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     await freshExecute('python', 'print("test")');
 
     expect(capturedArgs).toContain('--rm');
@@ -632,7 +632,7 @@ describe('Docker argument building', () => {
       }),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     await freshExecute('node', 'console.log(1)', { networkEnabled: false });
 
     expect(capturedArgs).toContain('--network');
@@ -656,7 +656,7 @@ describe('Docker argument building', () => {
       }),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     await freshExecute('bash', 'echo hi', { memoryLimit: '512m', cpuLimit: '2' });
 
     expect(capturedArgs).toContain('--memory');
@@ -682,7 +682,7 @@ describe('Docker argument building', () => {
       }),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     await freshExecute('python', 'pass', { mountWorkdir: true, readOnly: true });
 
     // Should have a volume mount with :ro
@@ -708,7 +708,7 @@ describe('Docker argument building', () => {
       }),
     }));
 
-    const { executeInSandbox: freshExecute } = await import('../src/sandbox.js');
+    const { executeInSandbox: freshExecute } = await import('../src/sandbox/docker.js');
     await freshExecute('python', 'pass', { mountWorkdir: true, readOnly: false });
 
     const volArgs = capturedArgs.filter((a, i) => capturedArgs[i - 1] === '-v');

@@ -1,6 +1,7 @@
 /**
- * Extended tests for model-router.ts — edge cases in model selection,
- * fallback logic, and routing decisions.
+ * Extended tests for router.ts — complexity-based single-provider tier
+ * selection: edge cases in model selection, fallback logic, and routing
+ * decisions.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -10,8 +11,8 @@ import {
   getModelTier,
   getAllTiers,
   supportsRouting,
-} from '../src/model-router.js';
-import type { TaskComplexity, ModelTier, RouteDecision } from '../src/model-router.js';
+} from '../src/router.js';
+import type { TaskComplexity, ModelTier, RouteDecision } from '../src/router.js';
 import type { LLMProvider } from '../src/types.js';
 
 // Mock config to avoid file-system config dependency

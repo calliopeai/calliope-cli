@@ -16,13 +16,13 @@ import { getAvailableModels } from '../model-detection.js';
 import * as storage from '../storage.js';
 import * as mcp from '../mcp.js';
 import * as skills from '../skills.js';
-import * as modelRouter from '../model-router.js';
+import * as router from '../router.js';
 import * as summarization from '../summarization.js';
 import { addToScope, removeFromScope, getScopeSummary, getScopeDetails, resetScope } from '../scope.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { BreakerType } from '../circuit-breaker.js';
-import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../smart-router.js';
-import type { SmartRoutingConfig } from '../smart-router.js';
+import { smartRoute, getDefaultSmartRoutingConfig, detectTaskType } from '../router.js';
+import type { SmartRoutingConfig } from '../router.js';
 import { scuttlebotClient } from '../scuttlebot/index.js';
 import { getTerminalImageInfo, getImageModeLabel, renderAsciiArt, colorFg, renderTransition } from '../terminal-image.js';
 import { getModelContextLimit } from '../model-detection.js';
@@ -1234,10 +1234,10 @@ Example: /loop "Build a REST API" --max-iterations 50 --completion-promise "DONE
         ctx.addMessage('system', '\u2713 Auto-routing OFF - using fixed model');
       } else if (parts[1] === 'test' && parts[2]) {
         const testMsg = parts.slice(2).join(' ');
-        const decision = modelRouter.routeRequest(testMsg, ctx.actualProvider);
+        const decision = router.routeRequest(testMsg, ctx.actualProvider);
         ctx.addMessage('system', `Route test: ${decision.tier} tier (${decision.complexity})\nModel: ${decision.model.model}\nReason: ${decision.reason}\nConfidence: ${Math.round(decision.confidence * 100)}%`);
       } else {
-        const tiers = modelRouter.getAllTiers(ctx.actualProvider);
+        const tiers = router.getAllTiers(ctx.actualProvider);
         ctx.addMessage('system', `Auto-route: ${ctx.autoRoute ? 'ON' : 'OFF'}\n\nModel tiers for ${ctx.actualProvider}:\n  fast: ${tiers.fast.model}\n  balanced: ${tiers.balanced.model}\n  smart: ${tiers.smart.model}\n\nUsage: /route [on|off|test <message>]`);
       }
       break;
@@ -2391,13 +2391,11 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
         if (checkpoints.length === 0) {
           ctx.addMessage('system', filterPath
             ? `No checkpoints found for: ${filterPath}`
-            : 'No checkpoints found. Checkpoints are created automatically when files are overwritten.');
+            : 'No checkpoints found. Checkpoints are created automatically (as git commits) before destructive tool calls, and require a git repository.');
         } else {
           const list = checkpoints.slice(0, 20).map((cp, i) => {
-            const relPath = path.relative(process.cwd(), cp.filePath);
             const time = new Date(cp.timestamp).toLocaleString();
-            const size = cp.size > 1024 ? `${(cp.size / 1024).toFixed(1)}KB` : `${cp.size}B`;
-            return `  ${i}. ${relPath} (${size}) - ${time}`;
+            return `  ${i}. ${cp.hash} ${cp.subject} - ${time}`;
           }).join('\n');
           ctx.addMessage('system', `Checkpoints (newest first):\n${list}${checkpoints.length > 20 ? `\n  ... and ${checkpoints.length - 20} more` : ''}`);
         }
@@ -2412,7 +2410,7 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
     }
 
     case '/restore': {
-      const { restoreCheckpoint, listCheckpoints } = await import('../checkpoint.js');
+      const { restoreFromCheckpoint, listCheckpoints } = await import('../checkpoint.js');
       const restorePath = parts[1];
 
       if (!restorePath) {
@@ -2429,11 +2427,11 @@ Usage: /smart [on|off|cost <0-1>|test <message>]
         break;
       }
 
-      const restored = restoreCheckpoint(absRestorePath, idx);
+      const restored = restoreFromCheckpoint(absRestorePath, idx);
       if (restored !== undefined) {
         const relPath = path.relative(process.cwd(), absRestorePath);
         const cp = checkpoints[idx];
-        ctx.addMessage('system', `✓ Restored ${relPath} from checkpoint (${new Date(cp.timestamp).toLocaleString()})`);
+        ctx.addMessage('system', `✓ Restored ${relPath} from checkpoint ${cp.hash} (${new Date(cp.timestamp).toLocaleString()})`);
       } else {
         ctx.addMessage('error', `Failed to restore: checkpoint index ${idx} not found for ${restorePath}`);
       }

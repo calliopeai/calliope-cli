@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { detectTaskType, smartRoute, MODEL_STRENGTHS, getDefaultSmartRoutingConfig } from '../src/smart-router.js';
-import type { TaskType, SmartRoutingConfig } from '../src/smart-router.js';
+import { detectTaskType, smartRoute, MODEL_STRENGTHS, getDefaultSmartRoutingConfig } from '../src/router.js';
+import type { TaskType, SmartRoutingConfig } from '../src/router.js';
 
 // Mock config to control configured providers
 vi.mock('../src/config.js', () => ({
