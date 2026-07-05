@@ -14,68 +14,28 @@ import type { Mode } from '../types.js';
 // ============================================================================
 
 const BASE_SLASH_COMMANDS = [
-  '/help', '/h',
-  '/mode', '/m',
-  '/provider', '/p',
-  '/model',
-  '/models',
-  '/route',
-  '/todo',
-  '/plans',
-  '/session',
-  '/sessions',
-  '/log',
-  '/history',
-  '/context',
-  '/summarize',
-  '/clear', '/c',
-  '/copy',
-  '/export',
-  '/edit',
+  '/help',
+  '/status',
+  '/clear',
+  '/exit',
+  '/model', '/model list',
+  '/provider',
+  '/mode', '/mode plan', '/mode work',
   '/undo',
-  '/redo',
-  '/confirm',
-  '/profile',
+  '/export',
+  '/resume',
+  '/compact',
+  '/scope', '/scope add', '/scope remove',
+  '/memory',
   '/mcp',
   '/skills',
-  '/memory',
-  '/project',
-  '/find',
-  '/theme',
-  '/hooks',
-  '/search',
-  '/status', '/s',
-  '/config',
-  '/set',
-  '/layout',
-  '/density',
-  '/collapse',
-  '/scope',
-  '/add-dir',
-  '/remove-dir',
-  '/upgrade',
-  '/loop',
-  '/cancel-loop',
-  '/breakloop',
-  '/exit',
-  '/keys',
-  '/?',
-  '/queue',
-  '/flush',
-  '/debug',
-  '/unstick',
-  '/work',
-  '/plan',
-  '/resume',
-  '/emoji',
-  '/breaker', '/cb',
-  '/smart',
-  '/trust',
-  '/untrust',
-  '/checkpoint', '/cp',
+  '/config', '/config set',
+  '/setup',
+  '/trust', '/trust remove',
+  '/cost',
+  '/loop', '/loop stop',
   '/restore',
-  '/approve',
-  '/sandbox',
+  '/debug',
 ];
 
 /** Slash commands offered in completions. /fleet appears only when fleet mode is enabled. */
@@ -84,7 +44,7 @@ export const SLASH_COMMANDS: string[] = config.get('fleet')?.enabled === true
   : BASE_SLASH_COMMANDS;
 
 // Commands that take a path argument (for file tab completion)
-export const PATH_COMMANDS = ['/add-dir', '/remove-dir', '/export', '/find', '/restore'];
+export const PATH_COMMANDS = ['/export', '/restore'];
 
 // ============================================================================
 // Path Completion
@@ -165,23 +125,21 @@ export interface CommandSuggestionContext {
 }
 
 export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): string[] {
-  const { input, hasGitRepo, contextPercentage, currentMode, recentCommands } = ctx;
+  const { input, contextPercentage, currentMode, recentCommands } = ctx;
 
   if (!input.startsWith('/')) return [];
 
   const suggestions: string[] = [];
   const inputLower = input.toLowerCase();
 
-  // All available commands for matching
+  // All available commands for matching (survivors only)
   const allCommands = [
-    '/help', '/clear', '/exit', '/quit',
-    '/mode', '/work', '/plan',
-    '/provider', '/model', '/models', '/config',
-    '/scope', '/add-dir', '/remove-dir', '/find',
-    '/summarize', '/context', '/cost', '/session',
-    '/debug', '/keys', '/unstick', '/flush',
-    '/save', '/load', '/sessions',
-    '/git', '/run', '/set', '/confirm',
+    '/help', '/status', '/clear', '/exit',
+    '/model', '/provider', '/mode',
+    '/undo', '/export', '/resume', '/compact',
+    '/scope', '/memory', '/trust', '/restore',
+    '/mcp', '/skills',
+    '/config', '/setup', '/cost', '/loop', '/debug',
   ];
 
   // Context-aware prioritization
@@ -189,19 +147,14 @@ export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): strin
 
   // High context? Suggest compaction commands first
   if (contextPercentage > 70) {
-    prioritized.push('/summarize compact', '/clear');
+    prioritized.push('/compact', '/clear');
   }
 
   // Mode-specific suggestions
   if (currentMode === 'plan') {
-    prioritized.push('/mode hybrid', '/work');
+    prioritized.push('/mode hybrid', '/mode work');
   } else if (currentMode === 'work') {
-    prioritized.push('/mode hybrid', '/plan');
-  }
-
-  // Git repo? Suggest git commands
-  if (hasGitRepo) {
-    prioritized.push('/git status', '/git diff', '/git add', '/git commit');
+    prioritized.push('/mode hybrid', '/mode plan');
   }
 
   // Add recent commands (deduplicated)

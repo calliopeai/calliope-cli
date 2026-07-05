@@ -249,7 +249,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     ctx.addMessage('system', `🔄 Auto-compressed ${autoCompressResult.summarizedCount} messages using ${autoCompressResult.method} (${Math.round(autoCompressResult.originalTokens/1000)}K → ${Math.round(autoCompressResult.compressedTokens/1000)}K tokens)`);
   } else if (contextPercentage > 65) {
     ctx.addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
-   Consider: /summarize compact | /clear | shorter messages`);
+   Consider: /compact | /clear | shorter messages`);
   }
 
   // Inject failed approaches into context so the agent avoids repeating mistakes
@@ -672,12 +672,12 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
                 let planMsg = `📋 Plan: ${planTitle}\n`;
                 if (planReasoning) planMsg += `\n   ${planReasoning}\n`;
                 planMsg += '\n' + planSteps.map((s: string, idx: number) => `   ${idx + 1}. [ ] ${s}`).join('\n');
-                planMsg += '\n\n   Type /approve to execute, or provide feedback to revise.';
+                planMsg += '\n\n   Switch to work mode (Shift+Tab) and reply to execute, or give feedback to revise.';
                 ctx.addMessage('assistant', planMsg);
                 // Tell the LLM to wait for user approval
                 ctx.llmMessages.current.push({
                   role: 'tool',
-                  content: '[Plan displayed to user. Waiting for approval. The user will either type /approve to execute the plan, or provide feedback to revise it. Do NOT proceed with execution until the user approves.]',
+                  content: '[Plan displayed to user. Waiting for approval. The user will reply to approve and execute the plan (they may switch to work mode first), or provide feedback to revise it. Do NOT proceed with execution until the user approves.]',
                   toolCallId: toolCall.id,
                 });
                 // Break out of tool loop - wait for user approval
@@ -776,7 +776,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       // Suggest alternatives based on error type
       if (classified.category === 'rate_limit' || classified.category === 'server') {
         if (otherProviders.length > 0) {
-          ctx.addMessage('system', `\u{1f4a1} Try switching providers: /provider ${otherProviders[0]} or /models to see alternatives`);
+          ctx.addMessage('system', `\u{1f4a1} Try switching providers: /provider ${otherProviders[0]} or /model to see alternatives`);
         }
       } else if (classified.category === 'timeout' || classified.category === 'network') {
         ctx.addMessage('system', `\u{1f4a1} Network issue detected. Check connection and try again, or use /provider to switch.`);

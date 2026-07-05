@@ -254,7 +254,7 @@ class ScopeManager {
     return {
       allowed: false,
       reason: `Path is outside allowed scope`,
-      suggestedAction: `Use /add-dir "${path.dirname(absPath)}" to add this directory to scope`,
+      suggestedAction: `Use /scope add "${path.dirname(absPath)}" to add this directory to scope`,
     };
   }
 

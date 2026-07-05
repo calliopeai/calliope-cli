@@ -225,7 +225,7 @@ describe('classifyError (extended)', () => {
     it('should classify "context length" errors', () => {
       const result = classifyError(new Error('context length exceeded'));
       expect(result.category).toBe('invalid_request');
-      expect(result.suggestion).toContain('/summarize compact');
+      expect(result.suggestion).toContain('/compact');
     });
 
     it('should classify "token limit" errors', () => {

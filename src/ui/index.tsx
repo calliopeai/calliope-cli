@@ -38,7 +38,7 @@ import { fleetInit, fleetStatus, fleetActive, fleetStartPolling, fleetPostOnline
 // Sub-module imports
 import type {
   UIMessage, SessionStats, CollapseSettings, ThinkingState, ActivityState,
-  ConversationSnapshot, Bookmark, PromptTemplate, SessionInfo,
+  ConversationSnapshot, SessionInfo,
 } from './types.js';
 import { ErrorBoundary } from './error-boundary.js';
 import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator, StateTransition } from './components.js';
@@ -278,12 +278,6 @@ function TerminalChat() {
   const redoStack = useRef<ConversationSnapshot[]>([]);
   const MAX_UNDO_HISTORY = 10;
 
-  // Conversation bookmarks
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
-
-  // Prompt templates
-  const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-
   // Save state before changes (call before modifying messages)
   const saveUndoState = useCallback(() => {
     undoStack.current.push({
@@ -460,16 +454,6 @@ function TerminalChat() {
       });
 
 
-      // Load templates from storage
-      const savedTemplates = storage.getTemplates();
-      if (savedTemplates.length > 0) {
-        setTemplates(savedTemplates.map(t => ({
-          name: t.name,
-          prompt: t.prompt,
-          createdAt: new Date(t.createdAt),
-        })));
-      }
-
       // Pre-warm model cache in background for faster model switching
       preWarmModelCache().catch((err) => {
         debugLog('cache', 'model cache pre-warm failed:', err instanceof Error ? err.message : err);
@@ -576,14 +560,9 @@ function TerminalChat() {
   const buildCommandContext = useCallback((): CommandContext => ({
     actualProvider,
     actualModel,
-    provider,
     model,
     mode,
     confirmMode,
-    autoRoute,
-    layout,
-    density,
-    collapseSettings,
     messages,
     stats,
     loopActive,
@@ -591,46 +570,24 @@ function TerminalChat() {
     thinkingState,
     streamingResponse,
     queuedMessages,
-    bookmarks,
-    templates,
     debugEnabled,
     modalMode,
-    circuitBreaker: circuitBreakerRef.current || undefined,
-    smartRouteActive,
-    smartRoutingConfig: smartRoutingConfigRef.current,
     ledger: ledgerRef.current,
 
     setProvider,
     setModel,
     setMode,
-    setConfirmMode,
-    setAutoRoute,
-    setLayout: setLayout as (l: string) => void,
-    setDensity: setDensity as (d: string) => void,
-    setCollapseSettings,
     setMessages,
     setStats,
     setModalMode: setModalMode as (m: string) => void,
-    setPendingComplexPrompt,
     setAvailableModels,
-    setAvailableSessions,
-    setLatestVersion,
     setLoopActive,
     setLoopPrompt,
     setLoopMaxIterations,
     setLoopCompletionPromise,
     setLoopIteration,
-    setIsProcessing,
-    setThinkingState,
-    setStreamingResponse,
-    setQueuedMessages,
-    setInput: setInputValue,
-    setBookmarks,
-    setTemplates,
     setContextTokens,
     setDebugEnabled: (v: boolean) => { debugEnabled = v; },
-    setSmartRouteActive,
-    setBreakerHealth,
 
     llmMessages,
     undoStack,
@@ -640,10 +597,7 @@ function TerminalChat() {
 
     addMessage,
     estimateContextTokens,
-    saveUndoState,
-    runAgent,
     runLoop,
-    exit,
     startFleetPolling: () => {
       fleetStartPolling((instruction) => {
         if (isProcessingRef.current) {
@@ -654,10 +608,9 @@ function TerminalChat() {
       });
     },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [actualProvider, actualModel, provider, model, mode, confirmMode, autoRoute, smartRouteActive,
-       layout, density, collapseSettings, messages, stats, loopActive, isProcessing,
-       thinkingState, streamingResponse, queuedMessages, bookmarks, templates, modalMode,
-       addMessage, estimateContextTokens, saveUndoState, runAgent, runLoop, exit]);
+  }), [actualProvider, actualModel, model, mode, confirmMode, messages, stats, loopActive, isProcessing,
+       thinkingState, streamingResponse, queuedMessages, modalMode,
+       addMessage, estimateContextTokens, runLoop]);
 
   // Handle slash commands
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {

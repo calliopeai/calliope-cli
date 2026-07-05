@@ -10,7 +10,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMProvider, Mode } from '../src/types.js';
 import type { CommandContext } from '../src/ui/commands.js';
-import { IterationLedger } from '../src/iteration-ledger.js';
 
 // ---------------------------------------------------------------------------
 // Mock heavy dependencies before importing the module under test
@@ -247,12 +246,12 @@ describe('/model command — loading state and error handling', () => {
   });
 });
 
-describe('/models command — loading state and error handling', () => {
+describe('/model list command — loading state and error handling', () => {
   it('shows a loading message before the fetch', async () => {
     const ctx = makeCtx('google');
     mockGetAvailableModels.mockResolvedValueOnce([{ id: 'gemini-pro', name: 'Gemini Pro' }]);
 
-    await handleCommand('/models', ctx);
+    await handleCommand('/model list', ctx);
 
     const msgs = getMessages(ctx);
     expect(msgs[0].type).toBe('system');
@@ -263,7 +262,7 @@ describe('/models command — loading state and error handling', () => {
     const ctx = makeCtx('openai');
     mockGetAvailableModels.mockRejectedValueOnce(new Error('Network timeout'));
 
-    await handleCommand('/models', ctx);
+    await handleCommand('/model list', ctx);
 
     const msgs = getMessages(ctx);
     const errMsg = msgs.find(m => m.type === 'error');
@@ -277,7 +276,7 @@ describe('/models command — loading state and error handling', () => {
     const ctx = makeCtx('mistral');
     mockGetAvailableModels.mockResolvedValueOnce([]);
 
-    await handleCommand('/models', ctx);
+    await handleCommand('/model list', ctx);
 
     const msgs = getMessages(ctx);
     const errMsg = msgs.find(m => m.type === 'error');
@@ -297,7 +296,7 @@ describe('/loop command', () => {
     expect(ctx.setLoopMaxIterations).toHaveBeenCalledWith(Infinity);
     expect(ctx.runLoop).toHaveBeenCalledWith('keep going', Infinity, undefined);
     expect(msgs.at(-1)?.content).toMatch(/Max iterations: unlimited/i);
-    expect(msgs.at(-1)?.content).toMatch(/Use \/breakloop to stop/i);
+    expect(msgs.at(-1)?.content).toMatch(/Use \/loop stop/i);
   });
 
   it('treats --max-iterations 0 as unlimited', async () => {
@@ -322,54 +321,15 @@ describe('/loop command', () => {
     expect(msgs.at(-1)?.content).toMatch(/Loop already running/i);
   });
 
-  it('supports /breakloop as a loop cancellation alias', async () => {
+  it('supports /loop stop as a loop cancellation', async () => {
     const ctx = makeCtx('openai');
     ctx.loopActive = true;
 
-    await handleCommand('/breakloop', ctx);
+    await handleCommand('/loop stop', ctx);
 
     const msgs = getMessages(ctx);
     expect(ctx.loopCancelledRef.current).toBe(true);
     expect(ctx.setLoopActive).toHaveBeenCalledWith(false);
     expect(msgs.at(-1)?.content).toMatch(/Loop cancelled/i);
-  });
-});
-
-describe('/log command', () => {
-  it('shows a compact summary of the persisted session log', async () => {
-    const ctx = makeCtx('openai');
-    const ledger = new IterationLedger();
-    const runId = ledger.startRun('loop', 'Keep working until done', {
-      maxIterations: null,
-      completionPromise: 'DONE',
-    });
-    ledger.startIteration(ledger.getNextIterationNumber());
-    ledger.recordAction('shell', { command: 'npm test' }, 'error', 'Exit 1');
-    ledger.endIteration();
-    ledger.finishRun(runId, 'stopped', { errorSummary: 'Completion promise not met' });
-    ctx.ledger = ledger as any;
-
-    await handleCommand('/log', ctx);
-
-    const msgs = getMessages(ctx);
-    expect(msgs.at(-1)?.content).toMatch(/Session Log/);
-    expect(msgs.at(-1)?.content).toMatch(/Iterations: 1/);
-    expect(msgs.at(-1)?.content).toMatch(/Recent runs:/);
-    expect(msgs.at(-1)?.content).toMatch(/loop \[stopped\]/i);
-  });
-
-  it('resets the prompt-facing ledger state without error', async () => {
-    const ctx = makeCtx('openai');
-    const ledger = new IterationLedger();
-    ledger.startIteration(ledger.getNextIterationNumber());
-    ledger.recordAction('read_file', { path: '/tmp/a.ts' }, 'ok');
-    ledger.endIteration();
-    ctx.ledger = ledger as any;
-
-    await handleCommand('/log reset', ctx);
-
-    const msgs = getMessages(ctx);
-    expect(ledger.getEntries()).toHaveLength(0);
-    expect(msgs.at(-1)?.content).toMatch(/Session log reset/i);
   });
 });
