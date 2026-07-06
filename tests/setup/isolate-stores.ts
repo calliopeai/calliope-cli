@@ -44,3 +44,10 @@ if (!process.env.CALLIOPE_CONFIG_DIR) {
   process.env.HOME = base;
   process.env.USERPROFILE = base; // Windows CI
 }
+
+// Hermeticity: never let the AWS SDK's credential chain reach for the EC2
+// metadata endpoint (on CI runners the IMDS attempt retries past test
+// timeouts — the cause of the #214 bedrock hang). Tests that need
+// credentials set their own env explicitly.
+process.env.AWS_EC2_METADATA_DISABLED = 'true';
+process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI = '';
