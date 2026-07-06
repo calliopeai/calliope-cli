@@ -1046,13 +1046,19 @@ describe('chatOpenAI (streaming, Responses API)', () => {
     expect(result.finishReason).toBe('stop');
   });
 
-  it('collects tool calls from function_call_arguments.done events', async () => {
+  it('collects tool calls from output_item.done events', async () => {
     mockResponsesStreamEvents = [
       {
-        type: 'response.function_call_arguments.done',
-        call_id: 'call_stream_1',
-        name: 'read_file',
-        arguments: '{"path": "/tmp/file.txt"}',
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          id: 'fc_item',
+          type: 'function_call',
+          status: 'completed',
+          call_id: 'call_stream_1',
+          name: 'read_file',
+          arguments: '{"path": "/tmp/file.txt"}',
+        },
       },
       {
         type: 'response.completed',
@@ -1107,10 +1113,16 @@ describe('chatOpenAI (streaming, Responses API)', () => {
   it('handles function call with invalid JSON arguments gracefully', async () => {
     mockResponsesStreamEvents = [
       {
-        type: 'response.function_call_arguments.done',
-        call_id: 'call_bad',
-        name: 'test',
-        arguments: 'not-json',
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          id: 'fc_item',
+          type: 'function_call',
+          status: 'completed',
+          call_id: 'call_bad',
+          name: 'test',
+          arguments: 'not-json',
+        },
       },
       {
         type: 'response.completed',
@@ -1281,10 +1293,16 @@ describe('chatOpenAI (Responses API streaming, additional coverage)', () => {
   it('handles function call with missing call_id using fallback', async () => {
     mockResponsesStreamEvents = [
       {
-        type: 'response.function_call_arguments.done',
-        call_id: '',
-        name: 'test',
-        arguments: '{}',
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          id: '',
+          type: 'function_call',
+          status: 'completed',
+          call_id: '',
+          name: 'test',
+          arguments: '{}',
+        },
       },
       {
         type: 'response.completed',
@@ -1417,10 +1435,16 @@ describe('chatOpenAI (Responses API streaming, usage edge cases)', () => {
   it('handles function call with empty arguments string (fallback to {})', async () => {
     mockResponsesStreamEvents = [
       {
-        type: 'response.function_call_arguments.done',
-        call_id: 'call_empty_args',
-        name: 'test',
-        arguments: '',
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          id: 'fc_item',
+          type: 'function_call',
+          status: 'completed',
+          call_id: 'call_empty_args',
+          name: 'test',
+          arguments: '',
+        },
       },
       {
         type: 'response.completed',
@@ -1485,5 +1509,68 @@ describe('toResponsesInput (multimodal user content edge cases)', () => {
         ],
       },
     ]);
+  });
+});
+
+// ============================================================================
+// Regression #220: Responses API streaming must collect tool calls from
+// response.output_item.done — response.function_call_arguments.done carries
+// only arguments + item_id (no name, no call_id), so collecting there
+// produced nameless calls that validateLLMResponse dropped.
+// ============================================================================
+
+describe('chatOpenAIResponses streaming tool-call collection (regression #220)', () => {
+  beforeEach(() => {
+    mockResponsesStreamEvents.length = 0;
+  });
+
+  it('collects a tool call from output_item.done using real event shapes', async () => {
+    mockResponsesStreamEvents.push(
+      { type: 'response.created', response: {}, sequence_number: 0 },
+      // The real arguments.done event: NO name, NO call_id — must not be relied on
+      { type: 'response.function_call_arguments.done', arguments: '{"path":"."}', item_id: 'fc_1', output_index: 0, sequence_number: 1 },
+      { type: 'response.output_item.done', output_index: 0, sequence_number: 2, item: {
+        id: 'fc_1', type: 'function_call', status: 'completed',
+        arguments: '{"path":"."}', call_id: 'call_abc123', name: 'list_files',
+      } },
+      { type: 'response.completed', sequence_number: 3, response: { status: 'completed', usage: { input_tokens: 10, output_tokens: 5 } } },
+    );
+
+    const tokens: string[] = [];
+    const result = await chatOpenAI(
+      [{ role: 'user', content: 'list files' }],
+      [{ name: 'list_files', description: 'List files', parameters: { type: 'object', properties: {} } }],
+      'gpt-5.3-codex',
+      (t) => tokens.push(t),
+    );
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls![0].name).toBe('list_files');
+    expect(result.toolCalls![0].id).toBe('call_abc123');
+    expect(result.toolCalls![0].arguments).toEqual({ path: '.' });
+    expect(result.finishReason).toBe('tool_use');
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+  });
+
+  it('ignores non-function output items and still streams text', async () => {
+    mockResponsesStreamEvents.push(
+      { type: 'response.output_item.added', output_index: 0, sequence_number: 0, item: { type: 'message' } },
+      { type: 'response.output_text.delta', delta: 'hello', sequence_number: 1 },
+      { type: 'response.output_item.done', output_index: 0, sequence_number: 2, item: { type: 'message' } },
+      { type: 'response.completed', sequence_number: 3, response: { status: 'completed' } },
+    );
+
+    const tokens: string[] = [];
+    const result = await chatOpenAI(
+      [{ role: 'user', content: 'hi' }],
+      [],
+      'gpt-5.3-codex',
+      (t) => tokens.push(t),
+    );
+
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.content).toBe('hello');
+    expect(tokens.join('')).toBe('hello');
+    expect(result.finishReason).toBe('stop');
   });
 });
