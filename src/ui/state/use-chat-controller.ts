@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useApp } from 'ink';
 import * as config from '../../config.js';
-import { selectProvider } from '../../providers/index.js';
+import { selectProvider, ProviderUnavailableError } from '../../providers/index.js';
 import { DEFAULT_MODELS, supportsVision } from '../../types.js';
 import { getSystemPromptForProvider } from '../../local-model.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../../types.js';
@@ -102,6 +102,7 @@ export function useChatController(): ChatController {
 
   // -- Long-lived refs ------------------------------------------------------
   const isProcessingRef = useRef(false);
+  const surfacedProviderErrorRef = useRef<string | null>(null);
   const inputSubmitRef = useRef<((value: string) => void) | null>(null);
   const openProviderPickerRef = useRef<(() => void) | null>(null);
   const sessionRef = useRef<storage.Session | null>(null);
@@ -119,11 +120,31 @@ export function useChatController(): ChatController {
   useEffect(() => { isProcessingRef.current = isProcessing; }, [isProcessing]);
 
   // -- Derived --------------------------------------------------------------
-  const actualProvider = selectProvider(provider);
+  // Resolve the true serving provider. An explicitly-selected provider with no
+  // credential must NOT silently fall back (#217): keep the status bar honest
+  // (show the real, unconfigured selection — not a provider that won't serve)
+  // and surface the fix once, keeping the UI alive so the user can /setup or
+  // /config set. 'auto' with no keys degrades to 'auto' for display.
+  let actualProvider: LLMProvider;
+  let providerErrorMessage: string | undefined;
+  try {
+    actualProvider = selectProvider(provider);
+  } catch (err) {
+    providerErrorMessage = err instanceof Error ? err.message : String(err);
+    actualProvider = err instanceof ProviderUnavailableError ? err.provider : 'auto';
+  }
   const actualModel = model || DEFAULT_MODELS[actualProvider];
   const isModalActive = modal.modalMode !== 'none';
   const contextPercentage = Math.round((stats.contextTokens / getModelContextLimit(actualProvider, actualModel)) * 100);
   const resolvedBreakerHealth = config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined;
+
+  // Surface a provider-credential problem once per unique message (per session).
+  useEffect(() => {
+    if (providerErrorMessage && surfacedProviderErrorRef.current !== providerErrorMessage) {
+      surfacedProviderErrorRef.current = providerErrorMessage;
+      addMessage('system', `⚠️ ${providerErrorMessage}`);
+    }
+  }, [providerErrorMessage, addMessage]);
 
   // -- Core helpers ---------------------------------------------------------
   const handleEditQueuedMessage = useCallback((index: number, newMsg: string) => {

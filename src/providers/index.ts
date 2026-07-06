@@ -41,7 +41,50 @@ export function getAvailableProviders(): LLMProvider[] {
 }
 
 /**
- * Select the best available provider
+ * Thrown by selectProvider when an explicitly-chosen provider (i.e. not 'auto')
+ * has no usable credential. Carries the provider plus a message listing concrete
+ * fix steps. Exported so callers can catch it and surface the fix rather than
+ * crash or silently switch to a different provider (#217).
+ */
+export class ProviderUnavailableError extends Error {
+  readonly provider: LLMProvider;
+  constructor(provider: LLMProvider, message: string) {
+    super(message);
+    this.name = 'ProviderUnavailableError';
+    this.provider = provider;
+  }
+}
+
+/** Join fix clauses as "a, b, or c" (Oxford-style, single element passes through). */
+function joinFixes(parts: string[]): string {
+  if (parts.length <= 1) return parts.join('');
+  return `${parts.slice(0, -1).join(', ')}, or ${parts[parts.length - 1]}`;
+}
+
+/** Build the actionable "how to fix" message for an unconfigured provider. */
+function unavailableMessage(provider: LLMProvider): string {
+  const { apiKey, baseUrl } = config.getProviderEnvVars(provider);
+  if (provider === 'ollama' || provider === 'litellm') {
+    const fixes = ['calliope --setup', `/config set providers.${provider}.baseUrl <url>`];
+    if (baseUrl) fixes.push(`export ${baseUrl}`);
+    return `${provider} is selected but has no base URL. Fix: ${joinFixes(fixes)}.`;
+  }
+  if (provider === 'bedrock') {
+    const fixes = ['calliope --setup', 'set AWS_PROFILE or AWS_ACCESS_KEY_ID', '/config set providers.bedrock.apiKey <key>'];
+    return `bedrock is selected but has no AWS credentials. Fix: ${joinFixes(fixes)}.`;
+  }
+  const fixes = ['calliope --setup', `/config set providers.${provider}.apiKey <key>`];
+  if (apiKey) fixes.push(`export ${apiKey}`);
+  return `${provider} is selected but has no API key. Fix: ${joinFixes(fixes)}.`;
+}
+
+/**
+ * Select the provider to serve a request.
+ *
+ * An explicit provider ('anthropic', 'openai', …) is honored only if it has a
+ * usable credential; otherwise this throws ProviderUnavailableError rather than
+ * silently falling through to a different provider (#217). Only 'auto' walks the
+ * priority list and falls back.
  */
 export function selectProvider(preferred: LLMProvider): LLMProvider {
   if (preferred !== 'auto') {
@@ -54,6 +97,8 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
       const key = config.getApiKey(preferred);
       if (key) return preferred;
     }
+    // Explicitly requested but unconfigured: never silently switch providers.
+    throw new ProviderUnavailableError(preferred, unavailableMessage(preferred));
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others

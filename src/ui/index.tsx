@@ -10,8 +10,9 @@ import { useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import { render, Box } from 'ink';
 import * as config from '../config.js';
-import { selectProvider } from '../providers/index.js';
+import { selectProvider, ProviderUnavailableError } from '../providers/index.js';
 import { DEFAULT_MODELS } from '../types.js';
+import type { LLMProvider } from '../types.js';
 import { getVersion } from '../version-check.js';
 import { getCurrentSkin, paletteColorize } from '../hud/api.js';
 import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
@@ -77,7 +78,18 @@ function App() {
 
 // Print banner before Ink takes over (stays fixed at top)
 export async function printBanner(): Promise<void> {
-  const provider = selectProvider(config.get('defaultProvider'));
+  const requested = config.get('defaultProvider');
+  // Never claim a provider that won't serve (#217). If the selected provider is
+  // unconfigured, show the real selection annotated as such rather than
+  // crashing the banner or pretending a working provider.
+  let provider: LLMProvider;
+  let providerNote = '';
+  try {
+    provider = selectProvider(requested);
+  } catch (err) {
+    provider = err instanceof ProviderUnavailableError ? err.provider : requested;
+    providerNote = ' (not configured — run calliope --setup)';
+  }
   const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
   const skin = getCurrentSkin();
 
@@ -132,7 +144,7 @@ export async function printBanner(): Promise<void> {
     }
   }
 
-  console.log(`${dim}  v${getVersion()} | ${provider}:${model}${reset}`);
+  console.log(`${dim}  v${getVersion()} | ${provider}:${model}${providerNote}${reset}`);
   console.log(`${dim}  /help for commands | ESC to exit${reset}`);
   console.log();
 }

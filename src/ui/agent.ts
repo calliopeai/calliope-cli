@@ -278,6 +278,26 @@ async function maybeRepairLocalToolCalls(
 }
 
 // ============================================================================
+// Provider warnings
+// ============================================================================
+
+// Provider warnings already surfaced this process, keyed by sessionId::warning,
+// so a repeated model substitution across turns/iterations isn't shown twice
+// (#217). Non-fatal notices must be surfaced, never swallowed.
+const surfacedWarnings = new Set<string>();
+
+function surfaceResponseWarnings(ctx: AgentContext, response: LLMResponse): void {
+  if (!response.warnings?.length) return;
+  const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
+  for (const warning of response.warnings) {
+    const key = `${sessionId}::${warning}`;
+    if (surfacedWarnings.has(key)) continue;
+    surfacedWarnings.add(key);
+    ctx.addMessage('system', warning);
+  }
+}
+
+// ============================================================================
 // Run Agent
 // ============================================================================
 
@@ -505,6 +525,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       // before it surfaces as an execution error (features 2 & 3). No-op for
       // cloud providers and well-formed responses.
       response = await maybeRepairLocalToolCalls(ctx, validatedMessages, response, effectiveModel, repairedCallIds);
+
+      // Surface provider warnings (e.g. Ollama model substitution) once per
+      // unique message per session — never swallow them (#217).
+      surfaceResponseWarnings(ctx, response);
 
       // Update token stats and cost
       if (response.usage) {

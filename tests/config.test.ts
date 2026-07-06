@@ -23,6 +23,7 @@ import config, {
   setProviderCred,
   setMultiple,
   migrateV3,
+  resolveConfigCwd,
 } from '../src/config.js';
 
 // Seed a legacy (non-schema) key directly on the underlying conf store, bypassing
@@ -473,6 +474,38 @@ describe('getBaseUrl - bedrock', () => {
   it('should fall back to nested config baseUrl', () => {
     setProviderCred('bedrock', { baseUrl: 'https://bedrock.us-west-2.amazonaws.com' });
     expect(getBaseUrl('bedrock')).toBe('https://bedrock.us-west-2.amazonaws.com');
+  });
+});
+
+// ===========================================================================
+// resolveConfigCwd — the test-isolation guard (#217)
+// ===========================================================================
+
+describe('resolveConfigCwd (test-store isolation guard)', () => {
+  it('throws under Vitest when CALLIOPE_CONFIG_DIR is unset (refuses the real store)', () => {
+    expect(() => resolveConfigCwd({ VITEST: 'true' } as NodeJS.ProcessEnv))
+      .toThrow('tests must set CALLIOPE_CONFIG_DIR — refusing to touch the real config store');
+  });
+
+  it('returns the override dir when both VITEST and CALLIOPE_CONFIG_DIR are set', () => {
+    expect(resolveConfigCwd({ VITEST: 'true', CALLIOPE_CONFIG_DIR: '/tmp/iso' } as NodeJS.ProcessEnv))
+      .toBe('/tmp/iso');
+  });
+
+  it('returns undefined outside tests when the override is unset (conf uses its default)', () => {
+    expect(resolveConfigCwd({} as NodeJS.ProcessEnv)).toBeUndefined();
+  });
+
+  it('honors the override even outside Vitest', () => {
+    expect(resolveConfigCwd({ CALLIOPE_CONFIG_DIR: '/tmp/prod-override' } as NodeJS.ProcessEnv))
+      .toBe('/tmp/prod-override');
+  });
+
+  it('the live process is isolated — the guard did not throw at import (dir is set)', () => {
+    // The vitest setup (tests/setup/isolate-stores.ts) must have set the override,
+    // otherwise importing config.ts would have thrown before this suite ran.
+    expect(process.env.CALLIOPE_CONFIG_DIR).toBeTruthy();
+    expect(resolveConfigCwd()).toBe(process.env.CALLIOPE_CONFIG_DIR);
   });
 });
 

@@ -424,5 +424,9 @@ async function tryFallback(
   }
 
   debugLog(`Ollama model "${originalModel}" not found, falling back to "${fallback}"`);
-  return doChat(baseUrl, fallback, messages, tools, onToken);
+  // Substituting the model is a decision the user must see, not a silent swap
+  // (#217): attach a warning the TUI/headless surface, don't hide it.
+  const warning = `ollama: model "${originalModel}" not found — using "${fallback}" (ollama pull ${originalModel} to use it)`;
+  const response = await doChat(baseUrl, fallback, messages, tools, onToken);
+  return { ...response, warnings: [warning, ...(response.warnings ?? [])] };
 }

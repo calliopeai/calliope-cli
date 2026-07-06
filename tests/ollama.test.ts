@@ -913,6 +913,27 @@ describe('chatOllama', () => {
       // Tools should still be passed through
       expect(fallbackBody.tools).toBeDefined();
     });
+
+    it('surfaces the substitution as a warning instead of swapping models silently (#217)', async () => {
+      vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(
+        { error: 'model not found' },
+        false,
+        404
+      ) as Response);
+      vi.mocked(getOllamaFallbackModel).mockResolvedValueOnce('llama3.2:latest');
+      vi.mocked(fetch).mockResolvedValueOnce(mockFetchResponse(makeResponse()) as Response);
+
+      const result = await chatOllama(
+        [{ role: 'user', content: 'Hi' }],
+        [sampleTool],
+        'devstral:24b'
+      );
+
+      expect(result.warnings).toBeDefined();
+      expect(result.warnings).toContain(
+        'ollama: model "devstral:24b" not found — using "llama3.2:latest" (ollama pull devstral:24b to use it)'
+      );
+    });
   });
 
   // --------------------------------------------------------------------------
