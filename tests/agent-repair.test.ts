@@ -263,4 +263,17 @@ describe('local-backend tool-call repair loop', () => {
     expect(executeToolMock).toHaveBeenCalledTimes(1);
     expect(ctx.collectedMessages.some(sys('Malformed tool call'))).toBe(false);
   });
+
+  it('surfaces a provider warning (e.g. Ollama model substitution) to the transcript once (#217)', async () => {
+    // A warning string unique to this test so the per-session dedup Set (module
+    // scope) can't have been primed by another case.
+    const warning = 'ollama: model "unique-probe:99b" not found — using "llama3.2" (ollama pull unique-probe:99b to use it)';
+    chatMock.mockResolvedValueOnce({ content: 'done', toolCalls: [], finishReason: 'stop', warnings: [warning] });
+
+    const ctx = makeCtx();
+    await runAgentImpl(ctx, 'hello');
+
+    const surfaced = ctx.collectedMessages.filter(m => m.type === 'system' && m.content === warning);
+    expect(surfaced).toHaveLength(1);
+  });
 });

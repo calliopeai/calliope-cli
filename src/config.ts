@@ -100,9 +100,35 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
 };
 
+/**
+ * Resolve the directory conf stores `config.json` in, and hard-guard tests.
+ *
+ * `CALLIOPE_CONFIG_DIR` overrides conf's default per-OS config location (conf's
+ * `cwd` option). It is the single seam that lets the test suite point every
+ * config read/write at a throwaway directory instead of the user's real store.
+ *
+ * The guard is the safety net behind #217: the config test suite calls
+ * `resetConfig()` (conf's `clear()`) in beforeEach/afterEach, and under the old
+ * default path that wiped the developer's real store on every run. Under Vitest
+ * we therefore REFUSE to open the real store unless the isolation setup
+ * (tests/setup/isolate-stores.ts) has pointed CALLIOPE_CONFIG_DIR at a temp dir.
+ * Exported so the guard is unit-testable without spawning a subprocess.
+ *
+ * Outside tests with the override unset it returns `undefined`, which conf
+ * treats as "use the env-paths default" (a falsy `cwd` is ignored by conf).
+ */
+export function resolveConfigCwd(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const dir = env.CALLIOPE_CONFIG_DIR;
+  if (env.VITEST && !dir) {
+    throw new Error('tests must set CALLIOPE_CONFIG_DIR — refusing to touch the real config store');
+  }
+  return dir || undefined;
+}
+
 // Create config store
 const config = new Conf<CalliopeConfig>({
   projectName: 'calliope',
+  cwd: resolveConfigCwd(),
   defaults: DEFAULT_CONFIG,
   schema: {
     setupComplete: { type: 'boolean' },
@@ -212,6 +238,17 @@ export function setProviderCred(provider: string, patch: ProviderCred): void {
   }
   all[provider] = merged;
   config.set('providers', all);
+}
+
+/**
+ * The credential environment variable(s) a provider reads, surfaced in the
+ * "how to fix" hint when an explicitly-selected provider has no credential
+ * (see providers/index.ts ProviderUnavailableError). `region`/`profile` arrays
+ * are intentionally omitted — only the primary apiKey/baseUrl var is a hint.
+ */
+export function getProviderEnvVars(provider: string): { apiKey?: string; baseUrl?: string } {
+  const env = PROVIDER_ENV[provider] ?? {};
+  return { apiKey: env.apiKey, baseUrl: env.baseUrl };
 }
 
 /**

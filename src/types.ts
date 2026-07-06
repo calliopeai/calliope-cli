@@ -82,6 +82,9 @@ export interface LLMResponse {
     inputTokens: number;
     outputTokens: number;
   };
+  // Non-fatal notices the caller must surface, never swallow (#217). Example:
+  // Ollama substituting a fallback model when the requested one isn't pulled.
+  warnings?: string[];
 }
 
 // Default model per provider. This is the OFFLINE EMERGENCY FALLBACK only —

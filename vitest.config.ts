@@ -5,6 +5,9 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // Redirect every on-disk store (conf config + ~/.calliope-cli/*) to a
+    // per-worker throwaway dir so the suite can never touch the real store (#217).
+    setupFiles: ['tests/setup/isolate-stores.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'json-summary'],

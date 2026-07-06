@@ -182,3 +182,31 @@ describe('headless retry budget', () => {
     expect(stderrCalls.some((s: string) => s.includes('[retry'))).toBe(false);
   });
 });
+
+describe('headless surfaces provider warnings (#217)', () => {
+  const stderrLines = () => (process.stderr.write as ReturnType<typeof vi.fn>).mock.calls
+    .map((c: unknown[]) => String(c[0]));
+
+  it('emits a provider warning (model substitution) as a status event, not silence', async () => {
+    const warning = 'ollama: model "devstral:24b" not found — using "llama3.2" (ollama pull devstral:24b to use it)';
+    mockChat.mockResolvedValueOnce({ content: 'done', toolCalls: [], warnings: [warning] });
+
+    const code = await runHeadless({ prompt: 'hello', outputMode: 'text', maxRetries: 0 });
+
+    expect(code).toBe(0);
+    expect(stderrLines().some((s) => s.includes('STATUS:') && s.includes(warning))).toBe(true);
+  });
+
+  it('deduplicates a repeated warning across iterations (surfaced once)', async () => {
+    const warning = 'ollama: model "x:7b" not found — using "y" (ollama pull x:7b to use it)';
+    mockChat
+      .mockResolvedValueOnce({ content: '', toolCalls: [{ id: 't1', name: 'read_file', arguments: {} }], warnings: [warning] })
+      .mockResolvedValueOnce({ content: 'done', toolCalls: [], warnings: [warning] });
+    mockExecuteTool.mockResolvedValueOnce({ result: 'ok', isError: false });
+
+    await runHeadless({ prompt: 'hello', outputMode: 'text', maxRetries: 0 });
+
+    const warnLines = stderrLines().filter((s) => s.includes('STATUS:') && s.includes(warning));
+    expect(warnLines).toHaveLength(1);
+  });
+});

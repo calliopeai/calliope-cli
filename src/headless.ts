@@ -7,7 +7,7 @@
  */
 
 import * as config from './config.js';
-import { chat, selectProvider } from './providers/index.js';
+import { chat, selectProvider, ProviderUnavailableError } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
 import { DEFAULT_MODELS, calculateCost } from './types.js';
 import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
@@ -168,12 +168,20 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   }
 
   // Resolve the provider so 'auto' picks up a local backend correctly, then
-  // select the compact-vs-full system prompt for it (feature 5). Falls back to
-  // the raw provider if selection would throw (chat() surfaces the real error).
+  // select the compact-vs-full system prompt for it (feature 5).
+  //
+  // An explicitly-requested-but-unconfigured provider is a hard, actionable
+  // failure: print the fix to stderr and exit 2 rather than silently switching
+  // providers (#217). 'auto'-with-no-keys throws a plain Error instead — keep
+  // the old lenient fallback so chat() below surfaces that as a normal error.
   let resolvedProvider: LLMProvider;
   try {
     resolvedProvider = selectProvider(provider);
-  } catch {
+  } catch (err) {
+    if (err instanceof ProviderUnavailableError) {
+      emit({ type: 'error', timestamp: now(), data: { message: err.message } }, outputMode);
+      return 2;
+    }
     resolvedProvider = provider;
   }
   const localBackend = isLocalBackend(resolvedProvider);
@@ -196,8 +204,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     timestamp: now(),
     data: {
       message: 'Starting headless session',
-      provider: selectProvider(provider),
-      model: model || DEFAULT_MODELS[selectProvider(provider)],
+      provider: resolvedProvider,
+      model: model || DEFAULT_MODELS[resolvedProvider],
     },
   }, outputMode);
 
@@ -213,6 +221,9 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   let runOutputTokens = 0;
   let runCostUsd = 0;
   let runToolCalls = 0;
+  // Provider warnings (e.g. Ollama model substitution) surface as status events,
+  // deduped so a repeated substitution across iterations isn't emitted twice.
+  const seenWarnings = new Set<string>();
 
   runlog.runStart({
     session: sessionId,
@@ -253,6 +264,15 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       iteration++;
 
       const response = await chat(provider, messages, TOOLS, model);
+
+      // Surface provider warnings (model substitution, etc.) without hiding them.
+      if (response.warnings) {
+        for (const warning of response.warnings) {
+          if (seenWarnings.has(warning)) continue;
+          seenWarnings.add(warning);
+          emit({ type: 'status', timestamp: now(), data: { message: warning } }, outputMode);
+        }
+      }
 
       // Accumulate spend, persist it to the project ledger, and audit it.
       if (response.usage) {
