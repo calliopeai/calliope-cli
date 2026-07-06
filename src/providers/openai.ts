@@ -149,11 +149,12 @@ interface ResponsesTextDeltaEvent {
   delta: string;
 }
 
-interface ResponsesFunctionCallDoneEvent {
-  type: 'response.function_call_arguments.done';
-  call_id: string;
-  name: string;
-  arguments: string;
+interface ResponsesOutputItemDoneEvent {
+  type: 'response.output_item.done';
+  // The item carries the function name, call_id, and full arguments —
+  // response.function_call_arguments.done does NOT (it has only
+  // arguments + item_id), which is why collection must happen here.
+  item: { type: string } | ResponsesFunctionCallOutput;
 }
 
 interface ResponsesCompletedEvent {
@@ -166,7 +167,7 @@ interface ResponsesCompletedEvent {
 
 type ResponsesStreamEvent =
   | ResponsesTextDeltaEvent
-  | ResponsesFunctionCallDoneEvent
+  | ResponsesOutputItemDoneEvent
   | ResponsesCompletedEvent
   | { type: string }; // Other events we don't handle
 
@@ -309,8 +310,8 @@ function isTextDeltaEvent(event: ResponsesStreamEvent): event is ResponsesTextDe
   return event.type === 'response.output_text.delta';
 }
 
-function isFunctionCallDoneEvent(event: ResponsesStreamEvent): event is ResponsesFunctionCallDoneEvent {
-  return event.type === 'response.function_call_arguments.done';
+function isOutputItemDoneEvent(event: ResponsesStreamEvent): event is ResponsesOutputItemDoneEvent {
+  return event.type === 'response.output_item.done';
 }
 
 function isCompletedEvent(event: ResponsesStreamEvent): event is ResponsesCompletedEvent {
@@ -369,16 +370,19 @@ async function chatOpenAIResponses(
         if (isTextDeltaEvent(typedEvent)) {
           content += typedEvent.delta;
           onToken(typedEvent.delta);
-        } else if (isFunctionCallDoneEvent(typedEvent)) {
+        } else if (isOutputItemDoneEvent(typedEvent) && isFunctionCallOutput(typedEvent.item as ResponsesOutputItem)) {
+          const item = typedEvent.item as ResponsesFunctionCallOutput;
           let parsedArgs: Record<string, unknown> = {};
           try {
-            parsedArgs = JSON.parse(typedEvent.arguments || '{}');
+            parsedArgs = typeof item.arguments === 'string'
+              ? JSON.parse(item.arguments || '{}')
+              : (item.arguments as Record<string, unknown>) ?? {};
           } catch {
-            debugLog(`Failed to parse Responses API tool call arguments for ${typedEvent.name}: ${typedEvent.arguments?.substring(0, 200)}`);
+            debugLog(`Failed to parse Responses API tool call arguments for ${item.name}: ${String(item.arguments).substring(0, 200)}`);
           }
           toolCalls.push({
-            id: typedEvent.call_id || `call_${Date.now()}`,
-            name: typedEvent.name,
+            id: item.call_id || item.id || `call_${Date.now()}`,
+            name: item.name,
             arguments: parsedArgs,
           });
           finishReason = 'tool_use';
