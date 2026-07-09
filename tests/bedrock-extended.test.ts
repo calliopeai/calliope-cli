@@ -26,6 +26,17 @@ import * as fs from 'fs';
 // Mocks
 // ---------------------------------------------------------------------------
 
+// The no-credentials path shells out to the AWS CLI (twice, 10s timeout each)
+// via a dynamic import of child_process. Real spawns are nondeterministic on
+// CI runners that have the AWS CLI installed — stub them to fail instantly.
+vi.mock('child_process', () => ({
+  execFileSync: vi.fn(() => {
+    const err = new Error('spawn aws ENOENT') as NodeJS.ErrnoException;
+    err.code = 'ENOENT';
+    throw err;
+  }),
+}));
+
 vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn(),
