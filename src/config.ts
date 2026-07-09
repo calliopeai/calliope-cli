@@ -83,6 +83,12 @@ export interface CalliopeConfig {
     command?: string;
     timeoutMs?: number;  // default 5000
   };
+  // Plugin trust (#137). `devTrustLocal` names locally-edited plugins that are
+  // exempt from entry-file hash pinning (see docs/security.md). A plugin cannot
+  // add itself here — exemption is always a user-side decision.
+  plugins?: {
+    devTrustLocal?: string[];
+  };
 }
 
 const DEFAULT_CONFIG: CalliopeConfig = {
@@ -150,6 +156,7 @@ const config = new Conf<CalliopeConfig>({
     audit: { type: 'object' },
     budget: { type: 'object' },
     policy: { type: 'object' },
+    plugins: { type: 'object' },
   },
 });
 
@@ -416,6 +423,8 @@ const SURVIVOR_KEYS = new Set<string>([
   'sandboxMode', 'routing', 'sessionLogLimit',
   // Governance (#189)
   'audit', 'budget', 'policy',
+  // Plugin trust (#137)
+  'plugins',
 ]);
 
 /**

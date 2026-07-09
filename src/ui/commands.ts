@@ -687,19 +687,30 @@ Stop a running loop with /loop stop`);
     case '/skills': {
       const subCmd = parts[1];
       if (subCmd === 'list' || !subCmd) {
-        const allSkills = skills.getSkills();
-        if (allSkills.length === 0) {
+        // Show every installed skill with its trust state (#137) — including
+        // CHANGED entries that getSkills() withholds from the model.
+        const listed = skills.listSkills();
+        if (listed.length === 0) {
           ctx.addMessage('system', 'No skills installed.\n\nUsage:\n  /skills add <name>     - Install from agentskills.io\n  /skills add <github-url> - Install from GitHub\n  /skills add <path>     - Install from local directory');
         } else {
-          const list = allSkills.map(s => {
+          const list = listed.map(s => {
             const src = s.source === 'github' ? '(GitHub)' : s.source === 'registry' ? '(agentskills.io)' : '(local)';
-            return `• ${s.metadata.name} ${src}\n  ${s.metadata.description.substring(0, 80)}...`;
+            const trust =
+              s.trust === 'pinned' ? (s.fingerprint ?? 'pinned') :
+              s.trust === 'changed' ? 'CHANGED — reinstall to re-trust' :
+              'UNVERIFIED';
+            const desc = s.description ? `${s.description.substring(0, 80)}...` : '';
+            return `• ${s.name} ${src} [${trust}]\n  ${desc}`;
           }).join('\n\n');
           ctx.addMessage('system', `Installed Skills:\n\n${list}`);
         }
       } else if (subCmd === 'add' && parts[2]) {
         const source = parts[2];
         ctx.addMessage('system', `Installing skill: ${source}...`);
+        // Snapshot pinned fingerprints so a re-install can show old→new rather
+        // than re-pinning silently (#137). The remote name is only known after
+        // the fetch, so we key the lookup by the returned skill's name.
+        const priorFingerprints = new Map(skills.listSkills().map(s => [s.name, s.fingerprint]));
         try {
           let skill;
           if (source.startsWith('http')) {
@@ -710,7 +721,13 @@ Stop a running loop with /loop stop`);
             skill = await skills.installFromRegistry(source);
           }
           if (skill) {
-            ctx.addMessage('system', `✓ Installed: ${skill.metadata.name}`);
+            const prev = priorFingerprints.get(skill.metadata.name);
+            const now = skill.fingerprint ?? '(unverified)';
+            if (prev && prev !== skill.fingerprint) {
+              ctx.addMessage('system', `✓ Re-pinned ${skill.metadata.name}: ${prev} → ${now} (content updated)`);
+            } else {
+              ctx.addMessage('system', `✓ Installed ${skill.metadata.name} — pinned ${now} (trust-on-first-use)`);
+            }
           } else {
             ctx.addMessage('error', 'Failed to install skill');
           }
@@ -731,9 +748,17 @@ Stop a running loop with /loop stop`);
           if (skill.metadata.compatibility) info += `Compatibility: ${skill.metadata.compatibility}\n`;
           if (skill.metadata.license) info += `License: ${skill.metadata.license}\n`;
           if (skill.sourceUrl) info += `Source: ${skill.sourceUrl}\n`;
+          info += skill.fingerprint ? `Fingerprint: ${skill.fingerprint} (${skill.trust})\n` : 'Fingerprint: none (UNVERIFIED)\n';
           ctx.addMessage('system', info);
         } else {
-          ctx.addMessage('error', 'Skill not found');
+          // getSkill withholds a tampered skill; surface WHY, not a bare
+          // "not found", so the trust state stays visible (#137).
+          const changed = skills.listSkills().find(s => s.name === parts[2] && s.trust === 'changed');
+          if (changed) {
+            ctx.addMessage('error', `Skill "${parts[2]}" CHANGED since install (pinned ${changed.fingerprint}) — content no longer matches. Reinstall to re-trust.`);
+          } else {
+            ctx.addMessage('error', 'Skill not found');
+          }
         }
       } else {
         ctx.addMessage('system', 'Usage: /skills [list|add <source>|remove <name>|info <name>]');

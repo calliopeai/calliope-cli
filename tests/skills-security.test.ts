@@ -41,6 +41,7 @@ import {
   installFromRegistry,
   getSkill,
   getSkills,
+  listSkills,
   setSkillInstallConfirmHandler,
   uninstallSkill,
   type SkillInstallConfirmation,
@@ -52,7 +53,22 @@ import {
   type PluginTrustConfirmation,
 } from '../src/plugins.js';
 
+import * as config from '../src/config.js';
+import { RunLog, runLogPath, resolveAuditSettings } from '../src/runlog.js';
+
 const SKILLS_DIR = path.join(os.homedir(), '.calliope-cli', 'skills');
+
+/** Flush the shared `security` audit trace and return its parsed lines (#137). */
+async function readSecurityEvents(): Promise<Array<Record<string, unknown>>> {
+  await RunLog.open('security').flush();
+  const p = runLogPath('security', resolveAuditSettings().dir);
+  if (!fs.existsSync(p)) return [];
+  return fs
+    .readFileSync(p, 'utf-8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
 
 function queueHttp(...bodies: string[]): void {
   httpState.responses = bodies;
@@ -288,5 +304,313 @@ describe('#137 plugin trust gate', () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.enabled).toBe(true);
     expect(seen[0]?.reason).toBe('entry-file-changed');
+  });
+});
+
+// ===========================================================================
+// #137 — skill pin-on-install, fingerprint, and trust listing
+// ===========================================================================
+
+describe('#137 skill pin-on-install + trust listing', () => {
+  const NAME = '__sec-pin-skill__';
+  afterEach(() => cleanupSkill(NAME));
+
+  it('records a stable sha256 fingerprint on a network install (TOFU)', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: d\n---\n\n# body\n`);
+    const skill = await installFromGithub('https://github.com/u/r/tree/main/skill');
+    expect(skill!.fingerprint).toMatch(/^sha256:[0-9a-f]{12}$/);
+    expect(skill!.trust).toBe('pinned');
+
+    // The same fingerprint is re-surfaced on load.
+    const again = getSkill(NAME);
+    expect(again!.fingerprint).toBe(skill!.fingerprint);
+    expect(again!.trust).toBe('pinned');
+  });
+
+  it('pins a registry (content) install with a fingerprint', async () => {
+    queueHttp(JSON.stringify({ content: `---\nname: ${NAME}\ndescription: reg\n---\n\n# body\n` }));
+    const skill = await installFromRegistry(NAME);
+    expect(skill!.fingerprint).toMatch(/^sha256:[0-9a-f]{12}$/);
+    expect(skill!.trust).toBe('pinned');
+    expect(getSkill(NAME)!.trust).toBe('pinned');
+  });
+
+  it('pins a local skill install and lists it as pinned', () => {
+    const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-pin-local-'));
+    fs.writeFileSync(
+      path.join(srcDir, 'SKILL.md'),
+      `---\nname: ${NAME}\ndescription: local d\n---\n\n# body\n`
+    );
+    const skill = installLocalSkill(srcDir);
+    expect(skill!.trust).toBe('pinned');
+    expect(skill!.fingerprint).toMatch(/^sha256:/);
+
+    const entry = listSkills().find((s) => s.name === NAME);
+    expect(entry?.trust).toBe('pinned');
+    expect(entry?.fingerprint).toBe(skill!.fingerprint);
+
+    fs.rmSync(srcDir, { recursive: true, force: true });
+  });
+
+  it('load-verify passes repeatedly while content is unchanged', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: d\n---\n\n# body\n`);
+    await installFromGithub('https://github.com/u/r/tree/main/skill');
+    expect(getSkill(NAME)).not.toBeNull();
+    expect(getSkill(NAME)).not.toBeNull();
+    expect(listSkills().find((s) => s.name === NAME)?.trust).toBe('pinned');
+  });
+
+  it('lists a tampered skill as CHANGED instead of dropping it silently', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: d\n---\n\n# body\n`);
+    await installFromGithub('https://github.com/u/r/tree/main/skill');
+    fs.writeFileSync(
+      path.join(SKILLS_DIR, NAME, 'SKILL.md'),
+      `---\nname: ${NAME}\ndescription: hijacked\n---\n\n# evil\n`
+    );
+
+    const entry = listSkills().find((s) => s.name === NAME);
+    expect(entry?.trust).toBe('changed');
+
+    // getSkills (prompt-facing) still withholds the tampered skill.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(getSkills().find((s) => s.metadata.name === NAME)).toBeUndefined();
+    warn.mockRestore();
+  });
+});
+
+// ===========================================================================
+// #137 — skill update flow: explicit re-pin, never silent
+// ===========================================================================
+
+describe('#137 skill update flow (explicit re-pin)', () => {
+  const NAME = '__sec-update-skill__';
+  afterEach(() => cleanupSkill(NAME));
+
+  it('re-install with changed content confirms as content-changed with old→new fingerprints', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: v1\n---\n\n# one\n`);
+    const v1 = await installFromGithub('https://github.com/u/r/tree/main/skill');
+
+    const seen: SkillInstallConfirmation[] = [];
+    setSkillInstallConfirmHandler((info) => { seen.push(info); return true; });
+
+    queueHttp(`---\nname: ${NAME}\ndescription: v2\n---\n\n# two changed\n`);
+    const v2 = await installFromGithub('https://github.com/u/r/tree/main/skill');
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].reason).toBe('content-changed');
+    expect(seen[0].previousFingerprint).toBe(v1!.fingerprint);
+    expect(seen[0].fingerprint).toBe(v2!.fingerprint);
+    expect(v2!.fingerprint).not.toBe(v1!.fingerprint);
+    // The new content is what loads now.
+    expect(getSkill(NAME)!.metadata.description).toBe('v2');
+  });
+
+  it('a declined content-change leaves the original pin intact (no silent re-pin)', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: v1\n---\n\n# one\n`);
+    const v1 = await installFromGithub('https://github.com/u/r/tree/main/skill');
+
+    // Approve first-install but reject content-changes.
+    setSkillInstallConfirmHandler((info) => info.reason !== 'content-changed');
+
+    queueHttp(`---\nname: ${NAME}\ndescription: v2\n---\n\n# two\n`);
+    await expect(
+      installFromGithub('https://github.com/u/r/tree/main/skill')
+    ).rejects.toThrow(/declined/);
+
+    // Still pinned to v1: content and fingerprint unchanged.
+    const cur = getSkill(NAME);
+    expect(cur!.metadata.description).toBe('v1');
+    expect(cur!.fingerprint).toBe(v1!.fingerprint);
+  });
+
+  it('re-install with identical content is not treated as a change', async () => {
+    const body = `---\nname: ${NAME}\ndescription: same\n---\n\n# same\n`;
+    queueHttp(body);
+    const v1 = await installFromGithub('https://github.com/u/r/tree/main/skill');
+
+    const seen: SkillInstallConfirmation[] = [];
+    setSkillInstallConfirmHandler((info) => { seen.push(info); return true; });
+    queueHttp(body);
+    const v1b = await installFromGithub('https://github.com/u/r/tree/main/skill');
+
+    expect(seen[0].reason).toBe('first-install');
+    expect(v1b!.fingerprint).toBe(v1!.fingerprint);
+  });
+});
+
+// ===========================================================================
+// #137 — skill integrity audit (policy_event)
+// ===========================================================================
+
+describe('#137 skill integrity audit', () => {
+  const NAME = '__sec-audit-skill__';
+  afterEach(() => cleanupSkill(NAME));
+
+  it('emits a deny policy_event when a tampered skill is refused at load', async () => {
+    queueHttp(`---\nname: ${NAME}\ndescription: d\n---\n\n# body\n`);
+    await installFromGithub('https://github.com/u/r/tree/main/skill');
+    fs.writeFileSync(
+      path.join(SKILLS_DIR, NAME, 'SKILL.md'),
+      `---\nname: ${NAME}\ndescription: hijacked\n---\n\n# evil\n`
+    );
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(getSkill(NAME)).toBeNull();
+    warn.mockRestore();
+
+    const mine = (await readSecurityEvents()).filter(
+      (e) => e.type === 'policy_event' && e.tool === `skill:${NAME}`
+    );
+    expect(mine.length).toBeGreaterThanOrEqual(1);
+    expect(mine[mine.length - 1].decision).toBe('deny');
+    expect(mine[mine.length - 1].source).toBe('integrity');
+  });
+});
+
+// ===========================================================================
+// #137 — plugin dev exemption, trust listing, and integrity audit
+// ===========================================================================
+
+describe('#137 plugin trust state, listing, dev exemption + audit', () => {
+  let tmpRoot: string;
+  let pluginsDir: string;
+  let origDir: string;
+
+  function makePlugin(name: string, indexJs: string): void {
+    const dir = path.join(pluginsDir, name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'plugin.json'),
+      JSON.stringify({ name, version: '1.0.0', description: 'dev/trust test' })
+    );
+    fs.writeFileSync(path.join(dir, 'index.js'), indexJs);
+  }
+
+  beforeEach(() => {
+    tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-plugin-trust-'));
+    pluginsDir = path.join(tmpRoot, 'plugins');
+    fs.mkdirSync(pluginsDir, { recursive: true });
+    origDir = (pluginManager as any).pluginsDir;
+    (pluginManager as any).pluginsDir = pluginsDir;
+    (pluginManager as any).plugins.clear();
+    setPluginTrustConfirmHandler(null);
+    delete process.env.CALLIOPE_PLUGIN_DEV;
+    config.set('plugins', {});
+  });
+
+  afterEach(() => {
+    delete process.env.CALLIOPE_PLUGIN_DEV;
+    config.set('plugins', {});
+    setPluginTrustConfirmHandler(null);
+    (pluginManager as any).pluginsDir = origDir;
+    (pluginManager as any).plugins.clear();
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it('pins a normal plugin and is not dev-exempt by default', () => {
+    makePlugin('plain-plugin', `module.exports = { tools: [] };`);
+    expect(pluginManager.getPluginTrustState('plain-plugin').trust).toBe('unverified');
+  });
+
+  it('CALLIOPE_PLUGIN_DEV exempts a live-edited plugin from re-trust', async () => {
+    process.env.CALLIOPE_PLUGIN_DEV = '1';
+    makePlugin('dev-plugin', `module.exports = { tools: [] };`);
+
+    const first = await pluginManager.loadPlugin('dev-plugin');
+    expect(first).not.toBeNull();
+    expect(pluginManager.getPluginTrustState('dev-plugin').trust).toBe('dev');
+
+    // Edit the entry file: a pinned plugin would refuse; a dev plugin reloads.
+    fs.writeFileSync(
+      path.join(pluginsDir, 'dev-plugin', 'index.js'),
+      `module.exports = { tools: [], metadata: { description: 'edited' } };`
+    );
+    (pluginManager as any).plugins.clear();
+    const second = await pluginManager.loadPlugin('dev-plugin');
+    expect(second).not.toBeNull();
+    expect(second!.enabled).toBe(true);
+
+    // No pin is written for an exempted plugin.
+    expect(fs.existsSync(path.join(pluginsDir, 'trust.json'))).toBe(false);
+  });
+
+  it('plugins.devTrustLocal config exempts only the named plugin', async () => {
+    config.set('plugins', { devTrustLocal: ['listed-dev'] });
+    makePlugin('listed-dev', `module.exports = { tools: [] };`);
+    makePlugin('other-plugin', `module.exports = { tools: [] };`);
+
+    expect(pluginManager.getPluginTrustState('listed-dev').trust).toBe('dev');
+    expect(pluginManager.getPluginTrustState('other-plugin').trust).toBe('unverified');
+
+    const loaded = await pluginManager.loadPlugin('listed-dev');
+    expect(loaded).not.toBeNull();
+  });
+
+  it('a plugin cannot exempt itself via its own manifest', () => {
+    // A self-declared `dev` field in plugin.json must not grant exemption.
+    const dir = path.join(pluginsDir, 'sneaky');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'plugin.json'),
+      JSON.stringify({ name: 'sneaky', version: '1.0.0', description: 'x', dev: true, devTrustLocal: ['sneaky'] })
+    );
+    fs.writeFileSync(path.join(dir, 'index.js'), `module.exports = { tools: [] };`);
+
+    expect(pluginManager.getPluginTrustState('sneaky').trust).toBe('unverified');
+  });
+
+  it('shows the pinned fingerprint for a loaded plugin in the listing', async () => {
+    makePlugin('listed', `module.exports = { tools: [] };`);
+    await pluginManager.loadPlugin('listed');
+
+    const state = pluginManager.getPluginTrustState('listed');
+    expect(state.trust).toBe('pinned');
+    expect(state.fingerprint).toMatch(/^sha256:/);
+
+    const formatted = pluginManager.getPluginListFormatted();
+    expect(formatted).toContain('listed');
+    expect(formatted).toContain(state.fingerprint!);
+  });
+
+  it('reports a changed-but-present plugin as CHANGED in the listing', async () => {
+    makePlugin('mutant', `module.exports = { tools: [] };`);
+    await pluginManager.loadPlugin('mutant');
+
+    // Tamper and drop from the loaded set, as a fresh session would.
+    fs.writeFileSync(
+      path.join(pluginsDir, 'mutant', 'index.js'),
+      `module.exports = { init: async () => {} };`
+    );
+    (pluginManager as any).plugins.clear();
+
+    expect(pluginManager.getPluginTrustState('mutant').trust).toBe('changed');
+    const formatted = pluginManager.getPluginListFormatted();
+    expect(formatted).toContain('mutant');
+    expect(formatted).toContain('CHANGED');
+  });
+
+  it('emits a deny policy_event when a changed plugin is refused at load', async () => {
+    makePlugin('audited-plugin', `module.exports = { tools: [] };`);
+    await pluginManager.loadPlugin('audited-plugin');
+
+    fs.writeFileSync(
+      path.join(pluginsDir, 'audited-plugin', 'index.js'),
+      `module.exports = { init: async () => { globalThis.__SEC_AUDIT = true; } };`
+    );
+    (globalThis as any).__SEC_AUDIT = false;
+    (pluginManager as any).plugins.clear();
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const second = await pluginManager.loadPlugin('audited-plugin');
+    warn.mockRestore();
+
+    expect(second).toBeNull();
+    expect((globalThis as any).__SEC_AUDIT).toBe(false);
+
+    const mine = (await readSecurityEvents()).filter(
+      (e) => e.type === 'policy_event' && e.tool === 'plugin:audited-plugin'
+    );
+    expect(mine.length).toBeGreaterThanOrEqual(1);
+    expect(mine[mine.length - 1].source).toBe('integrity');
   });
 });
