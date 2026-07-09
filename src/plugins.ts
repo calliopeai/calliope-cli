@@ -10,6 +10,19 @@ import * as path from 'path';
 import * as os from 'os';
 import * as crypto from 'crypto';
 import type { Tool, ToolCall, ToolResult } from './types.js';
+import * as config from './config.js';
+import { auditIntegrityViolation } from './runlog.js';
+
+/** Short, human-comparable fingerprint of a full sha256 hex digest (#137). */
+function fingerprint(hash: string): string {
+  return `sha256:${hash.slice(0, 12)}`;
+}
+
+/** Blanket local-dev mode via env: exempts every plugin from hash pinning (#137). */
+function isPluginDevEnvEnabled(): boolean {
+  const v = process.env.CALLIOPE_PLUGIN_DEV;
+  return v === '1' || v === 'true' || v === 'yes';
+}
 
 // ============================================================================
 // Types
@@ -69,6 +82,15 @@ export interface PluginTrustConfirmation {
   reason: 'first-load' | 'entry-file-changed';
 }
 
+/**
+ * Trust state of an installed plugin's entry file relative to its pinned hash (#137).
+ *  - `pinned`     — index.js matches the recorded hash.
+ *  - `changed`    — hash recorded but index.js no longer matches (refused at load).
+ *  - `unverified` — no hash recorded yet.
+ *  - `dev`        — user-exempted local dev plugin (not pinned by design).
+ */
+export type PluginTrust = 'pinned' | 'changed' | 'unverified' | 'dev';
+
 // ============================================================================
 // Plugin Manager
 // ============================================================================
@@ -125,16 +147,41 @@ class PluginManager {
   }
 
   /**
+   * Whether a plugin is a user-trusted local dev plugin, exempt from entry-file
+   * hash pinning (#137). Exemption is ALWAYS a user-side decision — the blanket
+   * `CALLIOPE_PLUGIN_DEV` env flag or a `plugins.devTrustLocal` config allowlist.
+   * A plugin can never mark itself exempt through its own manifest.
+   */
+  private isDevTrustExempt(name: string): boolean {
+    if (isPluginDevEnvEnabled()) return true;
+    try {
+      const cfg = config.get('plugins') as { devTrustLocal?: string[] } | undefined;
+      return Array.isArray(cfg?.devTrustLocal) && cfg.devTrustLocal.includes(name);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Gate a plugin load behind trust-on-first-use + hash re-verification (#137).
    * Returns true if the plugin may be imported/executed.
    *
+   * - Dev-exempt (user opt-in): load without pinning.
    * - First time seen: record the hash. If a trust handler is set, ask it;
    *   with no handler, trust-on-first-use (backward compatible).
    * - Seen before, hash matches: allow silently.
    * - Seen before, hash changed: require confirmation. With no handler, refuse
-   *   (do not silently run changed code).
+   *   (do not silently run changed code) and audit the refusal.
    */
   private async checkPluginTrust(name: string, indexPath: string, manifest: PluginMetadata): Promise<boolean> {
+    // Locally-edited dev plugins the user explicitly trusts are exempt from
+    // pinning, so an actively-changing entry file is not re-confirmed on every
+    // edit. Never silent: still announce that the plugin is unverified (#137).
+    if (this.isDevTrustExempt(name)) {
+      console.log(`Plugin ${name}: loaded as trusted-local dev plugin (unverified — hash not pinned)`);
+      return true;
+    }
+
     const store = this.loadTrustStore();
     const currentHash = this.hashFile(indexPath);
     const known = store[name];
@@ -158,14 +205,74 @@ class PluginManager {
         return false;
       }
     } else if (known) {
-      // Entry file changed and we cannot prompt — refuse rather than run silently.
+      // Entry file changed and we cannot prompt — refuse rather than run silently,
+      // and record the tamper in the audit trail (#137).
       console.warn(`Plugin ${name}: index.js changed since last load — refusing to load (re-trust required)`);
+      auditIntegrityViolation(
+        `plugin:${name}`,
+        'index.js changed since last trusted load — refusing to load (re-trust required)',
+      );
       return false;
     }
 
+    // Pin (or re-pin) the entry file. Surface the fingerprint so both
+    // trust-on-first-use and an approved re-trust are visible, never silent.
+    if (known) {
+      console.log(
+        `Plugin ${name}: re-trusted — entry-file fingerprint ${fingerprint(known.hash)} → ${fingerprint(currentHash)}`,
+      );
+    } else {
+      console.log(`Plugin ${name}: trusted on first use — entry-file fingerprint ${fingerprint(currentHash)}`);
+    }
     store[name] = { hash: currentHash };
     this.saveTrustStore(store);
     return true;
+  }
+
+  /**
+   * Trust state of a plugin's entry file relative to its pinned hash (#137), for
+   * the listing surface. Reads disk only — never imports plugin code.
+   */
+  getPluginTrustState(name: string): { trust: PluginTrust; fingerprint?: string } {
+    if (this.isDevTrustExempt(name)) return { trust: 'dev' };
+    const known = this.loadTrustStore()[name];
+    if (!known) return { trust: 'unverified' };
+    let current: string | undefined;
+    try {
+      current = this.hashFile(path.join(this.pluginsDir, name, 'index.js'));
+    } catch {
+      current = undefined;
+    }
+    return current === known.hash
+      ? { trust: 'pinned', fingerprint: fingerprint(known.hash) }
+      : { trust: 'changed', fingerprint: fingerprint(known.hash) };
+  }
+
+  /**
+   * Names of plugins present on disk whose pinned hash no longer matches their
+   * entry file and that are not currently loaded — i.e. refused at load time
+   * because the code changed. Surfaced in the listing so a "vanished" plugin is
+   * explained rather than silently missing (#137).
+   */
+  private getChangedPluginDirs(): string[] {
+    if (!fs.existsSync(this.pluginsDir)) return [];
+    const store = this.loadTrustStore();
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(this.pluginsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const name = entry.name;
+      if (this.plugins.has(name) || this.isDevTrustExempt(name)) continue;
+      const known = store[name];
+      if (!known) continue;
+      let current: string | undefined;
+      try {
+        current = this.hashFile(path.join(this.pluginsDir, name, 'index.js'));
+      } catch {
+        current = undefined;
+      }
+      if (current !== known.hash) out.push(name);
+    }
+    return out;
   }
 
   /**
@@ -594,8 +701,11 @@ module.exports = {
    */
   getPluginListFormatted(): string {
     const plugins = this.getPlugins();
-    
-    if (plugins.length === 0) {
+    // Plugins whose code changed refuse to load, so they are absent from the
+    // loaded set — list them explicitly so the trust state is visible (#137).
+    const changed = this.getChangedPluginDirs();
+
+    if (plugins.length === 0 && changed.length === 0) {
       return `No plugins installed.
 
 To create a plugin:
@@ -605,13 +715,18 @@ Plugins directory: ${this.pluginsDir}`;
     }
 
     const lines = ['Installed Plugins:', ''];
-    
+
     for (const p of plugins) {
       const status = p.error ? '❌' : p.enabled ? '✅' : '⏸️';
       const version = p.plugin.metadata.version;
       const toolCount = p.plugin.tools?.length || 0;
-      
-      lines.push(`${status} ${p.id} v${version}`);
+      const t = this.getPluginTrustState(p.id);
+      const trustLabel =
+        t.trust === 'pinned' ? t.fingerprint! :
+        t.trust === 'dev' ? 'dev, unverified' :
+        t.trust.toUpperCase();
+
+      lines.push(`${status} ${p.id} v${version}  [${trustLabel}]`);
       lines.push(`   ${p.plugin.metadata.description}`);
       if (toolCount > 0) {
         lines.push(`   Tools: ${p.plugin.tools!.map(t => t.name).join(', ')}`);
@@ -619,6 +734,12 @@ Plugins directory: ${this.pluginsDir}`;
       if (p.error) {
         lines.push(`   Error: ${p.error}`);
       }
+      lines.push('');
+    }
+
+    for (const name of changed) {
+      lines.push(`⚠️  ${name}  [CHANGED]`);
+      lines.push('   Entry file changed since it was trusted — refusing to load. Reinstall or re-trust to load again.');
       lines.push('');
     }
 
