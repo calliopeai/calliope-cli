@@ -232,7 +232,11 @@ File references: @filename, ./path, /absolute/path`;
           break;
         }
         ctx.setProvider(requested);
-        ctx.addMessage('system', `Provider: ${selectProvider(requested)}`);
+        // Explicit switches persist as the new defaults; a stale model from
+        // the previous provider must not leak into this one (#233).
+        config.set('defaultProvider', requested);
+        config.unset('defaultModel');
+        ctx.addMessage('system', `Provider: ${selectProvider(requested)} (saved as default)`);
       } else if (parts[1] === 'list') {
         ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
       } else if (ctx.openProviderPicker) {
@@ -254,6 +258,7 @@ File references: @filename, ./path, /absolute/path`;
         const newPct = Math.round((currentTokens / newLimit) * 100);
 
         ctx.setModel(newModel);
+        config.set('defaultModel', newModel);
         ctx.setContextTokens(currentTokens);
 
         let switchWarning = '';
@@ -262,7 +267,7 @@ File references: @filename, ./path, /absolute/path`;
         } else if (newLimit < oldLimit) {
           switchWarning = `\n📉 Context window: ${Math.round(oldLimit/1000)}K → ${Math.round(newLimit/1000)}K (${newPct}% used)`;
         }
-        ctx.addMessage('system', `Model: ${oldModel} → ${newModel}${switchWarning}`);
+        ctx.addMessage('system', `Model: ${oldModel} → ${newModel} (saved as default)${switchWarning}`);
       } else {
         // No arg or `list`: open the model picker (absorbs the old /models listing)
         ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);

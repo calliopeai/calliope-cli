@@ -283,6 +283,10 @@ export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfi
 /**
  * Set multiple config values with validation
  */
+export function unset(key: keyof CalliopeConfig): void {
+  (config as unknown as { delete(k: string): void }).delete(key as string);
+}
+
 export function setMultiple(values: Partial<CalliopeConfig>): void {
   // Validate all values first before setting any
   for (const [key, value] of Object.entries(values)) {

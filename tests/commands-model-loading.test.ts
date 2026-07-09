@@ -29,6 +29,7 @@ vi.mock('../src/config.js', () => ({
   default: {},
   get: vi.fn(),
   set: vi.fn(),
+  unset: vi.fn(),
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
   getConfiguredProviders: vi.fn(() => []),
@@ -369,5 +370,32 @@ describe('/config set — nested routing keys', () => {
 
     expect(config.set).not.toHaveBeenCalled();
     expect(getMessages(ctx).at(-1)?.content).toMatch(/between 0 and 1/);
+  });
+});
+
+describe('model/provider persistence (#233)', () => {
+  it('persists defaultModel on explicit /model switch', async () => {
+    const config = await import('../src/config.js');
+    const ctx = makeCtx();
+    await handleCommand('/model gpt-5.3-codex', ctx);
+    expect(vi.mocked(config.set)).toHaveBeenCalledWith('defaultModel', 'gpt-5.3-codex');
+  });
+
+  it('persists defaultProvider and clears defaultModel on /provider switch', async () => {
+    const config = await import('../src/config.js');
+    const providers = await import('../src/providers/index.js');
+    vi.mocked(providers.getAvailableProviders).mockReturnValue(['google'] as never);
+    const ctx = makeCtx();
+    await handleCommand('/provider google', ctx);
+    expect(vi.mocked(config.set)).toHaveBeenCalledWith('defaultProvider', 'google');
+    expect(vi.mocked(config.unset)).toHaveBeenCalledWith('defaultModel');
+  });
+
+  it('persists nothing on /model list', async () => {
+    const config = await import('../src/config.js');
+    vi.mocked(config.set).mockClear();
+    const ctx = makeCtx();
+    await handleCommand('/model list', ctx);
+    expect(vi.mocked(config.set)).not.toHaveBeenCalledWith('defaultModel', expect.anything());
   });
 });
