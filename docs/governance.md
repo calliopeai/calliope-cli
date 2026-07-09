@@ -10,6 +10,7 @@ are opt-in via config.
 
 - [Audit run logs](#audit-run-logs)
 - [Replay](#replay)
+- [Cost reporting](#cost-reporting)
 - [Budget caps](#budget-caps)
 - [Policy hook](#policy-hook)
 - [Exit codes](#exit-codes)
@@ -130,6 +131,47 @@ This makes `replay` usable as a CI integrity gate:
 ```bash
 calliope replay "$SESSION_ID" >/dev/null || echo "audit trail failed verification"
 ```
+
+---
+
+## Cost reporting
+
+Summarize where spend and tool time went across the run logs. Like `replay`, it
+is read-only and reuses the same run-log parsing and hash-chain verification; it
+adds no config and no dependencies.
+
+```bash
+calliope cost                        # table across all sessions, sorted by cost
+calliope cost <sessionId>            # per-run + tool-timeline drill-down
+calliope cost --json                 # machine-readable (both surfaces)
+calliope cost --dir ./runs           # report over a different runs dir
+```
+
+The default runs dir is `audit.dir` (`~/.calliope-cli/runs`); `--dir` overrides
+it. Spend, tokens, and run counts are read from each session's `run_end`
+`totals`; the tool timeline pairs each `tool_call` with its `tool_result` by
+`id` for per-call durations.
+
+```
+$ calliope cost
+Cost report — 3 sessions · ~/.calliope-cli/runs
+
+SESSION                       DATE        PROVIDER/MODEL           RUNS  TOP TOOLS                               TOKENS IN/OUT  COST
+────────────────────────────  ──────────  ───────────────────────  ────  ──────────────────────────────────────  ─────────────  ─────────
+session_1783462600102_zdilt3  2026-07-07  openai/gpt-5.3-codex +1  4     list_files(4), read_file(2), git(1)     19877/1765     $0.025172
+session_1783561867813_ge2r03  2026-07-09  openai/gpt-5.3-codex     2     read_file(3), glob(2), ask_question(1)  15982/552      $0.017638
+session_1783306445420_lfvraz  2026-07-06  openai/gpt-5.5-pro +2    5     —                                       5243/792       $0.007619
+────────────────────────────  ──────────  ───────────────────────  ────  ──────────────────────────────────────  ─────────────  ─────────
+GRAND TOTAL                                                        11                                            41102/3109     $0.050429
+```
+
+When a session used more than one model, the most recent model is shown with a
+`+N` count of the others. **Chain verification stays [`replay`](#replay)'s job**
+(`replay` exits `4` on a break): `cost` does not fail on a tampered trace — it
+annotates that session's row with `CHAIN BROKEN` (and `chainOk: false` in
+`--json`) and still counts it, so a broken session is never silently dropped
+from the totals. The report exits `0`; `1` is reserved for a bad flag or an
+unknown session id.
 
 ---
 
@@ -254,7 +296,7 @@ changes to Calliope.
 
 | Code | Where | Meaning |
 |------|-------|---------|
-| `0` | headless / replay | success / trace verified ok |
-| `1` | headless / replay | error / trace not found or unreadable |
+| `0` | headless / replay / cost | success / trace verified ok / report printed |
+| `1` | headless / replay / cost | error / trace not found or unreadable / unknown session id |
 | `3` | headless | halted by a budget cap |
 | `4` | replay | hash chain broken |

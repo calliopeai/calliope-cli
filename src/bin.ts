@@ -168,6 +168,15 @@ async function main(): Promise<void> {
     process.exit(code);
   }
 
+  // Handle `cost` subcommand — spend + tool-usage report over the audit run
+  // logs. Read-only sibling of `replay`, loaded lazily so the default path pays
+  // nothing for it, and it runs before the setup/TUI gates (needs no provider).
+  if (args[0] === 'cost') {
+    const { runCost } = await import('./cost.js');
+    const code = await runCost(args.slice(1));
+    process.exit(code);
+  }
+
   // Handle `acp` subcommand — run as an Agent Client Protocol agent over stdio
   // JSON-RPC (Zed, JetBrains, Neovim, …). Runs before the setup/TUI gates and
   // never touches Ink: stdio carries the protocol, so an interactive prompt
@@ -318,6 +327,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 ${bold('USAGE')}
   calliope [options] [prompt]
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
+  calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)
 
 ${bold('OPTIONS')}
