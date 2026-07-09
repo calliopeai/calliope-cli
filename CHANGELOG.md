@@ -1,11 +1,37 @@
 # Changelog
 
-## 3.0.0-alpha.1 — 2026-07-04
+## 3.0.0 — 2026-07-09
 
 v3 is a deliberate reduction. The goal: a fast, predictable, maintainable
 agent CLI with a small core and no lock-in — the best harness for models you
 run yourself. Roughly 70% of the v2 surface was removed; everything that
 stayed is tested (93%+ line coverage, 90% floor enforced).
+
+### Added
+
+- **Single-binary distribution** — cross-compiled binaries for macOS
+  (arm64/x64) and Linux (x64/arm64), built on every release with checksums;
+  `packaging/install.sh` and a Homebrew formula. Cold start: 75ms median.
+- **Performance budgets in CI** — every PR gates on cold start, keystroke
+  latency (p95 2.5ms measured vs 16ms budget), and long-session memory
+  flatness (`npm run bench`).
+- **Local-model excellence** — schema simplification, a one-round
+  repair loop with grammar-constrained retries, hash-anchored edits,
+  a compact prompt profile, and capability probing for Ollama and
+  OpenAI-compatible servers. Verified live against gemma4:31b.
+- **Governance** — tamper-evident audit run logs (hash-chained JSONL, on by
+  default, secrets redacted), `calliope replay` with chain verification
+  (exit 4 on tampering), `calliope cost` spend/tool reporting, per-run and
+  per-project budget caps (headless exit 3), and a fail-closed pre-tool
+  policy hook for external engines.
+- **ACP agent mode** — `calliope acp` speaks the Agent Client Protocol over
+  stdio for Zed/JetBrains/Neovim, with editor-buffer file access.
+- **Evidence-based agent behavior** — plan mode requires reading before
+  proposing (unverified plans are marked in the transcript), and the
+  plan-to-work transition binds terse approvals to execution.
+- **Config that survives** — `/model` and `/provider` selections persist;
+  credentials migrate automatically from v2; a global
+  `~/.config/calliope/cli.env` joins the env-file load order.
 
 ### Removed
 
@@ -58,13 +84,11 @@ stayed is tested (93%+ line coverage, 90% floor enforced).
   command, unreferenced config keys, an 8-way layout switch whose branches
   rendered identically.
 
-### Coming in 3.0.0 stable
+### Notes
 
-Single-binary distribution (brew/curl, no Node required), enforced
-performance budgets (cold start, keystroke latency, flat long-session
-memory), and UI rendering rework. After that: local-model edit-reliability
-hardening and governance primitives (replayable run logs, budget caps,
-audit trail).
+The removals were shipped and validated across a three-day live-testing
+cycle that itself produced six of the fixes above — including two cases
+where the audit log caught an agent claiming work it had not done.
 
 ---
 
