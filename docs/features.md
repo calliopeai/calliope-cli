@@ -86,6 +86,12 @@ are stored under `~/.calliope-cli/`.
 /skills add https://github.com/org/skill
 ```
 
+Installed skills and plugins are pinned by content hash and re-verified on every
+load — a trust-on-first-use integrity gate that refuses to run an artifact whose
+content changed since you accepted it. `/skills` shows each entry's fingerprint
+or a `CHANGED` / `UNVERIFIED` marker. See [security](./security.md) for the trust
+model and its limits.
+
 ## Hooks (file-driven)
 
 Run shell commands on lifecycle events — `pre-tool` / `post-tool`,

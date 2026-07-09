@@ -484,6 +484,41 @@ export class RunLog {
 }
 
 /**
+ * Record a supply-chain integrity violation (#137) as a `policy_event` in a
+ * dedicated `security` audit trace. Called when an installed skill or plugin
+ * fails hash re-verification at load time: the artifact is refused AND the
+ * tamper is surfaced in the audit trail, so it is not lost to a transient
+ * console warning that scrolls away.
+ *
+ * `subject` identifies the artifact (e.g. `skill:foo`, `plugin:bar`). Self-gates
+ * on the audit setting: when audit is disabled the underlying RunLog no-ops, so
+ * "log a policy_event if audit is on" needs no extra branch at the call site.
+ * Never throws — auditing must never break the load path it observes.
+ *
+ * Returns the RunLog so callers/tests can await `.flush()`, or null if the
+ * trace could not be opened.
+ */
+export function auditIntegrityViolation(
+  subject: string,
+  reason: string,
+  overrides: Partial<AuditSettings> = {},
+): RunLog | null {
+  try {
+    const log = RunLog.open('security', overrides);
+    log.policyEvent({
+      tool: subject,
+      decision: 'deny',
+      source: 'integrity',
+      reason,
+      durationMs: 0,
+    });
+    return log;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Clear the in-memory instance cache (tests only). Does not touch disk.
  */
 export function resetRunLogs(): void {
