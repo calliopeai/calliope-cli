@@ -403,8 +403,8 @@ export class CircuitBreaker {
     if (thresholds.detectOscillation && history.length >= 4) {
       const recent = history.slice(-4);
       if (recent[0] === recent[2] && recent[1] === recent[3] && recent[0] !== recent[1]) {
-        const toolA = recent[0].split(':')[0];
-        const toolB = recent[1].split(':')[0];
+        const toolA = recent[0]!.split(':')[0];
+        const toolB = recent[1]!.split(':')[0];
         return this.trip(type,
           `Oscillation detected: "${toolA}" and "${toolB}" alternating repeatedly.`,
           { pattern: 'A-B-A-B', toolA, toolB },

@@ -169,19 +169,19 @@ function parseTextToolCalls(content: string): { toolCalls: ToolCall[]; cleanCont
 
   let match;
   while ((match = xmlPattern.exec(content)) !== null) {
-    const name = match[1];
-    const body = match[2];
+    const name = match[1]!;
+    const body = match[2]!;
     const args: Record<string, unknown> = {};
 
     let paramMatch;
     paramPattern.lastIndex = 0;
     while ((paramMatch = paramPattern.exec(body)) !== null) {
-      const value = paramMatch[2].trim();
+      const value = paramMatch[2]!.trim();
       // Try to parse as JSON, fall back to string
       try {
-        args[paramMatch[1]] = JSON.parse(value);
+        args[paramMatch[1]!] = JSON.parse(value);
       } catch {
-        args[paramMatch[1]] = value;
+        args[paramMatch[1]!] = value;
       }
     }
 

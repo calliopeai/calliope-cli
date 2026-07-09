@@ -387,7 +387,7 @@ export function useChatController(): ChatController {
     setMode(current => {
       const modes: Mode[] = ['plan', 'hybrid', 'work'];
       const idx = modes.indexOf(current);
-      return modes[(idx + 1) % modes.length];
+      return modes[(idx + 1) % modes.length]!;
     });
   }, [setMode]);
 

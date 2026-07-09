@@ -207,7 +207,7 @@ export interface ChainVerification {
 export function verifyChain(lines: RunLogLine[]): ChainVerification {
   let prev = '';
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i]!;
     // Reconstruct the body (everything except the chain fields).
     const { prev_hash, hash, ...body } = line;
     if (prev_hash !== prev) {
@@ -309,7 +309,7 @@ export function readRunLog(filePath: string): RunLogLine[] {
   const lines: RunLogLine[] = [];
   const rawLines = content.split('\n');
   for (let i = 0; i < rawLines.length; i++) {
-    const raw = rawLines[i].trim();
+    const raw = rawLines[i]!.trim();
     if (!raw) continue;
     try {
       lines.push(JSON.parse(raw) as RunLogLine);

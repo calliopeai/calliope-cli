@@ -83,7 +83,7 @@ function parseMaxRetries(): number {
   }
   const flagIdx = args.indexOf('--max-retries');
   if (flagIdx !== -1 && args[flagIdx + 1] !== undefined) {
-    const parsed = parseInt(args[flagIdx + 1], 10);
+    const parsed = parseInt(args[flagIdx + 1]!, 10);
     if (!isNaN(parsed) && parsed >= 0) return parsed;
   }
   return 3;
@@ -138,7 +138,7 @@ export function registerProcessHandlers(): void {
 
 async function main(): Promise<void> {
   // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
-  const [nodeMaj] = process.versions.node.split('.').map(Number);
+  const [nodeMaj = 0] = process.versions.node.split('.').map(Number);
   if (nodeMaj < 20) {
     console.error(`calliope requires Node.js 20 or later (you have ${process.versions.node})`);
     console.error('Upgrade: https://nodejs.org/en/download  or  nvm install 20');
@@ -191,8 +191,8 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const [cMaj, cMin, cPat] = current.split('.').map(Number);
-    const [lMaj, lMin, lPat] = latest.split('.').map(Number);
+    const [cMaj = 0, cMin = 0, cPat = 0] = current.split('.').map(Number);
+    const [lMaj = 0, lMin = 0, lPat = 0] = latest.split('.').map(Number);
     const hasUpdate = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
 
     if (!hasUpdate) {

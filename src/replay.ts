@@ -45,7 +45,7 @@ export function resolveReplayTarget(pathOrSessionId: string): string | null {
 function shortTime(ts: string): string {
   // Render the time portion; fall back to the raw value if it isn't ISO.
   const m = /T(\d{2}:\d{2}:\d{2})/.exec(ts);
-  return m ? m[1] : ts;
+  return m ? m[1]! : ts;
 }
 
 function preview(text: string, max = 200): string {

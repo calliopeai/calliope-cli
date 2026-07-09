@@ -18,7 +18,7 @@ export function setDebugEnabled(value: boolean): void {
 
 export const debugLog = (label: string, ...args: unknown[]): void => {
   if (debugEnabled) {
-    const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+    const timestamp = new Date().toISOString().split('T')[1]!.slice(0, 12);
     console.error(`[${timestamp}] ${label}:`, ...args);
   }
 };

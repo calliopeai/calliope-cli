@@ -43,6 +43,7 @@ export function HUDFrame({ children, width }: HUDFrameProps) {
       }, 2500);
       return () => clearInterval(timer);
     }
+    return undefined;
   }, [animations?.ambient]);
 
   // No frame configured — render children directly

@@ -82,11 +82,11 @@ export function dnaFrame(tick: number, _width: number): string[] {
   let bot = ' ';
   for (let x = 0; x < len; x++) {
     const phase = (x + tick) % 8;
-    const lt = DNA_LEFT[phase];
-    const rt = DNA_RIGHT[phase];
+    const lt = DNA_LEFT[phase]!;
+    const rt = DNA_RIGHT[phase]!;
     if (lt !== ' ' && rt !== ' ') {
       // Crossover — show a base pair
-      const base = DNA_BASES[(x + tick) % DNA_BASES.length];
+      const base = DNA_BASES[(x + tick) % DNA_BASES.length]!;
       top += lt + base;
       bot += rt + base;
     } else {
@@ -204,6 +204,7 @@ export function useTransition(isActive: boolean, enterMs = 300, exitMs = 200): {
       }, 30);
       return () => clearInterval(timer);
     }
+    return undefined;
   }, [phase]);
 
   return { phase, progress };

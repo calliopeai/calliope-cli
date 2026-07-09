@@ -531,8 +531,9 @@ export class IterationLedger {
    */
   getLatestRun(kind?: LedgerRunKind): LedgerRun | undefined {
     for (let i = this.runs.length - 1; i >= 0; i--) {
-      if (!kind || this.runs[i].kind === kind) {
-        return this.runs[i];
+      const run = this.runs[i]!;
+      if (!kind || run.kind === kind) {
+        return run;
       }
     }
     return undefined;

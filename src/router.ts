@@ -763,7 +763,7 @@ export function smartRoute(
   }
 
   return {
-    selected: candidates[0],
+    selected: candidates[0]!,
     alternatives: candidates.slice(1),
     taskType,
     complexity,

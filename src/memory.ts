@@ -451,10 +451,11 @@ export function suggestMemories(content: string): MemoryEntry[] {
   for (const pattern of prefPatterns) {
     let match;
     while ((match = pattern.exec(content)) !== null) {
-      if (match[1].length > 10 && match[1].length < 100) {
+      const captured = match[1]!;
+      if (captured.length > 10 && captured.length < 100) {
         suggestions.push({
           type: 'preference',
-          content: match[1].trim(),
+          content: captured.trim(),
         });
       }
     }
@@ -469,10 +470,11 @@ export function suggestMemories(content: string): MemoryEntry[] {
   for (const pattern of contextPatterns) {
     let match;
     while ((match = pattern.exec(content)) !== null) {
-      if (match[1].length > 5 && match[1].length < 100) {
+      const captured = match[1]!;
+      if (captured.length > 5 && captured.length < 100) {
         suggestions.push({
           type: 'context',
-          content: match[1].trim(),
+          content: captured.trim(),
         });
       }
     }

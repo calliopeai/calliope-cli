@@ -86,9 +86,9 @@ const THEME_TO_PALETTE: Record<string, string> = {
 };
 
 export const THEMES: Record<string, Theme> = {
-  dark: paletteToTheme(PALETTES.default),
-  light: paletteToTheme(PALETTES.light),
-  'no-color': paletteToTheme(PALETTES.monochrome),
+  dark: paletteToTheme(PALETTES.default!),
+  light: paletteToTheme(PALETTES.light!),
+  'no-color': paletteToTheme(PALETTES.monochrome!),
 };
 
 // ============================================================================
@@ -147,7 +147,7 @@ export function applyCurrentTheme(): void {
  */
 export function getCurrentTheme(): Theme {
   const name = getCurrentThemeName();
-  const theme = THEMES[name] ?? THEMES.dark;
+  const theme = THEMES[name] ?? THEMES.dark!;
   // Carry the canonical theme name (palette snapshots use palette names)
   return { ...theme, name };
 }

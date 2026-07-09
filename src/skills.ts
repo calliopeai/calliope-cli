@@ -221,7 +221,8 @@ function parseSkillFile(content: string): { metadata: SkillMetadata; instruction
     return null;
   }
 
-  const [, frontmatter, instructions] = frontmatterMatch;
+  const frontmatter = frontmatterMatch[1]!;
+  const instructions = frontmatterMatch[2]!;
 
   // Simple YAML parsing (for the basic fields we need)
   const metadata: SkillMetadata = {
@@ -238,7 +239,8 @@ function parseSkillFile(content: string): { metadata: SkillMetadata; instruction
     // Simple key: value parsing
     const match = line.match(/^(\w[\w-]*)\s*:\s*(.*)$/);
     if (match && !inMultiline) {
-      const [, key, value] = match;
+      const key = match[1]!;
+      const value = match[2]!;
       currentKey = key;
 
       if (value.startsWith('"') && value.endsWith('"')) {
@@ -259,7 +261,8 @@ function parseSkillFile(content: string): { metadata: SkillMetadata; instruction
       // Re-process this line
       const newMatch = line.match(/^(\w[\w-]*)\s*:\s*(.*)$/);
       if (newMatch) {
-        const [, key, value] = newMatch;
+        const key = newMatch[1]!;
+        const value = newMatch[2]!;
         currentKey = key;
         metadata[key] = value;
       }

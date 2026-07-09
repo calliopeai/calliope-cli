@@ -214,7 +214,7 @@ export function detectShim(baseUrl: string): CompatShim {
   // 1. Env var override
   const envShim = process.env.OPENAI_COMPAT_SHIM;
   if (envShim && envShim in SHIM_MAP) {
-    const shim = SHIM_MAP[envShim];
+    const shim = SHIM_MAP[envShim]!;
     if (shim.id !== 'none') {
       process.stderr.write(`[openai-compat] Detected ${shim.name} — applying compatibility shim\n`);
     }
@@ -271,8 +271,9 @@ export async function chatOpenAICompatible(
     apiKey = config.getApiKey(provider);
     if (!apiKey) throw new Error(`${provider} API key not configured`);
 
-    baseURL = PROVIDER_BASE_URLS[provider];
-    if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
+    const resolvedBase = PROVIDER_BASE_URLS[provider];
+    if (!resolvedBase) throw new Error(`Unknown provider: ${provider}`);
+    baseURL = resolvedBase;
   }
 
   // Apply openai-compat shim if applicable
@@ -325,9 +326,10 @@ export async function chatOpenAICompatible(
             if (!toolCallDeltas[tc.index]) {
               toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
             }
-            if (tc.id) toolCallDeltas[tc.index].id = tc.id;
-            if (tc.function?.name) toolCallDeltas[tc.index].name = tc.function.name;
-            if (tc.function?.arguments) toolCallDeltas[tc.index].arguments += tc.function.arguments;
+            const slot = toolCallDeltas[tc.index]!;
+            if (tc.id) slot.id = tc.id;
+            if (tc.function?.name) slot.name = tc.function.name;
+            if (tc.function?.arguments) slot.arguments += tc.function.arguments;
           }
         }
 
@@ -414,7 +416,7 @@ export async function chatOpenAICompatible(
     throw new Error(`Empty response from ${provider} API`);
   }
 
-  const choice = response.choices[0];
+  const choice = response.choices[0]!;
   const message = choice.message;
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 

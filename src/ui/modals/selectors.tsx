@@ -31,7 +31,7 @@ export function ModelSelector({
   useInput((input, key) => {
     if (key.upArrow) setIndex(i => Math.max(0, i - 1));
     else if (key.downArrow) setIndex(i => Math.min(models.length - 1, i + 1));
-    else if (key.return) onSelect(models[index].id);
+    else if (key.return && models.length > 0) onSelect(models[index]!.id);
     else if (key.escape || input === 'q') onCancel();
   });
 
@@ -86,8 +86,8 @@ export function SessionSelector({
   useInput((input, key) => {
     if (key.upArrow) setIndex(i => Math.max(0, i - 1));
     else if (key.downArrow) setIndex(i => Math.min(sessions.length - 1, i + 1));
-    else if (key.return && sessions.length > 0) onSelect(sessions[index]);
-    else if ((key.backspace || key.delete) && sessions.length > 0) onDelete(sessions[index]);
+    else if (key.return && sessions.length > 0) onSelect(sessions[index]!);
+    else if ((key.backspace || key.delete) && sessions.length > 0) onDelete(sessions[index]!);
     else if (key.escape || input === 'q') onCancel();
   });
 
@@ -165,7 +165,7 @@ export function ProviderSelector({
   useInput((input, key) => {
     if (key.upArrow) setIndex(i => Math.max(0, i - 1));
     else if (key.downArrow) setIndex(i => Math.min(providers.length - 1, i + 1));
-    else if (key.return) onSelect(providers[index]);
+    else if (key.return && providers.length > 0) onSelect(providers[index]!);
     else if (key.escape || input === 'q') onCancel();
   });
 

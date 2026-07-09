@@ -130,7 +130,7 @@ export function fuzzyMatch(
       // Start new match or extend existing
       if (textIdx === lastMatchEnd) {
         // Consecutive match - extend and add bonus
-        matches[matches.length - 1][1] = textIdx + 1;
+        matches[matches.length - 1]![1] = textIdx + 1;
         consecutiveBonus += 2;
       } else {
         // New match segment
@@ -150,7 +150,8 @@ export function fuzzyMatch(
       }
 
       // Bonus for matching uppercase in camelCase
-      if (text[textIdx] === text[textIdx].toUpperCase() && text[textIdx] !== text[textIdx].toLowerCase()) {
+      const camelCh = text[textIdx]!;
+      if (camelCh === camelCh.toUpperCase() && camelCh !== camelCh.toLowerCase()) {
         matchScore += 2;
       }
 
@@ -318,5 +319,5 @@ export function getSelected(state: InteractiveSearchState): SearchResult | null 
   if (state.selectedIndex < 0 || state.selectedIndex >= state.results.length) {
     return null;
   }
-  return state.results[state.selectedIndex];
+  return state.results[state.selectedIndex]!;
 }

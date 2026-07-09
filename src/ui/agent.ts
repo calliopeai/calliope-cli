@@ -156,7 +156,7 @@ export function validateAndRepairMessagesImpl(ctx: AgentContext): boolean {
   let repaired = false;
 
   for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
+    const msg = messages[i]!;
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
       // Check that each tool_use has a corresponding tool_result
       for (const toolCall of msg.toolCalls) {
@@ -168,7 +168,7 @@ export function validateAndRepairMessagesImpl(ctx: AgentContext): boolean {
           ctx.debugLog('repair', 'Adding missing tool_result for', toolCall.id);
           // Find the right position to insert (right after this assistant message or after existing tool results)
           let insertPos = i + 1;
-          while (insertPos < messages.length && messages[insertPos].role === 'tool') {
+          while (insertPos < messages.length && messages[insertPos]!.role === 'tool') {
             insertPos++;
           }
           messages.splice(insertPos, 0, {
@@ -1146,7 +1146,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
     // Combine queued messages into a single follow-up
     const followUp = queued.length === 1
-      ? queued[0]
+      ? queued[0]!
       : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
 
     ctx.addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);

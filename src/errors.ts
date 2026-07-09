@@ -90,7 +90,7 @@ export function classifyError(error: unknown): ClassifiedError {
   ) {
     // Try to extract retry-after from error
     const retryMatch = message.match(/retry.?after[:\s]+(\d+)/i);
-    const retryAfterMs = retryMatch ? parseInt(retryMatch[1]) * 1000 : 60000;
+    const retryAfterMs = retryMatch ? parseInt(retryMatch[1]!) * 1000 : 60000;
 
     return {
       category: 'rate_limit',

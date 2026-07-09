@@ -619,7 +619,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
           if (showData.parameters) {
             const numCtxMatch = showData.parameters.match(/num_ctx\s+(\d+)/);
             if (numCtxMatch) {
-              contextLength = parseInt(numCtxMatch[1], 10);
+              contextLength = parseInt(numCtxMatch[1]!, 10);
             }
           }
         }
@@ -662,7 +662,7 @@ export async function getOllamaFallbackModel(): Promise<string | null> {
     }
 
     // If no preferred model found, return the first available one
-    return models[0].id;
+    return models[0]!.id;
   } catch {
     return null;
   }
@@ -761,11 +761,11 @@ async function resolveAwsCredentialsViaCli(profile: string): Promise<{
       const line = rawLine.trim();
       const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
       if (!match) continue;
-      let val = match[2].trim();
+      let val = match[2]!.trim();
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
-      envs[match[1]] = val;
+      envs[match[1]!] = val;
     }
     if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
       return {
@@ -808,12 +808,12 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
       if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
       const secMatch = trimmed.match(/^\[(.+)\]$/);
       if (secMatch) {
-        section = secMatch[1].replace(/^profile\s+/, '');
+        section = secMatch[1]!.replace(/^profile\s+/, '');
         sections[section] = sections[section] || {};
         continue;
       }
       const kvMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
-      if (kvMatch && section) sections[section][kvMatch[1].trim()] = kvMatch[2].trim();
+      if (kvMatch && section) sections[section]![kvMatch[1]!.trim()] = kvMatch[2]!.trim();
     }
     return sections;
   };
@@ -865,7 +865,7 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
 
     const signedHeaderKeys = Object.keys(headers).map(k => k.toLowerCase()).sort();
     const signedHeaders = signedHeaderKeys.join(';');
-    const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${headers[k].trim()}`).join('\n') + '\n';
+    const canonicalHeaders = signedHeaderKeys.map(k => `${k}:${headers[k]!.trim()}`).join('\n') + '\n';
     const payloadHash = sha256Fn('');
     // AWS SigV4: non-S3 services require the canonical URI to be URI-encoded
     // TWICE. Paths here don't currently contain special chars but we normalise

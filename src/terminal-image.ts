@@ -123,9 +123,9 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
   const match = hex.match(/^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/);
   if (!match) return null;
   return {
-    r: parseInt(match[1], 16),
-    g: parseInt(match[2], 16),
-    b: parseInt(match[3], 16),
+    r: parseInt(match[1]!, 16),
+    g: parseInt(match[2]!, 16),
+    b: parseInt(match[3]!, 16),
   };
 }
 
@@ -473,7 +473,7 @@ async function matrixRain(
 ): Promise<void> {
   const defaultChars = '\u30A2\u30A4\u30A6\u30A8\u30AA\u30AB\u30AD\u30AF\u30B1\u30B3\u30B5\u30B7\u30B9\u30BB\u30BD\u30BF\u30C1\u30C4\u30C6\u30C80123456789';
   const charArr = Array.isArray(chars) ? chars : [...(chars || defaultChars)];
-  const randChar = () => charArr[Math.floor(Math.random() * charArr.length)];
+  const randChar = () => charArr[Math.floor(Math.random() * charArr.length)]!;
 
   // Column state: each column has a "drop" position that falls
   const drops: number[] = new Array(cols).fill(0).map(() => Math.floor(Math.random() * -rows));
@@ -492,7 +492,7 @@ async function matrixRain(
     for (let y = 0; y < Math.min(rows - 1, 30); y++) {
       let line = '';
       for (let x = 0; x < Math.min(cols, 120); x += 2) { // Skip every other col for performance
-        const dropY = Math.floor(drops[x]);
+        const dropY = Math.floor(drops[x]!);
         const dist = y - dropY;
 
         if (dist === 0) {
@@ -520,8 +520,8 @@ async function matrixRain(
 
     // Advance drops
     for (let x = 0; x < cols; x += 2) {
-      drops[x] += speeds[x];
-      if (drops[x] > rows + 10) {
+      drops[x] = drops[x]! + speeds[x]!;
+      if (drops[x]! > rows + 10) {
         drops[x] = Math.floor(Math.random() * -8);
         speeds[x] = 0.5 + Math.random() * 1.5;
       }
@@ -555,7 +555,7 @@ async function warpSpeed(cols: number, rows: number, duration: number, color: st
         x: centerX, y: centerY,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed * 0.5, // Squish vertically for terminal aspect
-        char: starChars[Math.floor(Math.random() * starChars.length)],
+        char: starChars[Math.floor(Math.random() * starChars.length)]!,
       });
     }
 
@@ -566,7 +566,7 @@ async function warpSpeed(cols: number, rows: number, duration: number, color: st
 
     // Update and render stars
     for (let i = stars.length - 1; i >= 0; i--) {
-      const s = stars[i];
+      const s = stars[i]!;
       s.x += s.vx;
       s.y += s.vy;
       // Accelerate as they move outward (warp stretch)
@@ -584,7 +584,7 @@ async function warpSpeed(cols: number, rows: number, duration: number, color: st
       // Streak effect — draw a line from current to previous position
       const dist = Math.sqrt(s.vx * s.vx + s.vy * s.vy);
       const streakChar = dist > 3 ? '\u2500' : dist > 1.5 ? '\u2022' : s.char;
-      grid[sy][sx] = streakChar;
+      grid[sy]![sx] = streakChar;
     }
 
     let output = '\x1b[H';
@@ -627,7 +627,7 @@ async function glitchEffect(
         for (let x = 0; x < w - Math.abs(offset); x++) {
           if (Math.random() < glitchIntensity * 0.6) {
             const c = Math.random() > 0.5 ? color : colorSec;
-            line += colorFg(glitchArr[Math.floor(Math.random() * glitchArr.length)], c);
+            line += colorFg(glitchArr[Math.floor(Math.random() * glitchArr.length)]!, c);
           } else {
             line += ' ';
           }
@@ -637,7 +637,7 @@ async function glitchEffect(
         // Mostly empty with sparse glitch
         for (let x = 0; x < w; x++) {
           if (Math.random() < glitchIntensity * 0.05) {
-            line += colorFg(glitchArr[Math.floor(Math.random() * glitchArr.length)], color);
+            line += colorFg(glitchArr[Math.floor(Math.random() * glitchArr.length)]!, color);
           } else {
             line += ' ';
           }
@@ -747,7 +747,7 @@ async function sparkleEffect(
       for (let x = 0; x < w; x++) {
         if (Math.random() < intensity * 0.15) {
           const c = Math.random() > 0.5 ? color : colorSec;
-          line += colorFg(sparkleChars[Math.floor(Math.random() * 4)], c);
+          line += colorFg(sparkleChars[Math.floor(Math.random() * 4)]!, c);
         } else if (Math.random() < intensity * 0.05) {
           line += colorFg('\u00B7', color);
         } else {
@@ -785,7 +785,7 @@ async function rainbowWave(cols: number, rows: number, duration: number): Promis
         const charIdx = Math.floor(((wave + 1) / 2) * (waveChars.length - 1));
 
         if (Math.abs(wave) > 0.3) {
-          line += colorFg(waveChars[charIdx], colors[colorIdx]);
+          line += colorFg(waveChars[charIdx]!, colors[colorIdx]!);
         } else {
           line += ' ';
         }
@@ -819,7 +819,7 @@ async function staticNoise(cols: number, rows: number, duration: number): Promis
         if (Math.random() < fadeOut * 0.5) {
           const gray = Math.floor(Math.random() * 200 * fadeOut);
           const hex = `#${gray.toString(16).padStart(2, '0')}${gray.toString(16).padStart(2, '0')}${gray.toString(16).padStart(2, '0')}`;
-          line += colorFg(noiseArr[Math.floor(Math.random() * noiseArr.length)], hex);
+          line += colorFg(noiseArr[Math.floor(Math.random() * noiseArr.length)]!, hex);
         } else {
           line += ' ';
         }
@@ -847,7 +847,7 @@ async function fadeEffect(cols: number, rows: number, duration: number, color: s
     // Fade in then out: peak at 0.5
     const intensity = Math.sin(progress * Math.PI);
     const charIdx = Math.floor(intensity * (blockChars.length - 1));
-    const ch = blockChars[charIdx];
+    const ch = blockChars[charIdx]!;
 
     // Parse base color and scale brightness by intensity
     const r = parseInt(color.slice(1, 3), 16);

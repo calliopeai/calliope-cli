@@ -129,7 +129,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
 
       // Check if this tool should be collapsed (based on toolDisplayLimit)
       if (shouldCollapseThisTool || (collapse?.collapseTools && !isToolCall)) {
-        const firstLine = msg.content.split('\n')[0].substring(0, 60);
+        const firstLine = msg.content.split('\n')[0]!.substring(0, 60);
         return (
           <Text dimColor>╰─ ▸ {firstLine}{msg.content.length > 60 ? '...' : ''}</Text>
         );
@@ -138,7 +138,8 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
       if (isToolCall) {
         const match = msg.content.match(/^⚡ (\w+): (.*)$/);
         if (match) {
-          const [, toolName, preview] = match;
+          const toolName = match[1]!;
+          const preview = match[2]!;
           const icon = getToolIcon(toolName);
           return (
             <Box flexDirection="column">
@@ -153,7 +154,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
       const isDiff = msg.content.startsWith('DIFF:');
       if (isDiff) {
         const diffLines = msg.content.split('\n');
-        const header = diffLines[0];
+        const header = diffLines[0]!;
         const isNewFile = header.includes('NEW_FILE:');
         const filePath = isNewFile
           ? header.replace('DIFF:NEW_FILE:', '')
@@ -188,7 +189,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
                   <Text key={i}>
                     <Text dimColor>      {lineNum}</Text>
                     <Text color={color}> {prefix}</Text>
-                    <Text color={color}>  {content.substring(0, 70)}</Text>
+                    <Text color={color}>  {content!.substring(0, 70)}</Text>
                   </Text>
                 );
               }
@@ -197,7 +198,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
                 const [, lineNum, content] = contextMatch;
                 return (
                   <Text key={i}>
-                    <Text dimColor>      {lineNum}    {content.substring(0, 70)}</Text>
+                    <Text dimColor>      {lineNum}    {content!.substring(0, 70)}</Text>
                   </Text>
                 );
               }
@@ -233,7 +234,7 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
       } else {
         // Genuine failures are emitted as a leading "Error:" line or a 🛑 block
         // marker, not as an arbitrary substring buried in successful output.
-        const firstLine = msg.content.split('\n', 1)[0];
+        const firstLine = msg.content.split('\n', 1)[0]!;
         hasError = /^(error[:!]|✗|🛑)/i.test(firstLine.trimStart());
         const lowerFirst = firstLine.toLowerCase();
         hasWarning = !hasError && (
