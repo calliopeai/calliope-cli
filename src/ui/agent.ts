@@ -305,6 +305,16 @@ function surfaceResponseWarnings(ctx: AgentContext, response: LLMResponse): void
  * Run agent with user prompt. Core execution loop that handles LLM calls,
  * tool execution (parallel + sequential), auto-compaction, and queued messages.
  */
+// #231: remember the previous turn's mode so the first work-mode turn after
+// a plan-mode turn can carry an explicit execution directive. Module scope is
+// intentional — mode itself outlives session resets.
+let previousTurnMode: string | null = null;
+
+/** Test seam: clear the plan-to-work transition tracking. */
+export function _resetModeTracking(): void {
+  previousTurnMode = null;
+}
+
 export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<void> {
   ctx.debugLog('runAgent', 'ENTER', typeof content === 'string' ? content.substring(0, 50) : '[complex]');
 
@@ -387,6 +397,12 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     config: config.getConfig() as unknown as Record<string, unknown>,
   });
   runlog.userPrompt(summarizeMessageContent(content));
+
+  // #231: a terse reply right after leaving plan mode is an approval, not a
+  // conversation — bind it to execution explicitly or weak models answer
+  // "done" without doing anything.
+  const justLeftPlanMode = previousTurnMode === 'plan' && ctx.mode !== 'plan';
+  previousTurnMode = ctx.mode;
 
   const finalizeRun = (exitReason: string): void => {
     if (runEnded) return;
@@ -516,6 +532,19 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               + 'Before proposing any plan, read the files you intend to change and cite file:line for every claim. '
               + 'State explicitly what you verified versus what you assume. '
               + 'A plan produced without reading anything will be marked unverified.',
+          },
+        ];
+      }
+
+      if (justLeftPlanMode && i === 0) {
+        validatedMessages = [
+          ...validatedMessages,
+          {
+            role: 'system' as const,
+            content: 'The user has just switched from plan mode to work mode and replied. '
+              + 'Treat their message as approval to execute the plan discussed above. '
+              + 'Carry it out now using tools, step by step. '
+              + 'Never state that work is done unless you performed it with tool calls in this turn.',
           },
         ];
       }
