@@ -431,7 +431,8 @@ export function useChatController(): ChatController {
   // -- Modal handlers -------------------------------------------------------
   const handleModelSelect = useCallback((selectedModel: string) => {
     setModel(selectedModel);
-    addMessage('system', `Model: ${selectedModel}`);
+    config.set('defaultModel', selectedModel);
+    addMessage('system', `Model: ${selectedModel} (saved as default)`);
     modal.setModalMode('none');
     modal.setAvailableModels([]);
   }, [addMessage, setModel, modal]);
@@ -491,7 +492,9 @@ export function useChatController(): ChatController {
   const handleProviderSelect = useCallback((entry: ProviderEntry) => {
     if (entry.configured) {
       setProvider(entry.id);
-      addMessage('system', `Provider: ${entry.label}${entry.id === 'ollama' ? ' (local)' : ''}`);
+      config.set('defaultProvider', entry.id);
+      config.unset('defaultModel');
+      addMessage('system', `Provider: ${entry.label}${entry.id === 'ollama' ? ' (local)' : ''} (saved as default)`);
       modal.setModalMode('none');
       modal.setProviderEntries([]);
       return;
@@ -526,7 +529,9 @@ export function useChatController(): ChatController {
         config.setProviderCred(entry.id, { apiKey: value });
       }
       setProvider(entry.id);
-      addMessage('system', `✓ Configured ${entry.label}. Provider switched.`);
+      config.set('defaultProvider', entry.id);
+      config.unset('defaultModel');
+      addMessage('system', `✓ Configured ${entry.label}. Provider switched and saved as default.`);
     } catch (e) {
       addMessage('error', `Failed to configure ${entry.label}: ${e instanceof Error ? e.message : String(e)}`);
     }
