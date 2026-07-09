@@ -98,12 +98,12 @@ export function analyzeDependencies(toolCalls: ToolCall[]): ParallelExecutionPla
 
   // Build dependency graph
   for (let i = 0; i < toolCalls.length; i++) {
-    const call = toolCalls[i];
+    const call = toolCalls[i]!;
     const deps: string[] = [];
 
     // Check if this tool depends on outputs from previous tools
     for (let j = 0; j < i; j++) {
-      const prevCall = toolCalls[j];
+      const prevCall = toolCalls[j]!;
 
       if (hasDependency(call, prevCall)) {
         deps.push(prevCall.id);

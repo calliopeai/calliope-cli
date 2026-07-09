@@ -123,7 +123,7 @@ export function resolveChannelConfig(cwd: string, channel?: string, channelsEnv?
   }
 
   return {
-    channel: channels[0],
+    channel: channels[0]!,
     channels,
     url: repoConfig?.url,
     ircAddr: repoConfig?.irc_addr,

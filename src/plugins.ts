@@ -441,7 +441,7 @@ class PluginManager {
     toolCall: ToolCall,
     cwd: string
   ): Promise<ToolResult> {
-    const [pluginId, toolName] = toolCall.name.split(':');
+    const [pluginId = '', toolName] = toolCall.name.split(':');
     
     const loaded = this.plugins.get(pluginId);
     if (!loaded || !loaded.enabled) {

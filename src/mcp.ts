@@ -186,7 +186,9 @@ function isBlockedAddress(ip: string): boolean {
   const type = net.isIP(ip);
   if (type === 4) {
     const parts = ip.split('.').map((n) => parseInt(n, 10));
-    const [a, b] = parts;
+    // net.isIP(ip) === 4 guarantees exactly four numeric octets.
+    const a = parts[0]!;
+    const b = parts[1]!;
     // Loopback (127/8) is allowed by default — see assertUrlAllowed.
     if (a === 10) return true;                          // private 10.0.0.0/8
     if (a === 172 && b >= 16 && b <= 31) return true;   // private 172.16.0.0/12
@@ -203,7 +205,7 @@ function isBlockedAddress(ip: string): boolean {
     if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // ULA fc00::/7
     // IPv4-mapped IPv6 (::ffff:a.b.c.d) — recurse on the embedded v4
     const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isBlockedAddress(mapped[1]);
+    if (mapped) return isBlockedAddress(mapped[1]!);
     return false;
   }
   // Not an IP literal — treat as unknown/unsafe.
@@ -467,7 +469,8 @@ export async function executeMCPTool(
     return `Error: Invalid MCP tool name: ${toolName}`;
   }
 
-  const [, serverId, mcpToolName] = match;
+  const serverId = match[1]!;
+  const mcpToolName = match[2]!;
   const servers = loadServers();
   const server = servers.find(s => s.id.endsWith(serverId));
 
@@ -587,7 +590,7 @@ export async function refreshServer(idOrUrl: string): Promise<MCPServer | null> 
 
   if (index < 0) return null;
 
-  const server = servers[index];
+  const server = servers[index]!;
 
   try {
     const manifest = await fetchManifest(server.url);
@@ -836,7 +839,7 @@ export async function registerStdioServer(
   );
   if (existing >= 0) {
     const oldId = server.id;
-    server.id = servers[existing].id;
+    server.id = servers[existing]!.id;
     // Move the process entry from the temporary id to the persisted id
     const proc = stdioProcesses.get(oldId);
     if (proc) {

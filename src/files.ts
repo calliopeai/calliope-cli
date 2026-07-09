@@ -57,7 +57,7 @@ export function parseFileReferences(input: string, cwd: string): {
   const atPattern = /@([\w./-]+)/g;
   let match;
   while ((match = atPattern.exec(input)) !== null) {
-    const filePath = match[1];
+    const filePath = match[1]!;
     const absPath = path.isAbsolute(filePath) ? filePath : path.join(cwd, filePath);
     if (fs.existsSync(absPath)) {
       files.push(absPath);
@@ -67,7 +67,7 @@ export function parseFileReferences(input: string, cwd: string): {
   // Match absolute paths that look like files (contain extension)
   const absPattern = /(?:^|\s)(\/[\w./-]+\.\w+)(?:\s|$)/g;
   while ((match = absPattern.exec(input)) !== null) {
-    const filePath = match[1];
+    const filePath = match[1]!;
     if (fs.existsSync(filePath) && !files.includes(filePath)) {
       files.push(filePath);
     }
@@ -76,7 +76,7 @@ export function parseFileReferences(input: string, cwd: string): {
   // Match relative paths with ./
   const relPattern = /(?:^|\s)(\.\/?[\w./-]+\.\w+)(?:\s|$)/g;
   while ((match = relPattern.exec(input)) !== null) {
-    const filePath = match[1];
+    const filePath = match[1]!;
     const absPath = path.join(cwd, filePath);
     if (fs.existsSync(absPath) && !files.includes(absPath)) {
       files.push(absPath);

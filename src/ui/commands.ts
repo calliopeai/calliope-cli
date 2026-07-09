@@ -170,7 +170,7 @@ function applyBudgetKey(field: 'maxCostPerRun' | 'maxTokensPerRun' | 'maxCostPer
 
 export async function handleCommand(cmd: string, ctx: CommandContext): Promise<void> {
   const parts = cmd.split(/\s+/);
-  const command = parts[0].toLowerCase();
+  const command = parts[0]!.toLowerCase();
 
   switch (command) {
     case '/help': {
@@ -601,7 +601,7 @@ Available keys:
 
       // Handle quoted prompt
       const quotedMatch = prompt.match(/^"([^"]+)"$/);
-      if (quotedMatch) prompt = quotedMatch[1];
+      if (quotedMatch) prompt = quotedMatch[1]!;
 
       if (!prompt) {
         ctx.addMessage('system', `Usage: /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
@@ -612,7 +612,7 @@ Stop a running loop with /loop stop`);
 
       const defaultMaxIterations = resolveIterationLimit(config.get('maxIterations'));
       const loopMaxIterations = maxIterMatch
-        ? resolveIterationLimit(parseInt(maxIterMatch[1], 10))
+        ? resolveIterationLimit(parseInt(maxIterMatch[1]!, 10))
         : defaultMaxIterations;
 
       // Start the loop
@@ -1029,7 +1029,7 @@ Stop a running loop with /loop stop`);
       const restored = restoreFromCheckpoint(absRestorePath, idx);
       if (restored !== undefined) {
         const relPath = path.relative(process.cwd(), absRestorePath);
-        const cp = checkpoints[idx];
+        const cp = checkpoints[idx]!;
         ctx.addMessage('system', `✓ Restored ${relPath} from checkpoint ${cp.hash} (${new Date(cp.timestamp).toLocaleString()})`);
       } else {
         ctx.addMessage('error', `Failed to restore: checkpoint index ${idx} not found for ${restorePath}`);

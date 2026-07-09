@@ -37,13 +37,13 @@ function parseIniFile(filePath: string): Record<string, Record<string, string>> 
     if (!line || line.startsWith('#') || line.startsWith(';')) continue;
     const sectionMatch = line.match(/^\[(.+)\]$/);
     if (sectionMatch) {
-      currentSection = sectionMatch[1].replace(/^profile\s+/, '');
+      currentSection = sectionMatch[1]!.replace(/^profile\s+/, '');
       sections[currentSection] = sections[currentSection] || {};
       continue;
     }
     const kvMatch = line.match(/^([^=]+?)\s*=\s*(.+)$/);
     if (kvMatch && currentSection) {
-      sections[currentSection][kvMatch[1].trim()] = kvMatch[2].trim();
+      sections[currentSection]![kvMatch[1]!.trim()] = kvMatch[2]!.trim();
     }
   }
   return sections;
@@ -78,11 +78,11 @@ async function resolveCredentialsViaCli(profile: string): Promise<AWSCredentials
       const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
       if (!match) continue;
       // Strip exactly one pair of surrounding quotes (not all quotes).
-      let val = match[2].trim();
+      let val = match[2]!.trim();
       if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
         val = val.slice(1, -1);
       }
-      envs[match[1]] = val;
+      envs[match[1]!] = val;
     }
     if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
       return {
@@ -215,7 +215,7 @@ function signRequest(
     .sort();
   const signedHeaders = signedHeaderKeys.join(';');
   const canonicalHeaders = signedHeaderKeys
-    .map(k => `${k}:${headers[Object.keys(headers).find(h => h.toLowerCase() === k)!].trim()}`)
+    .map(k => `${k}:${headers[Object.keys(headers).find(h => h.toLowerCase() === k)!]!.trim()}`)
     .join('\n') + '\n';
 
   const payloadHash = sha256(body);

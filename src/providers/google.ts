@@ -100,7 +100,7 @@ export async function chatGoogle(
   if (messages.length === 0) {
     throw new Error('No messages provided');
   }
-  const lastMessage = messages[messages.length - 1];
+  const lastMessage = messages[messages.length - 1]!;
   const systemMessage = messages.find(m => m.role === 'system');
 
   const chat = genModel.startChat({

@@ -93,7 +93,7 @@ function ThinkingDisplayInner({ state }: { state: ThinkingState }) {
     animLines = cascadeFrame(frame, animWidth);
   } else if (animStyle === 'orbit') {
     const orbitIdx = frame % ORBIT_CHARS.length;
-    animLines = [ORBIT_CHARS[orbitIdx]];
+    animLines = [ORBIT_CHARS[orbitIdx]!];
   }
   // 'minimal' — no animation lines
 

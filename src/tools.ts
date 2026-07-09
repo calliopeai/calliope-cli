@@ -835,7 +835,7 @@ function extractFilePathsFromCommand(command: string): string[] {
 
   let match;
   while ((match = cmdPattern.exec(command)) !== null) {
-    let p = match[1];
+    let p = match[1]!;
     if (p.startsWith('~/')) {
       p = path.join(process.env.HOME || '/tmp', p.slice(2));
     }
@@ -846,7 +846,7 @@ function extractFilePathsFromCommand(command: string): string[] {
   // Also catch redirection targets: > /path, >> /path
   const redirectPattern = />{1,2}\s*((?:\/|~\/)[^\s;|&]+)/g;
   while ((match = redirectPattern.exec(command)) !== null) {
-    let p = match[1];
+    let p = match[1]!;
     if (p.startsWith('~/')) {
       p = path.join(process.env.HOME || '/tmp', p.slice(2));
     }
@@ -1353,12 +1353,12 @@ async function webSearch(query: string, numResults: number): Promise<string> {
 
           while ((match = linkRegex.exec(data)) !== null && i < numResults) {
             const href = match[1];
-            const title = match[2].replace(/&amp;/g, '&').replace(/&#x27;/g, "'");
+            const title = match[2]!.replace(/&amp;/g, '&').replace(/&#x27;/g, "'");
 
             // Get corresponding snippet
             snippetMatch = snippetRegex.exec(data);
             const snippet = snippetMatch
-              ? snippetMatch[1].replace(/&amp;/g, '&').replace(/&#x27;/g, "'").substring(0, 150)
+              ? snippetMatch[1]!.replace(/&amp;/g, '&').replace(/&#x27;/g, "'").substring(0, 150)
               : '';
 
             results.push(`${i + 1}. ${title}\n   ${snippet}\n   ${href}\n`);
@@ -1617,7 +1617,7 @@ function globToRegex(pattern: string): RegExp {
   let regexStr = '';
   let i = 0;
   while (i < pattern.length) {
-    const ch = pattern[i];
+    const ch = pattern[i]!;
     if (ch === '*') {
       if (pattern[i + 1] === '*') {
         // ** matches any path segment including slashes

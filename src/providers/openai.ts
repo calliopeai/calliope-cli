@@ -519,9 +519,10 @@ export async function chatOpenAI(
             if (!toolCallDeltas[tc.index]) {
               toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
             }
-            if (tc.id) toolCallDeltas[tc.index].id = tc.id;
-            if (tc.function?.name) toolCallDeltas[tc.index].name = tc.function.name;
-            if (tc.function?.arguments) toolCallDeltas[tc.index].arguments += tc.function.arguments;
+            const slot = toolCallDeltas[tc.index]!;
+            if (tc.id) slot.id = tc.id;
+            if (tc.function?.name) slot.name = tc.function.name;
+            if (tc.function?.arguments) slot.arguments += tc.function.arguments;
           }
         }
 
@@ -580,7 +581,7 @@ export async function chatOpenAI(
     throw new Error('Empty response from OpenAI API');
   }
 
-  const choice = response.choices[0];
+  const choice = response.choices[0]!;
   const message = choice.message;
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 

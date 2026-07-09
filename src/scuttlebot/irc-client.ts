@@ -456,7 +456,7 @@ export class ScuttlebotIRCClient {
       // PRIVMSG — the main message handler
       case 'PRIVMSG': {
         if (params.length < 2) break;
-        const channel = params[0];
+        const channel = params[0]!;
         const text = params.slice(1).join(' ').replace(/^:/, '');
         const senderNick = extractNick(prefix);
 

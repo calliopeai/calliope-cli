@@ -22,7 +22,7 @@ let currentPalette: Palette | null = null;
 // ============================================================================
 
 export function getCurrentSkin(): Skin {
-  return SKINS.clean;
+  return SKINS.clean!;
 }
 
 // ============================================================================
@@ -31,9 +31,9 @@ export function getCurrentSkin(): Skin {
 
 export function getPalette(name?: string): Palette {
   if (!name) {
-    return currentPalette || PALETTES.default;
+    return currentPalette || PALETTES.default!;
   }
-  return PALETTES[name] || PALETTES.default;
+  return PALETTES[name] || PALETTES.default!;
 }
 
 export function applyPalette(name: string): boolean {
@@ -45,7 +45,7 @@ export function applyPalette(name: string): boolean {
 }
 
 export function getCurrentPalette(): Palette {
-  return currentPalette || PALETTES.default;
+  return currentPalette || PALETTES.default!;
 }
 
 // ============================================================================
@@ -57,7 +57,7 @@ export function getBoxChars(skin?: Skin): BoxChars {
   if (s.borders.style === 'custom' && s.borders.custom) {
     return s.borders.custom;
   }
-  return BOX_STYLES[s.borders.style] || BOX_STYLES.rounded;
+  return BOX_STYLES[s.borders.style] || BOX_STYLES.rounded!;
 }
 
 export function getSpinnerFrames(skin?: Skin): string[] {
@@ -65,7 +65,7 @@ export function getSpinnerFrames(skin?: Skin): string[] {
   if (s.decorations.spinner === 'custom' && s.decorations.customSpinner) {
     return s.decorations.customSpinner;
   }
-  return SPINNER_SETS[s.decorations.spinner] || SPINNER_SETS.braille;
+  return SPINNER_SETS[s.decorations.spinner] || SPINNER_SETS.braille!;
 }
 
 export function getPaletteColor(key: SemanticColorKey): string {

@@ -99,16 +99,16 @@ function InputRegionInner(props: InputRegionProps) {
         // Save current input before navigating
         setSavedInput(inputRef.current);
         setHistoryIndex(inputHistory.length - 1);
-        setInputValue(inputHistory[inputHistory.length - 1]);
+        setInputValue(inputHistory[inputHistory.length - 1]!);
       } else if (historyIndex > 0) {
         setHistoryIndex(historyIndex - 1);
-        setInputValue(inputHistory[historyIndex - 1]);
+        setInputValue(inputHistory[historyIndex - 1]!);
       }
     } else {
       if (historyIndex === -1) return;
       if (historyIndex < inputHistory.length - 1) {
         setHistoryIndex(historyIndex + 1);
-        setInputValue(inputHistory[historyIndex + 1]);
+        setInputValue(inputHistory[historyIndex + 1]!);
       } else {
         // Return to saved input
         setHistoryIndex(-1);
@@ -143,6 +143,7 @@ function InputRegionInner(props: InputRegionProps) {
       submitRef.current = handleSubmit;
       return () => { submitRef.current = null; };
     }
+    return undefined;
   }, [submitRef, handleSubmit]);
 
   return (

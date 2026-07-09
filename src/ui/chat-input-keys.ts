@@ -104,15 +104,15 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
         // Find start of current word (delete backwards to word boundary)
         let wordStart = cursor - 1;
         // Skip whitespace
-        while (wordStart > 0 && /\s/.test(currentValue[wordStart])) {
+        while (wordStart > 0 && /\s/.test(currentValue[wordStart]!)) {
           wordStart--;
         }
         // Skip non-whitespace (the word)
-        while (wordStart > 0 && !/\s/.test(currentValue[wordStart])) {
+        while (wordStart > 0 && !/\s/.test(currentValue[wordStart]!)) {
           wordStart--;
         }
         // If we stopped at whitespace, move forward one
-        if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart])) {
+        if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart]!)) {
           wordStart++;
         }
         const newValue = currentValue.slice(0, wordStart) + currentValue.slice(cursor);
@@ -153,12 +153,12 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
         // Start editing the last queued message
         const idx = queuedMessages.length - 1;
         onSetEditingQueueIndex?.(idx);
-        updateValue(queuedMessages[idx]);
+        updateValue(queuedMessages[idx]!);
       } else if (editingQueueIndex > 0) {
         // Move to previous message
         const idx = editingQueueIndex - 1;
         onSetEditingQueueIndex?.(idx);
-        updateValue(queuedMessages[idx]);
+        updateValue(queuedMessages[idx]!);
       }
       return;
     }
@@ -168,7 +168,7 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
         // Move to next message
         const idx = editingQueueIndex + 1;
         onSetEditingQueueIndex?.(idx);
-        updateValue(queuedMessages[idx]);
+        updateValue(queuedMessages[idx]!);
       } else {
         // At the end, clear to new input
         onSetEditingQueueIndex?.(null);
@@ -280,15 +280,15 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
       // Find start of current word (delete backwards to word boundary)
       let wordStart = cursor - 1;
       // Skip whitespace
-      while (wordStart > 0 && /\s/.test(currentValue[wordStart])) {
+      while (wordStart > 0 && /\s/.test(currentValue[wordStart]!)) {
         wordStart--;
       }
       // Skip non-whitespace (the word)
-      while (wordStart > 0 && !/\s/.test(currentValue[wordStart])) {
+      while (wordStart > 0 && !/\s/.test(currentValue[wordStart]!)) {
         wordStart--;
       }
       // If we stopped at whitespace, move forward one
-      if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart])) {
+      if (wordStart < cursor - 1 && /\s/.test(currentValue[wordStart]!)) {
         wordStart++;
       }
       const newValue = currentValue.slice(0, wordStart) + currentValue.slice(cursor);
@@ -335,7 +335,7 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
   if (key.tab && !key.shift) {
     // Check if we're completing a path after a path command
     const parts = currentValue.split(/\s+/);
-    const cmd = parts[0]?.toLowerCase();
+    const cmd = parts[0]?.toLowerCase() ?? '';
 
     if (PATH_COMMANDS.includes(cmd) && parts.length >= 1) {
       // Path completion
@@ -347,7 +347,7 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
         onSuggestionsChange?.([]);
       } else if (completions.length > 1) {
         // Find common prefix
-        let commonPrefix = completions[0];
+        let commonPrefix = completions[0]!;
         for (const comp of completions) {
           while (!comp.startsWith(commonPrefix)) {
             commonPrefix = commonPrefix.slice(0, -1);
@@ -383,7 +383,7 @@ export function handleChatInputKey(input: string, key: Key, ctx: ChatInputKeyCtx
         updateValue(matches[0] + ' ');
         onSuggestionsChange?.([]);
       } else if (matches.length > 1) {
-        let commonPrefix = matches[0];
+        let commonPrefix = matches[0]!;
         for (const match of matches) {
           while (!match.startsWith(commonPrefix)) {
             commonPrefix = commonPrefix.slice(0, -1);

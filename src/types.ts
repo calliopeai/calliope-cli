@@ -275,7 +275,7 @@ export function calculateCost(
   inputTokens: number,
   outputTokens: number
 ): number {
-  const pricing = MODEL_PRICING[model] || MODEL_PRICING['default'];
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING['default']!;
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
   return inputCost + outputCost;

@@ -104,7 +104,7 @@ export function extractKeyInfo(messages: LLMMessage[]): {
     for (const pattern of decisionPatterns) {
       let match;
       while ((match = pattern.exec(text)) !== null) {
-        decisions.push(match[1].trim());
+        decisions.push(match[1]!.trim());
       }
     }
 
@@ -173,14 +173,14 @@ function findSafeSplitPoint(messages: LLMMessage[], targetIndex: number): number
 
   // Don't split before a tool result message
   while (splitIndex > 0 && splitIndex < messages.length) {
-    const msg = messages[splitIndex];
+    const msg = messages[splitIndex]!;
     // If this is a tool result, we need to include the previous message (which has the tool_use)
     if (msg.role === 'tool') {
       splitIndex--;
     } else if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
       // If this is an assistant message with tool calls, include subsequent tool results
       let nextIndex = splitIndex + 1;
-      while (nextIndex < messages.length && messages[nextIndex].role === 'tool') {
+      while (nextIndex < messages.length && messages[nextIndex]!.role === 'tool') {
         nextIndex++;
       }
       // If we'd split in the middle of tool results, move split point after them
@@ -379,7 +379,7 @@ export function validateMessageHistory(messages: LLMMessage[]): LLMMessage[] {
   const pendingToolIds = new Set<string>();
 
   for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
+    const msg = messages[i]!;
 
     if (msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0) {
       // Check if ALL tool calls have corresponding results somewhere after

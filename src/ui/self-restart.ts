@@ -19,7 +19,7 @@ export async function spawnPendingRestart(): Promise<void> {
   const restartArgs = pendingRestartArgs;
   pendingRestartArgs = null;
   const { spawn } = await import('child_process');
-  const child = spawn(process.argv[0], restartArgs, {
+  const child = spawn(process.argv[0]!, restartArgs, {
     stdio: 'inherit',
     detached: true,
   });

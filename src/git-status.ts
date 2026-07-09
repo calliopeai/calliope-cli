@@ -81,8 +81,8 @@ export function getGitStatus(cwd?: string): GitStatusInfo {
     const lines = output.trim().split('\n');
 
     // First line is branch info: ## branch...origin/branch [ahead N, behind N]
-    if (lines.length > 0 && lines[0].startsWith('## ')) {
-      const branchLine = lines[0].slice(3);
+    if (lines.length > 0 && lines[0]!.startsWith('## ')) {
+      const branchLine = lines[0]!.slice(3);
 
       // Parse branch name (before "..." or end of string)
       const dotIndex = branchLine.indexOf('...');

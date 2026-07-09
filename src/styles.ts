@@ -114,7 +114,7 @@ export const TOOL_ICONS: Record<string, string> = {
 } as const;
 
 export function getToolIcon(toolName: string): string {
-  return TOOL_ICONS[toolName] || TOOL_ICONS.default;
+  return TOOL_ICONS[toolName] || TOOL_ICONS.default!;
 }
 
 // ============================================================================
@@ -388,9 +388,9 @@ export function getBoxStyle(styleName?: string): BoxStyleChars {
     if (name === 'custom' && skin.borders.custom) {
       return skin.borders.custom;
     }
-    return BOX_STYLE_VARIANTS[name] || BOX_STYLE_VARIANTS.rounded;
+    return BOX_STYLE_VARIANTS[name] || BOX_STYLE_VARIANTS.rounded!;
   } catch {
-    return BOX_STYLE_VARIANTS.rounded;
+    return BOX_STYLE_VARIANTS.rounded!;
   }
 }
 

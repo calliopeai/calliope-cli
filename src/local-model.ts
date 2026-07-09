@@ -194,11 +194,11 @@ export function levenshtein(a: string, b: string): number {
     curr[0] = i;
     for (let j = 1; j <= b.length; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      curr[j] = Math.min(prev[j]! + 1, curr[j - 1]! + 1, prev[j - 1]! + cost);
     }
     [prev, curr] = [curr, prev];
   }
-  return prev[b.length];
+  return prev[b.length]!;
 }
 
 /** Max edit distance for an unknown tool name to count as a repairable typo. */
@@ -281,7 +281,7 @@ export function extractRepairedToolCall(
   id: string,
 ): ToolCall | null {
   if (nativeToolCalls && nativeToolCalls.length > 0) {
-    const first = nativeToolCalls[0];
+    const first = nativeToolCalls[0]!;
     return { id, name: first.name, arguments: first.arguments ?? {} };
   }
   const text = content.trim();
@@ -369,7 +369,7 @@ async function probeOllama(baseUrl: string, model: string): Promise<{ capabiliti
   }
   if (data.parameters) {
     const numCtx = data.parameters.match(/num_ctx\s+(\d+)/);
-    if (numCtx) contextLength = parseInt(numCtx[1], 10);
+    if (numCtx) contextLength = parseInt(numCtx[1]!, 10);
   }
   return { capabilities: data.capabilities, contextLength };
 }

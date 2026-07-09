@@ -79,7 +79,7 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
     while (oldIdx < oldLcsIdx) {
       diffLines.push({
         type: 'remove',
-        content: oldLines[oldIdx],
+        content: oldLines[oldIdx]!,
         oldLineNum: oldLineNum++,
       });
       deletions++;
@@ -90,7 +90,7 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
     while (newIdx < newLcsIdx) {
       diffLines.push({
         type: 'add',
-        content: newLines[newIdx],
+        content: newLines[newIdx]!,
         newLineNum: newLineNum++,
       });
       additions++;
@@ -100,7 +100,7 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
     // Add context (matching line)
     diffLines.push({
       type: 'context',
-      content: oldLines[oldIdx],
+      content: oldLines[oldIdx]!,
       oldLineNum: oldLineNum++,
       newLineNum: newLineNum++,
     });
@@ -112,7 +112,7 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
   while (oldIdx < oldLines.length) {
     diffLines.push({
       type: 'remove',
-      content: oldLines[oldIdx],
+      content: oldLines[oldIdx]!,
       oldLineNum: oldLineNum++,
     });
     deletions++;
@@ -123,7 +123,7 @@ export function generateDiff(oldContent: string, newContent: string, path: strin
   while (newIdx < newLines.length) {
     diffLines.push({
       type: 'add',
-      content: newLines[newIdx],
+      content: newLines[newIdx]!,
       newLineNum: newLineNum++,
     });
     additions++;
@@ -178,11 +178,13 @@ function longestCommonSubsequence(a: string[], b: string[]): Array<[number, numb
   const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
 
   for (let i = 1; i <= m; i++) {
+    const row = dp[i]!;
+    const prevRow = dp[i - 1]!;
     for (let j = 1; j <= n; j++) {
       if (a[i - 1] === b[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        row[j] = prevRow[j - 1]! + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        row[j] = Math.max(prevRow[j]!, row[j - 1]!);
       }
     }
   }
@@ -195,7 +197,7 @@ function longestCommonSubsequence(a: string[], b: string[]): Array<[number, numb
       result.unshift([i - 1, j - 1]);
       i--;
       j--;
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+    } else if (dp[i - 1]![j]! > dp[i]![j - 1]!) {
       i--;
     } else {
       j--;
@@ -216,8 +218,8 @@ export function formatDiff(diff: FileDiff, contextLines = 3): string {
   const lines: string[] = [];
 
   // Header
-  lines.push(`${COLORS.cyan}${diff.lines[0].content}${COLORS.reset}`);
-  lines.push(`${COLORS.cyan}${diff.lines[1].content}${COLORS.reset}`);
+  lines.push(`${COLORS.cyan}${diff.lines[0]?.content ?? ''}${COLORS.reset}`);
+  lines.push(`${COLORS.cyan}${diff.lines[1]?.content ?? ''}${COLORS.reset}`);
   lines.push('');
 
   // Group consecutive changes with context
@@ -267,7 +269,7 @@ function groupDiffChunks(lines: DiffLine[], contextLines: number): DiffLine[][] 
   let contextCount = 0;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+    const line = lines[i]!;
 
     if (line.type === 'context') {
       contextCount++;
@@ -275,7 +277,7 @@ function groupDiffChunks(lines: DiffLine[], contextLines: number): DiffLine[][] 
       // Check if there are changes within contextLines ahead
       let hasChangesAhead = false;
       for (let j = i + 1; j < Math.min(i + contextLines + 1, lines.length); j++) {
-        if (lines[j].type !== 'context') {
+        if (lines[j]!.type !== 'context') {
           hasChangesAhead = true;
           break;
         }
@@ -655,27 +657,27 @@ export function formatSideBySideDiff(diff: FileDiff, termWidth?: number, options
     const pairs: Array<{ left: DiffLine | null; right: DiffLine | null }> = [];
     let i = 0;
     while (i < chunk.length) {
-      const line = chunk[i];
+      const line = chunk[i]!;
       if (line.type === 'context') {
         pairs.push({ left: line, right: line });
         i++;
       } else if (line.type === 'remove') {
         // Collect consecutive removes, then pair with consecutive adds
         const removes: DiffLine[] = [];
-        while (i < chunk.length && chunk[i].type === 'remove') {
-          removes.push(chunk[i]);
+        while (i < chunk.length && chunk[i]!.type === 'remove') {
+          removes.push(chunk[i]!);
           i++;
         }
         const adds: DiffLine[] = [];
-        while (i < chunk.length && chunk[i].type === 'add') {
-          adds.push(chunk[i]);
+        while (i < chunk.length && chunk[i]!.type === 'add') {
+          adds.push(chunk[i]!);
           i++;
         }
         const maxPairs = Math.max(removes.length, adds.length);
         for (let j = 0; j < maxPairs; j++) {
           pairs.push({
-            left: j < removes.length ? removes[j] : null,
-            right: j < adds.length ? adds[j] : null,
+            left: j < removes.length ? removes[j]! : null,
+            right: j < adds.length ? adds[j]! : null,
           });
         }
       } else if (line.type === 'add') {
@@ -753,11 +755,13 @@ export function wordDiff(oldLine: string, newLine: string): { old: string; new: 
   const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
 
   for (let i = 1; i <= m; i++) {
+    const row = dp[i]!;
+    const prevRow = dp[i - 1]!;
     for (let j = 1; j <= n; j++) {
       if (oldWords[i - 1] === newWords[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        row[j] = prevRow[j - 1]! + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        row[j] = Math.max(prevRow[j]!, row[j - 1]!);
       }
     }
   }
@@ -769,7 +773,7 @@ export function wordDiff(oldLine: string, newLine: string): { old: string; new: 
     if (oldWords[i - 1] === newWords[j - 1]) {
       lcs.unshift([i - 1, j - 1]);
       i--; j--;
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+    } else if (dp[i - 1]![j]! > dp[i]![j - 1]!) {
       i--;
     } else {
       j--;
@@ -874,28 +878,28 @@ const SYNTAX_RULES: Record<string, Array<{ pattern: RegExp; color: string }>> = 
   ],
 };
 
-// Aliases
-SYNTAX_RULES.javascript = SYNTAX_RULES.typescript;
-SYNTAX_RULES.c = SYNTAX_RULES.rust;
-SYNTAX_RULES.cpp = SYNTAX_RULES.rust;
-SYNTAX_RULES.java = SYNTAX_RULES.typescript;
-SYNTAX_RULES.csharp = SYNTAX_RULES.typescript;
-SYNTAX_RULES.swift = SYNTAX_RULES.rust;
-SYNTAX_RULES.kotlin = SYNTAX_RULES.typescript;
-SYNTAX_RULES.ruby = SYNTAX_RULES.python;
-SYNTAX_RULES.css = SYNTAX_RULES.default;
-SYNTAX_RULES.html = SYNTAX_RULES.default;
-SYNTAX_RULES.sql = SYNTAX_RULES.default;
-SYNTAX_RULES.yaml = SYNTAX_RULES.default;
-SYNTAX_RULES.toml = SYNTAX_RULES.default;
-SYNTAX_RULES.markdown = SYNTAX_RULES.default;
+// Aliases (base languages are defined in the object literal above, so present)
+SYNTAX_RULES.javascript = SYNTAX_RULES.typescript!;
+SYNTAX_RULES.c = SYNTAX_RULES.rust!;
+SYNTAX_RULES.cpp = SYNTAX_RULES.rust!;
+SYNTAX_RULES.java = SYNTAX_RULES.typescript!;
+SYNTAX_RULES.csharp = SYNTAX_RULES.typescript!;
+SYNTAX_RULES.swift = SYNTAX_RULES.rust!;
+SYNTAX_RULES.kotlin = SYNTAX_RULES.typescript!;
+SYNTAX_RULES.ruby = SYNTAX_RULES.python!;
+SYNTAX_RULES.css = SYNTAX_RULES.default!;
+SYNTAX_RULES.html = SYNTAX_RULES.default!;
+SYNTAX_RULES.sql = SYNTAX_RULES.default!;
+SYNTAX_RULES.yaml = SYNTAX_RULES.default!;
+SYNTAX_RULES.toml = SYNTAX_RULES.default!;
+SYNTAX_RULES.markdown = SYNTAX_RULES.default!;
 
 /**
  * Apply syntax highlighting to a line of code
  */
 export function highlightSyntax(line: string, filePath: string): string {
   const lang = detectLanguage(filePath);
-  const rules = lang ? SYNTAX_RULES[lang] || SYNTAX_RULES.default : SYNTAX_RULES.default;
+  const rules = lang ? SYNTAX_RULES[lang] || SYNTAX_RULES.default! : SYNTAX_RULES.default!;
 
   // Match every rule against the ORIGINAL line (never against intermediate
   // colored output), capturing the position of group 1 — the token that should

@@ -202,17 +202,20 @@ function parseChatLine(block: string): ChatMessage | null {
   if (lines.length < 2) return null;
 
   // Parse header: @timestamp id=xxx [tool=yyy]
-  const headerMatch = lines[0].match(/^@(\S+)\s+id=(\S+)(?:\s+tool=(\S+))?$/);
+  const headerMatch = lines[0]!.match(/^@(\S+)\s+id=(\S+)(?:\s+tool=(\S+))?$/);
   if (!headerMatch) return null;
 
-  const [, timestamp, id, toolCallId] = headerMatch;
+  const timestamp = headerMatch[1]!;
+  const id = headerMatch[2]!;
+  const toolCallId = headerMatch[3];
 
   // Parse content: role: text
   const contentLine = lines.slice(1).join('\n');
   const roleMatch = contentLine.match(/^(user|assistant|system|tool):\s*([\s\S]*)$/);
   if (!roleMatch) return null;
 
-  const [, role, content] = roleMatch;
+  const role = roleMatch[1]!;
+  const content = roleMatch[2]!;
 
   return {
     id,
@@ -304,7 +307,7 @@ function parseTodoLine(line: string): Todo | null {
   const parts = line.split(/(?<!\\)\|/);
   if (parts.length < 7) return null;
 
-  const [id, status, priority, tags, createdAt, completedAt, ...contentParts] = parts;
+  const [id = '', status, priority, tags, createdAt = '', completedAt, ...contentParts] = parts;
   const content = contentParts.join('|').replace(/\\n/g, '\n').replace(/\\\|/g, '|');
 
   return {
@@ -859,7 +862,7 @@ export function updateTodo(
   const index = todos.findIndex(t => t.id === id);
   if (index === -1) return null;
 
-  const todo = todos[index];
+  const todo = todos[index]!;
   Object.assign(todo, updates);
 
   if (updates.status === 'completed') {
@@ -1126,7 +1129,7 @@ export function getCostSummary(): string {
   lines.push('', 'Last 7 Days:');
   const dates = Object.keys(costs.costByDay).sort().slice(-7);
   for (const date of dates) {
-    lines.push(`  ${date}: $${costs.costByDay[date].toFixed(4)}`);
+    lines.push(`  ${date}: $${costs.costByDay[date]!.toFixed(4)}`);
   }
 
   return lines.join('\n');

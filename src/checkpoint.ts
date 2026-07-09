@@ -236,7 +236,7 @@ export function listCheckpoints(filePath?: string): CheckpointSummary[] {
       }
     }
 
-    summaries.push({ ref, hash, subject, timestamp });
+    summaries.push({ ref, hash, subject, timestamp: timestamp ?? '' });
   }
 
   return summaries;
@@ -256,7 +256,7 @@ export function restoreFromCheckpoint(filePath: string, index: number = 0): stri
   const checkpoints = listCheckpoints(filePath);
   if (index < 0 || index >= checkpoints.length) return undefined;
 
-  const cp = checkpoints[index];
+  const cp = checkpoints[index]!;
   const absPath = path.resolve(filePath);
   const rel = path.relative(root, absPath);
 
@@ -305,7 +305,7 @@ export function clearCheckpoints(olderThanDays?: number): number {
     if (!ref) continue;
 
     if (cutoff !== null) {
-      const ts = parseInt(unix, 10) * 1000;
+      const ts = parseInt(unix ?? '', 10) * 1000;
       if (Number.isFinite(ts) && ts >= cutoff) continue; // keep recent
     }
 
