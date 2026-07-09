@@ -503,6 +503,23 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.llmMessages.current = validatedMessages;
       }
 
+      // Plan mode: tell the model it is planning and that plans need receipts.
+      // Injected per-request (not persisted) so mode switches take effect
+      // immediately and history stays clean.
+      if (ctx.mode === 'plan') {
+        validatedMessages = [
+          ...validatedMessages,
+          {
+            role: 'system' as const,
+            content: 'You are in PLAN mode: no mutating tools will execute. '
+              + 'Read-only tools (read_file, list_files, think, create_plan, ask_question) ARE available — use them. '
+              + 'Before proposing any plan, read the files you intend to change and cite file:line for every claim. '
+              + 'State explicitly what you verified versus what you assume. '
+              + 'A plan produced without reading anything will be marked unverified.',
+          },
+        ];
+      }
+
       // Pre-request summarization check - summarize BEFORE sending if context is too large
       const tools = getTools();
       const contextCheck = estimateContextUsage(ctx.provider, effectiveModel || DEFAULT_MODELS[ctx.provider], validatedMessages, tools);
@@ -1115,6 +1132,11 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
   // Process any queued messages (human-in-the-loop feedback)
   // CRITICAL: Use ref to get current value, not stale closure
+  // #224: a plan produced with zero tool calls carries no evidence — say so.
+  if (ctx.mode === 'plan' && runToolCalls === 0) {
+    ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
+  }
+
   const currentQueued = ctx.queuedMessagesRef.current;
   ctx.debugLog('runAgent', 'EXIT loop', `queued=${currentQueued.length}`);
   if (currentQueued.length > 0) {
