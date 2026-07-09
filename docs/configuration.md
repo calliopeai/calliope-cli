@@ -163,3 +163,14 @@ calliope --reset      # clear all configuration
 ```
 
 See [Getting started](./getting-started.md) for the full flag list.
+
+### Env file locations
+
+`calliope` loads dotenv-style files at startup, never overwriting values
+that are already set. Priority order:
+
+1. Real environment variables
+2. `.env` in the current directory
+3. `cli.env` in the current directory
+4. `~/.config/calliope/cli.env` (global — credentials that should work
+   from any directory)

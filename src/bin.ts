@@ -11,6 +11,7 @@ import * as path from 'path';
 import { runSetup } from './setup.js';
 import * as config from './config.js';
 import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
+import * as os from 'os';
 import { colors } from './styles.js';
 
 // Load .env / cli.env files (dotenv-style, no dependency)
@@ -41,9 +42,12 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
-// Check for env files in cwd and home directory (cwd takes priority)
+// Env file load order (loadEnvFile never overwrites, so earlier = higher
+// priority): real environment > cwd .env > cwd cli.env > global cli.env.
+// The global file lets credentials work from any directory (#219).
 loadEnvFile(path.join(process.cwd(), '.env'));
 loadEnvFile(path.join(process.cwd(), 'cli.env'));
+loadEnvFile(path.join(os.homedir(), '.config', 'calliope', 'cli.env'));
 
 // Suppress OpenAI/third-party SDK verbose debug output triggered by DEBUG=true
 // (JupyterHub sets DEBUG=true in the container environment which causes OpenAI SDK
@@ -349,6 +353,10 @@ ${bold('ENVIRONMENT VARIABLES')}
   BEDROCK_API_KEY       AWS Bedrock gateway API key (if required)
   OPENAI_COMPAT_BASE_URL   Generic OpenAI-compatible server URL (e.g. http://localhost:1234/v1)
   OPENAI_COMPAT_API_KEY    API key for the OpenAI-compatible server (if required)
+
+  Variables load from, in priority order: the environment itself, then
+  .env and cli.env in the current directory, then ~/.config/calliope/cli.env
+  (global). Existing values are never overwritten.
 
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
 
