@@ -8,7 +8,7 @@ execution, git-based checkpoints, project memory, MCP, and a flag-gated
 fleet-coordination mode. Positioning: **the private-AI agent CLI** — the
 best harness for models you run yourself.
 
-**Current Version:** 3.0.0
+**Current Version:** 3.1.0
 **Organization:** Calliope Labs Inc
 **Repository:** https://github.com/calliopeai/calliope-cli
 

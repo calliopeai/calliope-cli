@@ -1,5 +1,32 @@
 # Changelog
 
+## 3.1.0 — 2026-07-20
+
+Restores a green build after the grouped dependency sweep in #240, which
+landed six major bumps at once (openai 4 to 6, typescript 5 to 7, ink 6 to 7,
+inquirer 7 to 8, conf 13 to 15, @types/node 22 to 26) and broke compilation
+on `main`.
+
+### Added
+
+- **Fireworks AI in the setup wizard** — Fireworks was already a supported
+  provider throughout the config, router, model detection, and compat layers,
+  but it was missing from the setup menu and from environment detection, so
+  `FIREWORKS_API_KEY` could not be selected during setup. Both are now wired.
+
+### Fixed
+
+- **OpenAI SDK 6 tool-call parsing** — `ChatCompletionMessageToolCall` became
+  a union of function and custom tool calls, so `parseOpenAIToolCalls` no
+  longer compiled. Tool calls are now narrowed on the `type` discriminator;
+  custom tool calls, which the CLI never sends, are skipped.
+- **Provider typing in the setup wizard** — the detected-provider list was
+  typed as `string[]` where the prompt expects `LLMProvider`, masking the
+  missing Fireworks entry above.
+- **Dependabot no longer groups major updates** — majors now arrive as
+  individual pull requests so each can be reviewed against its own changelog,
+  rather than riding in with the weekly minor and patch sweep.
+
 ## 3.0.0 — 2026-07-09
 
 v3 is a deliberate reduction. The goal: a fast, predictable, maintainable

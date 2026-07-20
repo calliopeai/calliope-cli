@@ -6,7 +6,14 @@ updates:
       interval: "weekly"
       day: "monday"
     groups:
+      # Minor and patch updates ride together in one PR. Majors are excluded so
+      # each arrives on its own and can be reviewed against a real changelog:
+      # #240 swept six majors (openai 4->6, typescript 5->7, ink 6->7,
+      # inquirer 7->8, conf 13->15, @types/node 22->26) into a single PR.
       all-dependencies:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
     open-pull-requests-limit: 5

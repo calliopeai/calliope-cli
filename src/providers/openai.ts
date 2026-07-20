@@ -104,6 +104,10 @@ export function parseOpenAIToolCalls(toolCalls: OpenAI.Chat.Completions.ChatComp
 
   const result: ToolCall[] = [];
   for (const tc of toolCalls) {
+    // The SDK models tool calls as a union; we only ever send function tools,
+    // so anything else (custom tools) is not ours to parse.
+    if (tc.type !== 'function') continue;
+
     let parsedArgs: Record<string, unknown> = {};
     try {
       parsedArgs = JSON.parse(tc.function.arguments);

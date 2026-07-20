@@ -36,13 +36,14 @@ export async function runSetup(force = false): Promise<boolean> {
   console.log();
 
   // Check for existing environment variables
-  const envProviders: string[] = [];
+  const envProviders: LLMProvider[] = [];
   if (process.env.ANTHROPIC_API_KEY) envProviders.push('anthropic');
   if (process.env.GOOGLE_API_KEY) envProviders.push('google');
   if (process.env.OPENAI_API_KEY) envProviders.push('openai');
   if (process.env.TOGETHER_API_KEY) envProviders.push('together');
   if (process.env.OPENROUTER_API_KEY) envProviders.push('openrouter');
   if (process.env.GROQ_API_KEY) envProviders.push('groq');
+  if (process.env.FIREWORKS_API_KEY) envProviders.push('fireworks');
   if (process.env.MISTRAL_API_KEY) envProviders.push('mistral');
   if (process.env.OLLAMA_BASE_URL) envProviders.push('ollama');
   if (process.env.AI21_API_KEY) envProviders.push('ai21');
@@ -66,6 +67,7 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'openrouter', name: 'OpenRouter', description: 'Access multiple models via one API' },
       { value: 'together', name: 'Together AI', description: 'Open source models (Llama, Mixtral)' },
       { value: 'groq', name: 'Groq', description: 'Ultra-fast inference' },
+      { value: 'fireworks', name: 'Fireworks AI', description: 'Fast open source model inference' },
       { value: 'mistral', name: 'Mistral AI', description: 'Mistral Large - European AI' },
       { value: 'ollama', name: 'Ollama (Local)', description: 'Run models locally - no API key needed' },
       { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
