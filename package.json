@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",

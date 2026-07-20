@@ -1273,6 +1273,25 @@ describe('parseOpenAIToolCalls (additional branch coverage)', () => {
       expect(e.message).toContain('Raw: {{{{');
     }
   });
+
+  it('skips custom tool calls and parses only function tool calls', () => {
+    const toolCalls = [
+      {
+        id: 'call_custom',
+        type: 'custom' as const,
+        custom: { name: 'not_ours', input: 'raw text' },
+      },
+      {
+        id: 'call_fn',
+        type: 'function' as const,
+        function: { name: 'read_file', arguments: '{"path":"/a.txt"}' },
+      },
+    ];
+    const result = parseOpenAIToolCalls(toolCalls);
+    expect(result).toEqual([
+      { id: 'call_fn', name: 'read_file', arguments: { path: '/a.txt' } },
+    ]);
+  });
 });
 
 describe('chatOpenAI (Responses API streaming, additional coverage)', () => {
