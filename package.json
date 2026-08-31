@@ -50,7 +50,7 @@
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.111.0",
+    "@anthropic-ai/sdk": "0.122.0",
     "@google/generative-ai": "^0.24.1",
     "@inquirer/prompts": "^8.5.2",
     "@zed-industries/agent-client-protocol": "^0.4.5",
