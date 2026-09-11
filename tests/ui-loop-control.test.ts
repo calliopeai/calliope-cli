@@ -210,3 +210,8 @@ describe('ui loop control', () => {
     ).toBe(true);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

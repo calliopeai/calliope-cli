@@ -17,6 +17,7 @@ vi.mock('../src/config.js', () => ({
   default: {},
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
+  getProviderCred: vi.fn(() => ({})),
   getConfiguredProviders: vi.fn(() => []),
 }));
 
@@ -338,7 +339,7 @@ describe('getAvailableModels - anthropic', () => {
     const models = await getAvailableModels('anthropic');
     expect(models.length).toBe(2);
     expect(models.every(m => m.id.startsWith('claude'))).toBe(true);
-    expect(models[0].contextLength).toBe(200000);
+    expect(models[0].contextLength).toBeUndefined(); // The response supplied no limit.
   });
 
   it('should use fallback models when API returns non-ok status', async () => {
@@ -1666,35 +1667,15 @@ describe('OpenRouter name-based model filtering', () => {
 // ===========================================================================
 
 describe('Bedrock context length via gateway', () => {
-  it('should assign correct context lengths to Bedrock models from gateway', async () => {
+  it('reports only context limits actually supplied by the gateway', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com/v1');
     vi.mocked(config.getApiKey).mockReturnValue('key');
-    clearModelCache('bedrock');
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: 'anthropic.claude-3-sonnet-20240229-v1:0' },
-          { id: 'meta.llama3-1-70b-instruct-v1:0' },
-          { id: 'mistral.mistral-large-2407-v1:0' },
-          { id: 'cohere.command-r-plus-v1:0' },
-          { id: 'amazon.titan-text-premier-v1:0' },
-          { id: 'amazon.titan-text-express-v1' },
-          { id: 'some.unknown-model-v1' },
-        ],
-      }),
-    });
-
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: [
+      { id: 'gateway-chat', context_length: 65536 }, { id: 'unknown-limit' },
+    ] }) });
     const models = await getAvailableModels('bedrock');
-    const byId = (id: string) => models.find(m => m.id === id);
-
-    expect(byId('anthropic.claude-3-sonnet-20240229-v1:0')?.contextLength).toBe(200000);
-    expect(byId('meta.llama3-1-70b-instruct-v1:0')?.contextLength).toBe(128000);
-    expect(byId('mistral.mistral-large-2407-v1:0')?.contextLength).toBe(128000);
-    expect(byId('cohere.command-r-plus-v1:0')?.contextLength).toBe(128000);
-    expect(byId('amazon.titan-text-premier-v1:0')?.contextLength).toBe(32000);
-    expect(byId('amazon.titan-text-express-v1')?.contextLength).toBe(8192);
-    expect(byId('some.unknown-model-v1')?.contextLength).toBe(32000);
+    expect(models.find(model => model.id === 'gateway-chat')?.contextLength).toBe(65536);
+    expect(models.find(model => model.id === 'unknown-limit')?.contextLength).toBeUndefined();
   });
 
   it('should construct correct gateway URL without /v1 suffix', async () => {
@@ -2087,7 +2068,7 @@ describe('getAvailableModels - google edge cases', () => {
 
     const models = await getAvailableModels('google');
     expect(models[0].description).toBe('Google Gemini model');
-    expect(models[0].contextLength).toBe(1048576);
+    expect(models[0].contextLength).toBeUndefined(); // Missing limits remain unknown.
   });
 
   it('should handle non-ok Google API response', async () => {

@@ -73,7 +73,7 @@ Unreadable history produces a warning during provider execution and an error
 from doctor. Inference can continue while diagnostics are unavailable; doctor
 does not silently erase or repair corrupt records. Quarantine cannot override
 project permission policy. Capability, cost, and latency ranking are a separate
-routing layer; this change does not claim that layer is complete.
+routing layer; see [Routing](routing.md) for current selection behavior and limits.
 
 ## Storage and schema
 

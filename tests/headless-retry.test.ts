@@ -283,3 +283,8 @@ it('cancels an unfinished stdin pipe and removes its listeners', async () => {
     input.destroy();
   }
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

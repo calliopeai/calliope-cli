@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../src/config.js', () => ({
   getApiKey: vi.fn(() => 'google-test-key'),
+  getBaseUrl: vi.fn(() => undefined),
 }));
 
 const generateContent = vi.fn();

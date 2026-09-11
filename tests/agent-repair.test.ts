@@ -313,3 +313,8 @@ describe('interactive cancellation', () => {
     expect(executeToolMock).toHaveBeenCalledTimes(1);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

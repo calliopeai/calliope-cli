@@ -270,3 +270,8 @@ it('honors pre-tool hooks in headless mode and audits the displayed reason', asy
     expect(verifyChain(trace).ok).toBe(true);
   } finally { gate.mockRestore(); }
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

@@ -3,7 +3,8 @@ import { chat } from '../providers/index.js';
 import type { ChatOptions, StreamCallback, RetryCallback } from '../providers/types.js';
 import { executeTool, getTools, type ExecuteToolOptions } from '../tools.js';
 import { DEFAULT_MODELS, calculateCost, type LLMProvider, type LLMResponse, type Message, type Tool, type ToolCall, type ToolResult, type Mode } from '../types.js';
-import { cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
+import { cancellableDelay, cancellationError, isCancellation, throwIfCancelled } from '../cancellation.js';
+import { selectRoute, formatRoutingDecision, adaptRoutingPrompt, RoutingUnavailableError, type RouteCandidate, type RoutingDecision, type RoutingPreferences } from '../routing/index.js';
 import { autoCompress, type CompressionResult } from '../auto-compressor.js';
 import { withScope } from '../scope.js';
 import { analyzeDependencies } from '../parallel-tools.js';
@@ -19,7 +20,7 @@ import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
 
-export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[] }
+export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict }
@@ -46,6 +47,8 @@ export interface TurnOptions {
   onIterationEnd?: (iteration: number) => void;
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
   onWarning?: (message: string) => void;
+  routing?: RoutingPreferences;
+  onRoute?: (decision: RoutingDecision) => void;
 }
 
 function contextResult(call: ToolCall, result: ToolResult, limit: number): string {
@@ -90,6 +93,24 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let currentRequest: RuntimeRequest = { provider: options.provider, model: options.model || DEFAULT_MODELS[options.provider], messages: messages.current, tools: [] };
+  const origin = { provider: options.provider, model: options.model };
+  const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
+    throwIfCancelled(signal);
+    const decision = await selectRoute({ provider: initial ? options.provider : input.provider, model: initial ? options.model : input.model,
+      ...(initial ? {} : { origin }), messages: input.messages, preferences: options.routing, signal,
+      requirements: { tools: input.tools.length > 0, streaming: stream && !!options.onToken,
+        vision: input.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')),
+        json: extra.format !== undefined,
+        inputTokens: Math.ceil(JSON.stringify(input.messages).length / 3), outputTokens: 250 },
+    });
+    runlog.routingDecision(decision);
+    if (options.onRoute) options.onRoute(decision);
+    else options.onWarning?.(formatRoutingDecision(decision));
+    if (decision.status === 'cancelled') throw cancellationError();
+    if (!decision.selected) throw new RoutingUnavailableError(decision);
+    return { ...input, provider: decision.selected.provider, model: decision.selected.model, route: decision.selected,
+      messages: adaptRoutingPrompt(input.messages, decision.selected.provider) };
+  };
   const checkBudget = () => {
     if (!hasBudgetCaps(caps)) return;
     const verdict = evaluateBudget(caps, { runCostUsd: totals.cost, runTokens: totals.inputTokens + totals.outputTokens, projectCostUsd: trackProject ? loadProjectSpend(options.cwd).spentUsd : 0 });
@@ -103,19 +124,26 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
     checkBudget();
+    input = await resolveRoute(input, false, extra, stream);
+    throwIfCancelled(signal);
     const response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal,
-      onHealthWarning: message => {
-        runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: 'allow', reason: message, durationMs: 0 });
+      selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
+      onHealthWarning: (message, denied = false) => {
+        runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
         options.onWarning?.(message);
       },
     });
     throwIfCancelled(signal);
-    const cost = response.usage ? calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
+    const prices = input.route?.price;
+    const costSource = prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
+    const cost = response.usage ? costSource === 'discovery'
+      ? response.usage.inputTokens / 1000000 * prices!.input! + response.usage.outputTokens / 1000000 * prices!.output!
+      : calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
     totals.inputTokens += response.usage?.inputTokens ?? 0;
     totals.outputTokens += response.usage?.outputTokens ?? 0;
     totals.cost += cost;
     if (trackProject) recordProjectSpend(options.cwd, cost);
-    runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, cost });
+    runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, cost, costSource });
     options.onUsage?.(response, input, cost);
     for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
     return response;
@@ -168,6 +196,8 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   try {
     throwIfCancelled(signal);
     checkBudget();
+    currentRequest = await resolveRoute({ ...currentRequest, tools: (options.tools ?? getTools)() }, true);
+    messages.current = currentRequest.messages;
     const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
@@ -191,7 +221,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         if (response.finishReason === 'error') throw new Error('Provider returned an unsuccessful completion');
         try { checkBudget(); }
         catch (error) {
-          messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), ...(response.providerMetadata ? { providerMetadata: response.providerMetadata } : {}) });
+          messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
           await options.onResponse?.(response, iterations);
           throw error;
         }
@@ -199,7 +229,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
           request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false); checkBudget(); return value; },
           onRepair: options.onRepair });
         throwIfCancelled(signal);
-        messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), ...(response.providerMetadata ? { providerMetadata: response.providerMetadata } : {}) });
+        messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
         checkBudget();

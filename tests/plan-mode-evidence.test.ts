@@ -232,3 +232,8 @@ describe('plan mode evidence (#224)', () => {
     expect(ctx.collectedMessages.some(m => m.content.includes('Unverified plan'))).toBe(false);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

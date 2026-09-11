@@ -8,9 +8,9 @@ export function providerTarget(provider: HealthProvider): HealthTarget {
   if (!config.getProviderNames().includes(provider)) throw new Error('Unknown or retired provider');
   const credential = config.getProviderCred(provider);
   let endpoint: string, protocol: string, credentials: HealthTarget['credentials'];
-  if (provider === 'anthropic') { endpoint = 'https://api.anthropic.com/v1'; protocol = 'anthropic-messages'; }
-  else if (provider === 'google') { endpoint = 'https://generativelanguage.googleapis.com/v1beta'; protocol = 'google-genai'; }
-  else if (provider === 'openai') { endpoint = 'https://api.openai.com/v1'; protocol = 'openai-chat-and-responses'; }
+  if (provider === 'anthropic') { endpoint = credential.baseUrl || 'https://api.anthropic.com/v1'; protocol = 'anthropic-messages'; }
+  else if (provider === 'google') { endpoint = credential.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'; protocol = 'google-genai'; }
+  else if (provider === 'openai') { endpoint = credential.baseUrl || 'https://api.openai.com/v1'; protocol = 'openai-chat-and-responses'; }
   else if (provider === 'bedrock' && !credential.baseUrl) {
     endpoint = `https://bedrock-runtime.${credential.region || 'us-east-1'}.amazonaws.com`; protocol = 'bedrock-converse';
   } else {

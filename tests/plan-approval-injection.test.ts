@@ -230,3 +230,8 @@ describe('plan-to-work approval injection (#231)', () => {
     expect(msgs.some(m => m.role === 'system' && m.content.includes(APPROVAL_SNIPPET))).toBe(false);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

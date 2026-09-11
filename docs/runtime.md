@@ -3,16 +3,19 @@
 Terminal, headless and ACP clients call `runTurn` from `src/runtime/index.ts`.
 The package root exports it for programmatic clients. A turn owns model requests,
 compression, local tool repair, permission resolution, tool execution, retries,
-usage accounting, budgets and audit completion. The terminal adapter retains
-routing, display, circuit breakers, checkpoints and queued user input. ACP retains
+usage accounting, budgets and audit completion. Routing also belongs to the runtime; clients retain display, circuit breakers,
+checkpoints and queued user input. ACP retains
 streaming notifications, editor file delegates and permission prompts.
 
-`TurnOptions` supplies a session ID, project directory, resolved provider/model,
+`TurnOptions` supplies a session ID, project directory, requested provider/model,
 message reference, confirmation policy and optional `AbortSignal`. Callbacks
 adapt presentation; they do not bypass the canonical permission resolver. All
 provider calls made during a turn, including repair and compression, count
 against the same budget. The cap is checked before requests and tools; a response
 can exceed the cap because its final usage is known only after it arrives.
+
+See [Routing](routing.md) for live eligibility, preference preservation,
+protocol history, price evidence and versioned decision events.
 
 Cancellation is terminal for that turn. The engine waits for started parallel
 tools to settle, records explicit interrupted results for missing tool pairs,

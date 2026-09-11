@@ -170,7 +170,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     type: 'status',
     timestamp: now(),
     data: {
-      message: 'Starting headless session',
+      message: 'Starting headless session; selecting a route',
       provider: resolvedProvider,
       model: model || DEFAULT_MODELS[resolvedProvider],
     },
@@ -183,7 +183,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   try {
     const result = await runTurn({
       client: 'headless',
-      sessionId, cwd, provider: resolvedProvider, model, prompt,
+      sessionId, cwd, provider, model, prompt,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {
@@ -193,6 +193,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       onToolResult: (call, toolResult) => emit({ type: 'tool_result', timestamp: now(), data: { toolCallId: call.id, name: call.name, result: toolResult.result, isError: !!toolResult.isError } }, outputMode),
       onToolRetry: (_call, attempt, toolResult) => { process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${toolResult.result}\n`); },
       onWarning: message => emit({ type: 'status', timestamp: now(), data: { message } }, outputMode),
+      onRoute: decision => emit({ type: 'status', timestamp: now(), data: { message: decision.reason, routing: decision, provider: decision.selected?.provider, model: decision.selected?.model } }, outputMode),
     });
     if (result.budget?.exceeded) {
       const message = formatBudgetHalt(result.budget);

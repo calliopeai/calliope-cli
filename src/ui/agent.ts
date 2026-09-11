@@ -5,12 +5,12 @@ import { cancellableDelay, isCancellation, throwIfCancelled } from '../cancellat
 import * as config from '../config.js';
 import { estimateContextUsage } from '../providers/types.js';
 import { getTools } from '../tools.js';
-import { RISK_CONFIG, calculateCost } from '../types.js';
+import { RISK_CONFIG } from '../types.js';
 import { assessToolRisk } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
-import * as router from '../router.js';
+import { formatRoutingDecision, type RoutingDecision } from '../routing/index.js';
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { createStreamFlusher } from '../streaming.js';
@@ -50,6 +50,7 @@ export interface AgentContext {
   // State
   provider: LLMProvider;
   model: string | undefined;
+  onRoute?: (decision: RoutingDecision) => void;
   mode: Mode;
   confirmMode: boolean;
   autoRoute: boolean;
@@ -157,30 +158,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   ctx.setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
   ctx.setStreamingResponse('');
 
-  // Smart routing (cross-provider) takes precedence over autoRoute (single-provider)
-  let effectiveModel = ctx.model;
-  let effectiveProvider = ctx.provider;
-  if (ctx.smartRouteActive && ctx.smartRoutingConfig?.enabled && typeof content === 'string') {
-    const decision = router.smartRoute(content, ctx.smartRoutingConfig, {
-      messageCount: ctx.stats.messageCount,
-      hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
-    });
-    effectiveModel = decision.selected.model;
-    effectiveProvider = decision.selected.provider;
-    if (effectiveModel !== ctx.model || effectiveProvider !== ctx.provider) {
-      ctx.addMessage('system', `[Smart route: ${decision.selected.provider}/${decision.selected.tier} - ${decision.taskType}/${decision.complexity}]`);
-    }
-  } else if (ctx.autoRoute && typeof content === 'string') {
-    const routeDecision = router.routeRequest(content, ctx.provider, {
-      messageCount: ctx.stats.messageCount,
-      hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
-    });
-    effectiveModel = routeDecision.model.model;
-    if (effectiveModel !== ctx.model) {
-      ctx.addMessage('system', `[Auto-route: ${routeDecision.tier} tier - ${routeDecision.reason}]`);
-    }
-  }
-
   const maxIterations = resolveIterationLimit(config.get('maxIterations'));
   const hasParentRun = Boolean(
     ctx.ledger?.getActiveRun('loop') ||
@@ -198,8 +175,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
   const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
   const projectDir = ctx.sessionRef.current?.projectPath ?? process.cwd();
-  const provider = effectiveProvider === 'auto' ? ctx.actualProvider as LLMProvider : effectiveProvider;
-  const model = effectiveModel || ctx.actualModel;
+  let provider = ctx.actualProvider as LLMProvider;
+  let model = ctx.actualModel;
   const justLeftPlanMode = previousTurnMode === 'plan' && ctx.mode !== 'plan';
   previousTurnMode = ctx.mode;
   let flusher: ReturnType<typeof createStreamFlusher> | undefined;
@@ -207,6 +184,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   let streamStarted = false;
   let errorShown = false;
   let finalResponse = false;
+  let lastResponseCost: number | undefined;
   const blocked = new Set<string>();
   const failed = ctx.ledger?.getFailedApproachesMessage();
   if (failed) ctx.llmMessages.current.push({ role: 'user', content: failed });
@@ -218,7 +196,13 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   };
   try {
     const result = await runTurn({
-      client: 'terminal', sessionId, cwd: projectDir, provider, model,
+      client: 'terminal', sessionId, cwd: projectDir, provider: ctx.provider, model: ctx.model,
+      routing: { ...ctx.smartRoutingConfig, ...config.get('routing') },
+      onRoute: decision => {
+        if (decision.selected) { provider = decision.selected.provider; model = decision.selected.model; }
+        ctx.onRoute?.(decision);
+        ctx.addMessage(decision.selected ? 'system' : 'error', formatRoutingDecision(decision));
+      },
       prompt: summarizeMessageContent(content), messages: ctx.llmMessages,
       signal: ctx.signal, mode: ctx.mode, maxIterations,
       inheritScope: true, parallel: true, continueOnLength: true, tools: getTools,
@@ -268,6 +252,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`, iteration,
         maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined }),
       onUsage: (response, request, cost) => {
+        lastResponseCost = response.usage ? cost : undefined;
         if (!response.usage) return;
         const { inputTokens, outputTokens } = response.usage;
         ctx.setStats(s => ({ ...s, inputTokens: s.inputTokens + inputTokens, outputTokens: s.outputTokens + outputTokens, cost: s.cost + cost }));
@@ -283,7 +268,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         if (ctx.circuitBreaker) {
           const breaker = ctx.circuitBreaker.check({ iteration: index, inputTokens: response.usage?.inputTokens,
             outputTokens: response.usage?.outputTokens,
-            cost: response.usage ? calculateCost(model, response.usage.inputTokens, response.usage.outputTokens) : undefined,
+            cost: lastResponseCost,
             toolCalls: response.toolCalls?.map(call => ({ name: call.name, arguments: call.arguments })),
             content: response.content, timestamp: new Date() });
           ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());

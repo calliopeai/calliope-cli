@@ -117,6 +117,11 @@ export function renderReplay(lines: RunLogLine[], verification: ChainVerificatio
         out.push(`[${t}] ⛨ policy: ${p.decision.toUpperCase()} ${p.tool}${reason}`);
         break;
       }
+      case 'routing_decision': {
+        const decision = line.decision as { status?: string; reason?: string; selected?: { provider?: string; model?: string } } | undefined;
+        out.push(`[${t}] route: ${decision?.selected ? `${decision.selected.provider}/${decision.selected.model}` : decision?.status ?? 'unknown'} — ${decision?.reason ?? ''}`);
+        break;
+      }
       case 'run_end': {
         const p = line as unknown as { totals: { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }; exitReason: string };
         const tt = p.totals;

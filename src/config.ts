@@ -59,7 +59,13 @@ export interface CalliopeConfig {
   sandboxMode: 'auto' | 'native' | 'docker' | 'off';
 
   // Smart Routing
-  routing?: { enabled: boolean; costSensitivity: number };  // costSensitivity 0-1 (0 = best quality, 1 = cheapest)
+  routing?: {
+    enabled: boolean;
+    costSensitivity: number;
+    preferredProviders?: Exclude<LLMProvider, 'auto'>[];
+    providerPool?: Exclude<LLMProvider, 'auto'>[];
+    discoveryTimeoutMs?: number;
+  };
   providerHealth?: {
     retentionEvents?: number;
     retentionDays?: number;
@@ -159,7 +165,12 @@ const config = new Conf<CalliopeConfig>({
     diffStyle: { type: 'string', enum: ['inline', 'unified', 'side-by-side'] },
     circuitBreakersEnabled: { type: 'boolean' },
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
-    routing: { type: 'object' },
+    routing: { type: 'object', additionalProperties: false, properties: {
+      enabled: { type: 'boolean' }, costSensitivity: { type: 'number', minimum: 0, maximum: 1 },
+      preferredProviders: { type: 'array', items: { type: 'string' }, maxItems: 32 },
+      providerPool: { type: 'array', items: { type: 'string' }, maxItems: 32 },
+      discoveryTimeoutMs: { type: 'integer', minimum: 100, maximum: 30000 },
+    } },
     providerHealth: { type: 'object', additionalProperties: false, properties: {
       retentionEvents: { type: 'integer', minimum: 10, maximum: 10000 },
       retentionDays: { type: 'integer', minimum: 1, maximum: 365 },
@@ -185,9 +196,9 @@ const config = new Conf<CalliopeConfig>({
 // ---------------------------------------------------------------------------
 
 const PROVIDER_ENV: Record<string, { apiKey?: string; baseUrl?: string; region?: string[]; profile?: string }> = {
-  anthropic: { apiKey: 'ANTHROPIC_API_KEY' },
-  google: { apiKey: 'GOOGLE_API_KEY' },
-  openai: { apiKey: 'OPENAI_API_KEY' },
+  anthropic: { apiKey: 'ANTHROPIC_API_KEY', baseUrl: 'ANTHROPIC_BASE_URL' },
+  google: { apiKey: 'GOOGLE_API_KEY', baseUrl: 'GOOGLE_GEMINI_BASE_URL' },
+  openai: { apiKey: 'OPENAI_API_KEY', baseUrl: 'OPENAI_BASE_URL' },
   together: { apiKey: 'TOGETHER_API_KEY' },
   openrouter: { apiKey: 'OPENROUTER_API_KEY' },
   groq: { apiKey: 'GROQ_API_KEY' },

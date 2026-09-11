@@ -155,16 +155,23 @@ export async function chat(
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
+  let quarantineHalt: string | undefined;
   try {
     const store = new HealthStore(), target = providerTarget(actualProvider as HealthProvider);
     health = { store, target };
     const quarantine = summarizeHealth(store.read(), target, store.settings).quarantine;
     if (quarantine.active) {
-      const message = `${actualProvider} is quarantined after ${quarantine.failures} failures (${quarantine.reason}) until ${quarantine.expiresAt}; honoring your explicit selection for a recovery attempt.`;
-      if (options?.onHealthWarning) options.onHealthWarning(message);
+      const automatic = options?.selectionMode === 'auto' || provider === 'auto';
+      const message = `${actualProvider} is quarantined after ${quarantine.failures} failures (${quarantine.reason}) until ${quarantine.expiresAt}; ${automatic ? 'automatic inference stopped before dispatch' : 'honoring your explicit selection for a recovery attempt'}.`;
+      if (automatic) quarantineHalt = message;
+      if (options?.onHealthWarning) {
+        if (automatic) options.onHealthWarning(message, true);
+        else options.onHealthWarning(message);
+      }
       else process.stderr.write(message + '\n');
     }
   } catch { healthHistoryWarning(options?.onHealthWarning); }
+  if (quarantineHalt) throw new Error(quarantineHalt);
   const callback = onToken;
   if (callback && options?.signal) onToken = token => { if (!options.signal!.aborted) callback(token); };
 

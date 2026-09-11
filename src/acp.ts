@@ -316,7 +316,7 @@ class CalliopeAgent implements Agent {
     try {
       const result = await runTurn({
         client: 'acp',
-        sessionId: session.id, cwd: session.cwd, provider: session.resolvedProvider,
+        sessionId: session.id, cwd: session.cwd, provider: session.provider,
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
         runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
         confirmation: 'mutating', tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
@@ -336,6 +336,10 @@ class CalliopeAgent implements Agent {
         beforeTool: async call => { await this.emit(session.id, { sessionUpdate: 'tool_call_update', toolCallId: call.id, status: 'in_progress' }); },
         onToolResult: async (call, value) => { await this.reportToolResult(session, call.id, value.displayResult || value.result, !!value.isError, value.result); },
         onWarning: warning => { void this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n[Warning: ${warning}]\n` } }); },
+        onRoute: decision => {
+          if (decision.selected) session.resolvedProvider = decision.selected.provider;
+          void this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `\n[Route: ${decision.selected ? `${decision.selected.provider}/${decision.selected.model}` : 'unavailable'}; ${decision.reason}]\n` } });
+        },
       });
       if (result.budget?.exceeded) await this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: formatBudgetHalt(result.budget) } });
       await this.flush();
