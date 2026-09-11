@@ -31,6 +31,12 @@ vi.mock('openai', () => {
   return { default: MockOpenAI };
 });
 vi.mock('@inquirer/prompts', () => ({ select: vi.fn() }));
+// This unit suite must never invoke the runner's AWS CLI/credential chain.
+// Native credential-helper process behavior has dedicated doctor tests.
+vi.mock('child_process', async original => ({
+  ...await original<typeof import('child_process')>(),
+  execFileSync: vi.fn(() => { throw new Error('No AWS credentials in this unit fixture'); }),
+}));
 
 import {
   getModelContextLimit,
@@ -42,6 +48,7 @@ import {
   preWarmModelCache,
 } from '../src/model-detection.js';
 import * as config from '../src/config.js';
+import { execFileSync } from 'child_process';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,10 +62,13 @@ beforeEach(() => {
   // Stub global fetch
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  vi.mocked(execFileSync).mockClear();
+  for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) vi.stubEnv(name, '');
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 // ===========================================================================
@@ -738,13 +748,14 @@ describe('getAvailableModels - litellm', () => {
 // ===========================================================================
 
 describe('getAvailableModels - bedrock', () => {
-  it('should return empty array when no base URL', async () => {
+  it('should return empty array when gateway and native credentials are unavailable', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
     vi.mocked(config.getApiKey).mockReturnValue(undefined);
     clearModelCache('bedrock');
 
     const models = await getAvailableModels('bedrock');
     expect(models).toEqual([]);
+    expect(execFileSync).toHaveBeenCalledTimes(2); // Both supported export formats fail.
   });
 
   it('should fetch from gateway when base URL is configured', async () => {
