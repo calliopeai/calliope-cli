@@ -7,6 +7,7 @@
 import type { Message } from '../types.js';
 
 export interface UIMessage {
+  toolOutput?: { record: Omit<import('../sessions/index.js').ToolOutputRecord, 'content'>; saved: boolean; retainedLines: number; retainedChars: number };
   id: string;
   type: 'user' | 'assistant' | 'tool' | 'system' | 'error';
   content: string;
@@ -39,6 +40,8 @@ export interface ThinkingState {
 }
 
 export interface ActivityState {
+  tools?: import('./tool-progress.js').ActiveTool[];
+  omittedTools?: number;
   action: string;      // e.g., "Reading", "Writing", "Running"
   target?: string;     // e.g., file path or command preview
   startTime: number;   // for elapsed time display

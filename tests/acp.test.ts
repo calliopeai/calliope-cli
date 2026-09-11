@@ -702,3 +702,18 @@ it('reports failed cancellation recovery through JSON-RPC instead of hiding the 
   expect(readSessionConversation(sessionId).revision).toBe(saved.revision);
   expect(mockExecuteTool).not.toHaveBeenCalled();
 });
+
+it('returns the existing JSON-RPC error after partial streaming and accepts a later explicit prompt', async () => {
+  const { StreamInterruptedError } = await import('../src/errors.js');
+  const { readSessionConversation } = await import('../src/storage.js');
+  const { conn, client } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+  mockChat.mockImplementationOnce(async (_p, _m, _t, _model, onToken) => { onToken('Partial'); throw new StreamInterruptedError(); });
+  await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).rejects.toMatchObject({ code: -32603 });
+  await settle(); expect(mockChat).toHaveBeenCalledOnce(); expect(mockExecuteTool).not.toHaveBeenCalled();
+  expect(client.updatesOf('agent_message_chunk').map(c => (c as { content: { text: string } }).content.text).join('')).toBe('Partial');
+  expect(readSessionConversation(sessionId)).toMatchObject({ status: 'interrupted' });
+  expect(readSessionConversation(sessionId).messages.some(message => message.role === 'assistant')).toBe(false);
+  scriptChat([{ content: 'Recovered', stream: ['Recovered'] }]);
+  expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue explicitly' }] })).stopReason).toBe('end_turn');
+  expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content)).toEqual(['Recovered']);
+});

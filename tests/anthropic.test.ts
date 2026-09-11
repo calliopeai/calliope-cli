@@ -196,7 +196,7 @@ describe('chatAnthropic - uncovered lines', () => {
 
   // Lines 186-189: streaming error handler (catch block)
   describe('streaming error handling (lines 186-189)', () => {
-    it('should call onToken with error message and rethrow when stream fails', async () => {
+    it('rethrows stream errors without mixing diagnostics into assistant tokens', async () => {
       mockStreamShouldThrow = new Error('Connection reset by peer');
 
       const tokens: string[] = [];
@@ -211,9 +211,7 @@ describe('chatAnthropic - uncovered lines', () => {
         )
       ).rejects.toThrow('Connection reset by peer');
 
-      // Verify onToken received the error message
-      expect(tokens).toHaveLength(1);
-      expect(tokens[0]).toContain('[Streaming error: Connection reset by peer]');
+      expect(tokens).toEqual([]);
     });
 
     it('should handle non-Error stream failures', async () => {
@@ -231,8 +229,7 @@ describe('chatAnthropic - uncovered lines', () => {
         )
       ).rejects.toBe('network failure');
 
-      // Non-Error values get String()'d
-      expect(tokens[0]).toContain('[Streaming error: network failure]');
+      expect(tokens).toEqual([]);
     });
   });
 

@@ -54,6 +54,7 @@ export const COMMAND_NAMES = [
   '/provider',
   '/doctor',
   '/permissions',
+  '/tools',
   '/defaults',
   '/once',
   '/mode',
@@ -87,6 +88,8 @@ export const COMMAND_NAMES = [
 // ============================================================================
 
 export interface CommandContext {
+  toolOutputs?: () => import('../sessions/index.js').CapturedToolOutput[];
+  showToolOutput?: (output: import('../sessions/index.js').CapturedToolOutput) => void;
   approvals?: import('../approvals/index.js').ApprovalStore;
   signal?: AbortSignal;
   conversationCursor?: React.MutableRefObject<{ sessionId: string; revision: string | null } | null>;
@@ -225,6 +228,7 @@ Conversation
   /diff <id|name>             Compare another conversation with the current one
   /replay [revision]          Read recorded conversation without executing tools
   /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
+  /tools [list|last|output-id] Inspect retained tool output; expand/collapse and page
   /export [file.json|file.md]  Save private history JSON or readable markdown
   /import <file.json>         Validate and import into a separate inactive session
   /new                       Start a separate session
@@ -261,6 +265,11 @@ Fleet
 File references: @filename, ./path, /absolute/path`;
       ctx.addMessage('system', help);
       break;
+    }
+
+    case '/tools': {
+      const { handleToolOutputCommand } = await import('./tool-output-commands.js');
+      handleToolOutputCommand(parts, ctx); break;
     }
 
     case '/permissions': {

@@ -525,7 +525,7 @@ describe('chatGoogle', () => {
   // =========================================================================
 
   describe('streaming error handling', () => {
-    it('should call onToken with error message and rethrow', async () => {
+    it('rethrows stream errors without mixing diagnostics into assistant tokens', async () => {
       const streamError = new Error('Network timeout');
       mockSendMessageStreamResult = { stream: mockErrorStream(streamError) };
 
@@ -541,8 +541,7 @@ describe('chatGoogle', () => {
         )
       ).rejects.toThrow('Network timeout');
 
-      // onToken should have been called with the error message
-      expect(tokens.some(t => t.includes('[Streaming error: Network timeout]'))).toBe(true);
+      expect(tokens).toEqual([]);
     });
 
     it('should handle non-Error stream failures', async () => {
@@ -565,7 +564,7 @@ describe('chatGoogle', () => {
         )
       ).rejects.toBe('string error');
 
-      expect(tokens.some(t => t.includes('[Streaming error: string error]'))).toBe(true);
+      expect(tokens).toEqual([]);
     });
   });
 

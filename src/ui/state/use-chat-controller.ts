@@ -315,6 +315,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
   }, [setQueuedMessages, addMessage]);
 
   const buildCommandContext = useCallback((): CommandContext => ({
+    toolOutputs: transcript.toolOutputs,
+    showToolOutput: output => { modal.setToolOutput(output); modal.setModalMode('tool-output'); },
     approvals: approval.store,
     cancelActiveTurn: () => turnController.current.cancel(),
     provider, actualProvider, actualModel, model, mode, confirmMode,
@@ -350,9 +352,9 @@ export function useChatController(initial?: ModelPreference): ChatController {
     runLoop,
     startFleetPolling: () => { fleetStartPolling(handleFleetInstruction); },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [approval.store, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
+  }), [approval.store, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
-    modal.modalMode, modal.setModalMode, modal.setAvailableModels, setProvider, setModel, setMode,
+    modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
     loop.setLoopIteration, addMessage, estimateContextTokens, runLoop, handleFleetInstruction]);
 
@@ -445,6 +447,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
       loopCancelledRef.current = true;
       setThinkingState(null);
       setStreamingResponse('');
+      setActivityState(null);
       setLoopActive(false);
       setEditingQueueIndex(null);
       addMessage('system', '⏹ Cancellation requested. Waiting for active work to stop.');
@@ -454,7 +457,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     } else {
       addMessage('system', '💡 Press Ctrl+C again to quit, or /exit.');
     }
-  }, [isProcessing, modal, addMessage, setIsProcessing, setThinkingState, setStreamingResponse,
+  }, [isProcessing, modal, addMessage, setIsProcessing, setThinkingState, setStreamingResponse, setActivityState,
     setLoopActive, setEditingQueueIndex]);
 
   const handleExit = useCallback(() => { turnController.current.cancel(); exit(); }, [exit]);
@@ -670,6 +673,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   };
 
   const modalProps: ModalHostProps = {
+    toolOutput: modal.toolOutput,
     pendingApproval: approval.pending,
     onApprovalAnswer: (id, choice) => { if (approval.answer(id, choice) && choice === 'cancelled') turnController.current.cancel(); },
     modalMode: approval.pending ? 'confirm' : modal.modalMode,

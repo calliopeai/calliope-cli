@@ -191,6 +191,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
+      captureToolOutput: true,
       client: 'headless',
       onSafetyBranch: async () => {
         const { branchSession } = await import('./session-management/index.js');

@@ -44,6 +44,9 @@ export type RetryCallback = (attempt: number, error: Error, delayMs: number) => 
  * grammar-constrained `format` schema for tool-call repair (ignored elsewhere).
  */
 export interface ChatOptions {
+  /** Required to retry after visible partial output; append-only clients omit it. */
+  onStreamReset?: () => void;
+  onStreamEvent?: (event: import('./stream-attempt.js').StreamAttemptEvent) => void;
   signal?: AbortSignal;
   format?: unknown;
   onHealthWarning?: (message: string, denied?: boolean) => void;

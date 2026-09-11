@@ -15,6 +15,7 @@ import { formatRoutingDecision, type RoutingDecision } from '../routing/index.js
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { createStreamFlusher } from '../streaming.js';
+import { ToolProgress } from './tool-progress.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { SmartRoutingConfig } from '../router.js';
@@ -91,7 +92,7 @@ export interface AgentContext {
   sessionRef: React.MutableRefObject<Session | null>;
 
   // Callbacks
-  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string, isError?: boolean) => void;
+  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string, isError?: boolean, output?: import('../sessions/index.js').CapturedToolOutput) => void;
   estimateContextTokens: () => number;
   validateAndRepairMessages: () => boolean;
 
@@ -191,16 +192,21 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   let finalResponse = false;
   let lastResponseCost: number | undefined;
   const blocked = new Set<string>();
+  const toolProgress = new ToolProgress();
+  const showToolProgress = () => ctx.setActivityState(toolProgress.snapshot());
   const failed = ctx.ledger?.getFailedApproachesMessage();
   if (failed) ctx.llmMessages.current.push({ role: 'user', content: failed });
   const clearDisplay = () => {
+    toolProgress.clear();
     flusher?.destroy();
     ctx.setThinkingState(null);
     ctx.setActivityState(null);
     ctx.setStreamingResponse('');
   };
+  ctx.signal?.addEventListener('abort', clearDisplay, { once: true });
   try {
     const result = await runTurn({
+      captureToolOutput: true,
       onCheckpoint: ctx.onCheckpoint,
       onSafetyBranch: ctx.onCheckpoint ? async () => {
         const { branchSession } = await import('../session-management/index.js');
@@ -226,7 +232,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         finalResponse = false;
         ctx.ledger?.startIteration(ctx.ledger.getNextIterationNumber());
         flusher?.destroy();
-        flusher = createStreamFlusher(delta => ctx.setStreamingResponse(prev => prev + delta));
+        flusher = createStreamFlusher(delta => { if (!ctx.signal?.aborted) ctx.setStreamingResponse(prev => prev + delta); });
         streamStarted = false;
         ctx.setStreamingResponse('');
         ctx.setThinkingState({ status: index === 1 ? 'Analyzing request...' : 'Processing response...',
@@ -258,12 +264,16 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setContextTokens(ctx.estimateContextTokens());
         ctx.addMessage('system', `🔄 Auto-compressed ${result.summarizedCount} messages using ${result.method} (${Math.round(result.originalTokens / 1000)}K → ${Math.round(result.compressedTokens / 1000)}K tokens)`);
       },
+      onStreamReset: () => {
+        flusher?.destroy(); flusher = createStreamFlusher(delta => { if (!ctx.signal?.aborted) ctx.setStreamingResponse(prev => prev + delta); });
+        streamStarted = false; ctx.setStreamingResponse('');
+      },
       onToken: token => {
         if (!streamStarted) { ctx.setThinkingState(null); streamStarted = true; }
         flusher?.push(token);
       },
       onRetry: (attempt, error, delayMs) => ctx.setThinkingState({ status: `Retrying... (attempt ${attempt + 1})`,
-        detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`, iteration,
+        detail: `${approvalDisplayText(classifyError(error).message)} Waiting ${Math.round(delayMs / 1000)}s`, iteration,
         maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined }),
       onUsage: (response, request, cost) => {
         lastResponseCost = response.usage ? cost : undefined;
@@ -293,7 +303,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           }
         }
         if (fleetActive() && response.content) fleetMirrorAssistant(response.content);
-        if (response.toolCalls?.length) return;
+        if (response.toolCalls?.length) {
+          if (response.content) ctx.addMessage('assistant', response.content);
+          ctx.setStreamingResponse(''); ctx.setThinkingState(null); return;
+        }
         finalResponse = true;
         ctx.setThinkingState(null);
         ctx.addMessage('assistant', response.content);
@@ -313,6 +326,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             : event.corrected ? '🔧 Repair did not resolve the malformed call; surfacing the error.' : '🔧 Repair produced no usable tool call; surfacing the original error.');
         }
       },
+      onToolStart: call => { toolProgress.start(call.id, call.name); showToolProgress(); },
+      onToolRetry: call => { toolProgress.retry(call.id); showToolProgress(); },
       onPermission: (call, decision) => {
         const risk = assessToolRisk(call);
         const display = risk.level !== 'none' ? ` [${RISK_CONFIG[risk.level].bar}]` : '';
@@ -326,21 +341,21 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       beforeTool: call => {
         const args = call.arguments;
         const thought = call.name === 'think' ? String(args.thought || '') : undefined;
-        ctx.setActivityState({ action: `Executing ${call.name}`, target: String(args.path || args.command || '').substring(0, 40), startTime: Date.now() });
+        toolProgress.running(call.id); showToolProgress();
         ctx.setThinkingState({ status: thought ? 'Reasoning...' : `Executing ${call.name}...`, thinking: thought,
           detail: (thought || String(args.path || args.command || '...')).substring(0, 60), iteration,
           maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined });
         if (shouldCheckpoint(call.name, args, projectDir)) createCheckpoint(call.name, args, projectDir);
       },
       onToolOutput: (call, chunk) => {
-        if (call.name === 'shell') ctx.setActivityState({ action: 'Running shell', target: String(call.arguments.command || '').substring(0, 40),
-          startTime: Date.now(), detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60) });
+        if (!ctx.signal?.aborted) { toolProgress.output(call.id, chunk); showToolProgress(); }
       },
-      onToolResult: (call, result) => {
+      onToolResult: (call, result, _iteration, output) => {
+        toolProgress.finish(call.id); showToolProgress();
         if (blocked.has(call.id)) return;
         const args = call.arguments;
         ctx.ledger?.recordAction(call.name, args, result.isError ? 'error' : 'ok', result.isError ? result.result : undefined);
-        if (call.name === 'think' && !result.isError) ctx.addMessage('tool', String(args.thought || ''));
+        if (call.name === 'think' && !result.isError) ctx.addMessage('tool', output?.record.content ?? approvalDisplayText(String(args.thought || '')), false, output);
         else if (call.name === 'ask_question' && !result.isError) {
           let question = `❓ ${String(args.question || '')}`;
           if (typeof args.context === 'string') question += `\n   ${args.context}`;
@@ -352,15 +367,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           if (Array.isArray(args.steps)) plan += '\n' + args.steps.map((step, i) => `   ${i + 1}. [ ] ${step}`).join('\n');
           ctx.addMessage('assistant', plan + '\n\n   Switch to work mode (Shift+Tab) and reply to execute, or give feedback to revise.');
         } else {
-          const display = result.displayResult || result.result;
-          ctx.addMessage('tool', display.split('\n').slice(0, 5).join('\n') + (display.split('\n').length > 5 ? '\n...' : ''), result.isError);
+          const display = output?.record.content ?? approvalDisplayText((result.displayResult || result.result).slice(0, 65536));
+          ctx.addMessage('tool', display, result.isError, output);
         }
       },
       onIterationEnd: () => { ctx.ledger?.endIteration(finalResponse ? 'success' : undefined); },
       onError: (error, index) => {
         clearDisplay();
         ctx.ledger?.endIteration('error');
-        const message = formatError(error, { provider });
+        const message = approvalDisplayText(formatError(error, { provider, retrying: false }));
         ctx.addMessage('error', message);
         errorShown = true;
         runErrorSummary = message;
@@ -403,10 +418,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   } catch (error) {
     const recoveryFailure = error instanceof SessionRecoveryError;
     const cancelled = !recoveryFailure && (ctx.signal?.aborted || isCancellation(error));
-    if (recoveryFailure || !cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
+    if (recoveryFailure || !cancelled && !errorShown) ctx.addMessage('error', approvalDisplayText(formatError(error, { provider, retrying: false })));
     if (runId) ctx.ledger?.finishRun(runId, cancelled ? 'stopped' : 'failed', { errorSummary: cancelled ? 'Operation cancelled' : String(error) });
     return false;
-  } finally { clearDisplay(); }
+  } finally { ctx.signal?.removeEventListener('abort', clearDisplay); clearDisplay(); }
 }
 
 // ============================================================================

@@ -116,6 +116,16 @@ function MessageItemInner({ msg, collapse }: { msg: UIMessage; collapse?: Collap
     }
 
     case 'tool': {
+      if (msg.toolOutput) {
+        const { record, saved, retainedLines } = msg.toolOutput;
+        const lines = msg.content.split('\n'), limit = collapse?.collapseTools ? 1 : 5;
+        return <Box flexDirection="column">
+          <Text color={record.isError ? errorColor : accentColor}>{record.channel === 'thinking' ? 'Thinking' : 'Tool'} · {record.tool} · {record.isError ? 'failed' : 'completed'}</Text>
+          {lines.slice(0, limit).map((line, index) => <Text key={index} dimColor>{line.slice(0, 100)}{line.length > 100 ? '…' : ''}</Text>)}
+          <Text dimColor>{retainedLines > limit ? `${retainedLines - limit} more lines · ` : ''}/tools {record.id} to expand{record.truncated ? ' · storage limit reached' : ''}{saved ? '' : ' · transcript only'}</Text>
+        </Box>;
+      }
+
       const isToolCall = msg.content.startsWith('⚡');
       const isThinkTool = msg.content.includes('💭') || msg.content.startsWith('Perfect!') || msg.content.startsWith('Let me');
 

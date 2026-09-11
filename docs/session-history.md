@@ -110,7 +110,8 @@ A version 1 `calliope-session` bundle contains creation time, source session/
 revision/state hash, head link, committed ancestry, current `toolState` files and
 a checksum over the envelope. The total file limit is 81 MiB; tool state is
 limited to 1,000 allowlisted files and 16 MiB before JSON escaping. Supported
-files are `todos.txt`, `active-todo.json`, `ledger.json`, and `plans/*.json`.
+files are `todos.txt`, `active-todo.json`, `ledger.json`, `tool-output.json`, and `plans/*.json`.
+The [tool-output cache](streaming.md) preserves bounded inspection records.
 Structured tool files are validated before installation. Tool state is captured
 at transfer/branch time, not reconstructed at historical conversation revisions.
 

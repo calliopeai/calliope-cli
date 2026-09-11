@@ -3,18 +3,20 @@ import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { throwIfCancelled } from '../cancellation.js';
+import { validateToolOutputSnapshot } from './output.js';
 import { readPrivateSessionFile, assertSessionDirectory, invalid, object, hash, validateMessages } from './format.js';
 
 export interface ToolStateFile { path: string; content: string }
 export const MAX_TOOL_STATE_BYTES = 16 * 1024 * 1024;
-const allowed = /^(?:todos\.txt|active-todo\.json|ledger\.json|plans\/[a-zA-Z0-9_-]{1,150}\.json)$/;
+const allowed = /^(?:todos\.txt|active-todo\.json|tool-output\.json|ledger\.json|plans\/[a-zA-Z0-9_-]{1,150}\.json)$/;
 const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === 'string');
 const number = (value: unknown) => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const date = (value: unknown) => typeof value === 'string' && Number.isFinite(Date.parse(value));
 function validateJsonFile(path: string, data: unknown): void {
   if (!object(data)) throw invalid();
   validateMessages([{ role: 'assistant', content: '', providerMetadata: data }]);
-  if (path === 'active-todo.json') {
+  if (path === 'tool-output.json') { validateToolOutputSnapshot(data);
+  } else if (path === 'active-todo.json') {
     if (typeof data.todoId !== 'string' || !data.todoId || !date(data.setAt)) throw invalid();
   } else if (path.startsWith('plans/')) {
     if (typeof data.id !== 'string' || !/^[a-zA-Z0-9_-]{1,150}$/.test(data.id) || typeof data.title !== 'string' ||
@@ -57,7 +59,7 @@ export function validateToolState(value: unknown): ToolStateFile[] {
 
 export function readToolState(dir: string): ToolStateFile[] {
   assertSessionDirectory(dir);
-  const names = ['todos.txt', 'active-todo.json', 'ledger.json'];
+  const names = ['todos.txt', 'active-todo.json', 'ledger.json', 'tool-output.json'];
   const plans = join(dir, 'plans');
   if (fs.existsSync(plans)) {
     const stat = fs.lstatSync(plans); if (!stat.isDirectory() || stat.isSymbolicLink()) throw invalid();

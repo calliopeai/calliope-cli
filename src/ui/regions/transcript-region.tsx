@@ -25,6 +25,7 @@ import type { Mode } from '../../types.js';
 import { StaticScrollback } from './static-scrollback.js';
 import { ThinkingDisplay, ProcessingIndicator, StreamingIndicator, StateTransition } from '../components.js';
 import { probeRender } from './render-probe.js';
+import { ToolActivity } from './tool-activity.js';
 
 type ProcPhase = 'idle' | 'thinking' | 'streaming' | 'done';
 
@@ -100,8 +101,9 @@ function TranscriptRegionInner({
           onComplete={() => setTransition(null)}
         />
       )}
-      {isProcessing && thinkingState && !streamingResponse && <ThinkingDisplay state={thinkingState} />}
-      {isProcessing && !thinkingState && !streamingResponse && <ProcessingIndicator label="Waiting for response" />}
+      {isProcessing && activityState?.tools && <ToolActivity activity={activityState} />}
+      {isProcessing && thinkingState && !streamingResponse && !activityState?.tools && <ThinkingDisplay state={thinkingState} />}
+      {isProcessing && !thinkingState && !streamingResponse && !activityState?.tools && <ProcessingIndicator label="Waiting for response" />}
       {isProcessing && streamingResponse && <StreamingIndicator activity={activityState ?? undefined} />}
     </>
   );
