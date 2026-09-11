@@ -23,6 +23,7 @@ const BASE_SLASH_COMMANDS = [
   '/defaults', '/defaults save', '/defaults reset',
   '/once',
   '/doctor', '/doctor providers', '/doctor provider',
+  '/tools', '/tools list', '/tools last',
   '/permissions', '/permissions list', '/permissions reset', '/permissions revoke',
   '/mode', '/mode plan', '/mode work',
   '/undo',

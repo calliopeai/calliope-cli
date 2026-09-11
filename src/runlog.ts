@@ -43,7 +43,8 @@ export type RunLogEventType =
   | 'policy_event'
   | 'routing_decision'
   | 'run_end'
-  | 'session_checkpoint';
+  | 'session_checkpoint'
+  | 'stream_attempt';
 
 /** The stable, on-disk shape of a run-log line. */
 export interface RunLogLine {
@@ -84,6 +85,7 @@ export interface ToolCallPayload {
 }
 
 export interface ToolResultPayload {
+  output?: { id: string; hash: string; truncated: boolean; saved: boolean };
   id: string;
   result: string;
   isError: boolean;
@@ -457,6 +459,10 @@ export class RunLog {
     this.append('routing_decision', { decision: redactSecrets(decision) });
   }
 
+  streamAttempt(event: import('./providers/stream-attempt.js').StreamAttemptEvent, context: { iteration: number; provider: string; model: string }): void {
+    this.append('stream_attempt', { stream: { ...event }, context: redactSecrets(context) });
+  }
+
   toolCall(payload: ToolCallPayload): void {
     this.append('tool_call', {
       id: payload.id,
@@ -471,7 +477,8 @@ export class RunLog {
       : payload.result;
     this.append('tool_result', {
       id: payload.id,
-      result,
+      result: redactSecrets(result),
+      ...(payload.output ? { output: { ...payload.output } } : {}),
       isError: payload.isError,
       durationMs: payload.durationMs,
     });

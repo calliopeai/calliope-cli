@@ -18,6 +18,8 @@ import * as compressor from '../src/auto-compressor.js';
 import * as config from '../src/config.js';
 import { RunLog } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
+import { StreamInterruptedError, StreamProtocolError } from '../src/errors.js';
+import { readToolOutputs } from '../src/sessions/index.js';
 import { clearModelCache } from '../src/model-detection.js';
 import * as storage from '../src/storage.js';
 import { branchSession } from '../src/session-management/index.js';
@@ -334,4 +336,38 @@ it('reports a checkpoint failure even when the cancellation signal is already se
   const opts = options({ signal: controller.signal, onCheckpoint: () => { controller.abort(); throw new Error('checkpoint failed'); } });
   await expect(runTurn(opts)).rejects.toThrow('checkpoint failed');
   expect(chatMock).not.toHaveBeenCalled(); expect(executeMock).not.toHaveBeenCalled();
+});
+
+it.each([new StreamInterruptedError(), new StreamProtocolError('Malformed chunk')])('prevents an outer retry after %s, leaving partial responses uncommitted', async error => {
+  chatMock.mockRejectedValue(error); const retry = vi.fn(() => 'retry' as const), opts = options({ onError: retry });
+  await expect(runTurn(opts)).rejects.toBe(error);
+  expect(chatMock).toHaveBeenCalledOnce(); expect(retry).toHaveBeenCalledOnce(); expect(executeMock).not.toHaveBeenCalled();
+  expect(opts.messages.current).toEqual([{ role: 'user', content: 'work' }]);
+});
+it('retains a bounded fallback when tool-output persistence fails without repeating a completed mutation', async () => {
+  const session = storage.createSession(root, { activate: false }), dir = storage.getSessionDirById(session.id)!;
+  writeFileSync(join(dir, 'tool-output.json.lock'), 'busy writer');
+  chatMock.mockResolvedValueOnce(response(tool('write_file', 'write', { path: 'saved.txt', content: 'completed mutation' }))).mockResolvedValueOnce(text());
+  const onToolResult = vi.fn(), onWarning = vi.fn();
+  expect((await runTurn(options({ sessionId: session.id, captureToolOutput: true, onToolResult, onWarning }))).reason).toBe('completed');
+  expect(readFileSync(join(root, 'saved.txt'), 'utf8')).toBe('completed mutation'); expect(executeMock).toHaveBeenCalledOnce();
+  expect(onWarning).toHaveBeenCalledWith(expect.stringContaining('will not be repeated'));
+  expect(onToolResult.mock.calls[0]![3]).toMatchObject({ saved: false, record: { tool: 'write_file', isError: false } });
+  expect(readToolOutputs(dir).records).toEqual([]); expect(readFileSync(join(dir, 'tool-output.json.lock'), 'utf8')).toBe('busy writer');
+});
+it('records denied tool output as failure evidence without dispatching the mutation', async () => {
+  const session = storage.createSession(root, { activate: false });
+  chatMock.mockResolvedValueOnce(response(tool('write_file', 'write', { path: '../escape.txt', content: 'no' }))).mockResolvedValueOnce(text());
+  await runTurn(options({ sessionId: session.id, captureToolOutput: true }));
+  expect(executeMock).not.toHaveBeenCalled();
+  expect(readToolOutputs(storage.getSessionDirById(session.id)!).records[0]).toMatchObject({ toolCallId: 'write', tool: 'write_file', isError: true, content: expect.stringContaining('[scope]') });
+});
+
+it('captures only explicitly submitted thinking-tool text, with known credentials redacted', async () => {
+  const session = storage.createSession(root, { activate: false });
+  chatMock.mockResolvedValueOnce(response(tool('think', 'thought', { thought: 'Inspect the failing test. TOKEN=synthetic-secret' }))).mockResolvedValueOnce(text());
+  await runTurn(options({ sessionId: session.id, captureToolOutput: true }));
+  const output = readToolOutputs(storage.getSessionDirById(session.id)!).records[0]!;
+  expect(output.channel).toBe('thinking'); expect(output.content).toContain('Inspect the failing test.');
+  expect(output.content).not.toContain('synthetic-secret'); expect(output.content).not.toContain('Thought recorded.');
 });

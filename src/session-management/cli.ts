@@ -3,13 +3,13 @@ import { parseArgs } from 'node:util';
 import { realpathSync } from 'node:fs';
 import * as storage from '../storage.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
-import { SessionRecoveryError } from '../sessions/index.js';
+import { SessionRecoveryError, readToolOutputs } from '../sessions/index.js';
 import { branchSession, compareConversations, selectSession, sessionHistory } from './actions.js';
 import { exportSession, importSession } from './transfer.js';
 import { SessionPolicyError, type SessionActionOptions } from './permissions.js';
 import { conversationMarkdown } from './presentation.js';
 
-export const SESSION_USAGE = 'calliope session list | status <id|name> | replay <id|name> [revision] | branch <id|name> [name] | diff <before> <after> | export <id|name> <file.json> | import <file.json> [--json]';
+export const SESSION_USAGE = 'calliope session list | status <id|name> | replay <id|name> [revision] | branch <id|name> [name] | diff <before> <after> | outputs <id|name> [output-id] | export <id|name> <file.json> | import <file.json> [--json]';
 export interface SessionReport {
   version: 1; type: 'session'; action: string; localOnly: true;
   data?: unknown;
@@ -24,7 +24,7 @@ export async function sessionCommand(args: string[], options: SessionActionOptio
     ({ positionals } = parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' } } }));
     action = positionals[0] ?? 'list';
     const count = positionals.length ? positionals.length - 1 : 0;
-    const arities: Record<string, number[]> = { list: [0], status: [1], replay: [1, 2], branch: [1, 2], diff: [2], export: [2], import: [1] };
+    const arities: Record<string, number[]> = { list: [0], status: [1], replay: [1, 2], outputs: [1, 2], branch: [1, 2], diff: [2], export: [2], import: [1] };
     if (!Object.hasOwn(arities, action) || !arities[action]!.includes(count) || positionals.some(value => value.length > 4096 || /[\x00-\x1f\x7f]/.test(value)))
       return failure('invalid-arguments', SESSION_USAGE, 2);
   } catch { return failure('invalid-arguments', SESSION_USAGE, 2); }
@@ -41,6 +41,11 @@ export async function sessionCommand(args: string[], options: SessionActionOptio
       if (action === 'status') {
         const state = storage.readSessionConversation(session.id);
         data = { session, revision: state.revision, status: state.status, messageCount: state.messages.length, droppedMessages: state.droppedMessages, history: state.history ?? null };
+      } else if (action === 'outputs') {
+        const saved = readToolOutputs(storage.getSessionDirById(session.id)!);
+        const record = positionals[2] ? saved.records.find(record => record.id === positionals[2]) : undefined;
+        if (positionals[2] && !record) throw new Error('Tool output not retained.');
+        data = { sessionId: session.id, dropped: saved.dropped, ...(record ? { record } : { records: saved.records.map(({ content: _content, ...record }) => record) }) };
       } else if (action === 'replay') {
         const replay = await sessionHistory(session.id, positionals[2], options.signal);
         data = { sessionId: session.id, ...replay };

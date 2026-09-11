@@ -16,7 +16,7 @@ import type { Submission } from '../../preferences/index.js';
 
 export type ModalMode =
   | 'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume'
-  | 'complexity-warning' | 'keys' | 'sessions' | 'provider' | 'api-key-setup';
+  | 'tool-output' | 'complexity-warning' | 'keys' | 'sessions' | 'provider' | 'api-key-setup';
 
 export interface PendingComplexPrompt {
   prompt: MessageContent;
@@ -31,6 +31,8 @@ export interface PreviousSessionInfo {
 }
 
 export interface ModalStateHook {
+  toolOutput: import('../../sessions/index.js').CapturedToolOutput | null;
+  setToolOutput: React.Dispatch<React.SetStateAction<import('../../sessions/index.js').CapturedToolOutput | null>>;
   modalMode: ModalMode;
   setModalMode: React.Dispatch<React.SetStateAction<ModalMode>>;
   providerEntries: ProviderEntry[];
@@ -51,6 +53,7 @@ export interface ModalStateHook {
 }
 
 export function useModalState(): ModalStateHook {
+  const [toolOutput, setToolOutput] = useState<import('../../sessions/index.js').CapturedToolOutput | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>('none');
   const [providerEntries, setProviderEntries] = useState<ProviderEntry[]>([]);
   const [pendingSetupProvider, setPendingSetupProvider] = useState<ProviderEntry | null>(null);
@@ -61,7 +64,7 @@ export function useModalState(): ModalStateHook {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   const reset = useCallback(() => {
-    setModalMode('none');
+    setModalMode('none'); setToolOutput(null);
     setProviderEntries([]);
     setPendingSetupProvider(null);
     setPendingComplexPrompt(null);
@@ -72,7 +75,7 @@ export function useModalState(): ModalStateHook {
   }, []);
 
   return {
-    modalMode, setModalMode,
+    modalMode, setModalMode, toolOutput, setToolOutput,
     providerEntries, setProviderEntries,
     pendingSetupProvider, setPendingSetupProvider,
     pendingComplexPrompt, setPendingComplexPrompt,

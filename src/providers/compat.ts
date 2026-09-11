@@ -373,10 +373,9 @@ export async function chatOpenAICompatible(
     } catch (streamError) {
       throwIfCancelled(signal);
       if (isCancellation(streamError)) throw streamError;
-      // Surface the streaming failure and re-throw so withRetry handles it
+      // Keep diagnostics out of assistant tokens; shared retry handling owns errors.
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog(`${provider} streaming failed:`, errMsg);
-      onToken(`\n[Streaming error: ${errMsg}]\n`);
       throw streamError;
     }
   }

@@ -68,3 +68,8 @@ share that promise. Failure stops execution and inference retry; cancellation is
 checked again before dispatch. Terminal, headless and ACP wire this to the saved
 session service. A parallel checkpoint failure also stops tools still awaiting
 permission, branch creation or retry. See [session history](session-history.md).
+
+Streaming clients can supply `onStreamReset` for safe partial-attempt replacement.
+Without replacement support, an interrupted partial stream fails without retry.
+`captureToolOutput` persists bounded inspection evidence; a failed output save
+does not rerun the tool. See [streaming and output contracts](streaming.md).

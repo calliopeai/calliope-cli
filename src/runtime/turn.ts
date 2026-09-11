@@ -19,9 +19,11 @@ import { resolvePermission, type PermissionContext } from './permissions.js';
 import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
-import { withSession, type RecoveryStatus } from '../sessions/index.js';
+import { withSession, makeToolOutput, saveToolOutput, type CapturedToolOutput, type RecoveryStatus } from '../sessions/index.js';
+import { getSessionDirById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
+import { StreamInterruptedError, StreamProtocolError } from '../errors.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -34,11 +36,14 @@ export interface TurnOptions {
   maxIterations?: number; maxRetries?: number; parallel?: boolean; continueOnLength?: boolean;
   inheritScope?: boolean; runlog?: RunLog; toolOptions?: ExecuteToolOptions;
   approvals?: ApprovalStore;
+  captureToolOutput?: boolean;
   confirmation: PermissionContext['confirmation']; approve?: (call: ToolCall, decision: PermissionDecision) => Promise<ApprovalChoice>;
   tools?: () => Tool[];
   prepare?: (request: RuntimeRequest, iteration: number) => Promise<RuntimeRequest>;
   onCompression?: (result: CompressionResult) => void;
   onToken?: StreamCallback; onRetry?: RetryCallback;
+  onStreamReset?: () => void;
+  onStreamEvent?: ChatOptions['onStreamEvent'];
   onUsage?: (response: LLMResponse, request: RuntimeRequest, cost: number) => void;
   onResponse?: (response: LLMResponse, iteration: number) => void | 'stop' | Promise<void | 'stop'>;
   onRepair?: (event: RepairEvent) => void;
@@ -46,7 +51,7 @@ export interface TurnOptions {
   onPermission?: (call: ToolCall, decision: PermissionDecision) => void | Promise<void>;
   beforeTool?: (call: ToolCall, iteration: number) => void | Promise<void>;
   onToolOutput?: (call: ToolCall, chunk: string) => void;
-  onToolResult?: (call: ToolCall, result: ToolResult, iteration: number) => void | Promise<void>;
+  onToolResult?: (call: ToolCall, result: ToolResult, iteration: number, output?: CapturedToolOutput) => void | Promise<void>;
   onToolRetry?: (call: ToolCall, attempt: number, result: ToolResult) => void;
   onIterationEnd?: (iteration: number) => void;
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
@@ -152,6 +157,8 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     throwIfCancelled(signal);
     const response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal,
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
+      onStreamReset: stream ? options.onStreamReset : undefined,
+      onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },
       onHealthWarning: (message, denied = false) => {
         runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
         options.onWarning?.(message);
@@ -173,10 +180,21 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     return response;
   };
   const report = async (call: ToolCall, result: ToolResult, durationMs: number) => {
-    runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs });
+    let output: CapturedToolOutput | undefined;
+    if (options.captureToolOutput) {
+      try {
+        const content = call.name === 'think' && !result.isError && typeof call.arguments.thought === 'string' ? call.arguments.thought
+          : result.displayResult && result.displayResult !== result.result ? `${result.result}\n\n--- Tool preview ---\n${result.displayResult}` : result.result;
+        output = { record: makeToolOutput(call.id, call.name, content, !!result.isError), saved: false };
+        const dir = getSessionDirById(options.sessionId);
+        if (!dir) throw new Error('Session storage is unavailable.');
+        saveToolOutput(dir, output.record); output.saved = true;
+      } catch { options.onWarning?.('Tool output could not be saved. The tool has already finished and will not be repeated; use /tools to inspect any retained output.'); }
+    }
+    runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model)) });
     await checkpoint('active');
-    await options.onToolResult?.(call, result, iterations);
+    await options.onToolResult?.(call, result, iterations, output);
   };
   const execute = async (call: ToolCall): Promise<boolean> => {
     throwIfCancelled(signal);
@@ -297,7 +315,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
-        if (action === 'retry') { await cancellableDelay(2000, signal); continue; }
+        if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError)) { await cancellableDelay(2000, signal); continue; }
         if (action === 'stop') { reason = 'stopped'; break; }
         throw error;
       }

@@ -62,6 +62,8 @@ branches, recorded replay and private policy-checked transfers.
 [Permission approvals](docs/permissions.md) bind reusable file approvals to exact
 arguments, canonical project identity and current policy configuration; every
 use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
+[Streaming and tool output](docs/streaming.md) defines attempt replacement,
+append-only client failures, parallel progress and bounded private inspection.
 
 ```
 src/

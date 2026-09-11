@@ -5,7 +5,8 @@
  */
 
 import * as config from '../config.js';
-import { withRetry } from '../errors.js';
+import { withRetry, StreamProtocolError } from '../errors.js';
+import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
 import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions } from './types.js';
@@ -172,8 +173,6 @@ export async function chat(
     }
   } catch { healthHistoryWarning(options?.onHealthWarning); }
   if (quarantineHalt) throw new Error(quarantineHalt);
-  const callback = onToken;
-  if (callback && options?.signal) onToken = token => { if (!options.signal!.aborted) callback(token); };
 
   // Local backends see a simplified (but execution-lossless) tool schema:
   // first-sentence descriptions, capped enums, and the edit_file anchor_hash
@@ -181,7 +180,7 @@ export async function chat(
   // seam for feature 1 — provider functions just serialize whatever they get.
   const backendTools = isLocalBackend(actualProvider) ? simplifyToolsForLocal(tools) : tools;
 
-  const doChat = async (): Promise<LLMResponse> => {
+  const doChat = async (onToken?: StreamCallback): Promise<LLMResponse> => {
     throwIfCancelled(options?.signal);
     let response: LLMResponse;
     switch (actualProvider) {
@@ -234,8 +233,11 @@ export async function chat(
 
   // Wrap with retry logic
   let attempt = 0;
+  let lastStream: StreamAttempt | undefined;
   const observedChat = async (): Promise<LLMResponse> => {
     const started = Date.now(), retryIndex = attempt++;
+    const stream = onToken ? new StreamAttempt(retryIndex + 1, onToken, options?.onStreamEvent, options?.signal) : undefined;
+    lastStream = stream;
     const record = (observation: Omit<import('../health/types.js').HealthObservation, 'provider' | 'target' | 'type'>) => {
       if (!health) return;
       try { health.store.append({ provider: health.target.provider, target: health.target.key, type: 'attempt',
@@ -243,7 +245,9 @@ export async function chat(
       catch { healthHistoryWarning(options?.onHealthWarning); }
     };
     try {
-      const response = await cancellable(doChat(), options?.signal);
+      const response = await cancellable(doChat(stream?.push), options?.signal);
+      if (stream && response.finishReason === 'error') throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
+      stream?.finish('completed');
       const usage = response.usage;
       record({ outcome: response.finishReason === 'error' ? 'error' : 'success',
         ...(response.finishReason === 'error' ? { failure: 'response' as const } : {}),
@@ -255,19 +259,30 @@ export async function chat(
       return response;
     } catch (error) {
       const outcome = healthOutcome(error, options?.signal);
+      stream?.finish(outcome === 'cancelled' ? 'cancelled' : 'failed');
       record({ outcome, ...(outcome === 'cancelled' ? { capabilities: { cancellation: true } } : { ...healthFailure(error), ...(outcome === 'timeout' ? { failure: 'timeout' as const } : {}) }) });
-      throw error;
+      throw outcome === 'cancelled' ? error : stream?.failure(error, !!options?.onStreamReset) ?? error;
     }
   };
-  return withRetry(observedChat, {
+  try { return await withRetry(observedChat, {
     signal: options?.signal,
-    maxRetries: 2,
+    maxRetries: MAX_STREAM_ATTEMPTS - 1,
     initialDelayMs: 1000,
-    onRetry: onRetry,
-  });
+    onRetry: (attempt, error, delayMs) => {
+      throwIfCancelled(options?.signal);
+      options?.onStreamReset?.();
+      lastStream?.retry(delayMs);
+      onRetry?.(attempt, error, delayMs);
+    },
+  }); } catch (error) {
+    if (options?.signal?.aborted) lastStream?.finish('cancelled');
+    throw error;
+  }
 }
 
 // Re-export everything from sub-modules for public API
 export { needsSummarization, getContextHealth, estimateContextUsage } from './types.js';
 export type { StreamCallback, RetryCallback, ChatOptions } from './types.js';
 export { requiresResponsesAPI, toResponsesInput, toResponsesTools } from './openai.js';
+
+export type { StreamAttemptEvent } from './stream-attempt.js';

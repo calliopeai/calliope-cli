@@ -83,6 +83,12 @@ Switch operating mode. With no argument, prints the current mode. Press
 
 ## Conversation
 
+### `/tools [list|last|output-id]`
+List bounded retained tool output or open a selected record. E/Enter collapses
+or expands; N/P changes page; Esc closes. Output survives restart when saved.
+`calliope session outputs <session-id> [output-id] --json` provides local headless
+inspection. See [streaming and output storage](streaming.md) for limits.
+
 ### `/undo`
 Revert the last change. Up to 10 steps are retained.
 ```

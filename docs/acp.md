@@ -162,3 +162,9 @@ retract remote operations; see [cancellation limits](./features.md#cancellation)
 
 Trusted [repository instructions](./instructions.md) load from the session's
 `cwd` when the session is created.
+
+ACP forwards append-only assistant chunks. A partial stream failure returns the
+existing JSON-RPC error without automatically repeating those chunks; an explicit
+later prompt continues from committed conversation state. Bounded tool output
+is available locally through `calliope session outputs SESSION_ID --json`. See
+[streaming and output storage](streaming.md); no ACP message schema is changed.
