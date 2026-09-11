@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "backend": "anthropic",
+  "model": "claude-fable-5",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T16:02:32.901Z",
+    "sourceOrigin": "https://api.anthropic.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "7212a9c0-961d-452e-94a7-303b604aaad5"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJtb2RlbCI6ImNsYXVkZS1mYWJsZS01IiwiaWQiOiJtc2dfMDExQ2V3dzZrMmVkdFM2cllBMjJHeGRxIiwidHlwZSI6Im1lc3NhZ2UiLCJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6W3sidHlwZSI6InRoaW5raW5nIiwidGhpbmtpbmciOiIiLCJzaWduYXR1cmUiOiJDQUlTZ0FNS2p3RUlFUmdDS2tDRDB0QWtMUXJ0OEtDSVJxNWVpeDdySTlweVFtTlRLZnZyZ1JPNENQSi9ZK3d2Sy9ZZlZoS251bi9OZ3RnRlpTNXV5SkZOSk8rcFhxOWczNVgxNjNhRk1nNWpiR0YxWkdVdFptRmliR1V0TlRnQlFnaDBhR2x1YTJsdVoxb2tNRFZtTm1NMVpXUXRaVEkzTWkwMFpXVTJMV0k1T0dNdE1tVXpaRFppWW1Kak1tUXhxQUdZekpEVkJoSU1la01TRWRpU09laUw2OUxKR2d4Zjk2ZDduWTlZd0xobUprVWlNRFRnZnRBVkwxSVhSdlJINERvUElXZExGK0lGNCttWGhvcUVESW81ZFZhSHZPMGV6SVdRZE9EaGE3ZjJ0SU1ZakNxZEFaemJ3WkZhTGN1OUxhemJueCtjMUNOSjBBYkpDYkVUTlQzYTBXQ0UxRTFvYTE5bW1pd2diYmFyK3g3azdhYUlzOGxMcEtUbXZGNjRQNFRRMEV3M3JNcjRWUGZjMzk5V3F6LzlXTXdGS09ncG1qUlVqa1NrYTNzRzIrTWEvcXphM1NwQzZNbXk5UEpyRWhWbDJpeHRkOFprNzlIcGVtb0QrTmpnTk9mandHQjVTV0V5SDhlOGxwRGNyaDJHTmFMaCtFbDl5RUJ4bU02ZlMvRFE2allZQVE9PSJ9LHsidHlwZSI6InRleHQiLCJ0ZXh0IjoiSGVsbG8gz4AifV0sImNvbnRhaW5lciI6bnVsbCwic3RvcF9yZWFzb24iOiJlbmRfdHVybiIsInN0b3Bfc2VxdWVuY2UiOm51bGwsInN0b3BfZGV0YWlscyI6bnVsbCwidXNhZ2UiOnsiaW5wdXRfdG9rZW5zIjoxOCwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MCwiY2FjaGVfY3JlYXRpb24iOnsiZXBoZW1lcmFsXzVtX2lucHV0X3Rva2VucyI6MCwiZXBoZW1lcmFsXzFoX2lucHV0X3Rva2VucyI6MH0sIm91dHB1dF90b2tlbnMiOjYyLCJvdXRwdXRfdG9rZW5zX2RldGFpbHMiOnsidGhpbmtpbmdfdG9rZW5zIjo1Nn0sInNlcnZpY2VfdGllciI6InN0YW5kYXJkIiwiaW5mZXJlbmNlX2dlbyI6Imdsb2JhbCJ9fQ==",
+      "sha256": "1f2310a7fddb570eddc804d445c6eafc0d02bc36b1d08929f9c33a15d1bbe86b"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 18,
+      "outputTokens": 62
+    },
+    "tools": []
+  }
+}
