@@ -59,6 +59,9 @@ overwrite global defaults; project writes use the shared permission resolver.
 and checkpoints the shared runtime at tool boundaries.
 [Session history](docs/session-history.md) adds immutable event ancestry, safety
 branches, recorded replay and private policy-checked transfers.
+[Permission approvals](docs/permissions.md) bind reusable file approvals to exact
+arguments, canonical project identity and current policy configuration; every
+use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
 
 ```
 src/
@@ -67,6 +70,7 @@ src/
 ├── health/ / doctor.ts # local observations, quarantine and bounded provider diagnostics
 ├── hud/              # color api, 3 palettes, single skin
 ├── runtime/          # shared turn engine, permissions, repair and retry
+├── approvals/        # local bounded grants, scope preview, queue and revocation CLI
 ├── ui/               # Ink components and terminal runtime adapter
 ├── tools.ts          # tool definitions, registry, execution (shell/file/web/etc.)
 ├── config.ts         # conf store, schema, pre-migration

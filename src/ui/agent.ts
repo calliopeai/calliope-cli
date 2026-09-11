@@ -1,5 +1,6 @@
 /** Terminal presentation adapter for the shared turn runtime. */
 import type React from 'react';
+import { approvalDisplayText } from '../approvals/index.js';
 import { runTurn } from '../runtime/index.js';
 import { cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
@@ -47,6 +48,8 @@ function summarizeMessageContent(content: MessageContent): string {
 // ============================================================================
 
 export interface AgentContext {
+  approvals?: import('../approvals/index.js').ApprovalStore;
+  approve?: (decision: import('../runtime/types.js').PermissionDecision, signal?: AbortSignal) => Promise<import('../approvals/index.js').ApprovalChoice>;
   onCheckpoint?: import('../runtime/turn.js').TurnOptions['onCheckpoint'];
   signal?: AbortSignal;
   // State
@@ -215,7 +218,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       prompt: summarizeMessageContent(content), messages: ctx.llmMessages,
       signal: ctx.signal, mode: ctx.mode, maxIterations,
       inheritScope: true, parallel: true, continueOnLength: true, tools: getTools,
-      confirmation: ctx.confirmMode ? 'risk' : 'none',
+      confirmation: ctx.confirmMode ? 'interactive' : 'none',
+      approvals: ctx.approvals,
+      approve: ctx.approve ? (_call, decision) => ctx.approve!(decision, ctx.signal) : undefined,
       prepare: async (request, index) => {
         iteration = index;
         finalResponse = false;
@@ -311,7 +316,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       onPermission: (call, decision) => {
         const risk = assessToolRisk(call);
         const display = risk.level !== 'none' ? ` [${RISK_CONFIG[risk.level].bar}]` : '';
-        const preview = String(call.arguments.command || call.arguments.path || '...');
+        const preview = approvalDisplayText(String(call.arguments.command || call.arguments.path || '...'));
         if (decision.decision !== 'allow') {
           blocked.add(call.id);
           ctx.addMessage('tool', `${call.name}: ${preview}${display}\n${decision.reason}`);

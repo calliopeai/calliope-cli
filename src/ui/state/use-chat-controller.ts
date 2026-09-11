@@ -46,6 +46,7 @@ import { useProcessingState } from './use-processing-state.js';
 import { useTranscriptState } from './use-transcript-state.js';
 import { useSessionStats } from './use-session-stats.js';
 import { useModelState } from './use-model-state.js';
+import { useApprovalState } from './use-approval-state.js';
 import { useModalState } from './use-modal-state.js';
 import { useQueueState } from './use-queue-state.js';
 import { useLoopState } from './use-loop-state.js';
@@ -96,6 +97,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const stats = useSessionStats();
   const modelState = useModelState(initial);
   const modal = useModalState();
+  const approval = useApprovalState();
   const queue = useQueueState();
   const loop = useLoopState();
 
@@ -146,7 +148,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const matchingRoute = lastRoute?.selected && (isProcessing || lastRoute.requested.provider === provider && lastRoute.requested.model === (model ?? null)) ? lastRoute.selected : undefined;
   if (matchingRoute) actualProvider = matchingRoute.provider;
   const actualModel = matchingRoute?.model || model || DEFAULT_MODELS[actualProvider];
-  const isModalActive = modal.modalMode !== 'none';
+  const isModalActive = modal.modalMode !== 'none' || approval.pending !== null;
   const contextPercentage = Math.round((stats.contextTokens / getModelContextLimit(actualProvider, actualModel)) * 100);
   const resolvedBreakerHealth = config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined;
 
@@ -217,6 +219,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
   // -- Agent / command context builders ------------------------------------
   const buildAgentContext = useCallback((): AgentContext => ({
     provider, model, mode, confirmMode, autoRoute, actualProvider, actualModel,
+    approvals: approval.store,
+    approve: (decision, signal) => decision.request ? approval.request(decision.request, signal) : Promise.resolve('reject'),
     preferenceSources: modelState.sources,
     onCheckpoint: (messages, status) => {
       const cursor = conversationCursor.current;
@@ -252,7 +256,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     validateAndRepairMessages,
 
     debugLog,
-  }), [provider, model, modelState.sources, mode, confirmMode, autoRoute, smartRouteActive, actualProvider, actualModel,
+  }), [approval.store, approval.request, provider, model, modelState.sources, mode, confirmMode, autoRoute, smartRouteActive, actualProvider, actualModel,
     stats.stats, stats.setStats, stats.setContextTokens, setBreakerHealth, setStreamingResponse,
     setThinkingState, setActivityState, setIsProcessing, setQueuedMessages, setEditingQueueIndex,
     loop.setLoopIteration, setLoopActive, addMessage, estimateContextTokens, validateAndRepairMessages]);
@@ -311,6 +315,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   }, [setQueuedMessages, addMessage]);
 
   const buildCommandContext = useCallback((): CommandContext => ({
+    approvals: approval.store,
     cancelActiveTurn: () => turnController.current.cancel(),
     provider, actualProvider, actualModel, model, mode, confirmMode,
     reloadDefaults: modelState.reload,
@@ -345,7 +350,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     runLoop,
     startFleetPolling: () => { fleetStartPolling(handleFleetInstruction); },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
+  }), [approval.store, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
     modal.modalMode, modal.setModalMode, modal.setAvailableModels, setProvider, setModel, setMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
@@ -353,7 +358,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
-    const controlled = ['/provider', '/model', '/defaults', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
+    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
     try {
       if (controlled) {
         if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before changing provider or session settings.'); return; }
@@ -622,6 +627,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   // -- Session reset (replaces the old full-remount reset) ------------------
   const resetSession = useCallback(() => {
+    approval.cancel();
     proc.reset();
     transcript.reset();
     stats.reset();
@@ -634,7 +640,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     redoStack.current = [];
     ledgerRef.current.reset();
     resetContextWarnings();
-  }, [proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
+  }, [approval.cancel, proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
 
   // -- Mount initialization -------------------------------------------------
   useSessionInit({ sessionRef, conversationCursor, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });
@@ -664,7 +670,9 @@ export function useChatController(initial?: ModelPreference): ChatController {
   };
 
   const modalProps: ModalHostProps = {
-    modalMode: modal.modalMode,
+    pendingApproval: approval.pending,
+    onApprovalAnswer: (id, choice) => { if (approval.answer(id, choice) && choice === 'cancelled') turnController.current.cancel(); },
+    modalMode: approval.pending ? 'confirm' : modal.modalMode,
     availableModels: modal.availableModels, onModelSelect: handleModelSelect, onModalCancel: handleModalCancel,
     availableSessions: modal.availableSessions, onSessionSelect: handleSessionSelect, onSessionDelete: handleSessionDelete,
     latestVersion: modal.latestVersion, onUpgradeConfirm: handleUpgradeConfirm,

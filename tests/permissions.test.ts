@@ -10,7 +10,7 @@ import * as policy from '../src/policy.js';
 import * as sandbox from '../src/sandbox/index.js';
 import type { ToolCall } from '../src/types.js';
 
-vi.mock('../src/hooks.js', () => ({ checkHooksAllow: vi.fn(), executeHooks: vi.fn() }));
+vi.mock('../src/hooks.js', () => ({ checkHooksAllow: vi.fn(), executeHooks: vi.fn(), loadHooks: vi.fn(() => []) }));
 vi.mock('../src/policy.js', () => ({ isPolicyEnabled: vi.fn(), evaluatePolicy: vi.fn() }));
 vi.mock('../src/sandbox/index.js', async importOriginal => ({
   ...await importOriginal<typeof import('../src/sandbox/index.js')>(),
@@ -56,7 +56,7 @@ describe('canonical permission resolver', () => {
   it.each(['reject', 'cancelled'] as const)('stops at a %s permission reply', async answer => {
     const result = await resolvePermission(write, { ...context, confirmation: 'mutating', approve: async () => answer });
     expect(result).toMatchObject({ decision: answer === 'reject' ? 'deny' : 'cancelled', layer: 'confirmation' });
-    expect(hooks.checkHooksAllow).not.toHaveBeenCalled();
+    expect(hooks.checkHooksAllow).toHaveBeenCalledTimes(1);
   });
   it('an approval never overrides scope, hooks or policy', async () => {
     const approved = { ...context, confirmation: 'mutating' as const, approve: vi.fn(async () => 'allow' as const) };
@@ -88,11 +88,12 @@ describe('canonical permission resolver', () => {
     const controller = new AbortController();
     let reply!: (answer: 'allow') => void;
     const run = resolvePermission(write, { ...context, confirmation: 'mutating', signal: controller.signal, approve: () => new Promise(resolve => { reply = resolve; }) });
+    await vi.waitFor(() => expect(reply).toBeTypeOf('function'));
     controller.abort();
     await expect(run).rejects.toMatchObject({ name: 'AbortError' });
     reply('allow');
     await Promise.resolve();
-    expect(hooks.checkHooksAllow).not.toHaveBeenCalled();
+    expect(hooks.checkHooksAllow).toHaveBeenCalledTimes(1);
     expect(context.audit).toHaveBeenLastCalledWith(expect.objectContaining({ decision: 'cancelled', source: 'cancellation' }));
   });
   it('rechecks changed filesystem boundaries at execution and audits the denial', async () => {

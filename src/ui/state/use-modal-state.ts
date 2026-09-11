@@ -9,7 +9,7 @@
 
 import { useState, useCallback } from 'react';
 import type { ModelInfo } from '../../model-detection.js';
-import type { MessageContent, ToolCall } from '../../types.js';
+import type { MessageContent } from '../../types.js';
 import type { SessionInfo } from '../types.js';
 import type { ProviderEntry } from '../modals/index.js';
 import type { Submission } from '../../preferences/index.js';
@@ -30,11 +30,6 @@ export interface PreviousSessionInfo {
   messageCount: number;
 }
 
-export interface PendingToolCall {
-  toolCall: ToolCall;
-  resolve: (approved: boolean) => void;
-}
-
 export interface ModalStateHook {
   modalMode: ModalMode;
   setModalMode: React.Dispatch<React.SetStateAction<ModalMode>>;
@@ -46,8 +41,6 @@ export interface ModalStateHook {
   setPendingComplexPrompt: React.Dispatch<React.SetStateAction<PendingComplexPrompt | null>>;
   previousSession: PreviousSessionInfo | null;
   setPreviousSession: React.Dispatch<React.SetStateAction<PreviousSessionInfo | null>>;
-  pendingToolCall: PendingToolCall | null;
-  setPendingToolCall: React.Dispatch<React.SetStateAction<PendingToolCall | null>>;
   availableModels: ModelInfo[];
   setAvailableModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
   availableSessions: SessionInfo[];
@@ -63,7 +56,6 @@ export function useModalState(): ModalStateHook {
   const [pendingSetupProvider, setPendingSetupProvider] = useState<ProviderEntry | null>(null);
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<PendingComplexPrompt | null>(null);
   const [previousSession, setPreviousSession] = useState<PreviousSessionInfo | null>(null);
-  const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [availableSessions, setAvailableSessions] = useState<SessionInfo[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
@@ -74,7 +66,6 @@ export function useModalState(): ModalStateHook {
     setPendingSetupProvider(null);
     setPendingComplexPrompt(null);
     setPreviousSession(null);
-    setPendingToolCall(null);
     setAvailableModels([]);
     setAvailableSessions([]);
     setLatestVersion(null);
@@ -86,7 +77,6 @@ export function useModalState(): ModalStateHook {
     pendingSetupProvider, setPendingSetupProvider,
     pendingComplexPrompt, setPendingComplexPrompt,
     previousSession, setPreviousSession,
-    pendingToolCall, setPendingToolCall,
     availableModels, setAvailableModels,
     availableSessions, setAvailableSessions,
     latestVersion, setLatestVersion,

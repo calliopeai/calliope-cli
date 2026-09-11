@@ -99,6 +99,10 @@ export interface BudgetEventPayload {
 }
 
 export interface PolicyEventPayload {
+  operationKey?: string;
+  grantId?: string;
+  grantScope?: 'session' | 'project';
+  grantExpiresAt?: number;
   tool: string;
   decision: 'allow' | 'deny' | 'confirm' | 'cancelled';
   toolCallId?: string;
@@ -145,6 +149,8 @@ function redactString(value: string): string {
   for (const pattern of SECRET_VALUE_PATTERNS) {
     out = out.replace(new RegExp(pattern, 'g'), REDACTED);
   }
+  // Credentials in command/error strings may have no recognizable key prefix.
+  out = out.replace(/\b([\w.-]*(?:api[-_]?key|token|secret|password|passwd|authorization|credential)[\w.-]*\s*=\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s;,]+)/gi, `$1${REDACTED}`);
   return out;
 }
 
@@ -476,7 +482,7 @@ export class RunLog {
   }
 
   policyEvent(payload: PolicyEventPayload): void {
-    this.append('policy_event', { ...payload });
+    this.append('policy_event', { ...payload, reason: redactSecrets(payload.reason) });
   }
 
   /** Recovery evidence only; never copy conversation or provider-owned content. */

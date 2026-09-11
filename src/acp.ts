@@ -20,6 +20,7 @@
  * default cold-start path.
  */
 
+import { ApprovalStore, type ApprovalChoice } from './approvals/index.js';
 import * as path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
@@ -193,6 +194,7 @@ interface AcpSession {
 // ============================================================================
 
 class CalliopeAgent implements Agent {
+  private readonly approvals = new ApprovalStore();
   private clientCapabilities: ClientCapabilities = {};
   private readonly sessions = new Map<string, AcpSession>();
   /** Tail of the outgoing write chain; awaited to flush notifications. */
@@ -340,9 +342,9 @@ class CalliopeAgent implements Agent {
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
         preferenceSources: session.preference.sources,
         runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
-        confirmation: 'mutating', tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
+        confirmation: 'mutating', approvals: this.approvals, tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
         prepare: async request => { streamedChars = 0; return request; },
-        approve: call => this.requestPermission(session, call),
+        approve: (call, decision) => this.requestPermission(session, call, decision.request?.reusable ?? false),
         onToken: token => {
           if (!token || session.cancelled) return;
           streamedChars += token.length;
@@ -396,7 +398,7 @@ class CalliopeAgent implements Agent {
    * falls back to Calliope's non-interactive default (deny) when the client does
    * not support the permission request at all.
    */
-  private async requestPermission(session: AcpSession, toolCall: ToolCall): Promise<'allow' | 'reject' | 'cancelled'> {
+  private async requestPermission(session: AcpSession, toolCall: ToolCall, reusable: boolean): Promise<ApprovalChoice> {
     try {
       const res = await cancellable(this.conn.requestPermission({
         sessionId: session.id,
@@ -408,13 +410,13 @@ class CalliopeAgent implements Agent {
         },
         options: [
           { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
-          { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+          ...(reusable ? [{ optionId: 'allow_always', name: 'Allow this exact operation for this session', kind: 'allow_always' as const }] : []),
           { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
         ],
       }), session.controller?.signal);
       const outcome = res.outcome;
       if (outcome.outcome === 'cancelled') return 'cancelled';
-      if (outcome.outcome === 'selected') return outcome.optionId.startsWith('allow') ? 'allow' : 'reject';
+      if (outcome.outcome === 'selected') return outcome.optionId === 'allow' ? 'allow' : outcome.optionId === 'allow_always' && reusable ? 'allow_session' : 'reject';
       return 'reject';
     } catch (err) {
       if (session.cancelled || isCancellation(err)) return 'cancelled';

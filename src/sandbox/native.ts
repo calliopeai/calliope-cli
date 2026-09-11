@@ -143,6 +143,9 @@ ${secretDenyRules}
 ;; Extra paths
 ${extraRwRules}
 
+;; Approval authority is never writable/readable by a sandboxed agent.
+(deny file-read* file-write* (subpath "${sanitizeSeatbeltPath(`${home}/.calliope-cli/approvals`)}"))
+
 ;; Terminal I/O control (needed for stdout/stderr)
 (allow file-ioctl)
 

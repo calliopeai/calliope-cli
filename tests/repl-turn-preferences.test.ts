@@ -2,7 +2,7 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import React from 'react';
 import { render } from 'ink-testing-library';
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as config from '../src/config.js';
@@ -19,9 +19,15 @@ let requests: { model: string; messages: { role: string; content: string }[] }[]
 let holdFirst: boolean, release: (() => void) | undefined;
 let firstSignal: AbortSignal | undefined;
 let vision = true;
+let requestWrite = false;
+let requestPath = 'approved.txt';
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
 function Harness() { controller = useChatController(); return null; }
 function stream(model: string) {
+  if (requestWrite && requests.at(-1)?.messages.at(-1)?.role !== 'tool') {
+    const chunks = [{ id: 'toy', model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'write', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: requestPath, content: 'approved' }) } }] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } }];
+    return new Response(chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  }
   const chunks = [
     { id: 'toy', model, choices: [{ index: 0, delta: { role: 'assistant', content: 'Done.' }, finish_reason: null }] },
     { id: 'toy', model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } },
@@ -31,7 +37,7 @@ function stream(model: string) {
 beforeEach(() => {
   config.resetConfig(); clearModelCache(); resetRunLogs(); _resetModeTracking();
   root = realpathSync(mkdtempSync(join(tmpdir(), 'calliope-repl-turn-')));
-  requests = []; holdFirst = false; release = undefined; firstSignal = undefined; vision = true;
+  requests = []; holdFirst = false; release = undefined; firstSignal = undefined; vision = true; requestWrite = false; requestPath = 'approved.txt';
   vi.spyOn(process, 'cwd').mockReturnValue(root);
   for (const provider of config.getProviderNames()) {
     const vars = config.getProviderEnvVars(provider);
@@ -59,8 +65,9 @@ beforeEach(() => {
 });
 afterEach(() => { unmount?.(); unmount = undefined; release?.(); config.resetConfig(); clearModelCache(); resetRunLogs(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
 async function mount() {
+  const previous = controller;
   unmount = render(React.createElement(Harness)).unmount;
-  await vi.waitFor(() => expect(controller.status.model).toBeTruthy());
+  await vi.waitFor(() => { expect(controller).not.toBe(previous); expect(controller.status.model).toBeTruthy(); });
 }
 
 it('runs each queued override separately and restores the session selection after the temporary turn', async () => {
@@ -264,4 +271,66 @@ it('shows a recovery failure even when cancellation is already in progress', asy
   controller.input.onEscape(); await pending;
   await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.type === 'error' && message.content.includes('another terminal'))).toBe(true));
   expect(storage.readSessionConversation(session.id).revision).toBe(replacement.revision);
+});
+
+
+it('pauses writes for the real approval UI, reuses session grants and asks again after a new session', async () => {
+  requestWrite = true; await mount();
+  const first = controller.input.onSubmitMessage('Write the toy file');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  expect(controller.input.disabled).toBe(true);
+  expect(controller.modal.pendingApproval!.request.details.join('\n')).toContain(join(root, 'approved.txt'));
+  expect(existsSync(join(root, 'approved.txt'))).toBe(false);
+  const firstId = controller.modal.pendingApproval!.id;
+  controller.modal.onApprovalAnswer!(firstId, 'allow_session'); await first;
+  await vi.waitFor(() => expect(controller.transcript.messages.filter(message => message.type === 'error').map(message => message.content)).toEqual([]));
+  expect(existsSync(join(root, 'approved.txt')), JSON.stringify(storage.readSessionConversation(storage.getCurrentSession()!.id).messages.filter(message => message.role === 'tool'))).toBe(true);
+  expect(readFileSync(join(root, 'approved.txt'), 'utf8')).toBe('approved');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeNull());
+  await controller.input.onSubmitMessage('Repeat the exact write');
+  expect(requests).toHaveLength(4); expect(controller.modal.pendingApproval).toBeNull();
+  await controller.input.onSubmitMessage('/permissions list');
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('saved approvals'))).toBe(true));
+  await controller.input.onSubmitMessage('/new');
+  const next = controller.input.onSubmitMessage('New session write');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  const nextId = controller.modal.pendingApproval!.id;
+  controller.modal.onApprovalAnswer!(firstId, 'cancelled'); await new Promise(resolve => setImmediate(resolve));
+  expect(controller.modal.pendingApproval?.id).toBe(nextId);
+  controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'reject'); await next;
+  expect(controller.transcript.messages.some(message => message.type === 'error')).toBe(false);
+});
+
+it('persists project grants across controller restart and revokes them explicitly', async () => {
+  requestWrite = true; await mount(); const pending = controller.input.onSubmitMessage('Project write');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'allow_project'); await pending;
+  await vi.waitFor(() => expect(controller.transcript.messages.filter(message => message.type === 'error').map(message => message.content)).toEqual([]));
+  unmount!(); await mount();
+  await controller.input.onSubmitMessage('Repeat write');
+  expect(requests).toHaveLength(4); expect(controller.modal.pendingApproval).toBeNull();
+  await controller.input.onSubmitMessage('/permissions reset');
+  const next = controller.input.onSubmitMessage('Write after revocation');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'cancelled'); await next;
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeNull());
+  expect(storage.readSessionConversation(storage.getCurrentSession()!.id).status).toBe('cancelled');
+});
+
+it('unmount cancels a pending approval and never executes its tool', async () => {
+  requestWrite = true; await mount(); const pending = controller.input.onSubmitMessage('Cancel pending write');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  unmount!(); unmount = undefined; await pending;
+  expect(existsSync(join(root, 'approved.txt'))).toBe(false);
+});
+
+
+it('redacts approval scopes in both the dialog and the later tool decision', async () => {
+  requestWrite = true; requestPath = 'sk-' + 'z'.repeat(40) + '.txt'; await mount();
+  const task = controller.input.onSubmitMessage('Write toy file');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  expect(controller.modal.pendingApproval!.request.details.join('\n')).not.toContain(requestPath);
+  controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'reject'); await task;
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.type === 'tool' && message.content.includes('[REDACTED]'))).toBe(true));
+  expect(JSON.stringify(controller.transcript.messages)).not.toContain(requestPath);
 });
