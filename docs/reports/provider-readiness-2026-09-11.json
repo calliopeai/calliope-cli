@@ -1,0 +1,633 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-11T05:34:12.752Z",
+  "evidence": "historical real-wire captures; credential presence does not establish current access",
+  "adapterCount": 18,
+  "requiredWireCombinations": 72,
+  "capturedWireCombinations": 36,
+  "wireGateReady": false,
+  "productGateReady": false,
+  "missingWireCombinations": [
+    "google/text/json",
+    "google/text/stream",
+    "google/tool/json",
+    "google/tool/stream",
+    "openai-chat/text/json",
+    "openai-chat/text/stream",
+    "openai-chat/tool/json",
+    "openai-chat/tool/stream",
+    "openai-responses/text/json",
+    "openai-responses/text/stream",
+    "openai-responses/tool/json",
+    "openai-responses/tool/stream",
+    "openrouter/text/json",
+    "openrouter/text/stream",
+    "openrouter/tool/json",
+    "openrouter/tool/stream",
+    "groq/text/json",
+    "groq/text/stream",
+    "groq/tool/json",
+    "groq/tool/stream",
+    "fireworks/text/json",
+    "fireworks/text/stream",
+    "fireworks/tool/json",
+    "fireworks/tool/stream",
+    "deepseek/text/json",
+    "deepseek/text/stream",
+    "deepseek/tool/json",
+    "deepseek/tool/stream",
+    "xai/text/json",
+    "xai/text/stream",
+    "xai/tool/json",
+    "xai/tool/stream",
+    "cerebras/text/json",
+    "cerebras/text/stream",
+    "cerebras/tool/json",
+    "cerebras/tool/stream"
+  ],
+  "adapters": [
+    {
+      "id": "anthropic",
+      "provider": "anthropic",
+      "protocol": "anthropic",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:32:37.514Z"
+    },
+    {
+      "id": "google",
+      "provider": "google",
+      "protocol": "google",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "missing",
+        "text-stream": "missing",
+        "tool-json": "missing",
+        "tool-stream": "missing",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "missing",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "openai-chat",
+      "provider": "openai",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "missing",
+        "text-stream": "missing",
+        "tool-json": "missing",
+        "tool-stream": "missing",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "missing",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "openai-responses",
+      "provider": "openai",
+      "protocol": "responses",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "missing",
+        "text-stream": "missing",
+        "tool-json": "missing",
+        "tool-stream": "missing",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "missing",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "ollama",
+      "provider": "ollama",
+      "protocol": "ollama",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:33:50.412Z"
+    },
+    {
+      "id": "bedrock-native",
+      "provider": "bedrock",
+      "protocol": "bedrock",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:33:25.947Z"
+    },
+    {
+      "id": "openrouter",
+      "provider": "openrouter",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "together",
+      "provider": "together",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:33:14.721Z"
+    },
+    {
+      "id": "groq",
+      "provider": "groq",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "fireworks",
+      "provider": "fireworks",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "mistral",
+      "provider": "mistral",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:33:16.607Z"
+    },
+    {
+      "id": "deepseek",
+      "provider": "deepseek",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "xai",
+      "provider": "xai",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "cerebras",
+      "provider": "cerebras",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "huggingface",
+      "provider": "huggingface",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:35:16.016Z"
+    },
+    {
+      "id": "litellm",
+      "provider": "litellm",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "missing",
+        "usage": "incomplete",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-11T04:34:27.315Z"
+    },
+    {
+      "id": "bedrock-compat",
+      "provider": "bedrock",
+      "protocol": "chat",
+      "credentials": "missing-endpoint",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "incomplete",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": "2026-09-11T04:34:31.288Z"
+    },
+    {
+      "id": "openai-compat",
+      "provider": "openai-compat",
+      "protocol": "chat",
+      "credentials": "missing-endpoint",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "incomplete",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": "2026-09-11T04:34:34.283Z"
+    }
+  ],
+  "retired": [
+    {
+      "provider": "ai21",
+      "status": "retired",
+      "includedInReleaseGate": false
+    }
+  ],
+  "discovery": [
+    {
+      "backend": "anthropic",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:20.774Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 11
+    },
+    {
+      "backend": "google",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:18.814Z",
+      "status": "failed",
+      "httpStatus": 400,
+      "modelCount": null
+    },
+    {
+      "backend": "openai-chat",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:19.530Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 115
+    },
+    {
+      "backend": "openai-responses",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:19.530Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 115
+    },
+    {
+      "backend": "ollama",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:24.947Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 8
+    },
+    {
+      "backend": "bedrock-native",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:36:17.833Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 49,
+      "profile": "calliope-ai-admin",
+      "note": "Default-profile discovery failed; explicit project profile discovery succeeded."
+    },
+    {
+      "backend": "openrouter",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:25.540Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "together",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:21.352Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 186
+    },
+    {
+      "backend": "groq",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:25.698Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "fireworks",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:25.857Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "mistral",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:23.254Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 48
+    },
+    {
+      "backend": "deepseek",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:18.317Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "xai",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:18.485Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "cerebras",
+      "credentials": "missing",
+      "checkedAt": "2026-09-11T05:30:18.654Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "huggingface",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:24.048Z",
+      "status": "success",
+      "httpStatus": null,
+      "modelCount": 138
+    },
+    {
+      "backend": "litellm",
+      "credentials": "configured",
+      "checkedAt": "2026-09-11T05:30:25.186Z",
+      "status": "failed",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "bedrock-compat",
+      "credentials": "missing-endpoint",
+      "checkedAt": "2026-09-11T05:30:24.786Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    },
+    {
+      "backend": "openai-compat",
+      "credentials": "missing-endpoint",
+      "checkedAt": "2026-09-11T05:30:25.377Z",
+      "status": "unavailable",
+      "httpStatus": null,
+      "modelCount": null
+    }
+  ],
+  "attempts": [
+    {
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini",
+      "scenario": "text",
+      "stream": false,
+      "status": "failed",
+      "failure": "quota-exhausted",
+      "reservationId": "3f6b4ad0-ea2a-4c5a-8795-b8cedc8d3f8d"
+    },
+    {
+      "backend": "openai-responses",
+      "model": "gpt-5-nano",
+      "scenario": "text",
+      "stream": false,
+      "status": "failed",
+      "failure": "quota-exhausted",
+      "reservationId": "a830a7eb-6247-411e-bf66-2de56653fe0c"
+    }
+  ],
+  "budget": {
+    "version": 1,
+    "limitNanoUsd": 10000000,
+    "reservations": [
+      {
+        "id": "3f6b4ad0-ea2a-4c5a-8795-b8cedc8d3f8d",
+        "at": "2026-09-11T05:32:59.454Z",
+        "reservedNanoUsd": 788400,
+        "maxInputTokens": 5000,
+        "maxOutputTokens": 64,
+        "inputRate": 0.15,
+        "outputRate": 0.6,
+        "status": "failed"
+      },
+      {
+        "id": "a830a7eb-6247-411e-bf66-2de56653fe0c",
+        "at": "2026-09-11T05:33:01.035Z",
+        "reservedNanoUsd": 275600,
+        "maxInputTokens": 5000,
+        "maxOutputTokens": 64,
+        "inputRate": 0.05,
+        "outputRate": 0.4,
+        "status": "failed"
+      }
+    ],
+    "estimatedUpperBoundUsd": 0.001064,
+    "billedUsd": null,
+    "method": "Fixed public text probes; one request per adapter, 64 output tokens, conservative 5000 input-token reservation, 30-second deadline; retain failed reservations. No tool execution or project context.",
+    "pricingSources": [
+      "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+      "https://developers.openai.com/api/docs/models/gpt-5-nano"
+    ]
+  },
+  "validation": {
+    "typecheck": "passed",
+    "fullSuite": {
+      "passed": 4173,
+      "skipped": 5
+    },
+    "coverage": {
+      "lines": 94.38,
+      "threshold": 90
+    },
+    "conformance": {
+      "passed": 270,
+      "skipped": 1
+    },
+    "releaseConformance": {
+      "status": "blocked",
+      "missingCombinations": 36
+    },
+    "build": "passed",
+    "benchmarks": {
+      "status": "passed",
+      "coldStartMedianMs": 142.77,
+      "keystrokeP95Ms": 7.95,
+      "memorySlopeKbPerMessage": 23.78,
+      "memoryGrowthMb": 14.34
+    },
+    "installation": {
+      "version": 1,
+      "packageVersion": "3.2.0",
+      "passed": true,
+      "globalInstall": true,
+      "help": true,
+      "headlessJson": true,
+      "requestCount": 1,
+      "transport": "synthetic loopback Ollama; not real-provider conformance evidence",
+      "testedAt": "2026-09-11T05:35:17.988Z",
+      "nodeVersion": "v25.8.2",
+      "platform": "darwin",
+      "architecture": "arm64"
+    },
+    "secretScan": {
+      "tool": "gitleaks",
+      "status": "passed",
+      "scope": "tracked and new unignored source files; recursive decoding enabled"
+    },
+    "productSmokeGates": {
+      "doctor": "not-implemented",
+      "headlessOrchestration": "not-implemented",
+      "brainInitSearch": "not-implemented"
+    }
+  }
+}

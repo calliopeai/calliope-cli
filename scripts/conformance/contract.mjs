@@ -7,7 +7,7 @@ export const BACKENDS = [
   { id: 'openai-responses', provider: 'openai', protocol: 'responses' },
   { id: 'ollama', provider: 'ollama', protocol: 'ollama' },
   { id: 'bedrock-native', provider: 'bedrock', protocol: 'bedrock' },
-  ...['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'ai21', 'huggingface', 'litellm', 'bedrock-compat', 'openai-compat'].map(id => ({ id, provider: id === 'bedrock-compat' ? 'bedrock' : id, protocol: 'chat' })),
+  ...['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'deepseek', 'xai', 'cerebras', 'huggingface', 'litellm', 'bedrock-compat', 'openai-compat'].map(id => ({ id, provider: id === 'bedrock-compat' ? 'bedrock' : id, protocol: 'chat' })),
 ];
 export const TOOL = { name: 'echo', description: 'Echo a string. Conformance probe only; never executes.', parameters: { type: 'object', properties: { text: { type: 'string', description: 'Text to echo' } }, required: ['text'] } };
 export const PROBE_TEXT = 'Hello π';

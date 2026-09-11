@@ -1,5 +1,11 @@
 # Live provider testing — September 11, 2026 UTC
 
+This is the original capture pass, retained as historical evidence. The active
+matrix and subsequent access rechecks are in the
+[current conformance guide](provider-conformance.md) and
+[release audit](reports/provider-readiness-2026-09-11.json); AI21 is now retired,
+and DeepSeek, xAI and Cerebras are required active paths.
+
 The authorized $500 test budget produced **36 successful captures across nine
 adapter paths**, using 47 bounded requests. Every captured response replays offline
 through Calliope's actual adapter and installed SDK. This establishes the tested
