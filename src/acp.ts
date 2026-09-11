@@ -47,6 +47,7 @@ import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
 import { runTurn } from './runtime/index.js';
 import { createSession, saveSessionConversation } from './storage.js';
+import { SessionRecoveryError } from './sessions/index.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
@@ -297,7 +298,7 @@ class CalliopeAgent implements Agent {
       const stopReason = await session.activeTurn;
       return { stopReason };
     } catch (error) {
-      if (session.cancelled || isCancellation(error)) return { stopReason: 'cancelled' };
+      if (!(error instanceof SessionRecoveryError) && (session.cancelled || isCancellation(error))) return { stopReason: 'cancelled' };
       throw RequestError.internalError({ error: errMessage(error) });
     } finally {
       try { await session.runlog.flush(); }

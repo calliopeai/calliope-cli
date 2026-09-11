@@ -659,3 +659,21 @@ vi.mock('../src/routing/index.js', async importActual => ({
   ...await importActual<typeof import('../src/routing/index.js')>(),
   selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
 }));
+
+it('reports failed cancellation recovery through JSON-RPC instead of hiding the stale write', async () => {
+  const { conn } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+  let signal: AbortSignal | undefined;
+  mockChat.mockImplementation((_p, _m, _t, _model, _stream, _retry, options) => new Promise((_resolve, reject) => {
+    signal = options.signal;
+    signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
+  }));
+  const pending = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'cancel with conflict' }] });
+  const rejected = expect(pending).rejects.toMatchObject({ code: -32603, data: { error: expect.stringContaining('another terminal') } });
+  await waitFor(() => signal !== undefined);
+  const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+  const state = readSessionConversation(sessionId);
+  const saved = saveSessionConversation(sessionId, state.messages, { expectedRevision: state.revision, status: 'interrupted' });
+  await conn.cancel({ sessionId }); await rejected;
+  expect(readSessionConversation(sessionId).revision).toBe(saved.revision);
+  expect(mockExecuteTool).not.toHaveBeenCalled();
+});

@@ -215,3 +215,15 @@ it('halts before inference on a stale session revision and recovers through expl
   await controller.input.onSubmitMessage('Recovered');
   expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Other terminal', 'Recovered']);
 });
+
+
+it('shows a recovery failure even when cancellation is already in progress', async () => {
+  holdFirst = true; await mount(); const session = storage.getCurrentSession()!;
+  const pending = controller.input.onSubmitMessage('Cancel with a competing writer');
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  const state = storage.readSessionConversation(session.id);
+  const replacement = storage.saveSessionConversation(session.id, state.messages, { expectedRevision: state.revision, status: 'interrupted' });
+  controller.input.onEscape(); await pending;
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.type === 'error' && message.content.includes('another terminal'))).toBe(true));
+  expect(storage.readSessionConversation(session.id).revision).toBe(replacement.revision);
+});

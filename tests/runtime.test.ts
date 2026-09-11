@@ -283,3 +283,10 @@ it('serializes checkpoints from parallel tools and retains both results across r
   } }));
   expect(readConversation(dir, 'test').messages.filter(message => message.role === 'tool').map(message => message.toolCallId).sort()).toEqual(['a', 'b']);
 });
+
+it('reports a checkpoint failure even when the cancellation signal is already set', async () => {
+  const controller = new AbortController();
+  const opts = options({ signal: controller.signal, onCheckpoint: () => { controller.abort(); throw new Error('checkpoint failed'); } });
+  await expect(runTurn(opts)).rejects.toThrow('checkpoint failed');
+  expect(chatMock).not.toHaveBeenCalled(); expect(executeMock).not.toHaveBeenCalled();
+});

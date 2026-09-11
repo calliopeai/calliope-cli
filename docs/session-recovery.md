@@ -20,7 +20,9 @@ event and retains the existing event envelope and exit codes. ACP session IDs
 identify the saved session too; ACP `session/load` is still unavailable. A saved
 headless or ACP conversation can be resumed from the terminal in its project.
 
-If a recovery write fails, execution stops with an actionable error. Already
+If a recovery write fails, execution stops with an actionable error, including
+when cancellation is also in progress. That recovery error takes precedence
+over a normal cancelled result. Already
 running parallel tools can finish; the runtime waits for them to settle. It does
 not retry a failed snapshot or continue with more tools. An interrupted tool
 without a recorded result is marked as having an unknown outcome on resume:

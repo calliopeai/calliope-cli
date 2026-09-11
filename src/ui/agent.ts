@@ -20,6 +20,7 @@ import type { SmartRoutingConfig } from '../router.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../types.js';
 import type { SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
+import { SessionRecoveryError } from '../sessions/index.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { shouldCheckpoint, createCheckpoint } from '../checkpoint.js';
 import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
@@ -390,8 +391,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     if (ctx.mode === 'plan' && result.totals.toolCalls === 0 && result.reason !== 'cancelled') ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
     return ['completed', 'waiting_for_user'].includes(result.reason);
   } catch (error) {
-    const cancelled = ctx.signal?.aborted || isCancellation(error);
-    if (!cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
+    const recoveryFailure = error instanceof SessionRecoveryError;
+    const cancelled = !recoveryFailure && (ctx.signal?.aborted || isCancellation(error));
+    if (recoveryFailure || !cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
     if (runId) ctx.ledger?.finishRun(runId, cancelled ? 'stopped' : 'failed', { errorSummary: cancelled ? 'Operation cancelled' : String(error) });
     return false;
   } finally { clearDisplay(); }

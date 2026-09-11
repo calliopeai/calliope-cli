@@ -287,6 +287,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     }
     iterations = Math.min(iterations, limit);
   } catch (error) {
+    if (checkpointFailed) { reason = 'error'; throw error; }
     if (signal?.aborted || isCancellation(error)) reason = 'cancelled';
     else if (budget?.exceeded) {
       reason = 'budget';
