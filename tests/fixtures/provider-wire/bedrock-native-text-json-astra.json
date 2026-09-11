@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "backend": "bedrock-native",
+  "model": "global.openai.gpt-6-astra",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T16:24:35.067Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "budgetReservationId": "71c3bc3a-1e56-4a3f-906a-e4a7fdc8e6e6",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/model/global.openai.gpt-6-astra/converse"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6ODkxfSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidGV4dCI6IkhlbGxvIM+AIn1dLCJyb2xlIjoiYXNzaXN0YW50In19LCJzdG9wUmVhc29uIjoiZW5kX3R1cm4iLCJ1c2FnZSI6eyJjYWNoZVJlYWRJbnB1dFRva2VuQ291bnQiOjAsImNhY2hlUmVhZElucHV0VG9rZW5zIjowLCJpbnB1dFRva2VucyI6MTIsIm91dHB1dFRva2VucyI6Niwic2VydmVyVG9vbFVzYWdlIjp7fSwidG90YWxUb2tlbnMiOjE4fX0=",
+      "sha256": "499e5f265fa0dd094279d8ec0586a6ea8099b6086df6794c6b4fd90d611e1448"
+    }
+  ],
+  "expected": {
+    "content": "Hello \u03c0",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 12,
+      "outputTokens": 6
+    },
+    "tools": []
+  }
+}
