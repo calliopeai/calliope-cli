@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "backend": "bedrock-compat",
+  "model": "conformance-bedrock",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:30.854Z",
+    "sourceOrigin": "http://127.0.0.1:14000",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "LiteLLM",
+      "version": "1.100.1",
+      "upstream": {
+        "provider": "bedrock",
+        "model": "amazon.nova-micro-v1:0",
+        "region": "us-east-1"
+      },
+      "retries": 0
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLWU3ZWJiNTgxLTk5MDEtNDI5Zi1hMzFkLTc5ZWNiZmJhMGY0YyIsImNyZWF0ZWQiOjE3ODkxMDEyNzAsIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IlxuIiwicm9sZSI6ImFzc2lzdGFudCIsInRvb2xfY2FsbHMiOlt7ImluZGV4IjoxLCJmdW5jdGlvbiI6eyJhcmd1bWVudHMiOiJ7XCJ0ZXh0XCI6IFwiaGVsbG9cIn0iLCJuYW1lIjoiZWNobyJ9LCJpZCI6InRvb2x1c2VfRXliem05UUtwUTM0cmRHbDFWWWlCdSIsInR5cGUiOiJmdW5jdGlvbiJ9XSwicmVhc29uaW5nX2NvbnRlbnQiOiIgSSBuZWVkIHRvIGNhbGwgdGhlIGVjaG8gdG9vbCB3aXRoIHRoZSB0ZXh0IFwiaGVsbG9cIi4gVGhpcyB3aWxsIGNvbmZpcm0gdGhhdCB0aGUgdG9vbCB3b3JrcyBhcyBleHBlY3RlZC4gIiwidGhpbmtpbmdfYmxvY2tzIjpbeyJ0eXBlIjoidGhpbmtpbmciLCJ0aGlua2luZyI6IiBJIG5lZWQgdG8gY2FsbCB0aGUgZWNobyB0b29sIHdpdGggdGhlIHRleHQgXCJoZWxsb1wiLiBUaGlzIHdpbGwgY29uZmlybSB0aGF0IHRoZSB0b29sIHdvcmtzIGFzIGV4cGVjdGVkLiAifV0sInByb3ZpZGVyX3NwZWNpZmljX2ZpZWxkcyI6eyJyZWFzb25pbmdDb250ZW50QmxvY2tzIjpbeyJyZWFzb25pbmdUZXh0Ijp7InRleHQiOiIgSSBuZWVkIHRvIGNhbGwgdGhlIGVjaG8gdG9vbCB3aXRoIHRoZSB0ZXh0IFwiaGVsbG9cIi4gVGhpcyB3aWxsIGNvbmZpcm0gdGhhdCB0aGUgdG9vbCB3b3JrcyBhcyBleHBlY3RlZC4gIn19XX19fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjo0MywicHJvbXB0X3Rva2VucyI6NDE2LCJ0b3RhbF90b2tlbnMiOjQ1OSwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjoyNCwidGV4dF90b2tlbnMiOjE5fSwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlX3dyaXRlX3Rva2VucyI6MCwiY2FjaGVkX3Rva2VucyI6MCwidGV4dF90b2tlbnMiOjQxNiwiY2FjaGVfY3JlYXRpb25fdG9rZW5zIjowfSwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MH19",
+      "sha256": "3050b1b29b5ba02a3be0ae24384c2d1def2fc78613364ebbeadcd02820802c92"
+    }
+  ],
+  "expected": {
+    "content": "\n",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 416,
+      "outputTokens": 43
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

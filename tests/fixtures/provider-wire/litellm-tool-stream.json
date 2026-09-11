@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "backend": "litellm",
+  "model": "conformance-together",
+  "scenario": "tool",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:27.315Z",
+    "sourceOrigin": "http://127.0.0.1:14000",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "LiteLLM",
+      "version": "1.100.1",
+      "upstream": {
+        "provider": "together",
+        "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "retries": 0
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream; charset=utf-8"
+      },
+      "body": "ZGF0YTogeyJpZCI6Im96b2tlS0UtZmRObW4tYTM5M2Y1YzYwOWFkYTc1MyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkxMDEyNjcsIm1vZGVsIjoiY29uZm9ybWFuY2UtdG9nZXRoZXIiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIifX1dfQoKZGF0YTogeyJpZCI6Im96b2tlS0UtZmRObW4tYTM5M2Y1YzYwOWFkYTc1MyIsImNyZWF0ZWQiOjE3ODkxMDEyNjcsIm1vZGVsIjoiY29uZm9ybWFuY2UtdG9nZXRoZXIiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjaG9pY2VzIjpbeyJ0ZXh0IjoiIiwiaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiIiLCJ0b29sX2NhbGxzIjpbeyJpZCI6ImNhbGxfcDZkNXpmNDZhZDE5aHJsNnphY2FuYXprIiwiZnVuY3Rpb24iOnsiYXJndW1lbnRzIjoiIiwibmFtZSI6ImVjaG8ifSwidHlwZSI6ImZ1bmN0aW9uIiwiaW5kZXgiOjB9XX19XX0KCmRhdGE6IHsiaWQiOiJvem9rZUtFLWZkTm1uLWEzOTNmNWM2MDlhZGE3NTMiLCJjcmVhdGVkIjoxNzg5MTAxMjY3LCJtb2RlbCI6ImNvbmZvcm1hbmNlLXRvZ2V0aGVyIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY2hvaWNlcyI6W3sidGV4dCI6IiIsImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIiwidG9vbF9jYWxscyI6W3siZnVuY3Rpb24iOnsiYXJndW1lbnRzIjoie1widGV4dFwiOlwiaGVsbG9cIn0ifSwidHlwZSI6ImZ1bmN0aW9uIiwiaW5kZXgiOjB9XX19XX0KCmRhdGE6IHsiaWQiOiJvem9rZUtFLWZkTm1uLWEzOTNmNWM2MDlhZGE3NTMiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MTAxMjY3LCJtb2RlbCI6ImNvbmZvcm1hbmNlLXRvZ2V0aGVyIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InRvb2xfY2FsbHMifV19CgpkYXRhOiBbRE9ORV0KCg==",
+      "sha256": "bdcb70a0fcfe77fb9c2ab59b42fe666624844d829892c4d213b197a3574e8473"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": null,
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

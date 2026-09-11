@@ -1,9 +1,13 @@
 # Providers
 
-Calliope supports 13 provider backends, plus a generic OpenAI-compatible
+Calliope includes 16 provider adapters, plus a generic OpenAI-compatible
 endpoint for any other server that speaks the OpenAI chat-completions API.
 Models are discovered live from each provider — there are no hardcoded model
 lists. Use `/model` to browse what a provider offers.
+
+The legacy AI21 Studio API has retired and currently returns HTTP 410. See the
+[live test report](provider-live-testing.md) for verified combinations and
+outstanding access or migration requirements.
 
 ## Backends at a glance
 
@@ -20,14 +24,17 @@ lists. Use `/model` to browse what a provider offers.
 | `groq` | OpenAI-compatible | API key | Fast inference. |
 | `fireworks` | OpenAI-compatible | API key | Open-weight models. |
 | `mistral` | OpenAI-compatible | API key | Mistral models. |
-| `ai21` | OpenAI-compatible | API key | Jamba models. |
+| `ai21` | Legacy OpenAI-compatible | API key | Studio API retired; migration required. |
 | `huggingface` | OpenAI-compatible | API key | Hosted inference. |
+| `deepseek` | OpenAI-compatible | API key | DeepSeek reasoning and coding models. |
+| `xai` | OpenAI-compatible | API key | xAI Grok models and tools. |
+| `cerebras` | OpenAI-compatible | API key | Fast hosted open models. |
 | `openai-compat` | Generic | base URL (+ optional key) | Any OpenAI-compatible server. |
 
 Select a provider in a session with `/provider <name>`, or set `defaultProvider`
 during setup. `auto` selects the first configured provider (priority order:
-anthropic, openai, google, mistral, openrouter, together, groq, fireworks, ai21,
-huggingface, bedrock, ollama, litellm).
+anthropic, openai, google, deepseek, xai, cerebras, mistral, openrouter, together,
+groq, fireworks, huggingface, bedrock, ollama, litellm).
 
 ## How credentials resolve
 
@@ -54,8 +61,8 @@ Or store them via the setup wizard, which writes them to `providers.<name>.apiKe
 
 ## Hosted OpenAI-compatible backends
 
-`openrouter`, `together`, `groq`, `fireworks`, `mistral`, `ai21`, and
-`huggingface` speak the OpenAI chat-completions API and each have a built-in
+`openrouter`, `together`, `groq`, `fireworks`, `mistral`, `huggingface`,
+`deepseek`, `xai`, and `cerebras` speak the OpenAI chat-completions API and each have a built-in
 base URL, so you only supply an API key:
 
 | Provider | Base URL |
@@ -65,8 +72,11 @@ base URL, so you only supply an API key:
 | groq | `https://api.groq.com/openai/v1` |
 | fireworks | `https://api.fireworks.ai/inference/v1` |
 | mistral | `https://api.mistral.ai/v1` |
-| ai21 | `https://api.ai21.com/studio/v1` |
-| huggingface | `https://api-inference.huggingface.co/v1` |
+| ai21 (retired) | `https://api.ai21.com/studio/v1` |
+| huggingface | `https://router.huggingface.co/v1` |
+| deepseek | `https://api.deepseek.com` |
+| xai | `https://api.x.ai/v1` |
+| cerebras | `https://api.cerebras.ai/v1` |
 
 ```
 export GROQ_API_KEY=gsk_...

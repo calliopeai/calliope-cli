@@ -18,7 +18,7 @@ React/Ink, ESM. v3.1.0. Node ≥ 20.
 | UI | React 19 + Ink 7 (terminal UI) |
 | Entry | `src/bin.ts` → `dist/bin.js` (the `calliope` bin) |
 | Config store | `conf` (schema-validated JSON under the OS config dir) |
-| Providers | `@anthropic-ai/sdk`, `@google/generative-ai`, `openai` (+ OpenAI-compatible endpoints) |
+| Providers | `@anthropic-ai/sdk`, `@google/genai`, `openai` (+ OpenAI-compatible endpoints) |
 | Tests | Vitest — behavioral and transport tests under `tests/`; coverage floor 90% lines (enforced by `npm run test:coverage`) |
 | Lint/format | Prettier + ESLint (community defaults; no custom bikeshedding) |
 

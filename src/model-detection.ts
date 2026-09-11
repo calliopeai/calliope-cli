@@ -5,7 +5,6 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { select } from '@inquirer/prompts';
 import * as config from './config.js';
@@ -41,7 +40,10 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   mistral: 'https://api.mistral.ai/v1',
   ai21: 'https://api.ai21.com/studio/v1',
-  huggingface: 'https://api-inference.huggingface.co/v1',
+  huggingface: 'https://router.huggingface.co/v1',
+  deepseek: 'https://api.deepseek.com',
+  xai: 'https://api.x.ai/v1',
+  cerebras: 'https://api.cerebras.ai/v1',
   // Bedrock uses a configurable gateway URL, not a fixed URL
 };
 
@@ -266,6 +268,9 @@ export async function getAvailableModels(provider: LLMProvider, options: ModelFe
       case 'ai21':
       case 'huggingface':
       case 'fireworks':
+      case 'deepseek':
+      case 'xai':
+      case 'cerebras':
         models = await getOpenAICompatibleModels(provider);
         break;
       case 'bedrock':

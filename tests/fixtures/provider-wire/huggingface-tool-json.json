@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "huggingface",
+  "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:35:16.016Z",
+    "sourceOrigin": "https://router.huggingface.co",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "ewogICJpZCI6ICJvem9rdHE5LTRZTkNiNC1hMzkzZjZmNzhjN2ZmZTI5IiwKICAib2JqZWN0IjogImNoYXQuY29tcGxldGlvbiIsCiAgImNyZWF0ZWQiOiAxNzg5MTAxMzE1LAogICJtb2RlbCI6ICJtZXRhLWxsYW1hL0xsYW1hLTMuMy03MEItSW5zdHJ1Y3QtVHVyYm8iLAogICJwcm9tcHQiOiBbXSwKICAiY2hvaWNlcyI6IFsKICAgIHsKICAgICAgImZpbmlzaF9yZWFzb24iOiAidG9vbF9jYWxscyIsCiAgICAgICJzZWVkIjogMTM5MTkzMDkzNDU2MzAzODgwMDAsCiAgICAgICJpbmRleCI6IDAsCiAgICAgICJsb2dwcm9icyI6IG51bGwsCiAgICAgICJtZXNzYWdlIjogewogICAgICAgICJyb2xlIjogImFzc2lzdGFudCIsCiAgICAgICAgImNvbnRlbnQiOiBudWxsLAogICAgICAgICJ0b29sX2NhbGxzIjogWwogICAgICAgICAgewogICAgICAgICAgICAiaW5kZXgiOiAwLAogICAgICAgICAgICAiaWQiOiAiY2FsbF83cnhjMmZqcmJmdzVvdHZiNWptbWh4bzUiLAogICAgICAgICAgICAidHlwZSI6ICJmdW5jdGlvbiIsCiAgICAgICAgICAgICJmdW5jdGlvbiI6IHsKICAgICAgICAgICAgICAiYXJndW1lbnRzIjogIntcInRleHRcIjpcImhlbGxvXCJ9IiwKICAgICAgICAgICAgICAibmFtZSI6ICJlY2hvIgogICAgICAgICAgICB9CiAgICAgICAgICB9CiAgICAgICAgXQogICAgICB9CiAgICB9CiAgXSwKICAidXNhZ2UiOiB7CiAgICAicHJvbXB0X3Rva2VucyI6IDIwMCwKICAgICJjb21wbGV0aW9uX3Rva2VucyI6IDIyLAogICAgInRvdGFsX3Rva2VucyI6IDIyMiwKICAgICJjYWNoZWRfdG9rZW5zIjogMAogIH0KfQ==",
+      "sha256": "354f80700a53c138b57d8fda8d7f725b0b5bfa0e8f8e7a825141077a45b9c029"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 200,
+      "outputTokens": 22
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

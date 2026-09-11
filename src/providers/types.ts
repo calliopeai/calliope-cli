@@ -227,3 +227,11 @@ export function validateLLMResponse(response: LLMResponse): LLMResponse {
 
   return response;
 }
+
+/** Normalize terminal reasons before clients decide whether a turn completed. */
+export function normalizeFinishReason(reason: string | null | undefined, hasTools = false): LLMResponse['finishReason'] {
+  const value = reason?.toLowerCase();
+  if (value && ['error', 'failed', 'refusal', 'content_filter', 'safety', 'recitation', 'blocklist', 'prohibited_content', 'spii', 'malformed_function_call', 'unexpected_tool_call', 'guardrail_intervened'].includes(value)) return 'error';
+  if (value && ['length', 'max_tokens', 'max_output_tokens', 'incomplete'].includes(value)) return 'length';
+  return hasTools || value === 'tool_use' || value === 'tool_calls' ? 'tool_use' : 'stop';
+}

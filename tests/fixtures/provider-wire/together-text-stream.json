@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "backend": "together",
+  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "scenario": "text",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:13.506Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream;charset=utf-8"
+      },
+      "body": "ZGF0YTogeyJpZCI6Im96b2tHTVktZmRObW4tYTM5M2YzZjg1ZTA3ZGZiYyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkxMDExOTMsImNob2ljZXMiOlt7ImluZGV4IjowLCJ0ZXh0IjoiSGVsbG8iLCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6bnVsbCwic2VlZCI6bnVsbCwiZGVsdGEiOnsidG9rZW5faWQiOjk5MDYsInJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8ifX1dLCJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsInVzYWdlIjpudWxsfQoKZGF0YTogeyJpZCI6Im96b2tHTVktZmRObW4tYTM5M2YzZjg1ZTA3ZGZiYyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkxMDExOTMsImNob2ljZXMiOlt7ImluZGV4IjowLCJ0ZXh0IjoiIM+AIiwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGwsInNlZWQiOm51bGwsImRlbHRhIjp7InRva2VuX2lkIjo1Mjg0NSwicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIgz4AifX1dLCJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsInVzYWdlIjpudWxsfQoKZGF0YTogeyJpZCI6Im96b2tHTVktZmRObW4tYTM5M2YzZjg1ZTA3ZGZiYyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkxMDExOTMsImNob2ljZXMiOlt7ImluZGV4IjowLCJ0ZXh0IjoiIiwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOiJzdG9wIiwic2VlZCI6MTIxOTMwNzQwNDc4ODc2NDIwMCwiZGVsdGEiOnsidG9rZW5faWQiOjEyODAwOSwicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIifX1dLCJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjQxLCJjb21wbGV0aW9uX3Rva2VucyI6MywidG90YWxfdG9rZW5zIjo0NCwiY2FjaGVkX3Rva2VucyI6MH19CgpkYXRhOiBbRE9ORV0KCg==",
+      "sha256": "2dcf43b70207ab30ebab46c3d919fad76ade380b8ad85774a2f79ef05f6d2889"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 41,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

@@ -92,7 +92,6 @@ const HOSTED_COMPAT: LLMProvider[] = [
   'groq',
   'fireworks',
   'mistral',
-  'ai21',
   'huggingface',
 ];
 
@@ -169,4 +168,10 @@ describe('chat() provider routing (#145)', () => {
     else process.env.AWS_PROFILE = prevProfile;
     vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => baseUrls[p]);
   });
+});
+
+it('explains that the retired AI21 adapter is unavailable', async () => {
+  await expect(chat('ai21', [{ role: 'user', content: 'hi' }], [], 'some-model'))
+    .rejects.toThrow('AI21 Studio API was sunset');
+  expect(chatOllama).not.toHaveBeenCalled();
 });

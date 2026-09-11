@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "backend": "together",
+  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:12.963Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "ewogICJpZCI6ICJvem9rRzNBLWZkTm1uLWEzOTNmM2YxOWE3ZWRmYmMiLAogICJvYmplY3QiOiAiY2hhdC5jb21wbGV0aW9uIiwKICAiY3JlYXRlZCI6IDE3ODkxMDExOTIsCiAgIm1vZGVsIjogIm1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsCiAgInByb21wdCI6IFtdLAogICJjaG9pY2VzIjogWwogICAgewogICAgICAiZmluaXNoX3JlYXNvbiI6ICJzdG9wIiwKICAgICAgInNlZWQiOiA2OTY5MzAzNjA1NjE1OTYzMDAwLAogICAgICAiaW5kZXgiOiAwLAogICAgICAibG9ncHJvYnMiOiBudWxsLAogICAgICAibWVzc2FnZSI6IHsKICAgICAgICAicm9sZSI6ICJhc3Npc3RhbnQiLAogICAgICAgICJjb250ZW50IjogIkhlbGxvIM+AIiwKICAgICAgICAidG9vbF9jYWxscyI6IFtdCiAgICAgIH0KICAgIH0KICBdLAogICJ1c2FnZSI6IHsKICAgICJwcm9tcHRfdG9rZW5zIjogNDEsCiAgICAiY29tcGxldGlvbl90b2tlbnMiOiAzLAogICAgInRvdGFsX3Rva2VucyI6IDQ0LAogICAgImNhY2hlZF90b2tlbnMiOiAwCiAgfQp9",
+      "sha256": "b5dd6245f87816897ade97e9700eeac7bda4277cfcc7223d0dcaf4e3f23cf218"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 41,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

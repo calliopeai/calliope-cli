@@ -85,6 +85,33 @@ function makeToolResultMessage(toolCallId: string, content: string): Message {
   return { role: 'tool', content, toolCallId };
 }
 
+it('preserves native reasoning content and signatures across a tool turn', async () => {
+  process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
+  process.env.AWS_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+  process.env.AWS_REGION = 'us-east-1';
+  const reasoningContent = { reasoningText: { text: 'opaque thought', signature: 'sig-123' } };
+  mockFetch.mockResolvedValueOnce(makeBedrockResponse({
+    output: { message: { role: 'assistant', content: [
+      { reasoningContent }, { toolUse: { toolUseId: 'call_1', name: 'echo', input: { text: 'hello' } } },
+    ] } },
+    stopReason: 'tool_use',
+  }));
+  const first = await chatBedrock([{ role: 'user', content: 'echo hello' }], [{
+    name: 'echo', description: 'Echo', parameters: { type: 'object', properties: { text: { type: 'string', description: 'text' } } },
+  }], 'amazon.nova-micro-v1:0');
+  expect(first.providerMetadata).toEqual({ bedrock: { reasoningContent: [reasoningContent] } });
+
+  mockFetch.mockResolvedValueOnce(makeBedrockResponse());
+  await chatBedrock([
+    { role: 'user', content: 'echo hello' },
+    { role: 'assistant', content: first.content, toolCalls: first.toolCalls, providerMetadata: first.providerMetadata },
+    makeToolResultMessage('call_1', 'hello'),
+  ], [], 'amazon.nova-micro-v1:0');
+  const request = JSON.parse(String(mockFetch.mock.calls[1][1].body));
+  expect(request.messages[1].content[0]).toEqual({ reasoningContent });
+  expect(request.messages[1].content[1]).toEqual({ toolUse: { toolUseId: 'call_1', name: 'echo', input: { text: 'hello' } } });
+});
+
 // Build a minimal valid non-streaming Bedrock response
 function makeBedrockResponse(overrides: Record<string, unknown> = {}) {
   return {

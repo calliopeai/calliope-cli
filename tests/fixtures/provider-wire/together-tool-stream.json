@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "together",
+  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "scenario": "tool",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:14.721Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream;charset=utf-8"
+      },
+      "body": "ZGF0YTogeyJpZCI6Im96b2tHbTUtZmRObW4tYTM5M2Y0MDBkYjhlZGZiYyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkxMDExOTQsImNob2ljZXMiOlt7ImluZGV4IjowLCJyb2xlIjoiYXNzaXN0YW50IiwidGV4dCI6IiIsImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjpudWxsLCJkZWx0YSI6eyJ0b2tlbl9pZCI6bnVsbCwicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIifX1dLCJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyJ9CgpkYXRhOiB7ImlkIjoib3pva0dtNS1mZE5tbi1hMzkzZjQwMGRiOGVkZmJjIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTEwMTE5NCwiY2hvaWNlcyI6W3siaW5kZXgiOjAsInRleHQiOiIiLCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6bnVsbCwiZGVsdGEiOnsidG9rZW5faWQiOm51bGwsInJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiIiwidG9vbF9jYWxscyI6W3siaW5kZXgiOjAsImlkIjoiY2FsbF94eGZ5bTYycXdreHNxZjBqdWJxYWtlMmIiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IiJ9fV19fV0sIm1vZGVsIjoibWV0YS1sbGFtYS9MbGFtYS0zLjMtNzBCLUluc3RydWN0LVR1cmJvIn0KCmRhdGE6IHsiaWQiOiJvem9rR201LWZkTm1uLWEzOTNmNDAwZGI4ZWRmYmMiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MTAxMTk0LCJjaG9pY2VzIjpbeyJpbmRleCI6MCwidGV4dCI6IiIsImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoidG9vbF9jYWxscyIsImRlbHRhIjp7InRva2VuX2lkIjpudWxsLCJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IiIsInRvb2xfY2FsbHMiOlt7ImluZGV4IjowLCJmdW5jdGlvbiI6eyJhcmd1bWVudHMiOiJ7XCJ0ZXh0XCI6XCJoZWxsb1wifSJ9fV19fV0sIm1vZGVsIjoibWV0YS1sbGFtYS9MbGFtYS0zLjMtNzBCLUluc3RydWN0LVR1cmJvIn0KCmRhdGE6IHsiaWQiOiJvem9rR201LWZkTm1uLWEzOTNmNDAwZGI4ZWRmYmMiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MTAxMTk0LCJjaG9pY2VzIjpbeyJpbmRleCI6MCwidGV4dCI6IiIsImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoidG9vbF9jYWxscyIsInNlZWQiOjI4NTQ1MTk0NDYzNTcxNDA1MCwiZGVsdGEiOnsidG9rZW5faWQiOjEyODAwOSwicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIifX1dLCJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjIwMCwiY29tcGxldGlvbl90b2tlbnMiOjIyLCJ0b3RhbF90b2tlbnMiOjIyMiwiY2FjaGVkX3Rva2VucyI6MH19CgpkYXRhOiBbRE9ORV0KCg==",
+      "sha256": "ff8854bf97451e5f085db27dd53eb14a5f4fdaf9202cc0a5692efc3b94636f8a"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 200,
+      "outputTokens": 22
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

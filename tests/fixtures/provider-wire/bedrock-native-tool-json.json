@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "bedrock-native",
+  "model": "amazon.nova-micro-v1:0",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:25.183Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/model/amazon.nova-micro-v1%3A0/converse"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6NDAxfSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidGV4dCI6Ijx0aGlua2luZz4gSSBuZWVkIHRvIHVzZSB0aGUgZWNobyB0b29sIHdpdGggdGhlIHRleHQgYXJndW1lbnQgc2V0IHRvIFwiaGVsbG9cIi4gU2luY2UgdGhlcmUncyBubyBuZWVkIGZvciBhZGRpdGlvbmFsIHN0ZXBzLCBJJ2xsIGNhbGwgdGhlIHRvb2wgZGlyZWN0bHkuIDwvdGhpbmtpbmc+XG4ifSx7InRvb2xVc2UiOnsiaW5wdXQiOnsidGV4dCI6ImhlbGxvIn0sIm5hbWUiOiJlY2hvIiwidG9vbFVzZUlkIjoidG9vbHVzZV9lckdEcEsyeVl6SktoZlRoWmtTVkhsIn19XSwicm9sZSI6ImFzc2lzdGFudCJ9fSwic3RvcFJlYXNvbiI6InRvb2xfdXNlIiwidXNhZ2UiOnsiaW5wdXRUb2tlbnMiOjQxNiwib3V0cHV0VG9rZW5zIjo1NCwic2VydmVyVG9vbFVzYWdlIjp7fSwidG90YWxUb2tlbnMiOjQ3MH19",
+      "sha256": "eda885bb01ba3394cdb536ece91033225016896ec8cd9eab4fcd06808ffd2182"
+    }
+  ],
+  "expected": {
+    "content": "<thinking> I need to use the echo tool with the text argument set to \"hello\". Since there's no need for additional steps, I'll call the tool directly. </thinking>\n",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 416,
+      "outputTokens": 54
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}
