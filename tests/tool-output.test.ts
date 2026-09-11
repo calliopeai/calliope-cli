@@ -26,10 +26,20 @@ it('retains inspectable output after restart with private files and redacted con
 it('bounds individual and aggregate output while keeping explicit truncation and eviction evidence', () => {
   const huge = record('x'.repeat(MAX_TOOL_OUTPUT_CHARS + 1)); expect(huge.truncated).toBe(true); expect(huge.content.length).toBe(MAX_TOOL_OUTPUT_CHARS);
   expect(huge.sourceChars).toBe(MAX_TOOL_OUTPUT_CHARS + 1);
-  for (let index = 0; index <= MAX_TOOL_OUTPUTS; index++) saveToolOutput(dir, record(String(index)));
+  // Seed valid near-capacity state; exercise real commits across both boundaries
+  // without spending the test timeout fsyncing every intermediate snapshot.
+  const seed = (records: ReturnType<typeof record>[], dropped: number) => {
+    const body = { version: 1, dropped, records }, snapshot = { ...body, checksum: hash(JSON.stringify(body)) };
+    validateToolOutputSnapshot(snapshot); fs.writeFileSync(join(dir, 'tool-output.json'), JSON.stringify(snapshot));
+  };
+  seed(Array.from({ length: MAX_TOOL_OUTPUTS }, (_, index) => record(String(index))), 0);
+  saveToolOutput(dir, record(String(MAX_TOOL_OUTPUTS)));
   const saved = readToolOutputs(dir); expect(saved.records).toHaveLength(MAX_TOOL_OUTPUTS); expect(saved.dropped).toBe(1); expect(saved.records[0]!.content).toBe('1');
-  for (let index = 0; index < 65; index++) saveToolOutput(dir, record('x'.repeat(MAX_TOOL_OUTPUT_CHARS)));
-  expect(fs.statSync(join(dir, 'tool-output.json')).size).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_BYTES); expect(readToolOutputs(dir).dropped).toBeGreaterThan(1);
+  const full = Array.from({ length: 63 }, () => record('x'.repeat(MAX_TOOL_OUTPUT_CHARS)));
+  seed(full, 1); saveToolOutput(dir, record('y'.repeat(MAX_TOOL_OUTPUT_CHARS)));
+  const bounded = readToolOutputs(dir);
+  expect(fs.statSync(join(dir, 'tool-output.json')).size).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_BYTES);
+  expect(bounded.dropped).toBe(2); expect(bounded.records[0]!.id).toBe(full[1]!.id); expect(bounded.records.at(-1)!.content).toBe('y'.repeat(MAX_TOOL_OUTPUT_CHARS));
 });
 it('preserves old records on cancellation, busy writers and interrupted commits', () => {
   saveToolOutput(dir, record()); const file = join(dir, 'tool-output.json'), before = fs.readFileSync(file, 'utf8');
