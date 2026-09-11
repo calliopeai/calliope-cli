@@ -6,9 +6,15 @@ export interface GoalLimits {
   maxAgents:number;maxTasks:number;maxDepth:number;maxConcurrent:number;
 }
 export interface GoalManifest {
-  version:1;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
+  version:1|2;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
   preference:{provider:string;model?:string};workspace:{allowedTools:string[];allowedPaths:PathGrant[]};
-  limits:GoalLimits;hash:string;
+  limits:GoalLimits;team?:GoalTeam;hash:string;
+}
+export interface GoalTeam {
+  version:1;
+  reviewer?:GoalManifest['preference'];
+  workers?:GoalManifest['preference'];
+  maxAttempts?:number;
 }
 export interface GoalAllocation {
   id:string;phase:'planning'|'execution';runId:string;planHash:string;

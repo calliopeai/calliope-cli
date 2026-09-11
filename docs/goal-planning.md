@@ -4,6 +4,8 @@
 Calliope validates its structure, provenance, scopes and remaining allowance;
 execution requires human approval of the exact proposal hash. Workers then use
 the [coordinator](coordinator-execution.md), shared runtime and normal tool policy.
+Use [mixed-model teams](mixed-model-teams.md) for independent planner, reviewer
+and worker choices, bounded attempts and the live workflow HUD.
 
 ```sh
 calliope orchestrate "Inspect the parser and propose a focused fix" \
@@ -85,7 +87,7 @@ Goal records live in `~/.calliope-cli/goals/GOAL_ID/` by default:
 
 | Record | Version and purpose |
 |---|---|
-| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256 |
+| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256; v2 adds captured team settings |
 | `history.json` | v1: append-only logical event history and integrity hash |
 | `proposals/HASH.json` | v1: immutable validated plan, plan hash, source and inference marker |
 | `owner.json` | v1: process ownership lease, reclaimed only after confirmed process exit |

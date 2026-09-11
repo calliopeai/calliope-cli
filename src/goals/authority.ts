@@ -5,6 +5,7 @@ import {ExecutionLimitError,type ExecutionManifest} from '../execution/types.js'
 import type {RunManifest} from '../orchestration/types.js';
 import {GoalStore} from './store.js';
 import {validateGoalLink} from './validation.js';
+import {plannerPlan} from './contracts.js';
 import {permits} from '../orchestration/validation.js';
 
 /** All linked run entry points use this authority, including direct `calliope run`. */
@@ -17,7 +18,7 @@ export function goalRunAuthority(manifest:RunManifest,runRoot:string):{createdAt
     if(Date.now()>=a.deadline)throw new ExecutionLimitError('deadline','Original goal allocation deadline expired.');
     const plan=manifest.plan;if(plan.limits.tokenBudget!==a.tokens||Math.floor(plan.limits.costBudgetUsd*1e9)!==a.costNanos||Date.parse(m.createdAt)+plan.limits.timeBudgetMs!==a.deadline)throw new ExecutionLimitError('authority','Run allowance differs from its goal allocation.');
     if(link.phase==='planning'){
-      if(plan.agents.length!==1||plan.tasks.length!==1||plan.workspace.allowedTools.some(t=>!['think','read_file','list_files'].includes(t)||!m.workspace.allowedTools.includes(t))||plan.workspace.allowedPaths.some(p=>p.access!=='read'||!permits(m.workspace.allowedPaths,p.path,p.access)))throw new ExecutionLimitError('authority','A planner cannot expand goal scope, mutate or create workers.');
+      if((m.version===2?canonicalJson(plan)!==canonicalJson(plannerPlan(m)):plan.agents.length!==1||plan.tasks.length!==1)||plan.workspace.allowedTools.some(t=>!['think','read_file','list_files'].includes(t)||!m.workspace.allowedTools.includes(t))||plan.workspace.allowedPaths.some(p=>p.access!=='read'||!permits(m.workspace.allowedPaths,p.path,p.access)))throw new ExecutionLimitError('authority','A planner cannot expand goal scope, mutate or create workers.');
     }else{
       const frozen=view.state.planningSpend!,planner=view.state.planning!,ledger=new ReservationLedger(join(m.runsRoot,planner.runId,'budget')).read(m.project.root);
       if(ledger.projection.exceeded||ledger.manifest.runId!==planner.runId||ledger.manifest.planHash!==planner.planHash||ledger.projection.revision!==frozen.revision||ledger.projection.spent.tokens!==frozen.tokens||ledger.projection.spent.costNanos!==frozen.costNanos)throw new ExecutionLimitError('authority','Frozen planning spend changed or is unavailable.');

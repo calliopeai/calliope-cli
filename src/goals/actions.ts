@@ -27,7 +27,7 @@ const code=(status:GoalStatus)=>status==='completed'?0:status==='review_required
 function validateOptions(options:GoalOptions):void {if(options.maxOutputTokens!==undefined&&(!Number.isSafeInteger(options.maxOutputTokens)||options.maxOutputTokens<1||options.maxOutputTokens>100000000))throw new OrchestrationError('invalid','Invalid goal output cap.');}
 async function result(cwd:string,id:string,options:GoalOptions):Promise<GoalResult> {
   const goals=goalStore(options),goal=goals.read(id,cwd),runs=runStore(goal,options),owners:GoalResult['owners']={goal:goals.owner(id),execution:null};let execution:ExecutionInspection|null=null,status=goal.state.status;
-  if(goal.state.execution&&existsSync(join(runs.root,goal.state.execution.runId))){const inspected=await inspectExecution(cwd,goal.state.execution.runId,{store:runs,signal:options.signal});assertLinkedRun(goal,goal.state.execution,inspected.view,goals);execution=inspected.execution;owners.execution=inspected.owner;
+  if(goal.state.execution&&existsSync(join(runs.root,goal.state.execution.runId))){const inspected=await inspectExecution(cwd,goal.state.execution.runId,{store:runs,signal:options.signal});assertLinkedRun(goal,goal.state.execution,inspected.view,goals);execution=inspected.execution;if(execution)options.onProgress?.({context:inspected.store.context(execution),execution});owners.execution=inspected.owner;
     // A read may report newer child evidence (for example explicit task acceptance) without rewriting history.
     if(!goal.state.revoked&&execution&&(execution.state.status==='completed'||!['failed','denied','cancelled'].includes(status)||goal.events.at(-1)?.change.type!=='execution_interrupted')){if(execution.state.status==='ready')status='approved';else status=execution.state.status;}
     if(inspected.view.run.status==='cancelled')status='cancelled';
@@ -81,7 +81,7 @@ async function planGoal(cwd:string,id:string,options:GoalOptions):Promise<GoalRe
 }
 export async function startGoal(cwd:string,goal:string,options:GoalOptions={}):Promise<GoalResult> {
   throwIfCancelled(options.signal);validateOptions(options);const runs=options.store??new RunStore(),goals=goalStore(options),manifest=newGoalManifest(cwd,goal,runs.root,options);
-  await authorizeSessionAction(cwd,'orchestration_goal_plan',{path:cwd,goalHash:digest(goal),limits:manifest.limits,workspace:manifest.workspace,preference:manifest.preference},options);throwIfCancelled(options.signal);const created=goals.create(manifest,options.signal);options.onCreated?.(created);
+  await authorizeSessionAction(cwd,'orchestration_goal_plan',{path:cwd,goalHash:digest(goal),limits:manifest.limits,workspace:manifest.workspace,preference:manifest.preference,...(manifest.team?{team:manifest.team}:{})},options);throwIfCancelled(options.signal);const created=goals.create(manifest,options.signal);options.onCreated?.(created);
   return planGoal(cwd,manifest.id,{...options,store:runs,goals});
 }
 export async function approveGoal(cwd:string,id:string,proposalHash:string,options:GoalOptions={}):Promise<GoalResult> {

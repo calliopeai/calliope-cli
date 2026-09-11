@@ -7,6 +7,7 @@ import {artifactSetHash} from './execution-journal.js';
 import {readCollectedArtifact,checkArtifactSnapshot} from './verification.js';
 import {OrchestrationError} from './types.js';
 import type {RunActionOptions} from './actions.js';
+import type {CoordinatorOptions} from './coordinator.js';
 import type {ExecutionChange} from './coordinator-types.js';
 import {ReservationLedger} from '../execution/index.js';
 import {inspectSpawnAuthority} from '../spawning/authority.js';
@@ -15,9 +16,10 @@ export async function inspectExecution(cwd:string,runId:string,options:RunAction
   const runs=options.store??new RunStore(),view=await runs.read(runId,cwd,options.signal),store=new ExecutionStore(join(runs.root,runId),view.manifest);
   return{view,store,execution:store.exists()?store.read():null,owner:store.exists()?store.owner():null};
 }
-export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry',target:string,options:RunActionOptions={}) {
+export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry',target:string,options:RunActionOptions&Pick<CoordinatorOptions,'onProgress'>={}) {
   const initial=await inspectExecution(cwd,runId,options);if(!initial.execution)throw new OrchestrationError('unavailable','Run has no execution history.');
   const {view,store}=initial,agentAction=action.startsWith('agent-'),context=store.context(initial.execution);
+  const finish=()=>{const execution=store.read();options.onProgress?.({context:store.context(execution),execution});return execution;};
   const goalAuthority=view.manifest.version===2&&action!=='agent-stop'?(await import('../goals/index.js')).goalRunAuthority(view.manifest,(options.store??new RunStore()).root):undefined;
   const assertAuthority=()=>{store.assertApproval(initial.execution!.header);goalAuthority?.assertActive();const authority=inspectSpawnAuthority(store,new ReservationLedger(join(store.root,'..','budget')));if(action==='accept'&&authority.pending.length)throw new OrchestrationError('conflict','Recover pending child admission before accepting the run.');};
   if(agentAction?!context.plan.agents.some(a=>a.id===target):!context.plan.tasks.some(t=>t.id===target))throw new OrchestrationError('invalid','Unknown execution task or agent.');
@@ -28,7 +30,7 @@ export async function controlExecution(cwd:string,runId:string,action:'retry'|'a
   await authorizeSessionAction(cwd,action==='accept'?'orchestration_accept':action==='agent-stop'?'orchestration_agent_stop':'orchestration_retry',
     {path:cwd,runId,target,action,planHash:initial.execution.state.graph?.hash??view.manifest.planHash,revision:initial.execution.state.revision,...(action==='accept'?{artifactsHash:artifactSetHash(initial.execution.state.tasks[target]!.output!.artifacts),acceptanceCriteria:context.plan.tasks.find(t=>t.id===target)!.acceptanceCriteria,agentCriteria:context.plan.agents.find(a=>a.id===initial.execution!.state.tasks[target]!.agentId)!.acceptanceCriteria,evidence:initial.execution.state.tasks[target]!.output}:{})},options);
   throwIfCancelled(options.signal);
-  if(action==='agent-stop'){await store.append({type:'agent_stop',agentId:target},options.signal);return store.read();}
+  if(action==='agent-stop'){await store.append({type:'agent_stop',agentId:target},options.signal);return finish();}
   const lease=store.acquire();
   try {
     const current=store.read();assertAuthority();
@@ -44,6 +46,6 @@ export async function controlExecution(cwd:string,runId:string,action:'retry'|'a
       const changes:ExecutionChange[]=[...candidates.map(task=>({type:'task_reset' as const,taskId:task.id,source:'manual' as const})),...current.state.stoppedAgents.filter(id=>descendants.has(id)).map(agentId=>({type:'agent_reset' as const,agentId}))];
       await store.appendBatch(changes.map(change=>({change})),options.signal,()=>{lease.check();store.assertApproval(current.header);goalAuthority?.assertActive();if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during agent retry.');});
     }
-    return store.read();
+    return finish();
   }finally{lease.release();}
 }

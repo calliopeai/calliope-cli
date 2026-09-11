@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add independent planner/controller, reviewer and worker model choices to goal planning, with persisted team settings and bounded task attempts. A second controller reviews recorded draft evidence within the original allowance; retries receive failed-check feedback. Add a compact live workflow/agent HUD and display modes without changing headless event envelopes (#288).
+
 - Add bounded goal planning with `/orchestrate` and `calliope orchestrate`: read-only proposal generation, exact-hash approval, human revision, linked execution, persistent shared limits/deadlines and versioned JSON events. Cancellation and restart retain authority and unknown spend; planning prose never counts as verified work (#284).
 
 - Execute reviewed task graphs through bounded agents, parallelize independent tasks, serialize conflicting scopes, and verify declared artifacts against versioned acceptance checks. Add auditable agent/task events, explicit escalation, cross-process cancellation, safe restart/retry and headless execution contracts; unverified criteria require human acceptance (#282).

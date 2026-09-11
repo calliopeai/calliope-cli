@@ -56,12 +56,17 @@ import type { StatusRegionProps } from '../regions/status-region.js';
 import type { InputRegionProps } from '../regions/input-region.js';
 import type { ModalHostProps } from '../regions/modal-host.js';
 
+import {workflowSnapshot,retainWorkflows,type WorkflowSnapshot,type WorkflowHudMode} from '../workflow-progress.js';
+import type {CoordinatorProgress} from '../../orchestration/progress.js';
+import type {WorkflowRegionProps} from '../regions/workflow-region.js';
+
 const MAX_UNDO_HISTORY = 10;
 
 export interface ChatController {
   width: number;
   resetSession: () => void;
   transcript: TranscriptRegionProps;
+  workflow: WorkflowRegionProps;
   status: StatusRegionProps;
   input: InputRegionProps;
   modal: ModalHostProps;
@@ -107,6 +112,9 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const { provider, model, mode, confirmMode, autoRoute, smartRouteActive, breakerHealth,
     setProvider, setModel, setMode, setBreakerHealth } = modelState;
   const { queuedMessages, setQueuedMessages, queuedMessagesRef, editingQueueIndex, setEditingQueueIndex } = queue;
+  const [workflows,setWorkflows]=useState<WorkflowSnapshot[]>([]);
+  const [workflowHudMode,setWorkflowHudMode]=useState<WorkflowHudMode>('agents');
+  const onWorkflowProgress=useCallback((progress:CoordinatorProgress)=>{const next=workflowSnapshot(progress);setWorkflows(previous=>retainWorkflows(previous,next));},[]);
   const [lastRoute, setLastRoute] = useState<RoutingDecision>();
   const { loopActive, loopCancelledRef, setLoopActive } = loop;
 
@@ -315,6 +323,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   }, [setQueuedMessages, addMessage]);
 
   const buildCommandContext = useCallback((): CommandContext => ({
+    onWorkflowProgress,workflowHudMode,setWorkflowHudMode,
     toolOutputs: transcript.toolOutputs,
     showToolOutput: output => { modal.setToolOutput(output); modal.setModalMode('tool-output'); },
     approvals: approval.store,
@@ -353,7 +362,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     runLoop,
     startFleetPolling: () => { fleetStartPolling(handleFleetInstruction); },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [approval.store, approval.request, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
+  }), [onWorkflowProgress,workflowHudMode,approval.store, approval.request, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
     modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
@@ -639,6 +648,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   // -- Session reset (replaces the old full-remount reset) ------------------
   const resetSession = useCallback(() => {
     approval.cancel();
+    setWorkflows([]);
     proc.reset();
     transcript.reset();
     stats.reset();
@@ -700,6 +710,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     width,
     resetSession,
     transcript: transcriptProps,
+    workflow: {workflows,mode:workflowHudMode,width},
     status: statusProps,
     input: inputProps,
     modal: modalProps,
