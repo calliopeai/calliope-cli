@@ -112,6 +112,9 @@ wins). The `model` field has no environment fallback.
 | fireworks | `FIREWORKS_API_KEY` | — | — |
 | mistral | `MISTRAL_API_KEY` | — | — |
 | huggingface | `HUGGINGFACE_API_KEY` | — | — |
+| deepseek | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` | — |
+| xai | `XAI_API_KEY` | `XAI_BASE_URL` | — |
+| cerebras | `CEREBRAS_API_KEY` | `CEREBRAS_BASE_URL` | — |
 | ollama | — | `OLLAMA_BASE_URL` | — |
 | litellm | `LITELLM_API_KEY` | `LITELLM_BASE_URL` | — |
 | bedrock | `BEDROCK_API_KEY` | `BEDROCK_BASE_URL` | `AWS_REGION` / `AWS_DEFAULT_REGION` (region), `AWS_PROFILE` (profile) |

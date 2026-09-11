@@ -47,6 +47,9 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.MISTRAL_API_KEY) envProviders.push('mistral');
   if (process.env.OLLAMA_BASE_URL) envProviders.push('ollama');
   if (process.env.HUGGINGFACE_API_KEY) envProviders.push('huggingface');
+  if (process.env.DEEPSEEK_API_KEY) envProviders.push('deepseek');
+  if (process.env.XAI_API_KEY) envProviders.push('xai');
+  if (process.env.CEREBRAS_API_KEY) envProviders.push('cerebras');
   if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
   if (process.env.BEDROCK_API_KEY || process.env.BEDROCK_BASE_URL) envProviders.push('bedrock');
   if (process.env.OPENAI_COMPAT_BASE_URL) envProviders.push('openai-compat');
@@ -73,6 +76,9 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'bedrock', name: 'AWS Bedrock', description: 'AWS Bedrock via gateway/proxy' },
       { value: 'openai-compat', name: 'Generic OpenAI-compatible server', description: 'Any server with OpenAI API: AnythingLLM, LocalAI, Jan, LM Studio, vLLM' },
       { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
+      { value: 'deepseek', name: 'DeepSeek', description: 'Reasoning and coding models' },
+      { value: 'xai', name: 'xAI', description: 'Grok models with tool calling' },
+      { value: 'cerebras', name: 'Cerebras', description: 'Very fast open model inference' },
       { value: 'auto', name: 'Auto (use first available)', description: 'Automatically select based on available keys' },
     ],
     default: (envProviders[0] || 'anthropic') as any,
@@ -245,6 +251,9 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
     { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY' },
     { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY' },
     { id: 'huggingface', name: 'HuggingFace', envKey: 'HUGGINGFACE_API_KEY' },
+    { id: 'deepseek', name: 'DeepSeek', envKey: 'DEEPSEEK_API_KEY' },
+    { id: 'xai', name: 'xAI', envKey: 'XAI_API_KEY' },
+    { id: 'cerebras', name: 'Cerebras', envKey: 'CEREBRAS_API_KEY' },
   ];
 
   for (const provider of providers) {

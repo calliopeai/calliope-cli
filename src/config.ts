@@ -181,6 +181,9 @@ const PROVIDER_ENV: Record<string, { apiKey?: string; baseUrl?: string; region?:
   ai21: { apiKey: 'AI21_API_KEY' },
   huggingface: { apiKey: 'HUGGINGFACE_API_KEY' },
   litellm: { apiKey: 'LITELLM_API_KEY', baseUrl: 'LITELLM_BASE_URL' },
+  deepseek: { apiKey: 'DEEPSEEK_API_KEY', baseUrl: 'DEEPSEEK_BASE_URL' },
+  xai: { apiKey: 'XAI_API_KEY', baseUrl: 'XAI_BASE_URL' },
+  cerebras: { apiKey: 'CEREBRAS_API_KEY', baseUrl: 'CEREBRAS_BASE_URL' },
   bedrock: { apiKey: 'BEDROCK_API_KEY', baseUrl: 'BEDROCK_BASE_URL', region: ['AWS_REGION', 'AWS_DEFAULT_REGION'], profile: 'AWS_PROFILE' },
   'openai-compat': { apiKey: 'OPENAI_COMPAT_API_KEY', baseUrl: 'OPENAI_COMPAT_BASE_URL' },
 };
@@ -358,6 +361,9 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (getProviderCred('mistral').apiKey) providers.push('mistral');
   if (getProviderCred('ollama').baseUrl) providers.push('ollama');
   if (getProviderCred('huggingface').apiKey) providers.push('huggingface');
+  if (getProviderCred('deepseek').apiKey) providers.push('deepseek');
+  if (getProviderCred('xai').apiKey) providers.push('xai');
+  if (getProviderCred('cerebras').apiKey) providers.push('cerebras');
   if (getProviderCred('litellm').baseUrl) providers.push('litellm');
   const bedrock = getProviderCred('bedrock');
   if (bedrock.apiKey || bedrock.baseUrl || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');

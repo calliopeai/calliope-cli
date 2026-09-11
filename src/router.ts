@@ -50,7 +50,7 @@ export interface RouteDecision {
 // Default Model Tiers
 // ============================================================================
 
-const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
+const DEFAULT_TIERS: Partial<Record<LLMProvider, RoutingConfig['tiers']>> = {
   anthropic: {
     fast: {
       name: 'Haiku',
@@ -191,6 +191,7 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     smart: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
   },
 };
+const FALLBACK_TIERS = DEFAULT_TIERS.anthropic!;
 
 // ============================================================================
 // Complexity Analysis
@@ -331,7 +332,7 @@ export function routeRequest(
   }
 ): RouteDecision {
   const { complexity, confidence, signals } = analyzeComplexity(message, context);
-  const tiers = DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  const tiers = DEFAULT_TIERS[provider] || FALLBACK_TIERS;
 
   let tier: 'fast' | 'balanced' | 'smart';
   let reason: string;
@@ -369,7 +370,7 @@ export function getModelTier(
   provider: LLMProvider,
   tier: 'fast' | 'balanced' | 'smart'
 ): ModelTier {
-  const tiers = DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  const tiers = DEFAULT_TIERS[provider] || FALLBACK_TIERS;
   return tiers[tier];
 }
 
@@ -377,7 +378,7 @@ export function getModelTier(
  * Get all tiers for a provider
  */
 export function getAllTiers(provider: LLMProvider): RoutingConfig['tiers'] {
-  return DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  return DEFAULT_TIERS[provider] || FALLBACK_TIERS;
 }
 
 /**

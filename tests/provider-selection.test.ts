@@ -21,6 +21,8 @@ const PROVIDER_ENV_VARS = [
   'LITELLM_BASE_URL', 'LITELLM_API_KEY', 'TOGETHER_API_KEY', 'OPENROUTER_API_KEY',
   'GROQ_API_KEY', 'FIREWORKS_API_KEY', 'MISTRAL_API_KEY', 'AI21_API_KEY',
   'HUGGINGFACE_API_KEY', 'BEDROCK_API_KEY', 'BEDROCK_BASE_URL',
+  'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'XAI_API_KEY', 'XAI_BASE_URL',
+  'CEREBRAS_API_KEY', 'CEREBRAS_BASE_URL',
   'AWS_REGION', 'AWS_DEFAULT_REGION', 'AWS_PROFILE', 'AWS_ACCESS_KEY_ID',
   'OPENAI_COMPAT_BASE_URL', 'OPENAI_COMPAT_API_KEY',
 ];
@@ -72,6 +74,15 @@ describe('selectProvider — explicit provider without credentials (#217)', () =
   it('returns the provider when its credential is present (env var)', () => {
     process.env.MISTRAL_API_KEY = 'mistral-env-key';
     expect(selectProvider('mistral')).toBe('mistral');
+  });
+
+  it.each([
+    ['deepseek', 'DEEPSEEK_API_KEY'],
+    ['xai', 'XAI_API_KEY'],
+    ['cerebras', 'CEREBRAS_API_KEY'],
+  ] as const)('returns %s when its credential is present', (provider, envVar) => {
+    process.env[envVar] = 'provider-key';
+    expect(selectProvider(provider)).toBe(provider);
   });
 
   it('honors bedrock when AWS_PROFILE is set', () => {

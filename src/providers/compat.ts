@@ -2,7 +2,7 @@
  * OpenAI-Compatible Provider
  *
  * Handles OpenRouter, Together, Groq, Fireworks, Mistral, AI21,
- * HuggingFace, Ollama, and LiteLLM via the OpenAI SDK.
+ * HuggingFace, DeepSeek, xAI, Cerebras, Ollama, and LiteLLM via the OpenAI SDK.
  */
 
 import OpenAI from 'openai';
@@ -23,6 +23,9 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   mistral: 'https://api.mistral.ai/v1',
   ai21: 'https://api.ai21.com/studio/v1',
   huggingface: 'https://router.huggingface.co/v1',
+  deepseek: 'https://api.deepseek.com',
+  xai: 'https://api.x.ai/v1',
+  cerebras: 'https://api.cerebras.ai/v1',
 };
 
 // ---------------------------------------------------------------------------
@@ -275,7 +278,7 @@ export async function chatOpenAICompatible(
 
     const resolvedBase = PROVIDER_BASE_URLS[provider];
     if (!resolvedBase) throw new Error(`Unknown provider: ${provider}`);
-    baseURL = resolvedBase;
+    baseURL = config.getBaseUrl(provider) || resolvedBase;
   }
 
   // Apply openai-compat shim if applicable

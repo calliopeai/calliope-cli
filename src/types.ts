@@ -2,7 +2,7 @@
  * Calliope CLI Types
  */
 
-export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'bedrock' | 'openai-compat' | 'auto';
+export type LLMProvider = 'anthropic' | 'google' | 'openai' | 'together' | 'openrouter' | 'groq' | 'fireworks' | 'mistral' | 'ollama' | 'ai21' | 'huggingface' | 'litellm' | 'deepseek' | 'xai' | 'cerebras' | 'bedrock' | 'openai-compat' | 'auto';
 
 /**
  * CLI operation modes
@@ -107,6 +107,9 @@ export const DEFAULT_MODELS: Record<LLMProvider, string> = {
   ai21: 'jamba-1.5-large',
   huggingface: 'meta-llama/Llama-3.3-70B-Instruct',
   litellm: 'gpt-4o',  // LiteLLM proxies to other providers
+  deepseek: 'deepseek-chat', // DeepSeek emergency fallback; discover live when possible
+  xai: 'grok-4.1-fast', // xAI emergency fallback; discover live when possible
+  cerebras: 'llama-3.3-70b', // Cerebras emergency fallback; discover live when possible
   bedrock: 'us.anthropic.claude-sonnet-4-20250514-v1:0',  // AWS Bedrock (native Converse API)
   'openai-compat': 'gpt-3.5-turbo',  // Generic OpenAI-compatible server
   auto: 'claude-sonnet-4-6',

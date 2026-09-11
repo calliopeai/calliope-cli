@@ -35,6 +35,9 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getBaseUrl('ollama')) providers.push('ollama');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
   if (config.getBaseUrl('litellm')) providers.push('litellm');
+  if (config.getApiKey('deepseek')) providers.push('deepseek');
+  if (config.getApiKey('xai')) providers.push('xai');
+  if (config.getApiKey('cerebras')) providers.push('cerebras');
   if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
 
   return providers;
@@ -106,7 +109,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm'];
 
   for (const p of priority) {
     if (p === 'ollama' || p === 'litellm') {
@@ -165,6 +168,9 @@ export async function chat(
       case 'mistral':
       case 'ai21':
       case 'huggingface':
+      case 'deepseek':
+      case 'xai':
+      case 'cerebras':
         response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'ollama':
