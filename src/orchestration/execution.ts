@@ -23,8 +23,10 @@ export async function prepareAgentExecution(cwd:string,runId:string,agentId:stri
   throwIfCancelled(options.signal);const latest=await store.read(runId,cwd,options.signal);
   if(latest.run.revision!==view.run.revision)throw new OrchestrationError('conflict','Run approval changed while authorizing execution.');
   const ledger=new ReservationLedger(join(store.root,runId,'budget'));
-  const manifest=existsSync(ledger.root)?ledger.read(cwd).manifest:executionManifestForRun(view.manifest);
+  const {goalRunAuthority}=await import('../goals/index.js'),goalAuthority=goalRunAuthority(view.manifest,store.root);
+  const manifest=existsSync(ledger.root)?ledger.read(cwd).manifest:executionManifestForRun(view.manifest,goalAuthority?.createdAt);
   if(manifest.runId!==runId||manifest.planHash!==view.manifest.planHash)throw new OrchestrationError('conflict','Budget belongs to another run plan.');
+  goalAuthority?.checkBudget(manifest);
   ledger.create(manifest,options.signal);
-  return {ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens};
+  goalAuthority?.assertActive();return {ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens,...(goalAuthority?{assertAuthority:goalAuthority.assertActive}:{})};
 }

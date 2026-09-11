@@ -174,6 +174,12 @@ async function main(): Promise<void> {
     process.exit(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  if (args[0] === 'orchestrate') {
+    headlessCancellation = new AbortController();
+    const { runGoalCommand } = await import('./goals/index.js');
+    process.exit(await runGoalCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   if (args[0] === 'run' || args[0] === 'agents' || args[0] === 'tasks') {
     headlessCancellation = new AbortController();
     const { runOrchestrationCommand } = await import('./orchestration/index.js');
@@ -373,6 +379,10 @@ ${bold('calliope')} - Multi-model AI agent CLI
 ${bold('USAGE')}
   calliope [options] [prompt]
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
+  calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
+  calliope orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] [--json]
+  calliope orchestrate status|proposal|replay|resume|cancel <goal-id> [--json]
+  calliope orchestrate revise <goal-id> <plan.json> [--json]   Correct a proposed plan
   calliope run <plan> --dry-run [--json]   Validate an orchestration plan
   calliope run prepare <plan> [--json]     Prepare a durable inactive run
   calliope run <plan> [--allow-mutations] [--json]   Execute a reviewed task graph

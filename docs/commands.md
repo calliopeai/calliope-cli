@@ -242,6 +242,14 @@ tools, concurrent writers and recovery procedures.
 
 ## Orchestration
 
+`/orchestrate <goal>` creates a read-only proposal within a persistent budget,
+displays its complete plan, and requests exact-hash approval before starting
+workers. `/orchestrate status|proposal|replay|resume|cancel <goal-id>` inspects or
+controls it; `approve <goal-id> <proposal-hash>` approves the current proposal
+and `revise <goal-id> <plan.json>` records a human correction before allocation.
+Headless `calliope orchestrate <goal> --json` stops at review (exit 5).
+See [goal limits, schemas and recovery](goal-planning.md).
+
 `/run <plan> --dry-run` validates a project plan without writes or inference.
 `/run prepare <plan>` records an inactive run; `/run list`, `/run status [id]`,
 `/run approve <id>`, `/run cancel <id>` and `/run replay <id>` inspect its journal

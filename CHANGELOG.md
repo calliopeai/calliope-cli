@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add bounded goal planning with `/orchestrate` and `calliope orchestrate`: read-only proposal generation, exact-hash approval, human revision, linked execution, persistent shared limits/deadlines and versioned JSON events. Cancellation and restart retain authority and unknown spend; planning prose never counts as verified work (#284).
+
 - Execute reviewed task graphs through bounded agents, parallelize independent tasks, serialize conflicting scopes, and verify declared artifacts against versioned acceptance checks. Add auditable agent/task events, explicit escalation, cross-process cancellation, safe restart/retry and headless execution contracts; unverified criteria require human acceptance (#282).
 
 - Add a library boundary for inherited agent authority, scoped atomic file operations, deadlines and persistent request reservations across agent ancestors and the project. Bound SDK output/retries and retain unknown spend across restart; ordinary project-capped turns share admission (#280).

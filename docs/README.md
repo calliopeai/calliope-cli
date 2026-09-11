@@ -16,6 +16,7 @@ provider backends, and a small, tested command surface.
 - [Next-version roadmap](https://github.com/calliopeai/calliope-cli/issues/254) — priorities, milestones and release gates
 - [Features](./features.md) — the full v3 feature set (and what was removed)
 - [Shared runtime](./runtime.md) — client adapters, cancellation, budgets and exit semantics
+- [Goal planning](./goal-planning.md) — proposed graphs, human approval, shared limits and recovery
 - [Permissions](./permissions.md) — one resolver, explicit client defaults and audited reasons
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)

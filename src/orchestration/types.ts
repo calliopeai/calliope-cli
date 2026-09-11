@@ -39,9 +39,10 @@ export interface PlanAnalysis {
   stages: string[][]; conflicts: { tasks: [string, string]; paths: string[] }[];
 }
 export interface ProjectIdentity { root: string; key: string }
+export interface GoalRunLink {version:1;root:string;id:string;manifestHash:string;allocationId:string;phase:'planning'|'execution'}
 export interface RunManifest {
-  version: 1; id: string; createdAt: string; project: ProjectIdentity;
-  plan: ProjectPlan; planHash: string; source: { path: string; sha256: string }; hash: string;
+  version: 1 | 2; id: string; createdAt: string; project: ProjectIdentity;goal?:GoalRunLink;
+  plan: ProjectPlan; planHash: string; source: { path: string; sha256: string;kind?:'goal' }; hash: string;
 }
 export type RunChange = { type: 'prepared'; manifestHash: string } | { type: 'approved' | 'cancelled'; source: 'cli' | 'repl' };
 export interface EventLink { id: string; hash: string }

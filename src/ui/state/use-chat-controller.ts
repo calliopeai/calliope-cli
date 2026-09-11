@@ -362,7 +362,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
     const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe')
-      || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry';
+      || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry'
+      || parts[0]!.toLowerCase()==='/orchestrate'&&!['list','status','proposal','replay','cancel'].includes(parts[1]??'');
     try {
       if (controlled) {
         if (turnController.current.busy) { addMessage('error', 'Wait for the active operation or cancel it before starting another operation or changing settings.'); return; }

@@ -16,6 +16,7 @@ export async function inspectExecution(cwd:string,runId:string,options:RunAction
 export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry',target:string,options:RunActionOptions={}) {
   const initial=await inspectExecution(cwd,runId,options);if(!initial.execution)throw new OrchestrationError('unavailable','Run has no execution history.');
   const {view,store}=initial,agentAction=action.startsWith('agent-');
+  const goalAuthority=view.manifest.version===2&&action!=='agent-stop'?(await import('../goals/index.js')).goalRunAuthority(view.manifest,(options.store??new RunStore()).root):undefined;
   if(agentAction?!view.manifest.plan.agents.some(a=>a.id===target):!view.manifest.plan.tasks.some(t=>t.id===target))throw new OrchestrationError('invalid','Unknown execution task or agent.');
   if(action==='accept'){
     const task=initial.execution.state.tasks[target]!;if(task.status!=='review_required'||!task.output)throw new OrchestrationError('conflict','Task is not awaiting acceptance.');
@@ -27,18 +28,18 @@ export async function controlExecution(cwd:string,runId:string,action:'retry'|'a
   if(action==='agent-stop'){await store.append({type:'agent_stop',agentId:target},options.signal);return store.read();}
   const lease=store.acquire();
   try {
-    const current=store.read();store.assertApproval(current.header);
+    const current=store.read();store.assertApproval(current.header);goalAuthority?.assertActive();
     if(current.state.revision!==initial.execution.state.revision||current.state.ownerId)throw new OrchestrationError('conflict','Execution changed or needs orphan recovery; inspect and resume before applying this decision.');
     if(action==='accept'){
       const output=current.state.tasks[target]!.output!;for(const artifact of output.artifacts)await readCollectedArtifact(store,artifact,options);
-      await store.appendBatch([{change:{type:'task_accepted',taskId:target,artifactsHash:artifactSetHash(output.artifacts)}}],options.signal,()=>{lease.check();store.assertApproval(current.header);if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during acceptance.');for(const artifact of output.artifacts)checkArtifactSnapshot(store,artifact);});
-    }else if(action==='retry'){await store.append({type:'task_reset',taskId:target,source:'manual'},options.signal,undefined,()=>{lease.check();store.assertApproval(current.header);});}
+      await store.appendBatch([{change:{type:'task_accepted',taskId:target,artifactsHash:artifactSetHash(output.artifacts)}}],options.signal,()=>{lease.check();store.assertApproval(current.header);goalAuthority?.assertActive();if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during acceptance.');for(const artifact of output.artifacts)checkArtifactSnapshot(store,artifact);});
+    }else if(action==='retry'){await store.append({type:'task_reset',taskId:target,source:'manual'},options.signal,undefined,()=>{lease.check();store.assertApproval(current.header);goalAuthority?.assertActive();});}
     else {
       const descendants=new Set([target]);for(let n=0;n<view.manifest.plan.agents.length;n++)for(const agent of view.manifest.plan.agents)if(agent.parentId&&descendants.has(agent.parentId))descendants.add(agent.id);
       const candidates=view.manifest.plan.tasks.filter(t=>descendants.has(t.agentId)&&['failed','denied','cancelled','unknown'].includes(current.state.tasks[t.id]!.status));
       if(!candidates.length&&!current.state.stoppedAgents.some(id=>descendants.has(id)))throw new OrchestrationError('conflict','Agent has no stopped or retryable task.');
       const changes:ExecutionChange[]=[...candidates.map(task=>({type:'task_reset' as const,taskId:task.id,source:'manual' as const})),...current.state.stoppedAgents.filter(id=>descendants.has(id)).map(agentId=>({type:'agent_reset' as const,agentId}))];
-      await store.appendBatch(changes.map(change=>({change})),options.signal,()=>{lease.check();store.assertApproval(current.header);if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during agent retry.');});
+      await store.appendBatch(changes.map(change=>({change})),options.signal,()=>{lease.check();store.assertApproval(current.header);goalAuthority?.assertActive();if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during agent retry.');});
     }
     return store.read();
   }finally{lease.release();}
