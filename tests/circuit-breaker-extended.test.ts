@@ -36,21 +36,21 @@ function makeIteration(
 
 describe('wall-clock - session duration', () => {
   it('should trip when session exceeds maxSessionDurationMs', () => {
-    // Set a very short session duration (1ms) so it trips immediately
-    const breaker = new CircuitBreaker({
-      breakers: {
-        'wall-clock': { maxSessionDurationMs: 1, maxIterationDurationMs: 5 * 60_000 },
-      },
-    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    try {
+      const breaker = new CircuitBreaker({
+        breakers: {
+          'wall-clock': { maxSessionDurationMs: 1, maxIterationDurationMs: 5 * 60_000 },
+        },
+      });
 
-    // Ensure some time passes after construction
-    // The first check will see elapsed time > 1ms
-    const result = breaker.check(makeIteration(1, { content: 'hello' }));
-    // May or may not trip depending on timing, but test that the check runs
-    expect(typeof result.tripped).toBe('boolean');
-    if (result.tripped) {
-      expect(result.breaker).toBe('wall-clock');
+      expect(breaker.check(makeIteration(1, { content: 'hello' })).tripped).toBe(false);
+      clock.mockReturnValue(10_001);
+      const result = breaker.check(makeIteration(2, { content: 'world' }));
+      expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { sessionDurationMs: 1, limitMs: 1 } });
       expect(result.message).toContain('minutes');
+    } finally {
+      clock.mockRestore();
     }
   });
 
@@ -75,21 +75,22 @@ describe('wall-clock - session duration', () => {
 
 describe('wall-clock - iteration duration', () => {
   it('should trip when a single iteration takes too long', () => {
-    const breaker = new CircuitBreaker({
-      breakers: {
-        // Disable session duration, enable a very tight iteration limit
-        'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1 },
-      },
-    });
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+    try {
+      const breaker = new CircuitBreaker({
+        breakers: {
+          // Disable session duration, enable a very tight iteration limit
+          'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1 },
+        },
+      });
 
-    // First check sets lastIterationStart
-    breaker.check(makeIteration(1, { content: 'hello' }));
-
-    // Second check after some time should see the iteration exceeded 1ms
-    const result = breaker.check(makeIteration(2, { content: 'world' }));
-    if (result.tripped) {
-      expect(result.breaker).toBe('wall-clock');
-      expect(result.message).toContain('seconds');
+      expect(breaker.check(makeIteration(1, { content: 'hello' })).tripped).toBe(false);
+      clock.mockReturnValue(10_001);
+      const result = breaker.check(makeIteration(2, { content: 'world' }));
+      expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { iterationDurationMs: 1, limitMs: 1 } });
+      expect(result.message).toContain('Single iteration');
+    } finally {
+      clock.mockRestore();
     }
   });
 
