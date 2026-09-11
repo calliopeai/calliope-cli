@@ -3,6 +3,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
 import { getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
@@ -52,7 +53,8 @@ export async function chatAnthropic(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('anthropic');
   if (!apiKey) throw new Error('Anthropic API key not configured');
@@ -144,7 +146,7 @@ export async function chatAnthropic(
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         ...(thinking ? { thinking } : {}),
-      });
+      }, signal ? { signal } : undefined);
 
       for await (const event of stream) {
         if (event.type === 'content_block_start') {
@@ -206,6 +208,8 @@ export async function chatAnthropic(
         usage: { inputTokens, outputTokens },
       };
     } catch (streamError) {
+      throwIfCancelled(signal);
+      if (isCancellation(streamError)) throw streamError;
       // Surface the streaming failure and re-throw so withRetry handles it
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog('Anthropic streaming failed:', errMsg);
@@ -226,7 +230,7 @@ export async function chatAnthropic(
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
     ...(thinking ? { thinking } : {}),
-  });
+  }, signal ? { signal } : undefined);
 
   // Parse response
   let content = '';

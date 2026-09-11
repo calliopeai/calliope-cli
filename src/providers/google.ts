@@ -3,6 +3,7 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
 import { getTextContent, debugLog, type StreamCallback } from './types.js';
@@ -14,7 +15,8 @@ export async function chatGoogle(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
@@ -135,7 +137,7 @@ export async function chatGoogle(
     let outputTokens = 0;
 
     try {
-      const streamResult = await chat.sendMessageStream(lastMessageParts);
+      const streamResult = await chat.sendMessageStream(lastMessageParts, signal ? { signal } : undefined);
 
       for await (const chunk of streamResult.stream) {
         // Extract text from streamed chunks
@@ -170,6 +172,8 @@ export async function chatGoogle(
         usage: (inputTokens || outputTokens) ? { inputTokens, outputTokens } : undefined,
       };
     } catch (streamError) {
+      throwIfCancelled(signal);
+      if (isCancellation(streamError)) throw streamError;
       // Surface the streaming failure and re-throw so withRetry handles it
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog('Google streaming failed:', errMsg);
@@ -179,7 +183,7 @@ export async function chatGoogle(
   }
 
   // Non-streaming request
-  const result = await chat.sendMessage(lastMessageParts);
+  const result = await chat.sendMessage(lastMessageParts, signal ? { signal } : undefined);
   const response = result.response;
 
   // Check for function calls first (text() throws when only function calls are present)

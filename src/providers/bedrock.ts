@@ -388,7 +388,8 @@ export async function chatBedrock(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const credentials = await getAWSCredentials();
   const region = getAWSRegion();
@@ -433,12 +434,13 @@ export async function chatBedrock(
   debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, access_key_prefix=${credentials.accessKeyId.slice(0, 4)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
 
   if (isStreaming) {
-    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!);
+    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal);
   }
 
   // Non-streaming request
   const response = await fetch(signed.url, {
     method: 'POST',
+    ...(signal ? { signal } : {}),
     headers: signed.headers,
     body: bodyStr,
   });
@@ -519,10 +521,12 @@ async function chatBedrockStreaming(
   url: string,
   headers: Record<string, string>,
   body: string,
-  onToken: StreamCallback
+  onToken: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const response = await fetch(url, {
     method: 'POST',
+    ...(signal ? { signal } : {}),
     headers,
     body,
   });

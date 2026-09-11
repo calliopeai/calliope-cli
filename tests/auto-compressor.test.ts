@@ -353,7 +353,7 @@ describe('auto-compressor', () => {
       const result = await llmSummarize(messages, 'anthropic');
       expect(result).toBe(summaryText);
       // Verify chat was called with proper summarization messages
-      expect(mockedChat).toHaveBeenCalledWith(
+      expect(mockedChat.mock.calls.at(-1)?.slice(0, 4)).toEqual([
         'anthropic',
         expect.arrayContaining([
           expect.objectContaining({ role: 'system' }),
@@ -361,7 +361,7 @@ describe('auto-compressor', () => {
         ]),
         [],
         undefined,
-      );
+      ]);
     });
 
     it('passes model override to chat', async () => {
@@ -378,12 +378,12 @@ describe('auto-compressor', () => {
         'claude-3-haiku-20240307',
       );
 
-      expect(mockedChat).toHaveBeenCalledWith(
+      expect(mockedChat.mock.calls.at(-1)?.slice(0, 4)).toEqual([
         'anthropic',
         expect.any(Array),
         [],
         'claude-3-haiku-20240307',
-      );
+      ]);
     });
 
     it('handles tool role messages in conversation text', async () => {
@@ -503,12 +503,12 @@ describe('auto-compressor', () => {
       await autoCompress(messages, 100, 'anthropic');
 
       // Should use compressionModel in the chat call
-      expect(mockedChat).toHaveBeenCalledWith(
+      expect(mockedChat.mock.calls.at(-1)?.slice(0, 4)).toEqual([
         'anthropic',
         expect.any(Array),
         [],
         'claude-3-haiku-20240307',
-      );
+      ]);
     });
   });
 });

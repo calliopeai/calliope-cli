@@ -6,6 +6,7 @@
  * Designed for piping, CI, scripting, and multi-agent fleet coordination.
  */
 
+import { cancellationError, cancellableDelay, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
 import { chat, selectProvider, ProviderUnavailableError } from './providers/index.js';
 import { TOOLS, executeTool, getTools } from './tools.js';
@@ -34,6 +35,7 @@ export interface HeadlessEvent {
 export type HeadlessOutputMode = 'json' | 'text';
 
 export interface HeadlessOptions {
+  signal?: AbortSignal;
   provider?: LLMProvider;
   model?: string;
   prompt?: string;
@@ -120,10 +122,6 @@ function backoffDelay(attempt: number): number {
   return Math.min(250 * 2 ** (attempt - 1), 4000);
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 /**
  * Decide whether a failed tool result should be retried.
  * - Mutating tools are never retried (avoid duplicated side effects).
@@ -139,6 +137,7 @@ function shouldRetry(toolName: string, errorText: string): boolean {
 // ============================================================================
 
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
+  const signal = options.signal;
   const outputMode = options.outputMode || 'json';
   const provider = options.provider || (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
   const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
@@ -149,13 +148,36 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   // Build prompt from stdin or --prompt flag
   let prompt = options.prompt || '';
 
-  if (!prompt && !process.stdin.isTTY) {
-    // Read from stdin
-    const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) {
-      chunks.push(chunk as Buffer);
+  try {
+    throwIfCancelled(signal);
+    if (!prompt && !process.stdin.isTTY) {
+      prompt = await new Promise<string>((resolve, reject) => {
+        const input = process.stdin;
+        const chunks: Buffer[] = [];
+        const cleanup = () => {
+          input.removeListener('data', data);
+          input.removeListener('end', end);
+          input.removeListener('error', fail);
+          signal?.removeEventListener('abort', abort);
+        };
+        const data = (chunk: Buffer | string) => chunks.push(Buffer.from(chunk));
+        const end = () => { cleanup(); resolve(Buffer.concat(chunks).toString('utf8').trim()); };
+        const fail = (error: Error) => { cleanup(); reject(error); };
+        const abort = () => { input.pause(); fail(cancellationError()); };
+        input.on('data', data);
+        input.once('end', end);
+        input.once('error', fail);
+        signal?.addEventListener('abort', abort, { once: true });
+        if (input.readableEnded) end();
+      });
     }
-    prompt = Buffer.concat(chunks).toString('utf-8').trim();
+  } catch (error) {
+    if (signal?.aborted || isCancellation(error)) {
+      emit({ type: 'done', timestamp: now(), data: { reason: 'cancelled' } }, outputMode);
+      return 130;
+    }
+    emit({ type: 'error', timestamp: now(), data: { message: String(error) } }, outputMode);
+    return 1;
   }
 
   if (!prompt) {
@@ -246,6 +268,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   });
 
   try {
+    throwIfCancelled(signal);
     let iteration = 0;
     let budgetVerdict: ReturnType<typeof evaluateBudget> | undefined;
 
@@ -263,7 +286,8 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     while (!budgetVerdict && iteration < maxIterations) {
       iteration++;
 
-      const response = await chat(provider, messages, TOOLS, model);
+      const response = await chat(provider, messages, TOOLS, model, undefined, undefined, { signal });
+      throwIfCancelled(signal);
 
       // Surface provider warnings (model substitution, etc.) without hiding them.
       if (response.warnings) {
@@ -312,6 +336,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
         });
 
         for (const toolCall of response.toolCalls) {
+          throwIfCancelled(signal);
           emit({
             type: 'tool_call',
             timestamp: now(),
@@ -348,11 +373,13 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             }
           }
 
+          throwIfCancelled(signal);
           // Execute tool with a guarded retry budget.
           // Only retry classified-transient errors, never re-run mutating tools
           // (avoids duplicated side effects), and back off between attempts.
           const toolStart = Date.now();
-          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend });
+          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal });
+          throwIfCancelled(signal);
           let attempt = 0;
           while (
             result.isError &&
@@ -360,9 +387,10 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             shouldRetry(toolCall.name, result.result)
           ) {
             attempt++;
-            await sleep(backoffDelay(attempt));
+            await cancellableDelay(backoffDelay(attempt), signal);
             process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
-            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend });
+            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal });
+            throwIfCancelled(signal);
           }
 
 
@@ -438,6 +466,12 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     await runlog.flush();
     return 0;
   } catch (error) {
+    if (signal?.aborted || isCancellation(error)) {
+      emit({ type: 'done', timestamp: now(), data: { reason: 'cancelled' } }, outputMode);
+      runlog.runEnd({ totals: runTotals(), exitReason: 'cancelled' });
+      await runlog.flush();
+      return 130;
+    }
     const msg = error instanceof Error ? error.message : String(error);
     emit({
       type: 'error',

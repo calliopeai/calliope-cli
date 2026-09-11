@@ -4,6 +4,9 @@
  * Secure code execution using Docker containers.
  */
 
+import { randomUUID } from 'node:crypto';
+import { throwIfCancelled } from '../cancellation.js';
+import { bindProcessCancellation, detachedProcess } from '../process-cancellation.js';
 import { spawn, execSync, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -97,12 +100,14 @@ export function imageExists(image: string): boolean {
 /**
  * Pull Docker image if needed
  */
-export async function ensureImage(image: string): Promise<boolean> {
+export async function ensureImage(image: string, signal?: AbortSignal): Promise<boolean> {
+  throwIfCancelled(signal);
   if (imageExists(image)) return true;
 
   return new Promise((resolve) => {
-    const proc = spawn('docker', ['pull', image], { stdio: 'pipe' });
-    proc.on('close', (code) => resolve(code === 0));
+    const proc = spawn('docker', ['pull', image], { stdio: 'pipe', detached: detachedProcess });
+    const stopped = bindProcessCancellation(proc, signal);
+    proc.on('close', async (code) => { await stopped; resolve(code === 0); });
     proc.on('error', () => resolve(false));
   });
 }
@@ -126,8 +131,10 @@ export async function executeInSandbox(
   language: Language,
   code: string,
   config: Partial<SandboxConfig> = {},
-  cwd?: string
+  cwd?: string,
+  signal?: AbortSignal
 ): Promise<ExecutionResult> {
+  throwIfCancelled(signal);
   const cfg: SandboxConfig = { ...DEFAULT_CONFIG, ...config };
   const startTime = Date.now();
 
@@ -147,7 +154,8 @@ export async function executeInSandbox(
   const image = LANGUAGE_IMAGES[language] || cfg.image;
 
   // Ensure image exists
-  const imageReady = await ensureImage(image);
+  const imageReady = await ensureImage(image, signal);
+  throwIfCancelled(signal);
   if (!imageReady) {
     return {
       success: false,
@@ -167,6 +175,8 @@ export async function executeInSandbox(
 
   // Build Docker command
   const dockerArgs = buildDockerArgs(language, cfg, tempDir, codeFile, cwd || process.cwd());
+  const containerName = `calliope-${randomUUID()}`;
+  dockerArgs.splice(1, 0, '--name', containerName);
 
   return new Promise((resolve) => {
     let stdout = '';
@@ -176,11 +186,26 @@ export async function executeInSandbox(
     let stderrTruncated = false;
 
     const proc = spawn('docker', dockerArgs, {
+      detached: detachedProcess,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    // Killing the Docker client alone does not stop the daemon's container.
+    // Keep ownership until the named container's removal attempt completes.
+    let removal: Promise<boolean> | undefined;
+    const removeContainer = () => {
+      removal ??= new Promise<boolean>(resolveRemoval => {
+        const cleanup = spawn('docker', ['rm', '--force', containerName], { stdio: 'pipe', timeout: 5000 });
+        let cleanupError = '';
+        cleanup.stderr?.on('data', data => { cleanupError += String(data); });
+        cleanup.on('close', code => resolveRemoval(code === 0 || /No such container/i.test(cleanupError)));
+        cleanup.on('error', () => resolveRemoval(false));
+      });
+    };
+    const stopped = bindProcessCancellation(proc, signal, removeContainer);
     const timer = setTimeout(() => {
       timedOut = true;
+      removeContainer();
       proc.kill('SIGKILL');
     }, cfg.timeout);
 
@@ -204,8 +229,17 @@ export async function executeInSandbox(
       }
     });
 
-    proc.on('close', (exitCode) => {
+    proc.on('close', async (exitCode) => {
       clearTimeout(timer);
+      await stopped;
+      if (removal) {
+        await removal;
+        // Retry after the client closes: its run request may have been racing
+        // the first removal while the daemon was still creating the container.
+        removal = undefined;
+        removeContainer();
+        if (!await removal) stderr += `\nCould not confirm removal of container ${containerName}; inspect it with docker ps -a.`;
+      }
 
       // Cleanup
       try {
@@ -230,8 +264,8 @@ export async function executeInSandbox(
         });
       } else {
         resolve({
-          success: exitCode === 0,
-          exitCode: exitCode || 0,
+          success: !signal?.aborted && exitCode === 0,
+          exitCode: signal?.aborted ? 130 : (exitCode ?? 1),
           stdout,
           stderr,
           duration,
@@ -350,8 +384,10 @@ function buildDockerArgs(
 export function executeUnsafe(
   language: Language,
   code: string,
-  timeout: number = 30000
+  timeout: number = 30000,
+  signal?: AbortSignal
 ): Promise<ExecutionResult> {
+  throwIfCancelled(signal);
   const startTime = Date.now();
 
   // Create temp file
@@ -382,6 +418,7 @@ export function executeUnsafe(
       args = [codePath];
       break;
     default:
+      fs.rmSync(tempDir, { recursive: true, force: true });
       return Promise.resolve({
         success: false,
         exitCode: 1,
@@ -399,7 +436,8 @@ export function executeUnsafe(
     let stdoutTruncated = false;
     let stderrTruncated = false;
 
-    const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'], detached: detachedProcess });
+    const stopped = bindProcessCancellation(proc, signal);
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -425,16 +463,17 @@ export function executeUnsafe(
       }
     });
 
-    proc.on('close', (exitCode) => {
+    proc.on('close', async (exitCode) => {
       clearTimeout(timer);
+      await stopped;
       try { fs.rmSync(tempDir, { recursive: true }); } catch {}
 
       if (stdoutTruncated) stdout += TRUNCATION_WARNING;
       if (stderrTruncated) stderr += TRUNCATION_WARNING;
 
       resolve({
-        success: !timedOut && exitCode === 0,
-        exitCode: timedOut ? 124 : (exitCode || 0),
+        success: !signal?.aborted && !timedOut && exitCode === 0,
+        exitCode: signal?.aborted ? 130 : timedOut ? 124 : (exitCode ?? 1),
         stdout,
         stderr: timedOut ? stderr + '\nExecution timed out' : stderr,
         duration: Date.now() - startTime,
@@ -469,13 +508,15 @@ export async function execute(
   language: Language,
   code: string,
   config: Partial<SandboxConfig> = {},
-  cwd?: string
+  cwd?: string,
+  signal?: AbortSignal
 ): Promise<ExecutionResult> {
+  throwIfCancelled(signal);
   const cfg = { ...DEFAULT_CONFIG, ...config };
 
   if (cfg.enabled && isDockerAvailable()) {
-    return executeInSandbox(language, code, cfg, cwd);
+    return executeInSandbox(language, code, cfg, cwd, signal);
   } else {
-    return executeUnsafe(language, code, cfg.timeout);
+    return executeUnsafe(language, code, cfg.timeout, signal);
   }
 }

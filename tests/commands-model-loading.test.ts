@@ -1,3 +1,6 @@
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 /**
  * Tests for /model and /models command loading state and error handling (#116).
  *
@@ -398,4 +401,58 @@ describe('model/provider persistence (#233)', () => {
     await handleCommand('/model list', ctx);
     expect(vi.mocked(config.set)).not.toHaveBeenCalledWith('defaultModel', expect.anything());
   });
+});
+
+
+describe('portable instruction commands', () => {
+  it('shows scoped sources, reloads edits and removes revoked instructions from a resumed session', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-command-instructions-')));
+    const ctx = makeCtx();
+    ctx.sessionRef.current = { projectPath: root } as NonNullable<CommandContext['sessionRef']['current']>;
+    ctx.llmMessages.current = [{ role: 'system', content: 'old system' }, { role: 'user', content: 'retain conversation' }];
+    try {
+      fs.mkdirSync(path.join(root, '.git'));
+      fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Initial repository rule');
+      await handleCommand('/trust add', ctx);
+      expect(ctx.llmMessages.current[0]!.content).toContain('Initial repository rule');
+      await handleCommand('/memory sources', ctx);
+      expect(getMessages(ctx).filter(message => message.type === 'system').at(-1)?.content).toContain(path.join(root, 'AGENTS.md'));
+      expect(getMessages(ctx).filter(message => message.type === 'system').at(-1)?.content).toContain(`Scope: ${root}`);
+      fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Changed repository rule');
+      await handleCommand('/memory reload', ctx);
+      expect(ctx.llmMessages.current[0]!.content).toContain('Changed repository rule');
+      expect(ctx.llmMessages.current[0]!.content).not.toContain('Initial repository rule');
+      await handleCommand('/trust remove', ctx);
+      expect(ctx.llmMessages.current[0]!.content).not.toContain('Changed repository rule');
+      expect(ctx.llmMessages.current[1]!.content).toBe('retain conversation');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('reports instruction errors and clears stale context on a failed reload', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-command-instructions-')));
+    const ctx = makeCtx();
+    ctx.sessionRef.current = { projectPath: root } as NonNullable<CommandContext['sessionRef']['current']>;
+    try {
+      fs.writeFileSync(path.join(root, 'AGENTS.md'), 'Previous rule');
+      await handleCommand('/trust add', ctx);
+      fs.writeFileSync(path.join(root, 'AGENTS.md'), 'x'.repeat(65537));
+      await handleCommand('/memory reload', ctx);
+      expect(getMessages(ctx).filter(message => message.type === 'error').at(-1)?.content).toContain('instructions were not truncated');
+      expect(ctx.llmMessages.current[0]!.content).not.toContain('Previous rule');
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+
+it('routes /loop stop through active-turn cancellation and refuses an overlapping loop', async () => {
+  const ctx = makeCtx();
+  ctx.isProcessing = true;
+  await handleCommand('/loop "keep working"', ctx);
+  expect(ctx.runLoop).not.toHaveBeenCalled();
+  expect(getMessages(ctx).at(-1)?.content).toContain('already running');
+  ctx.loopActive = true;
+  ctx.cancelActiveTurn = vi.fn();
+  await handleCommand('/loop stop', ctx);
+  expect(ctx.cancelActiveTurn).toHaveBeenCalledTimes(1);
+  expect(ctx.loopCancelledRef.current).toBe(true);
 });

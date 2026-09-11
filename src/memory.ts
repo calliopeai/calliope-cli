@@ -25,6 +25,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { loadRepositoryInstructions, formatRepositoryInstructions } from './instructions.js';
 import { checkTrust, autoTrustIfNew } from './trust.js';
 
 // ============================================================================
@@ -359,7 +360,7 @@ export function listContextFiles(dir: string): string[] {
  */
 export function buildMemoryContext(dir: string): string {
   // Check project trust before loading project-level context (#23)
-  // Auto-trust on first visit (user-friendly default)
+  // Unknown projects remain untrusted unless the user explicitly opted in.
   autoTrustIfNew(dir);
   const projectTrusted = checkTrust(dir).trusted;
 
@@ -413,6 +414,9 @@ export function buildMemoryContext(dir: string): string {
     parts.push(file.content);
     parts.push('');
   }
+
+  const instructions = formatRepositoryInstructions(loadRepositoryInstructions(dir));
+  if (instructions) parts.push(instructions);
 
   return parts.join('\n');
 }

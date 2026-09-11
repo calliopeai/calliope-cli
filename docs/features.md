@@ -1,6 +1,7 @@
 # Features
 
-The v3 feature set. Everything below is current; if you are coming from v2, read
+The v3 feature set. This document follows the development branch; see the changelog for released versions.
+If you are coming from v2, read
 [Removed in v3](#removed-in-v3) for what changed.
 
 ## Agent loop with tools
@@ -17,6 +18,32 @@ Start a bounded autonomous run with `/loop`:
 /loop "Fix all type errors in src/" --max-iterations 50
 ```
 
+## Cancellation
+
+In the terminal, `Ctrl+C` cancels the active turn; `/loop stop` also cancels
+the active request in a loop. Direct-send interruption
+cancels the previous turn and waits for its cleanup before starting another.
+Provider requests, streaming, retry backoff, local-model repair, and compaction
+receive the same cancellation signal. Late provider output cannot dispatch more
+tools. An ACP `session/cancel` also interrupts a pending permission request.
+
+Headless `SIGINT` or `SIGTERM` stops the run, including an unfinished stdin pipe.
+JSON output ends with a `done` event whose `data.reason` is `cancelled`; the
+process exits with code 130. Library callers can pass `signal` to
+`runHeadless(options)`, `chat(..., options)`, and `executeTool(..., options)`.
+
+Shell and code cancellation sends SIGTERM to the process group on POSIX, with
+SIGKILL escalation after 250 ms. On Windows it terminates the immediate child;
+full descendant termination is not guaranteed. Docker execution names its
+container and waits for a bounded removal attempt when cancelled or timed out.
+Stopping a container still requires a responsive Docker daemon.
+
+Cancellation does not roll back completed writes or commands. An already sent
+remote tool, editor filesystem request, plugin operation, or lifecycle hook may
+finish after cancellation; inspect its effects before retrying. These paths do
+not yet all support transport cancellation. The agent will not deliberately
+start a subsequent tool after observing cancellation.
+
 ## Model backends and live discovery
 
 Thirteen provider backends are supported, plus a generic OpenAI-compatible
@@ -28,7 +55,7 @@ Browse the current provider's models with `/model`. See [Providers](./providers.
 
 Three operating modes control how much the agent does on its own:
 
-- `plan` — chat and planning only; no tools run.
+- `plan` — inspect the project and propose a plan; read-only tools can run.
 - `hybrid` — plan before complex work, then execute (default).
 - `work` — execute directly.
 
@@ -39,10 +66,12 @@ Switch with `/mode <name>` or cycle with `Shift+Tab`.
 Shell and code execution can run inside a sandbox. Set the mode with
 `/config set sandboxMode <auto|native|docker|off>`:
 
-- `auto` (default) — use Docker if available, else the native OS sandbox
-  (macOS Seatbelt), else run unsandboxed.
+- `auto` (default) — code execution prefers Docker, then macOS Seatbelt.
+  Shell execution uses Seatbelt when available. Each falls back to unsandboxed
+  execution when its supported backends are unavailable.
 - `native` — require the native OS sandbox; fail closed if it is unavailable.
-- `docker` — run inside a Docker container.
+- `docker` — require Docker for both shell and code execution; failure to start
+  the sandbox never falls through to host execution. The project mount is read-only.
 - `off` — no sandboxing.
 
 ## Circuit breakers
@@ -56,8 +85,9 @@ progress, and per-iteration wall-clock limits. They make `maxIterations: 0`
 
 ## Project memory (CALLIOPE.md)
 
-At startup Calliope loads project context from `CALLIOPE.md` in the working
-directory and merges in your global preferences. Create and edit it through
+At startup Calliope loads trusted project context from `CALLIOPE.md` and merges
+in your global preferences. Portable `AGENTS.md` files provide scoped repository
+instructions; see [instruction loading and trust](./instructions.md). Create and edit it through
 `/memory`:
 
 ```

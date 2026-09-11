@@ -40,11 +40,11 @@ export type StreamCallback = (token: string) => void;
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
 /**
- * Per-call provider options. Currently only Ollama's grammar-constrained
- * `format` (a JSON schema) — passed on the repair round-trip to force a
- * well-formed tool-call envelope. Ignored by every other provider.
+ * Per-call options: cancellation across all providers, plus Ollama's optional
+ * grammar-constrained `format` schema for tool-call repair (ignored elsewhere).
  */
 export interface ChatOptions {
+  signal?: AbortSignal;
   format?: unknown;
 }
 

@@ -102,8 +102,8 @@ Manage the directories the agent may access. With no argument, prints the curren
 /scope reset
 ```
 
-### `/memory [init|show|add <type> <text>|remove <type> <text>|global]`
-Manage project memory in `CALLIOPE.md`. Types: `context`, `preference`, `history`, `note`.
+### `/memory [init|show|sources|reload|add <type> <text>|remove <type> <text>|global]`
+Manage project memory in `CALLIOPE.md`. `sources` lists applicable trusted `AGENTS.md` files; `reload` refreshes project context for subsequent turns. See [repository instructions](./instructions.md). Types: `context`, `preference`, `history`, `note`.
 ```
 /memory init
 /memory add context "React 18 + TypeScript, ESM only"

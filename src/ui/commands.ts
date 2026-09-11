@@ -122,6 +122,7 @@ export interface CommandContext {
   addMessage: (type: UIMessage['type'], content: string) => void;
   estimateContextTokens: () => number;
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
+  cancelActiveTurn?: () => void;
   startFleetPolling: () => void;
   openProviderPicker?: () => void;
 }
@@ -137,6 +138,18 @@ function buildFullSystemPrompt(dir: string, provider: LLMProvider): string {
 
 function getActiveProjectDir(ctx: Pick<CommandContext, 'sessionRef'>): string {
   return ctx.sessionRef.current?.projectPath ?? process.cwd();
+}
+
+/** Refresh the active prompt; a failed reload must not retain revoked context. */
+function refreshProjectContext(ctx: CommandContext): void {
+  let content = getSystemPromptForProvider(ctx.actualProvider);
+  try {
+    content = buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider);
+  } finally {
+    const messages = ctx.llmMessages.current;
+    ctx.llmMessages.current = [{ role: 'system', content }, ...messages.filter(message => message.role !== 'system')];
+    ctx.setContextTokens(ctx.estimateContextTokens());
+  }
 }
 
 function formatSessionLogLimit(limit: number): string {
@@ -581,6 +594,7 @@ Available keys:
       if (parts[1] === 'stop') {
         if (ctx.loopActive) {
           ctx.loopCancelledRef.current = true;
+          ctx.cancelActiveTurn?.();
           ctx.setLoopActive(false);
           ctx.addMessage('system', '\u{1F6D1} Loop cancelled');
         } else {
@@ -592,6 +606,11 @@ Available keys:
       // Parse /loop "<prompt>" [--max-iterations N] [--completion-promise "text"]
       if (ctx.loopActive) {
         ctx.addMessage('system', 'Loop already running. Use /loop stop to stop it first.');
+        break;
+      }
+
+      if (ctx.isProcessing) {
+        ctx.addMessage('system', 'A turn is already running. Cancel it before starting a loop.');
         break;
       }
 
@@ -774,9 +793,22 @@ Stop a running loop with /loop stop`);
     case '/memory': {
       const memoryModule = await import('../memory.js');
       const subCmd = parts[1];
-      const cwd = process.cwd();
+      const cwd = getActiveProjectDir(ctx);
 
-      if (subCmd === 'init') {
+      if (subCmd === 'sources' || subCmd === 'reload') {
+        try {
+          if (subCmd === 'reload') refreshProjectContext(ctx);
+          const { loadRepositoryInstructions } = await import('../instructions.js');
+          const sources = loadRepositoryInstructions(cwd);
+          ctx.addMessage('system', [
+            subCmd === 'reload' ? 'Project context reloaded for subsequent turns.' : 'Applicable AGENTS.md files on disk (use /memory reload after edits):',
+            ...sources.map(source => `${source.path}\n  Scope: ${source.scope} (${Buffer.byteLength(source.content)} bytes)`),
+            ...(sources.length ? [] : ['No trusted AGENTS.md files apply. Use /trust status to inspect project trust.']),
+          ].join('\n'));
+        } catch (error) {
+          ctx.addMessage('error', error instanceof Error ? error.message : String(error));
+        }
+      } else if (subCmd === 'init') {
         const memPath = memoryModule.initProjectMemory(cwd);
         ctx.addMessage('system', `Created: ${memPath}\nEdit the file to add context and preferences.`);
       } else if (subCmd === 'show' || !subCmd) {
@@ -824,7 +856,7 @@ Stop a running loop with /loop stop`);
         if (globalMem.notes.length) info += `**Notes:**\n${globalMem.notes.map((n: string) => `  - ${n}`).join('\n')}\n`;
         ctx.addMessage('system', info || 'No global memories yet.');
       } else {
-        ctx.addMessage('system', 'Usage: /memory [init|show|add <type> <text>|remove <type> <text>|global]');
+        ctx.addMessage('system', 'Usage: /memory [init|show|sources|reload|add <type> <text>|remove <type> <text>|global]');
       }
       break;
     }
@@ -873,15 +905,15 @@ Stop a running loop with /loop stop`);
       const trustSubCmd = parts[1] || 'status';
 
       if (trustSubCmd === 'status') {
-        const trust = checkTrust(process.cwd());
+        const trust = checkTrust(getActiveProjectDir(ctx));
         ctx.addMessage('system', `Trust: ${trust.trusted ? '✓ Trusted' : '✗ Untrusted'}\n${trust.reason}${trust.changed ? '\n⚠️ CALLIOPE.md has changed since trust was granted' : ''}`);
       } else if (trustSubCmd === 'add' || trustSubCmd === 'yes') {
-        const dir = parts[2] || process.cwd();
+        const dir = parts[2] || getActiveProjectDir(ctx);
         trustProject(dir, parts.slice(3).join(' ') || undefined);
         ctx.addMessage('system', `✓ Trusted: ${dir}`);
       } else if (trustSubCmd === 'remove' || trustSubCmd === 'no') {
         // Absorbs the old /untrust
-        const dir = parts[2] || process.cwd();
+        const dir = parts[2] || getActiveProjectDir(ctx);
         untrustProject(dir);
         ctx.addMessage('system', `✗ Untrusted: ${dir}`);
       } else if (trustSubCmd === 'list') {
@@ -895,11 +927,15 @@ Stop a running loop with /loop stop`);
           ctx.addMessage('system', `Trust registry:\n${list}`);
         }
       } else if (trustSubCmd === 'clear') {
-        const dir = parts[2] || process.cwd();
+        const dir = parts[2] || getActiveProjectDir(ctx);
         removeFromRegistry(dir);
         ctx.addMessage('system', `Removed from trust registry: ${dir}`);
       } else {
         ctx.addMessage('system', 'Usage: /trust [status|add|remove|list|clear]\n  /trust add [path]    - trust a project\n  /trust remove [path] - untrust a project');
+      }
+      if (['add', 'yes', 'remove', 'no', 'clear'].includes(trustSubCmd)) {
+        try { refreshProjectContext(ctx); }
+        catch (error) { ctx.addMessage('error', error instanceof Error ? error.message : String(error)); }
       }
       break;
     }

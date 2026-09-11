@@ -118,6 +118,7 @@ describe('chat() provider routing (#145)', () => {
         expect.anything(),
         'some-model',
         undefined,
+        undefined,
       );
       // Failure path the bug produced: must NOT hit the local Ollama handler.
       expect(chatOllama).not.toHaveBeenCalled();

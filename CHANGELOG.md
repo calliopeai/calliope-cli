@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Shared cancellation signals across all provider adapters, retry waits, terminal
+  turns, ACP prompts and headless execution. Headless cancellation emits a
+  `cancelled` completion event and exits 130, including while waiting for stdin.
+- Trusted, directory-scoped `AGENTS.md` loading with source provenance,
+  precedence, checkout boundaries and explicit size errors. `/memory sources`
+  and `/memory reload` expose and refresh repository context.
+
+### Fixed
+
+- Terminal direct-send waits for cancellation cleanup before replacing a turn;
+  cancelled requests cannot dispatch later tools or retries. ACP cancellation
+  interrupts pending permission waits and prevents late approvals from executing.
+- POSIX shell/code cancellation terminates the process group, with escalation.
+  Docker execution attempts named-container cleanup on cancellation and timeout.
+- Explicit Docker shell/code mode fails closed instead of executing on the host
+  when Docker is unavailable. Trust changes refresh the active system prompt.
+- README now identifies binary installs and local-model repair as shipped, and
+  links the next-version roadmap (#254).
+
 ## 3.1.0 — 2026-07-20
 
 Restores a green build after the grouped dependency sweep in #240, which

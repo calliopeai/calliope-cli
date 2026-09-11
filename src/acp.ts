@@ -45,6 +45,7 @@ import {
 
 import * as config from './config.js';
 import { chat, selectProvider } from './providers/index.js';
+import { cancellable, isCancellation, throwIfCancelled } from './cancellation.js';
 import { TOOLS, executeTool, type FsDelegate } from './tools.js';
 import { DEFAULT_MODELS, calculateCost } from './types.js';
 import type { Message, LLMProvider, LLMResponse, ToolCall, ToolResult } from './types.js';
@@ -196,6 +197,7 @@ interface AcpSession {
   runlog: RunLog;
   /** Set by session/cancel; checked cooperatively at every loop boundary. */
   cancelled: boolean;
+  controller?: AbortController;
   totals: { inputTokens: number; outputTokens: number; cost: number; toolCalls: number };
   startedAt: number;
 }
@@ -308,6 +310,9 @@ class CalliopeAgent implements Agent {
       throw RequestError.invalidParams({ error: `unknown session: ${params.sessionId}` });
     }
 
+    if (session.controller) throw RequestError.invalidParams({ error: 'A prompt is already running in this session' });
+    session.controller = new AbortController();
+
     // Each prompt is a fresh turn; clear any stale cancel from a prior turn.
     session.cancelled = false;
     const text = promptToText(params.prompt);
@@ -315,9 +320,16 @@ class CalliopeAgent implements Agent {
     session.runlog.userPrompt(text);
     debug(`session/prompt: ${session.id} (${text.length} chars)`);
 
-    const stopReason = await this.runTurn(session);
-    await session.runlog.flush();
-    return { stopReason };
+    try {
+      const stopReason = await this.runTurn(session);
+      return { stopReason };
+    } catch (error) {
+      if (session.cancelled || isCancellation(error)) return { stopReason: await this.finishCancelled(session) };
+      throw error;
+    } finally {
+      try { await session.runlog.flush(); }
+      finally { session.controller = undefined; }
+    }
   }
 
   // ---- ACP: session/cancel (notification) -------------------------------
@@ -326,6 +338,7 @@ class CalliopeAgent implements Agent {
     const session = this.sessions.get(params.sessionId);
     if (session) {
       session.cancelled = true;
+      session.controller?.abort();
       debug(`session/cancel: ${params.sessionId}`);
     }
   }
@@ -344,15 +357,17 @@ class CalliopeAgent implements Agent {
       // Stream assistant text as agent_message_chunk deltas via the chat seam.
       let streamedChars = 0;
       const onToken = (token: string): void => {
-        if (!token) return;
+        if (!token || session.cancelled) return;
         streamedChars += token.length;
         this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: token } });
       };
 
       let response: LLMResponse;
       try {
-        response = await chat(session.provider, session.messages, TOOLS, session.model || undefined, onToken);
+        response = await chat(session.provider, session.messages, TOOLS, session.model || undefined, onToken, undefined, { signal: session.controller?.signal });
+        throwIfCancelled(session.controller?.signal);
       } catch (err) {
+        if (session.cancelled || isCancellation(err)) return this.finishCancelled(session);
         const msg = errMessage(err);
         log(`chat error: ${msg}`);
         session.runlog.assistantMessage({ content: `[error: ${msg}]`, tokens: { input: 0, output: 0 }, cost: 0 });
@@ -408,6 +423,15 @@ class CalliopeAgent implements Agent {
   /** Flush pending notifications and return the cancelled stop reason. */
   private async finishCancelled(session: AcpSession): Promise<PromptResponse['stopReason']> {
     debug(`turn cancelled: ${session.id}`);
+    const answered = new Set(session.messages.filter(m => m.role === 'tool').map(m => m.toolCallId));
+    for (const message of [...session.messages]) {
+      for (const call of message.toolCalls ?? []) {
+        if (!answered.has(call.id)) {
+          session.messages.push({ role: 'tool', toolCallId: call.id, content: '[cancelled before a result was recorded; do not assume completion]' });
+          answered.add(call.id);
+        }
+      }
+    }
     await this.flush();
     return 'cancelled';
   }
@@ -448,10 +472,12 @@ class CalliopeAgent implements Agent {
     // preferring the client's filesystem when it advertised fs capabilities.
     await this.emit(session.id, { sessionUpdate: 'tool_call_update', toolCallId: toolCall.id, status: 'in_progress' });
 
+    throwIfCancelled(session.controller?.signal);
     const started = Date.now();
     let result: ToolResult;
     try {
       result = await executeTool(toolCall, session.cwd, 60000, undefined, {
+        signal: session.controller?.signal,
         appendAnchorHash: session.localBackend,
         fs: this.clientFsDelegate(session.id),
       });
@@ -463,6 +489,7 @@ class CalliopeAgent implements Agent {
       };
     }
     const durationMs = Date.now() - started;
+    const cancelled = session.cancelled || session.controller?.signal.aborted;
 
     session.runlog.toolResult({
       id: toolCall.id,
@@ -472,7 +499,7 @@ class CalliopeAgent implements Agent {
     });
     await this.reportToolResult(session, toolCall.id, result.displayResult || result.result, result.isError || false, result.result);
     session.messages.push({ role: 'tool', content: result.result, toolCallId: toolCall.id });
-    return 'ok';
+    return cancelled ? 'cancelled' : 'ok';
   }
 
   /** Send a terminal (completed/failed) tool_call_update to the client. */
@@ -535,7 +562,7 @@ class CalliopeAgent implements Agent {
    */
   private async requestPermission(session: AcpSession, toolCall: ToolCall): Promise<'allow' | 'reject' | 'cancelled'> {
     try {
-      const res = await this.conn.requestPermission({
+      const res = await cancellable(this.conn.requestPermission({
         sessionId: session.id,
         toolCall: {
           toolCallId: toolCall.id,
@@ -548,12 +575,13 @@ class CalliopeAgent implements Agent {
           { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
           { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
         ],
-      });
+      }), session.controller?.signal);
       const outcome = res.outcome;
       if (outcome.outcome === 'cancelled') return 'cancelled';
       if (outcome.outcome === 'selected') return outcome.optionId.startsWith('allow') ? 'allow' : 'reject';
       return 'reject';
     } catch (err) {
+      if (session.cancelled || isCancellation(err)) return 'cancelled';
       // Client can't handle permission requests: non-interactive default is to
       // deny anything that needed asking (read-only tools never reach here).
       log(
@@ -615,6 +643,7 @@ class CalliopeAgent implements Agent {
   /** Close every session's audit log (best-effort) on shutdown. */
   async shutdown(): Promise<void> {
     for (const session of this.sessions.values()) {
+      if (session.controller) { session.cancelled = true; session.controller.abort(); }
       session.runlog.runEnd({
         totals: {
           inputTokens: session.totals.inputTokens,

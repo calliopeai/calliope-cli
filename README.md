@@ -7,8 +7,8 @@ npm install -g @calliopelabs/cli
 calliope
 ```
 
-Single-binary installs (Homebrew and a `curl` installer, no Node.js required) are
-coming with the v3.0.0 stable release — see
+Single-binary installs are available through Homebrew and a `curl` installer,
+with no Node.js required — see
 [Install as a single binary](docs/getting-started.md#install-as-a-single-binary).
 
 ## Why Calliope
@@ -75,13 +75,15 @@ Coordinate a fleet of agents and human operators over a self-hosted IRC channel 
 
 ## Project memory
 
-Drop a `CALLIOPE.md` in your repo and every session starts knowing your conventions. `/memory` manages it.
+Use `AGENTS.md` for portable repository instructions and `CALLIOPE.md` for project memory. Trusted instructions load from the checkout root to your working directory, with source paths and directory precedence. `/memory sources` shows applicable files; `/memory reload` refreshes them. See [repository instructions](docs/instructions.md).
 
 ## v3.0
 
 v3 is a deliberate reduction: 84 commands, 40 config keys, and ~20k lines of speculative features (theme packs, companions, multi-agent orchestration, an embedded API server, and more) were removed to make the core fast, predictable, and maintainable. The full list and rationale live in [CHANGELOG.md](CHANGELOG.md) and the [v3.0 roadmap](https://github.com/calliopeai/calliope-cli/issues/195).
 
-Coming in v3.0 stable: single-binary installs (brew/curl, no Node required) and enforced performance budgets. Governance primitives — replayable audit run logs, budget caps, and a policy hook — have landed; see [docs/governance.md](docs/governance.md). Coming after: local-model edit-reliability hardening.
+Single-binary installs, enforced performance budgets, governance, ACP editor integration, and local-model edit repair shipped in v3.0. See [docs/governance.md](docs/governance.md) and [docs/local-models.md](docs/local-models.md).
+
+The [next-version roadmap](https://github.com/calliopeai/calliope-cli/issues/254) prioritizes consistent execution across providers, portable sessions and instructions, and measured task reliability. The [first implementation](https://github.com/calliopeai/calliope-cli/issues/255) adds cancellation through provider requests, retries and local processes, plus scoped `AGENTS.md` support. See [cancellation behavior](docs/features.md#cancellation).
 
 ## Contributing
 
