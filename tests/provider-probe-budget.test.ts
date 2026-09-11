@@ -57,3 +57,35 @@ it('rejects oversized prompts and honors the caller cancellation signal before s
   })).rejects.toThrow('input');
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('enforces a per-run ceiling across failures, cancellation and restart without resetting the total', () => {
+  const scoped = { ...budget, maxCostUsd: 0.015384, runId: 'smoke-1', maxRunCostUsd: 0.010256 };
+  reserveProbe(file, scoped).finish('failed');
+  reserveProbe(file, scoped).finish('cancelled');
+  expect(() => reserveProbe(file, scoped)).toThrow('run dollar budget exhausted');
+  expect(() => reserveProbe(file, { ...budget, maxCostUsd: scoped.maxCostUsd })).toThrow('run ID');
+  expect(() => reserveProbe(file, { ...scoped, maxRunCostUsd: 0.015384 })).toThrow('run dollar limit changed');
+  reserveProbe(file, { ...scoped, runId: 'smoke-2' }).finish('captured');
+  expect(() => reserveProbe(file, { ...scoped, runId: 'smoke-3' })).toThrow('Probe dollar budget exhausted');
+  const ledger = JSON.parse(readFileSync(file, 'utf8'));
+  expect(ledger.reservations.map(r => r.status)).toEqual(['failed', 'cancelled', 'captured']);
+  expect(ledger.reservations.reduce((sum, r) => sum + r.reservedNanoUsd, 0)).toBe(15384000);
+  expect(ledger.runs).toEqual([{ id: 'smoke-1', limitNanoUsd: 10256000 }, { id: 'smoke-2', limitNanoUsd: 10256000 }]);
+});
+
+it('rejects malformed run limits and corrupted run history without spending or leaving locks', () => {
+  for (const options of [{ runId: 'run' }, { maxRunCostUsd: 1 }, { runId: '../run', maxRunCostUsd: 0 },
+    { runId: 'run', maxRunCostUsd: NaN }, { runId: 'run', maxRunCostUsd: -1 }, { runId: 'run', maxRunCostUsd: 1 }]) {
+    expect(() => reserveProbe(file, { ...budget, ...options })).toThrow('Invalid probe run');
+    expect(existsSync(file)).toBe(false);
+  }
+  const scoped = { ...budget, maxCostUsd: 1, runId: 'run', maxRunCostUsd: 0.1 };
+  for (const runs of [null, {}, [null], [{ id: 'run', limitNanoUsd: -1 }],
+    [{ id: 'run', limitNanoUsd: 100 }, { id: 'run', limitNanoUsd: 100 }]]) {
+    writeFileSync(file, JSON.stringify({ version: 1, limitNanoUsd: 1e9, reservations: [], runs }));
+    expect(() => reserveProbe(file, scoped)).toThrow('Invalid probe run ledger');
+    expect(existsSync(file + '.lock')).toBe(false);
+  }
+  writeFileSync(file, JSON.stringify({ version: 1, limitNanoUsd: 1e9, reservations: [{ reservedNanoUsd: 1, runId: 'orphan' }], runs: [] }));
+  expect(() => reserveProbe(file, scoped)).toThrow('Invalid probe run ledger');
+});
