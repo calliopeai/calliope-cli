@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add strict agent/task/workspace plans, bounded hierarchy and dependency checks, artifact provenance contracts, and a private immutable run journal. CLI/REPL dry-run, preparation, review, cancellation and graph/tree inspection record inactive runs without invoking child agents (#278). Thread cancellation into policy/hook subprocesses and wait for permission cleanup before returning.
+
 - Reset failed streaming attempts before retry, stop append-only clients after partial failures, preserve assistant tool prefaces, and show independent tool progress. Add bounded private tool-output inspection with `/tools`, resize-aware expand/collapse pages, restart/transfer support, and `calliope session outputs ... --json` (#275).
 
 - Wire terminal approvals with complete path/command previews and once/session/project/deny choices; bind reusable file grants to exact operations, recheck policy before execution, and add local `/permissions` inspection/revocation with versioned headless JSON. ACP session approvals now honor exact option IDs and bounded scope (#274).

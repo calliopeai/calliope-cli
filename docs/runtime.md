@@ -73,3 +73,8 @@ Streaming clients can supply `onStreamReset` for safe partial-attempt replacemen
 Without replacement support, an interrupted partial stream fails without retry.
 `captureToolOutput` persists bounded inspection evidence; a failed output save
 does not rerun the tool. See [streaming and output contracts](streaming.md).
+
+Permission policy and pre-tool hooks receive the turn cancellation signal. The
+resolver waits for their subprocess to settle after cancellation, instead of
+returning while a detached permission process remains alive. POSIX process groups
+are killed on abort; hook/policy output buffers are bounded to 64 KiB.

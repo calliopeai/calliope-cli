@@ -55,6 +55,9 @@ export const COMMAND_NAMES = [
   '/doctor',
   '/permissions',
   '/tools',
+  '/run',
+  '/agents',
+  '/tasks',
   '/defaults',
   '/once',
   '/mode',
@@ -228,6 +231,11 @@ Conversation
   /diff <id|name>             Compare another conversation with the current one
   /replay [revision]          Read recorded conversation without executing tools
   /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
+  /run <plan> --dry-run       Validate a task plan without starting agents
+  /run prepare <plan>         Record an inactive orchestration run
+  /run status|approve|cancel <id>  Inspect or review a prepared run
+  /agents [tree] [run-id]      Inspect declared agents
+  /tasks [graph] [run-id]      Inspect task dependencies
   /tools [list|last|output-id] Inspect retained tool output; expand/collapse and page
   /export [file.json|file.md]  Save private history JSON or readable markdown
   /import <file.json>         Validate and import into a separate inactive session
@@ -264,6 +272,14 @@ Fleet
 
 File references: @filename, ./path, /absolute/path`;
       ctx.addMessage('system', help);
+      break;
+    }
+
+    case '/run':
+    case '/agents':
+    case '/tasks': {
+      const { runOrchestrationCommand, parseOrchestrationArgs } = await import('../orchestration/index.js');
+      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', write: text => ctx.addMessage('system', text.trimEnd()) });
       break;
     }
 

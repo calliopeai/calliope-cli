@@ -64,6 +64,9 @@ arguments, canonical project identity and current policy configuration; every
 use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
 [Streaming and tool output](docs/streaming.md) defines attempt replacement,
 append-only client failures, parallel progress and bounded private inspection.
+[Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
+validated dependency plans and an immutable local run journal; child execution
+is tracked separately and is not yet available.
 
 ```
 src/

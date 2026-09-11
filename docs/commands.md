@@ -239,3 +239,13 @@ Session recovery: `/new` starts a separate session, `/sessions` lists saved
 sessions, and `/resume [id]` validates and restores a conversation for the
 current project. See [session recovery](session-recovery.md) for interrupted
 tools, concurrent writers and recovery procedures.
+
+## Orchestration preparation
+
+`/run <plan> --dry-run` validates a project plan without writes or inference.
+`/run prepare <plan>` records an inactive run; `/run list`, `/run status [id]`,
+`/run approve <id>`, `/run cancel <id>` and `/run replay <id>` inspect its journal
+and record review decisions. `/agents tree [id]` shows the declared hierarchy;
+`/tasks graph [id]` shows dependencies and scope conflicts. Child execution is
+not yet available. See [contracts and commands](orchestration.md) for limits,
+policy behavior, schemas and recovery.
