@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "backend": "ollama",
+  "model": "devstral:latest",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:48.108Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "Ollama",
+      "version": "0.33.2"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/chat"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsImNyZWF0ZWRfYXQiOiIyMDI2LTA5LTExVDA0OjMzOjQ4LjEwMTU3NloiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8gz4AifSwiZG9uZSI6dHJ1ZSwiZG9uZV9yZWFzb24iOiJzdG9wIiwidG90YWxfZHVyYXRpb24iOjIxOTEwMzcxMjUwLCJsb2FkX2R1cmF0aW9uIjoxNTIyMjYwMDU4MywicHJvbXB0X2V2YWxfY291bnQiOjEyMzEsInByb21wdF9ldmFsX2R1cmF0aW9uIjo2NTc0MTE1MDAwLCJldmFsX2NvdW50IjozLCJldmFsX2R1cmF0aW9uIjo5NjA4NjAwMH0=",
+      "sha256": "7266ee90d4d478afa88a052812df58f74fb1ba289cd0a75f7d18d7bbad012989"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 1231,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

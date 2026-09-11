@@ -8,11 +8,13 @@ provider backends, and a small, tested command surface.
 - [Getting started](./getting-started.md) — install, setup, first session
 - [Commands](./commands.md) — all 22 commands and their subcommands
 - [Configuration](./configuration.md) — config keys, defaults, environment variables
+- [Provider conformance](./provider-conformance.md) — behavioral matrix, captures and release gate
 - [Providers](./providers.md) — supported backends and how credentials resolve
 - [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Repository instructions](./instructions.md) — scoped AGENTS.md, trust, provenance and reload
 - [Next-version roadmap](https://github.com/calliopeai/calliope-cli/issues/254) — priorities, milestones and release gates
 - [Features](./features.md) — the full v3 feature set (and what was removed)
+- [Shared runtime](./runtime.md) — client adapters, cancellation, budgets and exit semantics
 - [Permissions](./permissions.md) — one resolver, explicit client defaults and audited reasons
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)

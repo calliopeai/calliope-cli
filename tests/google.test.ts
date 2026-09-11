@@ -52,9 +52,9 @@ async function* mockErrorStream(error: Error) {
   yield {} as never; // unreachable
 }
 
-vi.mock('@google/generative-ai', () => {
+vi.mock('@google/genai', () => {
   return {
-    GoogleGenerativeAI: class MockGoogleGenerativeAI {
+    GoogleGenAI: class MockGoogleGenAI {
       constructor(_apiKey: string) {}
       getGenerativeModel(opts: Record<string, unknown>) {
         if (opts.tools) {

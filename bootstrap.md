@@ -15,11 +15,11 @@ React/Ink, ESM. v3.1.0. Node ≥ 20.
 | Concern | Choice |
 |---|---|
 | Language | TypeScript, **ESM** (`"type": "module"`, `module: NodeNext`, `strict: true`) |
-| UI | React 19 + Ink 6 (terminal UI) |
+| UI | React 19 + Ink 7 (terminal UI) |
 | Entry | `src/bin.ts` → `dist/bin.js` (the `calliope` bin) |
 | Config store | `conf` (schema-validated JSON under the OS config dir) |
-| Providers | `@anthropic-ai/sdk`, `@google/generative-ai`, `openai` (+ OpenAI-compatible endpoints) |
-| Tests | Vitest — **~3,500 tests across 94 files** under `tests/`; coverage floor 90% lines (enforced by `npm run test:coverage`) |
+| Providers | `@anthropic-ai/sdk`, `@google/genai`, `openai` (+ OpenAI-compatible endpoints) |
+| Tests | Vitest — behavioral and transport tests under `tests/`; coverage floor 90% lines (enforced by `npm run test:coverage`) |
 | Lint/format | Prettier + ESLint (community defaults; no custom bikeshedding) |
 
 **Local commands**
@@ -47,15 +47,18 @@ React/Ink, ESM. v3.1.0. Node ≥ 20.
 
 ## Architecture
 
-Large modules were split into subdirectories **without changing any import
 Modules live in subdirectories; import via each package's index.
+`runtime.runTurn` owns model/tool execution for terminal, headless and ACP clients.
+Clients adapt presentation and approval; new execution gates belong in the runtime.
+See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics.
 
 ```
 src/
 ├── bin.ts            # entry point
 ├── providers/        # 13 backends (anthropic, google, openai, bedrock, ollama, compat)
 ├── hud/              # color api, 3 palettes, single skin
-├── ui/               # Ink components, chat-input, status-bar, messages, modals, agent loop
+├── runtime/          # shared turn engine, permissions, repair and retry
+├── ui/               # Ink components and terminal runtime adapter
 ├── tools.ts          # tool definitions, registry, execution (shell/file/web/etc.)
 ├── config.ts         # conf store, schema, pre-migration
 ├── types.ts          # core types, DEFAULT_MODELS, pricing

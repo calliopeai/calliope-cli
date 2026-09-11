@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "backend": "ollama",
+  "model": "devstral:latest",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:49.571Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "Ollama",
+      "version": "0.33.2"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/api/chat"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsImNyZWF0ZWRfYXQiOiIyMDI2LTA5LTExVDA0OjMzOjQ5LjU3MDMxOVoiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiIiwidG9vbF9jYWxscyI6W3siaWQiOiJjYWxsX3RjaDF3YnJxIiwiZnVuY3Rpb24iOnsiaW5kZXgiOjAsIm5hbWUiOiJlY2hvIiwiYXJndW1lbnRzIjp7InRleHQiOiJoZWxsbyJ9fX1dfSwiZG9uZSI6dHJ1ZSwiZG9uZV9yZWFzb24iOiJzdG9wIiwidG90YWxfZHVyYXRpb24iOjEyOTc4Nzc1NDIsImxvYWRfZHVyYXRpb24iOjEzODA3NTAsInByb21wdF9ldmFsX2NvdW50IjoxMjk2LCJwcm9tcHRfZXZhbF9kdXJhdGlvbiI6NTg5NzM2MDAwLCJldmFsX2NvdW50IjoxNSwiZXZhbF9kdXJhdGlvbiI6Njk4MDcxMDAwfQ==",
+      "sha256": "56b9be615086a55e8409760f7552189d2c905e8965cd85a31b3ca1ca27a96a15"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 1296,
+      "outputTokens": 15
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

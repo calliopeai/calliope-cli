@@ -6,21 +6,18 @@
  * Designed for piping, CI, scripting, and multi-agent fleet coordination.
  */
 
-import { resolvePermission, MUTATING_TOOLS } from './runtime/index.js';
-import { cancellationError, cancellableDelay, isCancellation, throwIfCancelled } from './cancellation.js';
+import { runTurn } from './runtime/index.js';
+import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
-import { chat, selectProvider, ProviderUnavailableError } from './providers/index.js';
-import { TOOLS, executeTool, getTools } from './tools.js';
-import { DEFAULT_MODELS, calculateCost } from './types.js';
-import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
+import { selectProvider, ProviderUnavailableError } from './providers/index.js';
+import { getTools } from './tools.js';
+import { DEFAULT_MODELS } from './types.js';
+import { getSystemPromptForProvider } from './local-model.js';
 import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import { RunLog } from './runlog.js';
-import {
-  getBudgetCaps, evaluateBudget, hasBudgetCaps,
-  recordProjectSpend, loadProjectSpend, formatBudgetHalt,
-} from './budget.js';
-import type { Message, LLMProvider, ToolCall } from './types.js';
+import { formatBudgetHalt } from './budget.js';
+import type { Message, LLMProvider } from './types.js';
 
 // ============================================================================
 // Types
@@ -79,56 +76,6 @@ function emit(event: HeadlessEvent, mode: HeadlessOutputMode): void {
 
 function now(): string {
   return new Date().toISOString();
-}
-
-// ============================================================================
-// Retry policy
-// ============================================================================
-
-/**
- * Tools that mutate state / have side effects. Re-running these on an error
- * risks compounding partial side effects (duplicate writes, repeated commands),
- * so they are never blindly retried.
- */
-
-/**
- * Classify an error message as plausibly transient (worth retrying) vs.
- * deterministic (validation / auth / invalid-request — retrying cannot help).
- */
-function isTransientError(message: string): boolean {
-  const m = message.toLowerCase();
-
-  // Deterministic failures: never retry.
-  const nonTransient = [
-    'must be a string', 'must be a', 'is required', 'invalid', 'not found',
-    'no such file', 'permission denied', 'unauthorized', 'forbidden',
-    '401', '403', '404', '400', 'bad request', 'validation',
-  ];
-  if (nonTransient.some(p => m.includes(p))) return false;
-
-  // Plausibly transient: network / timeout / rate-limit / transient server errors.
-  const transient = [
-    'timeout', 'timed out', 'etimedout', 'econnreset', 'econnrefused',
-    'enotfound', 'eai_again', 'network', 'socket hang up', 'rate limit',
-    'rate-limit', 'too many requests', '429', '503', '502', '500',
-    'temporarily', 'try again',
-  ];
-  return transient.some(p => m.includes(p));
-}
-
-/** Exponential backoff with a cap, in milliseconds. */
-function backoffDelay(attempt: number): number {
-  return Math.min(250 * 2 ** (attempt - 1), 4000);
-}
-
-/**
- * Decide whether a failed tool result should be retried.
- * - Mutating tools are never retried (avoid duplicated side effects).
- * - Only errors classified as transient are retried.
- */
-function shouldRetry(toolName: string, errorText: string): boolean {
-  if (MUTATING_TOOLS.has(toolName)) return false;
-  return isTransientError(errorText);
 }
 
 // ============================================================================
@@ -205,7 +152,6 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     }
     resolvedProvider = provider;
   }
-  const localBackend = isLocalBackend(resolvedProvider);
 
   // Build messages
   const systemPrompt = getSystemPromptForProvider(resolvedProvider);
@@ -233,238 +179,30 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
   const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const runlog = RunLog.open(sessionId);
-  const costModel = model || DEFAULT_MODELS[resolvedProvider];
-  const budgetCaps = getBudgetCaps();
-  // Only maintain the cross-run project ledger when a project cap is active.
-  const trackProjectBudget = typeof budgetCaps.maxCostPerProject === 'number';
-  const runStartedAt = Date.now();
-  let runInputTokens = 0;
-  let runOutputTokens = 0;
-  let runCostUsd = 0;
-  let runToolCalls = 0;
-  // Provider warnings (e.g. Ollama model substitution) surface as status events,
-  // deduped so a repeated substitution across iterations isn't emitted twice.
-  const seenWarnings = new Set<string>();
-
-  runlog.runStart({
-    session: sessionId,
-    cwd,
-    provider: resolvedProvider,
-    model: costModel,
-    config: config.getConfig() as unknown as Record<string, unknown>,
-  });
-  runlog.userPrompt(prompt);
-  if (runlog.enabled) {
-    emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
-  }
-
-  const runTotals = () => ({
-    inputTokens: runInputTokens,
-    outputTokens: runOutputTokens,
-    cost: runCostUsd,
-    toolCalls: runToolCalls,
-    durationMs: Date.now() - runStartedAt,
-  });
-
+  if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
-    throwIfCancelled(signal);
-    let iteration = 0;
-    let budgetVerdict: ReturnType<typeof evaluateBudget> | undefined;
-
-    // Up-front project-budget guard: refuse to start a run whose project has
-    // already spent its cap (the CI hard stop) before making any provider call.
-    if (hasBudgetCaps(budgetCaps)) {
-      const pre = evaluateBudget(budgetCaps, {
-        runCostUsd: 0,
-        runTokens: 0,
-        projectCostUsd: loadProjectSpend(cwd).spentUsd,
-      });
-      if (pre.exceeded) budgetVerdict = pre;
+    const result = await runTurn({
+      client: 'headless',
+      sessionId, cwd, provider: resolvedProvider, model, prompt,
+      messages: { current: messages }, signal, maxIterations, maxRetries,
+      runlog, confirmation: 'none', tools: getTools,
+      onResponse: response => {
+        if (!response.toolCalls?.length) emit({ type: 'message', timestamp: now(), data: { role: 'assistant', content: response.content } }, outputMode);
+      },
+      onToolStart: call => emit({ type: 'tool_call', timestamp: now(), data: { id: call.id, name: call.name, arguments: call.arguments } }, outputMode),
+      onToolResult: (call, toolResult) => emit({ type: 'tool_result', timestamp: now(), data: { toolCallId: call.id, name: call.name, result: toolResult.result, isError: !!toolResult.isError } }, outputMode),
+      onToolRetry: (_call, attempt, toolResult) => { process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${toolResult.result}\n`); },
+      onWarning: message => emit({ type: 'status', timestamp: now(), data: { message } }, outputMode),
+    });
+    if (result.budget?.exceeded) {
+      const message = formatBudgetHalt(result.budget);
+      emit({ type: 'status', timestamp: now(), data: { message } }, outputMode);
+      process.stderr.write(message + '\n');
     }
-
-    while (!budgetVerdict && iteration < maxIterations) {
-      iteration++;
-
-      const response = await chat(provider, messages, TOOLS, model, undefined, undefined, { signal });
-      throwIfCancelled(signal);
-
-      // Surface provider warnings (model substitution, etc.) without hiding them.
-      if (response.warnings) {
-        for (const warning of response.warnings) {
-          if (seenWarnings.has(warning)) continue;
-          seenWarnings.add(warning);
-          emit({ type: 'status', timestamp: now(), data: { message: warning } }, outputMode);
-        }
-      }
-
-      // Accumulate spend, persist it to the project ledger, and audit it.
-      if (response.usage) {
-        const usageCost = calculateCost(costModel, response.usage.inputTokens, response.usage.outputTokens);
-        runInputTokens += response.usage.inputTokens;
-        runOutputTokens += response.usage.outputTokens;
-        runCostUsd += usageCost;
-        if (trackProjectBudget) recordProjectSpend(cwd, usageCost);
-        runlog.assistantMessage({
-          content: response.content,
-          tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
-          cost: usageCost,
-        });
-      } else {
-        runlog.assistantMessage({ content: response.content, tokens: { input: 0, output: 0 }, cost: 0 });
-      }
-
-      // Budget check: finish the current turn cleanly if a cap is now exceeded.
-      if (hasBudgetCaps(budgetCaps)) {
-        const verdict = evaluateBudget(budgetCaps, {
-          runCostUsd,
-          runTokens: runInputTokens + runOutputTokens,
-          projectCostUsd: loadProjectSpend(cwd).spentUsd,
-        });
-        if (verdict.exceeded) {
-          budgetVerdict = verdict;
-          break;
-        }
-      }
-
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        // Add assistant message with tool calls
-        messages.push({
-          role: 'assistant',
-          content: response.content,
-          toolCalls: response.toolCalls,
-        });
-
-        for (const toolCall of response.toolCalls) {
-          throwIfCancelled(signal);
-          emit({
-            type: 'tool_call',
-            timestamp: now(),
-            data: {
-              id: toolCall.id,
-              name: toolCall.name,
-              arguments: toolCall.arguments,
-            },
-          }, outputMode);
-          runlog.toolCall({ id: toolCall.id, name: toolCall.name, args: toolCall.arguments as Record<string, unknown> });
-          runToolCalls++;
-
-          const decision = await resolvePermission(toolCall, {
-            cwd, confirmation: 'none', signal, audit: event => runlog.policyEvent(event),
-          });
-          if (decision.decision !== 'allow') {
-            runlog.toolResult({ id: toolCall.id, result: decision.reason, isError: true, durationMs: decision.durationMs });
-            emit({ type: 'tool_result', timestamp: now(), data: { toolCallId: toolCall.id, name: toolCall.name, result: decision.reason, isError: true } }, outputMode);
-            messages.push({ role: 'tool', content: decision.reason, toolCallId: toolCall.id });
-            continue;
-          }
-
-          throwIfCancelled(signal);
-          // Execute tool with a guarded retry budget.
-          // Only retry classified-transient errors, never re-run mutating tools
-          // (avoids duplicated side effects), and back off between attempts.
-          const toolStart = Date.now();
-          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal, auditPermission: event => runlog.policyEvent(event) });
-          throwIfCancelled(signal);
-          let attempt = 0;
-          while (
-            result.isError &&
-            attempt < maxRetries &&
-            shouldRetry(toolCall.name, result.result)
-          ) {
-            attempt++;
-            await cancellableDelay(backoffDelay(attempt), signal);
-            process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
-            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal, auditPermission: event => runlog.policyEvent(event) });
-            throwIfCancelled(signal);
-          }
-
-
-          emit({
-            type: 'tool_result',
-            timestamp: now(),
-            data: {
-              toolCallId: toolCall.id,
-              name: toolCall.name,
-              result: result.result,
-              isError: result.isError || false,
-            },
-          }, outputMode);
-          runlog.toolResult({
-            id: toolCall.id,
-            result: result.result,
-            isError: result.isError || false,
-            durationMs: Date.now() - toolStart,
-          });
-
-          messages.push({
-            role: 'tool',
-            content: result.result,
-            toolCallId: toolCall.id,
-          });
-        }
-
-        continue;
-      }
-
-      // Final response
-      messages.push({
-        role: 'assistant',
-        content: response.content,
-      });
-
-      emit({
-        type: 'message',
-        timestamp: now(),
-        data: {
-          role: 'assistant',
-          content: response.content,
-        },
-      }, outputMode);
-
-      break;
-    }
-
-    // Budget halt: emit the event, summarize spend vs cap, exit code 3.
-    if (budgetVerdict?.exceeded) {
-      const summary = formatBudgetHalt(budgetVerdict);
-      runlog.budgetEvent({
-        scope: budgetVerdict.scope ?? 'run',
-        kind: budgetVerdict.kind ?? 'cost',
-        spent: budgetVerdict.spent ?? 0,
-        cap: budgetVerdict.cap ?? 0,
-        message: budgetVerdict.message ?? summary,
-      });
-      emit({ type: 'status', timestamp: now(), data: { message: summary } }, outputMode);
-      process.stderr.write(summary + '\n');
-      runlog.runEnd({ totals: runTotals(), exitReason: 'budget' });
-      await runlog.flush();
-      return 3;
-    }
-
-    emit({
-      type: 'done',
-      timestamp: now(),
-      data: { iterations: iteration },
-    }, outputMode);
-
-    runlog.runEnd({ totals: runTotals(), exitReason: 'completed' });
-    await runlog.flush();
-    return 0;
+    emit({ type: 'done', timestamp: now(), data: { iterations: result.iterations, reason: result.reason } }, outputMode);
+    return result.reason === 'cancelled' ? 130 : result.reason === 'budget' ? 3 : result.reason === 'completed' ? 0 : 4;
   } catch (error) {
-    if (signal?.aborted || isCancellation(error)) {
-      emit({ type: 'done', timestamp: now(), data: { reason: 'cancelled' } }, outputMode);
-      runlog.runEnd({ totals: runTotals(), exitReason: 'cancelled' });
-      await runlog.flush();
-      return 130;
-    }
-    const msg = error instanceof Error ? error.message : String(error);
-    emit({
-      type: 'error',
-      timestamp: now(),
-      data: { message: msg },
-    }, outputMode);
-    runlog.runEnd({ totals: runTotals(), exitReason: 'error' });
-    await runlog.flush();
+    emit({ type: 'error', timestamp: now(), data: { message: error instanceof Error ? error.message : String(error) } }, outputMode);
     return 1;
   }
 }

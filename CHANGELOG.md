@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+- Share one turn runtime across terminal, headless and ACP: isolated scopes, paired tool results, cancellation cleanup, local repair, and budgeted compression/repair calls. Headless incomplete turns now exit 4; terminal checkpoints follow the session project.
+
+
 ### Added
+
+- Offline conformance contracts using real SDK parsers across all provider adapters, plus reviewed-wire capture/replay tooling and a required prepublish evidence gate (#222).
+- 36 live provider captures across nine adapter paths, with recorded provenance, gateway versions and a spend audit; remaining provider gaps still block publication (#222).
 
 - A canonical permission resolver across terminal, headless and ACP, with
   source-labelled decisions and tool-call IDs in the audit log (#221).
@@ -15,6 +21,10 @@
   and `/memory reload` expose and refresh repository context.
 
 ### Fixed
+
+- Use Hugging Face's current router endpoint for discovery and inference; preserve provider quota errors in live capture tooling instead of masking them with rejected SDK retries (#222).
+
+- Preserve all Anthropic/Gemini system instructions and Gemini tool-result associations. Retain streaming usage and incomplete/failed finish reasons. Buffer fragmented Ollama NDJSON and reject corrupted or incomplete streams.
 
 - Headless now honors pre-tool hooks. The executor rechecks filesystem and
   sandbox boundaries after approval; dangling symlinks fail scope validation.

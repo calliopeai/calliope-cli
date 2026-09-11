@@ -44,15 +44,16 @@ import {
 } from '@zed-industries/agent-client-protocol';
 
 import * as config from './config.js';
-import { chat, selectProvider } from './providers/index.js';
-import { resolvePermission } from './runtime/index.js';
-import { cancellable, isCancellation, throwIfCancelled } from './cancellation.js';
-import { TOOLS, executeTool, type FsDelegate } from './tools.js';
-import { DEFAULT_MODELS, calculateCost } from './types.js';
-import type { Message, LLMProvider, LLMResponse, ToolCall, ToolResult } from './types.js';
-import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
+import { selectProvider } from './providers/index.js';
+import { runTurn } from './runtime/index.js';
+import { cancellable, isCancellation } from './cancellation.js';
+import { TOOLS, type FsDelegate } from './tools.js';
+import { DEFAULT_MODELS } from './types.js';
+import type { Message, LLMProvider, ToolCall, ToolResult } from './types.js';
+import { getSystemPromptForProvider } from './local-model.js';
 import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
+import { formatBudgetHalt } from './budget.js';
 import { RunLog } from './runlog.js';
 
 // ============================================================================
@@ -172,20 +173,15 @@ interface AcpSession {
   resolvedProvider: LLMProvider;
   /** Configured model, or '' to let the provider pick its default. */
   model: string;
-  localBackend: boolean;
   messages: Message[];
   runlog: RunLog;
   /** Set by session/cancel; checked cooperatively at every loop boundary. */
   cancelled: boolean;
   controller?: AbortController;
-  totals: { inputTokens: number; outputTokens: number; cost: number; toolCalls: number };
-  startedAt: number;
+  activeTurn?: Promise<PromptResponse['stopReason']>;
 }
 
-type GateResult =
-  | { decision: 'allow' }
-  | { decision: 'deny'; reason: string }
-  | { decision: 'cancelled' };
+
 
 // ============================================================================
 // The agent
@@ -245,19 +241,11 @@ class CalliopeAgent implements Agent {
     } catch {
       resolvedProvider = provider;
     }
-    const localBackend = isLocalBackend(resolvedProvider);
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
     const sessionId = `acp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const runlog = RunLog.open(sessionId);
-    runlog.runStart({
-      session: sessionId,
-      cwd,
-      provider: resolvedProvider,
-      model: costModel,
-      config: config.getConfig() as unknown as Record<string, unknown>,
-      mode: 'acp',
-    });
+
 
     const systemPrompt = getSystemPromptForProvider(resolvedProvider);
     const memoryContext = memory.buildMemoryContext(cwd);
@@ -271,12 +259,9 @@ class CalliopeAgent implements Agent {
       provider,
       resolvedProvider,
       model,
-      localBackend,
       messages: [{ role: 'system', content: fullPrompt }],
       runlog,
       cancelled: false,
-      totals: { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0 },
-      startedAt: Date.now(),
     });
     debug(`session/new: ${sessionId} cwd=${cwd} provider=${resolvedProvider} model=${costModel}`);
     return { sessionId };
@@ -297,18 +282,18 @@ class CalliopeAgent implements Agent {
     session.cancelled = false;
     const text = promptToText(params.prompt);
     session.messages.push({ role: 'user', content: text });
-    session.runlog.userPrompt(text);
     debug(`session/prompt: ${session.id} (${text.length} chars)`);
 
     try {
-      const stopReason = await this.runTurn(session);
+      session.activeTurn = this.runTurn(session, text);
+      const stopReason = await session.activeTurn;
       return { stopReason };
     } catch (error) {
-      if (session.cancelled || isCancellation(error)) return { stopReason: await this.finishCancelled(session) };
-      throw error;
+      if (session.cancelled || isCancellation(error)) return { stopReason: 'cancelled' };
+      throw RequestError.internalError({ error: errMessage(error) });
     } finally {
       try { await session.runlog.flush(); }
-      finally { session.controller = undefined; }
+      finally { session.controller = undefined; session.activeTurn = undefined; }
     }
   }
 
@@ -325,162 +310,41 @@ class CalliopeAgent implements Agent {
 
   // ---- The agent loop (ACP-flavoured mirror of the headless loop) --------
 
-  private async runTurn(session: AcpSession): Promise<PromptResponse['stopReason']> {
-    const maxIterations = resolveIterationLimit(config.get('maxIterations'));
-    const costModel = session.model || DEFAULT_MODELS[session.resolvedProvider];
-    let iteration = 0;
-
-    while (iteration < maxIterations) {
-      if (session.cancelled) return this.finishCancelled(session);
-      iteration++;
-
-      // Stream assistant text as agent_message_chunk deltas via the chat seam.
-      let streamedChars = 0;
-      const onToken = (token: string): void => {
-        if (!token || session.cancelled) return;
-        streamedChars += token.length;
-        this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: token } });
-      };
-
-      let response: LLMResponse;
-      try {
-        response = await chat(session.provider, session.messages, TOOLS, session.model || undefined, onToken, undefined, { signal: session.controller?.signal });
-        throwIfCancelled(session.controller?.signal);
-      } catch (err) {
-        if (session.cancelled || isCancellation(err)) return this.finishCancelled(session);
-        const msg = errMessage(err);
-        log(`chat error: ${msg}`);
-        session.runlog.assistantMessage({ content: `[error: ${msg}]`, tokens: { input: 0, output: 0 }, cost: 0 });
-        await session.runlog.flush();
-        throw RequestError.internalError({ error: msg });
-      }
-
-      // Audit + spend accounting (mirrors headless).
-      if (response.usage) {
-        const cost = calculateCost(costModel, response.usage.inputTokens, response.usage.outputTokens);
-        session.totals.inputTokens += response.usage.inputTokens;
-        session.totals.outputTokens += response.usage.outputTokens;
-        session.totals.cost += cost;
-        session.runlog.assistantMessage({
-          content: response.content,
-          tokens: { input: response.usage.inputTokens, output: response.usage.outputTokens },
-          cost,
-        });
-      } else {
-        session.runlog.assistantMessage({ content: response.content, tokens: { input: 0, output: 0 }, cost: 0 });
-      }
-
-      // Providers that don't stream: emit the assembled content once so the
-      // client still sees the assistant message.
-      if (streamedChars === 0 && response.content) {
-        this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: response.content } });
-      }
-
-      if (session.cancelled) return this.finishCancelled(session);
-
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        session.messages.push({ role: 'assistant', content: response.content, toolCalls: response.toolCalls });
-
-        for (const toolCall of response.toolCalls) {
-          if (session.cancelled) return this.finishCancelled(session);
-          const outcome = await this.runToolCall(session, toolCall);
-          if (outcome === 'cancelled') return this.finishCancelled(session);
-        }
-        continue; // next model turn
-      }
-
-      // No tool calls: this is the final assistant message → end of turn.
-      session.messages.push({ role: 'assistant', content: response.content });
-      await this.flush();
-      return response.finishReason === 'length' ? 'max_tokens' : 'end_turn';
-    }
-
-    // Exhausted the iteration budget.
-    await this.flush();
-    return 'max_turn_requests';
-  }
-
-  /** Flush pending notifications and return the cancelled stop reason. */
-  private async finishCancelled(session: AcpSession): Promise<PromptResponse['stopReason']> {
-    debug(`turn cancelled: ${session.id}`);
-    const answered = new Set(session.messages.filter(m => m.role === 'tool').map(m => m.toolCallId));
-    for (const message of [...session.messages]) {
-      for (const call of message.toolCalls ?? []) {
-        if (!answered.has(call.id)) {
-          session.messages.push({ role: 'tool', toolCallId: call.id, content: '[cancelled before a result was recorded; do not assume completion]' });
-          answered.add(call.id);
-        }
-      }
-    }
-    await this.flush();
-    return 'cancelled';
-  }
-
-  // ---- One tool call: announce → gate → execute → report ----------------
-
-  private async runToolCall(session: AcpSession, toolCall: ToolCall): Promise<'ok' | 'cancelled'> {
-    session.runlog.toolCall({ id: toolCall.id, name: toolCall.name, args: toolCall.arguments });
-    session.totals.toolCalls++;
-
-    // Announce the pending tool call.
-    await this.emit(session.id, {
-      sessionUpdate: 'tool_call',
-      toolCallId: toolCall.id,
-      title: toolTitle(toolCall),
-      kind: toolKind(toolCall.name),
-      status: 'pending',
-      rawInput: toolCall.arguments,
-      locations: toolLocations(toolCall, session.cwd),
-    });
-
-    // Permission + hard governance gates.
-    const gate = await this.gateToolCall(session, toolCall);
-    if (gate.decision === 'cancelled') {
-      await this.reportToolResult(session, toolCall.id, '[cancelled]', true);
-      session.runlog.toolResult({ id: toolCall.id, result: '[cancelled]', isError: true, durationMs: 0 });
-      session.messages.push({ role: 'tool', content: '[cancelled]', toolCallId: toolCall.id });
-      return 'cancelled';
-    }
-    if (gate.decision === 'deny') {
-      await this.reportToolResult(session, toolCall.id, gate.reason, true);
-      session.runlog.toolResult({ id: toolCall.id, result: gate.reason, isError: true, durationMs: 0 });
-      session.messages.push({ role: 'tool', content: gate.reason, toolCallId: toolCall.id });
-      return 'ok';
-    }
-
-    // Allowed: mark in-progress and execute through the shared tool runtime,
-    // preferring the client's filesystem when it advertised fs capabilities.
-    await this.emit(session.id, { sessionUpdate: 'tool_call_update', toolCallId: toolCall.id, status: 'in_progress' });
-
-    throwIfCancelled(session.controller?.signal);
-    const started = Date.now();
-    let result: ToolResult;
+  private async runTurn(session: AcpSession, prompt: string): Promise<PromptResponse['stopReason']> {
+    const messages = { current: session.messages };
+    let streamedChars = 0;
     try {
-      result = await executeTool(toolCall, session.cwd, 60000, undefined, {
-        signal: session.controller?.signal,
-        appendAnchorHash: session.localBackend,
-        auditPermission: event => session.runlog.policyEvent(event),
-        fs: this.clientFsDelegate(session.id),
+      const result = await runTurn({
+        client: 'acp',
+        sessionId: session.id, cwd: session.cwd, provider: session.resolvedProvider,
+        model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
+        runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
+        confirmation: 'mutating', tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
+        prepare: async request => { streamedChars = 0; return request; },
+        approve: call => this.requestPermission(session, call),
+        onToken: token => {
+          if (!token || session.cancelled) return;
+          streamedChars += token.length;
+          void this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: token } });
+        },
+        onResponse: async response => {
+          if (!streamedChars && response.content) await this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: response.content } });
+        },
+        onToolStart: async call => {
+          await this.emit(session.id, { sessionUpdate: 'tool_call', toolCallId: call.id, title: toolTitle(call), kind: toolKind(call.name), status: 'pending', rawInput: call.arguments });
+        },
+        beforeTool: async call => { await this.emit(session.id, { sessionUpdate: 'tool_call_update', toolCallId: call.id, status: 'in_progress' }); },
+        onToolResult: async (call, value) => { await this.reportToolResult(session, call.id, value.displayResult || value.result, !!value.isError, value.result); },
+        onWarning: warning => { void this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n[Warning: ${warning}]\n` } }); },
       });
-    } catch (err) {
-      result = {
-        toolCallId: toolCall.id,
-        result: `Error: ${errMessage(err)}`,
-        isError: true,
-      };
-    }
-    const durationMs = Date.now() - started;
-    const cancelled = session.cancelled || session.controller?.signal.aborted;
-
-    session.runlog.toolResult({
-      id: toolCall.id,
-      result: result.result,
-      isError: result.isError || false,
-      durationMs,
-    });
-    await this.reportToolResult(session, toolCall.id, result.displayResult || result.result, result.isError || false, result.result);
-    session.messages.push({ role: 'tool', content: result.result, toolCallId: toolCall.id });
-    return cancelled ? 'cancelled' : 'ok';
+      if (result.budget?.exceeded) await this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: formatBudgetHalt(result.budget) } });
+      await this.flush();
+      if (result.reason === 'cancelled') return 'cancelled';
+      if (result.reason === 'budget') return 'refusal';
+      if (result.reason === 'iteration_limit') return 'max_turn_requests';
+      if (result.reason === 'length') return 'max_tokens';
+      return 'end_turn';
+    } finally { session.messages = messages.current; }
   }
 
   /** Send a terminal (completed/failed) tool_call_update to the client. */
@@ -501,17 +365,6 @@ class CalliopeAgent implements Agent {
   }
 
   // ---- Gates: permission, then the hard hooks -------------------------
-
-  private async gateToolCall(session: AcpSession, toolCall: ToolCall): Promise<GateResult> {
-    const result = await resolvePermission(toolCall, {
-      cwd: session.cwd, confirmation: 'mutating', signal: session.controller?.signal,
-      approve: () => this.requestPermission(session, toolCall),
-      audit: event => session.runlog.policyEvent(event),
-    });
-    if (result.decision === 'allow') return { decision: 'allow' };
-    if (result.decision === 'cancelled') return { decision: 'cancelled' };
-    return { decision: 'deny', reason: result.reason };
-  }
 
   /**
    * Ask the client to authorize a tool call. Returns the user's decision, or
@@ -602,16 +455,7 @@ class CalliopeAgent implements Agent {
   async shutdown(): Promise<void> {
     for (const session of this.sessions.values()) {
       if (session.controller) { session.cancelled = true; session.controller.abort(); }
-      session.runlog.runEnd({
-        totals: {
-          inputTokens: session.totals.inputTokens,
-          outputTokens: session.totals.outputTokens,
-          cost: session.totals.cost,
-          toolCalls: session.totals.toolCalls,
-          durationMs: Date.now() - session.startedAt,
-        },
-        exitReason: session.cancelled ? 'cancelled' : 'completed',
-      });
+      await session.activeTurn?.catch(() => {});
       await session.runlog.close();
     }
   }

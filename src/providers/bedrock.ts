@@ -11,7 +11,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, ImageContent, MessageContent } from '../types.js';
-import { getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 
 // ---------------------------------------------------------------------------
 // AWS Credential Resolution
@@ -328,8 +328,14 @@ function toBedrockMessages(messages: Message[]): { system: Array<{ text: string 
         }
       }
 
-      if (blocks.length > 0) {
-        bedrockMessages.push({ role: 'assistant', content: blocks });
+      const reasoning = msg.providerMetadata?.bedrock &&
+        (msg.providerMetadata.bedrock as { reasoningContent?: unknown }).reasoningContent;
+      const reasoningBlocks = reasoning
+        ? (Array.isArray(reasoning) ? reasoning : [reasoning]).map(block => ({ reasoningContent: block })) as BedrockContentBlock[]
+        : [];
+      const orderedBlocks = [...reasoningBlocks, ...blocks];
+      if (orderedBlocks.length > 0) {
+        bedrockMessages.push({ role: 'assistant', content: orderedBlocks });
       }
       continue;
     }
@@ -389,8 +395,10 @@ export async function chatBedrock(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxOutputTokens?: number,
 ): Promise<LLMResponse> {
+  if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1)) throw new Error('maxOutputTokens must be a positive integer');
   const credentials = await getAWSCredentials();
   const region = getAWSRegion();
   const service = 'bedrock';
@@ -410,7 +418,7 @@ export async function chatBedrock(
   const requestBody: Record<string, unknown> = {
     messages: bedrockMessages,
     inferenceConfig: {
-      maxTokens: dynamicMaxTokens,
+      maxTokens: Math.min(dynamicMaxTokens, maxOutputTokens ?? dynamicMaxTokens),
     },
   };
 
@@ -457,6 +465,7 @@ export async function chatBedrock(
         content: Array<{
           text?: string;
           toolUse?: { toolUseId: string; name: string; input: Record<string, unknown> };
+          reasoningContent?: unknown;
         }>;
       };
     };
@@ -467,6 +476,7 @@ export async function chatBedrock(
   // Parse response
   let content = '';
   const toolCalls: ToolCall[] = [];
+  const reasoningContent: unknown[] = [];
 
   if (data.output?.message?.content) {
     for (const block of data.output.message.content) {
@@ -479,21 +489,18 @@ export async function chatBedrock(
           arguments: block.toolUse.input,
         });
       }
+      if (block.reasoningContent) reasoningContent.push(block.reasoningContent);
     }
   }
 
   // Map stop reasons
-  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
-  if (data.stopReason === 'tool_use') {
-    finishReason = 'tool_use';
-  } else if (data.stopReason === 'max_tokens') {
-    finishReason = 'length';
-  }
+  const finishReason = normalizeFinishReason(data.stopReason, toolCalls.length > 0);
 
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: data.usage ? {
       inputTokens: data.usage.inputTokens,
       outputTokens: data.usage.outputTokens,
@@ -538,6 +545,7 @@ async function chatBedrockStreaming(
 
   let content = '';
   const toolCalls: ToolCall[] = [];
+  const reasoningContent: unknown[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
@@ -671,7 +679,7 @@ async function chatBedrockStreaming(
             break;
           }
           case 'contentBlockDelta': {
-            const delta = event as { delta?: { text?: string; toolUse?: { input?: string } } };
+            const delta = event as { delta?: { text?: string; toolUse?: { input?: string }; reasoningContent?: unknown } };
             if (delta.delta?.text) {
               content += delta.delta.text;
               onToken(delta.delta.text);
@@ -679,6 +687,7 @@ async function chatBedrockStreaming(
             if (delta.delta?.toolUse?.input) {
               currentToolInput += delta.delta.toolUse.input;
             }
+            if (delta.delta?.reasoningContent) reasoningContent.push(delta.delta.reasoningContent);
             break;
           }
           case 'contentBlockStop': {
@@ -704,11 +713,7 @@ async function chatBedrockStreaming(
           }
           case 'messageStop': {
             const stop = event as { stopReason?: string };
-            if (stop.stopReason === 'tool_use') {
-              finishReason = 'tool_use';
-            } else if (stop.stopReason === 'max_tokens') {
-              finishReason = 'length';
-            }
+            finishReason = normalizeFinishReason(stop.stopReason, toolCalls.length > 0);
             break;
           }
           case 'metadata': {
@@ -733,6 +738,7 @@ async function chatBedrockStreaming(
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: { inputTokens, outputTokens },
   };
 }

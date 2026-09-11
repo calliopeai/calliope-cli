@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "mistral",
+  "model": "ministral-3b-2512",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:16.250Z",
+    "sourceOrigin": "https://api.mistral.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6IjM3MDE2NDJhNTE3YTRhODM4ZDAxNDliMWUyN2Q3YTc2IiwiY3JlYXRlZCI6MTc4OTEwMTE5NiwibW9kZWwiOiJtaW5pc3RyYWwtM2ItMjUxMiIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjg5LCJ0b3RhbF90b2tlbnMiOjk5LCJjb21wbGV0aW9uX3Rva2VucyI6MTAsInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZWRfdG9rZW5zIjowfSwic2VydmljZV90aWVyIjoic3RhbmRhcmQifSwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIiwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwidG9vbF9jYWxscyI6W3siaWQiOiJ3UHpyVTk0S0giLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjogXCJoZWxsb1wifSJ9LCJpbmRleCI6MH1dLCJjb250ZW50IjoiIn19XX0=",
+      "sha256": "10c1bcaa352bab65b445400be00dff841d0224a2ed3da62c89442987a56cc277"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 89,
+      "outputTokens": 10
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

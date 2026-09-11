@@ -673,7 +673,7 @@ describe('chatOpenAI (non-streaming, Chat Completions)', () => {
     expect(result.finishReason).toBe('length');
   });
 
-  it('defaults to stop for unknown finish reasons', async () => {
+  it('maps a filtered completion to error', async () => {
     mockCreateResponse = {
       choices: [
         {
@@ -684,7 +684,7 @@ describe('chatOpenAI (non-streaming, Chat Completions)', () => {
     };
 
     const result = await chatOpenAI(makeSimpleMessages(), [], 'gpt-4o');
-    expect(result.finishReason).toBe('stop');
+    expect(result.finishReason).toBe('error');
   });
 
   it('throws on empty response', async () => {

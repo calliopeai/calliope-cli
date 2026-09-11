@@ -50,7 +50,7 @@ export interface RouteDecision {
 // Default Model Tiers
 // ============================================================================
 
-const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
+const DEFAULT_TIERS: Partial<Record<LLMProvider, RoutingConfig['tiers']>> = {
   anthropic: {
     fast: {
       name: 'Haiku',
@@ -129,6 +129,11 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
       costPer1kOutput: 0.005,
     },
   },
+  ai21: {
+    fast: { name: 'Jamba Mini (legacy)', provider: 'ai21', model: 'jamba-1.5-mini', maxTokens: 4096, costPer1kInput: 0.0002, costPer1kOutput: 0.0004 },
+    balanced: { name: 'Jamba Large (legacy)', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
+    smart: { name: 'Jamba Large (legacy)', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
+  },
   // Fallback for other providers
   together: {
     fast: { name: 'Llama 8B', provider: 'together', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', maxTokens: 8192, costPer1kInput: 0.00018, costPer1kOutput: 0.00018 },
@@ -160,11 +165,6 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     balanced: { name: 'Llama 70B', provider: 'ollama', model: 'llama3.3', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
     smart: { name: 'Llama 70B', provider: 'ollama', model: 'llama3.3', maxTokens: 32768, costPer1kInput: 0, costPer1kOutput: 0 },
   },
-  ai21: {
-    fast: { name: 'Jamba Mini', provider: 'ai21', model: 'jamba-1.5-mini', maxTokens: 4096, costPer1kInput: 0.0002, costPer1kOutput: 0.0004 },
-    balanced: { name: 'Jamba Large', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
-    smart: { name: 'Jamba Large', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
-  },
   huggingface: {
     fast: { name: 'Default', provider: 'huggingface', model: 'meta-llama/Llama-3.1-8B-Instruct', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
     balanced: { name: 'Default', provider: 'huggingface', model: 'meta-llama/Llama-3.1-70B-Instruct', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
@@ -191,6 +191,7 @@ const DEFAULT_TIERS: Record<LLMProvider, RoutingConfig['tiers']> = {
     smart: { name: 'Auto', provider: 'auto', model: 'auto', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
   },
 };
+const FALLBACK_TIERS = DEFAULT_TIERS.anthropic!;
 
 // ============================================================================
 // Complexity Analysis
@@ -331,7 +332,7 @@ export function routeRequest(
   }
 ): RouteDecision {
   const { complexity, confidence, signals } = analyzeComplexity(message, context);
-  const tiers = DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  const tiers = DEFAULT_TIERS[provider] || FALLBACK_TIERS;
 
   let tier: 'fast' | 'balanced' | 'smart';
   let reason: string;
@@ -369,7 +370,7 @@ export function getModelTier(
   provider: LLMProvider,
   tier: 'fast' | 'balanced' | 'smart'
 ): ModelTier {
-  const tiers = DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  const tiers = DEFAULT_TIERS[provider] || FALLBACK_TIERS;
   return tiers[tier];
 }
 
@@ -377,7 +378,7 @@ export function getModelTier(
  * Get all tiers for a provider
  */
 export function getAllTiers(provider: LLMProvider): RoutingConfig['tiers'] {
-  return DEFAULT_TIERS[provider] || DEFAULT_TIERS.anthropic;
+  return DEFAULT_TIERS[provider] || FALLBACK_TIERS;
 }
 
 /**

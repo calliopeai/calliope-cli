@@ -2,7 +2,7 @@
  * OpenAI-Compatible Provider
  *
  * Handles OpenRouter, Together, Groq, Fireworks, Mistral, AI21,
- * HuggingFace, Ollama, and LiteLLM via the OpenAI SDK.
+ * HuggingFace, DeepSeek, xAI, Cerebras, Ollama, and LiteLLM via the OpenAI SDK.
  */
 
 import OpenAI from 'openai';
@@ -10,7 +10,7 @@ import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNon
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
-import { calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 
@@ -22,7 +22,10 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   mistral: 'https://api.mistral.ai/v1',
   ai21: 'https://api.ai21.com/studio/v1',
-  huggingface: 'https://api-inference.huggingface.co/v1',
+  huggingface: 'https://router.huggingface.co/v1',
+  deepseek: 'https://api.deepseek.com',
+  xai: 'https://api.x.ai/v1',
+  cerebras: 'https://api.cerebras.ai/v1',
 };
 
 // ---------------------------------------------------------------------------
@@ -275,7 +278,7 @@ export async function chatOpenAICompatible(
 
     const resolvedBase = PROVIDER_BASE_URLS[provider];
     if (!resolvedBase) throw new Error(`Unknown provider: ${provider}`);
-    baseURL = resolvedBase;
+    baseURL = config.getBaseUrl(provider) || resolvedBase;
   }
 
   // Apply openai-compat shim if applicable
@@ -298,6 +301,7 @@ export async function chatOpenAICompatible(
     let content = '';
     let toolCallDeltas: Record<number, { id: string; name: string; arguments: string }> = {};
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+    let usage: LLMResponse['usage'];
 
     try {
       let streamParams: ChatCompletionCreateParamsStreaming = {
@@ -311,6 +315,7 @@ export async function chatOpenAICompatible(
       const stream = await client.chat.completions.create(streamParams, signal ? { signal } : undefined);
 
       for await (const chunk of stream) {
+        if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
 
@@ -336,11 +341,7 @@ export async function chatOpenAICompatible(
         }
 
         // Track finish reason
-        if (choice.finish_reason === 'tool_calls') {
-          finishReason = 'tool_use';
-        } else if (choice.finish_reason === 'length') {
-          finishReason = 'length';
-        }
+        if (choice.finish_reason) finishReason = normalizeFinishReason(choice.finish_reason);
       }
 
       // Convert tool call deltas to tool calls
@@ -360,14 +361,14 @@ export async function chatOpenAICompatible(
           };
         });
 
-      if (toolCalls.length > 0) {
-        finishReason = 'tool_use';
-      }
+      finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
 
       return {
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
+        usage,
+        warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
       };
     } catch (streamError) {
       throwIfCancelled(signal);
@@ -425,12 +426,7 @@ export async function chatOpenAICompatible(
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
   // Map finish reasons
-  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
-  if (choice.finish_reason === 'tool_calls') {
-    finishReason = 'tool_use';
-  } else if (choice.finish_reason === 'length') {
-    finishReason = 'length';
-  }
+  const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);
 
   return {
     content: message.content || '',

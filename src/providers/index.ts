@@ -33,9 +33,11 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('fireworks')) providers.push('fireworks');
   if (config.getApiKey('mistral')) providers.push('mistral');
   if (config.getBaseUrl('ollama')) providers.push('ollama');
-  if (config.getApiKey('ai21')) providers.push('ai21');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
   if (config.getBaseUrl('litellm')) providers.push('litellm');
+  if (config.getApiKey('deepseek')) providers.push('deepseek');
+  if (config.getApiKey('xai')) providers.push('xai');
+  if (config.getApiKey('cerebras')) providers.push('cerebras');
   if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
 
   return providers;
@@ -64,6 +66,9 @@ function joinFixes(parts: string[]): string {
 
 /** Build the actionable "how to fix" message for an unconfigured provider. */
 function unavailableMessage(provider: LLMProvider): string {
+  if (provider === 'ai21') {
+    return 'ai21 is retired: the AI21 Studio API was sunset on August 9, 2026. Remove the provider or migrate to a supported endpoint such as Hugging Face, Together, or an explicitly configured OpenAI-compatible gateway.';
+  }
   const { apiKey, baseUrl } = config.getProviderEnvVars(provider);
   if (provider === 'ollama' || provider === 'litellm') {
     const fixes = ['calliope --setup', `/config set providers.${provider}.baseUrl <url>`];
@@ -89,6 +94,7 @@ function unavailableMessage(provider: LLMProvider): string {
  */
 export function selectProvider(preferred: LLMProvider): LLMProvider {
   if (preferred !== 'auto') {
+    if (preferred === 'ai21') throw new ProviderUnavailableError(preferred, unavailableMessage(preferred));
     // For Ollama/LiteLLM, check base URL instead of API key
     if (preferred === 'ollama' || preferred === 'litellm') {
       if (config.getBaseUrl(preferred)) return preferred;
@@ -103,7 +109,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'ai21', 'huggingface', 'bedrock', 'ollama', 'litellm'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm'];
 
   for (const p of priority) {
     if (p === 'ollama' || p === 'litellm') {
@@ -162,6 +168,9 @@ export async function chat(
       case 'mistral':
       case 'ai21':
       case 'huggingface':
+      case 'deepseek':
+      case 'xai':
+      case 'cerebras':
         response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'ollama':

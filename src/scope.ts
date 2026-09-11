@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 /**
  * Calliope CLI - Scope Management
  *
@@ -61,7 +62,7 @@ const DEFAULT_DENIED_PATTERNS = [
 // Scope Manager
 // ============================================================================
 
-class ScopeManager {
+export class ScopeManager {
   private config: ScopeConfig;
   private homeDir: string;
   private tmpDir: string;
@@ -77,6 +78,9 @@ class ScopeManager {
       deniedPatterns: [...DEFAULT_DENIED_PATTERNS],
     };
   }
+
+  snapshot(): ScopeConfig { return structuredClone(this.config); }
+  restore(config: ScopeConfig): void { this.config = structuredClone(config); }
 
   /**
    * Reset scope to just the current working directory.
@@ -360,7 +364,27 @@ class ScopeManager {
 // Singleton Instance
 // ============================================================================
 
-export const scopeManager = new ScopeManager();
+const scopeContext = new AsyncLocalStorage<ScopeManager>();
+const defaultScope = new ScopeManager();
+// Existing tool/sandbox imports keep their API while resolving the active turn's
+// scope. AsyncLocalStorage prevents concurrent editor sessions sharing grants.
+export const scopeManager = new Proxy(defaultScope, {
+  get(target, key) {
+    const active = scopeContext.getStore() ?? target;
+    const value = Reflect.get(active, key);
+    return typeof value === 'function' ? value.bind(active) : value;
+  },
+});
+
+export function withScope<T>(cwd: string, operation: () => T, inherit = false): T {
+  const manager = new ScopeManager();
+  manager.reset(cwd);
+  const inherited = scopeManager.snapshot();
+  // Grants belong to their original project, including when a TUI resumes a
+  // session whose project differs from the process working directory.
+  if (inherit && path.resolve(inherited.allowedDirs[0] ?? '') === path.resolve(cwd)) manager.restore(inherited);
+  return scopeContext.run(manager, operation);
+}
 
 // ============================================================================
 // Convenience Functions

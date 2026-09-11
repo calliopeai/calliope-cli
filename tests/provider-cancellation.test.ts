@@ -15,7 +15,7 @@ vi.mock('openai', () => ({ default: class {
 vi.mock('@anthropic-ai/sdk', () => ({ default: class {
   messages = { create: transport.request, stream: transport.request };
 } }));
-vi.mock('@google/generative-ai', () => ({ GoogleGenerativeAI: class {
+vi.mock('@google/genai', () => ({ GoogleGenAI: class {
   getGenerativeModel() { return { startChat: () => ({ sendMessage: transport.request, sendMessageStream: transport.request }) }; }
 } }));
 vi.mock('../src/config.js', () => ({

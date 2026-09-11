@@ -62,7 +62,7 @@ export async function chatAnthropic(
   const client = new Anthropic({ apiKey });
 
   // Extract system message
-  const systemMessage = messages.find(m => m.role === 'system');
+  const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const chatMessages = messages.filter(m => m.role !== 'system');
 
   // Adaptive thinking improves agentic/coding quality on the models that support it (#147).
@@ -142,7 +142,7 @@ export async function chatAnthropic(
       const stream = await client.messages.stream({
         model,
         max_tokens: dynamicMaxTokens,
-        system: systemMessage ? getTextContent(systemMessage.content) : '',
+        system: systemInstruction,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
         ...(thinking ? { thinking } : {}),
@@ -226,7 +226,7 @@ export async function chatAnthropic(
   const response = await client.messages.create({
     model,
     max_tokens: Math.min(dynamicMaxTokens, NONSTREAM_MAX_TOKENS),
-    system: systemMessage ? getTextContent(systemMessage.content) : '',
+    system: systemInstruction,
     messages: anthropicMessages,
     tools: anthropicTools.length > 0 ? anthropicTools : undefined,
     ...(thinking ? { thinking } : {}),

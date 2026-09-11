@@ -26,6 +26,9 @@ const apiKeys: Record<string, string | undefined> = {
   mistral: 'test-mistral-key',
   ai21: 'test-ai21-key',
   huggingface: 'test-hf-key',
+  deepseek: 'test-deepseek-key',
+  xai: 'test-xai-key',
+  cerebras: 'test-cerebras-key',
   bedrock: 'test-bedrock-key',
 };
 
@@ -469,7 +472,17 @@ describe('chatOpenAICompatible', () => {
 
     it('should use correct base URL for huggingface', async () => {
       await chatOpenAICompatible('huggingface', [{ role: 'user', content: 'hi' }], [], 'test-model');
-      expect(lastClientConfig!.baseURL).toBe('https://api-inference.huggingface.co/v1');
+      expect(lastClientConfig!.baseURL).toBe('https://router.huggingface.co/v1');
+    });
+
+    it.each([
+      ['deepseek', 'DEEPSEEK_API_KEY', 'https://api.deepseek.com'],
+      ['xai', 'XAI_API_KEY', 'https://api.x.ai/v1'],
+      ['cerebras', 'CEREBRAS_API_KEY', 'https://api.cerebras.ai/v1'],
+    ] as const)('should use correct base URL for %s', async (provider, envVar, expectedBaseURL) => {
+      process.env[envVar] = 'test-key';
+      await chatOpenAICompatible(provider, [{ role: 'user', content: 'hi' }], [], 'test-model');
+      expect(lastClientConfig!.baseURL).toBe(expectedBaseURL);
     });
 
     it('should append /v1 for Ollama base URL', async () => {

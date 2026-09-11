@@ -22,7 +22,7 @@ vi.mock('../src/config.js', () => ({
 
 // Mock SDK constructors to prevent real network calls
 vi.mock('@anthropic-ai/sdk', () => ({ default: vi.fn() }));
-vi.mock('@google/generative-ai', () => ({ GoogleGenerativeAI: vi.fn() }));
+vi.mock('@google/genai', () => ({ GoogleGenAI: vi.fn() }));
 vi.mock('openai', () => {
   const MockOpenAI = vi.fn().mockImplementation(function (this: any) {
     this.models = { list: vi.fn().mockResolvedValue({ data: [] }) };
@@ -1365,6 +1365,7 @@ describe('getAvailableModels - openai-compatible providers', () => {
     });
 
     const models = await getAvailableModels('huggingface');
+    expect(OpenAI).toHaveBeenLastCalledWith({ apiKey: 'test-key', baseURL: 'https://router.huggingface.co/v1' });
     const ids = models.map(m => m.id);
     expect(ids).toContain('meta-llama/Llama-3-70b');
     expect(ids).not.toContain('sentence-transformers/all-MiniLM-embed');

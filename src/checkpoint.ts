@@ -78,9 +78,9 @@ let checkpointCount = 0;
 /**
  * Check if a tool call should trigger a checkpoint.
  */
-export function shouldCheckpoint(tool: string, args: Record<string, unknown>): boolean {
+export function shouldCheckpoint(tool: string, args: Record<string, unknown>, cwd = process.cwd()): boolean {
   if (!enabled) return false;
-  if (!isGitRepo()) return false;
+  if (!isGitRepo(cwd)) return false;
 
   if (tool === 'write_file') return true;
 
@@ -97,13 +97,13 @@ export function shouldCheckpoint(tool: string, args: Record<string, unknown>): b
  * record a ref pointing at it. Returns the commit hash if successful, null if
  * nothing to commit.
  */
-export function createCheckpoint(tool: string, args: Record<string, unknown>): string | null {
-  if (!isGitRepo()) return null;
+export function createCheckpoint(tool: string, args: Record<string, unknown>, cwd = process.cwd()): string | null {
+  if (!isGitRepo(cwd)) return null;
 
   try {
     // Capture the repo root once, at checkpoint time, and pin every git call for
     // this checkpoint to it. process.cwd() may change before the matching revert.
-    const root = gitRepoRoot();
+    const root = gitRepoRoot(cwd);
     if (!root) return null;
 
     // Check if there are any changes to commit

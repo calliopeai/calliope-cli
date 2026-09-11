@@ -49,9 +49,11 @@ function mockStreamResponse(chunks: string[]) {
     status: 200,
     body: {
       getReader: () => ({
+        cancel: async () => {},
+        releaseLock: () => {},
         read: async () => {
           if (index >= chunks.length) return { done: true, value: undefined };
-          return { done: false, value: encoder.encode(chunks[index++]) };
+          return { done: false, value: encoder.encode(chunks[index++] + '\n') };
         },
       }),
     },
@@ -250,20 +252,16 @@ describe('chatOllama', () => {
       expect(result.finishReason).toBe('tool_use');
     });
 
-    it('skips invalid JSON lines in stream', async () => {
+    it('rejects malformed JSON lines instead of claiming a partial success', async () => {
       const chunks = [
         'not-json\n' + JSON.stringify({ message: { role: 'assistant', content: 'OK' }, done: false }),
         JSON.stringify({ message: { role: 'assistant', content: '' }, done: true }),
       ];
       vi.mocked(fetch).mockResolvedValueOnce(mockStreamResponse(chunks) as unknown as Response);
 
-      const result = await chatOllama(
-        [{ role: 'user', content: 'Hi' }],
-        [],
-        'llama3.3',
-        () => {}
-      );
-      expect(result.content).toBe('OK');
+      await expect(chatOllama(
+        [{ role: 'user', content: 'Hi' }], [], 'llama3.3', () => {}
+      )).rejects.toThrow('Malformed JSON');
     });
 
     it('throws error when response body is null', async () => {

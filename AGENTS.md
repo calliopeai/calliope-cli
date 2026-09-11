@@ -4,7 +4,7 @@
 canonical conventions document; when anything here conflicts with it, it wins.
 
 ## Stack at a glance
-- TypeScript, **ESM** (`strict: true`, `module: NodeNext`). React 19 + Ink 6 TUI.
+- TypeScript, **ESM** (`strict: true`, `module: NodeNext`). React 19 + Ink 7 TUI.
 - Entry `src/bin.ts`. Config via `conf`. Multi-provider (Anthropic / Google /
   OpenAI / OpenAI-compatible). Tests in `tests/` (Vitest).
 

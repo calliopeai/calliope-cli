@@ -265,8 +265,10 @@ async function main(): Promise<void> {
                        process.env.FIREWORKS_API_KEY ||
                        process.env.MISTRAL_API_KEY ||
                        process.env.OLLAMA_BASE_URL ||
-                       process.env.AI21_API_KEY ||
                        process.env.HUGGINGFACE_API_KEY ||
+                       process.env.DEEPSEEK_API_KEY ||
+                       process.env.XAI_API_KEY ||
+                       process.env.CEREBRAS_API_KEY ||
                        process.env.LITELLM_BASE_URL ||
                        process.env.BEDROCK_API_KEY ||
                        process.env.BEDROCK_BASE_URL ||
@@ -357,8 +359,10 @@ ${bold('ENVIRONMENT VARIABLES')}
   TOGETHER_API_KEY      Together AI API key
   GROQ_API_KEY          Groq API key
   MISTRAL_API_KEY       Mistral AI API key
-  AI21_API_KEY          AI21 Labs API key
   HUGGINGFACE_API_KEY   HuggingFace API key
+  DEEPSEEK_API_KEY      DeepSeek API key
+  XAI_API_KEY           xAI API key
+  CEREBRAS_API_KEY      Cerebras API key
   OLLAMA_BASE_URL       Ollama server URL (default: localhost:11434)
   LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
   LITELLM_API_KEY       LiteLLM API key (if required)

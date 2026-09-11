@@ -99,6 +99,7 @@ vi.mock('../src/summarization.js', () => ({
 }));
 vi.mock('../src/auto-compressor.js', () => ({ autoCompress: vi.fn(async (messages: unknown[]) => ({ compressed: false, messages })) }));
 vi.mock('../src/parallel-tools.js', () => ({
+  analyzeDependencies: (calls: unknown[]) => ({ stages: calls.map(call => [call]) }),
   executeParallel: vi.fn(),
   getParallelizationStats: vi.fn(() => ({ totalCalls: 1, maxParallel: 1, stages: 1 })),
 }));

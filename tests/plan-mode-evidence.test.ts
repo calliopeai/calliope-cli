@@ -87,6 +87,7 @@ vi.mock('../src/summarization.js', () => ({
 }));
 
 vi.mock('../src/parallel-tools.js', () => ({
+  analyzeDependencies: (calls: unknown[]) => ({ stages: calls.map(call => [call]) }),
   executeParallel: vi.fn(),
   getParallelizationStats: vi.fn(() => ({
     totalCalls: 0,
