@@ -55,6 +55,8 @@ and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.
 Provider/model controls and preference precedence are documented in
 [docs/model-preferences.md](docs/model-preferences.md). Session switches do not
 overwrite global defaults; project writes use the shared permission resolver.
+[Session recovery](docs/session-recovery.md) pins each client to a unique session
+and checkpoints the shared runtime at tool boundaries.
 
 ```
 src/
@@ -69,7 +71,7 @@ src/
 ├── types.ts          # core types, DEFAULT_MODELS, pricing
 ├── models/ / model-detection.ts / routing/ # live metadata + shared routing
 ├── sandbox.ts / sandbox-native.ts / risk.ts / trust.ts / scope.ts  # security boundary
-├── storage.ts / memory.ts / checkpoint.ts / branching.ts    # persistence + session state
+├── storage.ts / sessions/ / memory.ts / checkpoint.ts    # persistence + session state
 ├── auto-compressor.ts / summarization.ts                    # context management
 ├── fleet.ts          # flag-gated IRC fleet bus (sole importer of scuttlebot/)
 ├── agents/           # dynamic/custom tool definitions

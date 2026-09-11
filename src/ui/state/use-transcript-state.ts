@@ -23,7 +23,7 @@ export interface TranscriptStateHook {
   reset: () => void;
 }
 
-export function useTranscriptState(): TranscriptStateHook {
+export function useTranscriptState(sessionRef?: React.MutableRefObject<storage.Session | null>): TranscriptStateHook {
   const [messages, setMessages] = useState<UIMessage[]>([]);
   const [clearCount, setClearCount] = useState(0);
   const prevLen = useRef(0);
@@ -57,9 +57,11 @@ export function useTranscriptState(): TranscriptStateHook {
     }]);
     // Persist user and assistant messages to storage for session history
     if (type === 'user' || type === 'assistant') {
-      storage.addChatMessage({ role: type, content });
+      if (sessionRef?.current) {
+        try { storage.addChatMessage({ role: type, content }, sessionRef.current.id); } catch { /* Recovery snapshot is authoritative. */ }
+      }
     }
-  }, []);
+  }, [sessionRef]);
 
   const reset = useCallback(() => setMessages([]), []);
 

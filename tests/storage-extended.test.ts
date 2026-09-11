@@ -136,7 +136,7 @@ describe('getOrCreateSession', () => {
     const session = getOrCreateSession('/tmp/my-project');
 
     expect(session).toBeDefined();
-    expect(session.id).toMatch(/^session_\d+_[a-z0-9]+$/);
+    expect(session.id).toMatch(/^session_\d+_[a-z0-9-]+$/);
     expect(session.projectPath).toBe('/tmp/my-project');
     expect(session.projectName).toBe('my-project');
     expect(session.messageCount).toBe(0);
@@ -281,7 +281,7 @@ describe('deleteSession', () => {
     const sessionId = 'session_del_123';
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: sessionId })
+      JSON.stringify({ id: sessionId, projectPath: '/tmp/del-project', projectName: 'del-project', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
 
     const result = deleteSession(sessionId);
@@ -377,7 +377,7 @@ describe('addChatMessage & getChatHistory', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: 'session_chat_by_id', projectPath: '/tmp/chat-by-id', projectName: 'chat-by-id' })
+      JSON.stringify({ id: 'session_chat_by_id', projectPath: '/tmp/chat-by-id', projectName: 'chat-by-id', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
     fs.writeFileSync(
       path.join(sessionDir, 'chat.log'),
@@ -921,7 +921,7 @@ describe('getSessionDirById', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: 'session_findme', projectPath: '/tmp/findme', projectName: 'findme' })
+      JSON.stringify({ id: 'session_findme', projectPath: '/tmp/findme', projectName: 'findme', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
 
     const result = getSessionDirById('session_findme');
@@ -947,7 +947,7 @@ describe('loadMessageHistory with sessionId', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: 'session_byid_1' })
+      JSON.stringify({ id: 'session_byid_1', projectPath: '/tmp/byid-proj', projectName: 'byid-proj', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
     fs.writeFileSync(
       path.join(sessionDir, 'messages.json'),
@@ -973,7 +973,7 @@ describe('loadMessageHistory with sessionId', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: 'session_badjson' })
+      JSON.stringify({ id: 'session_badjson', projectPath: '/tmp/badjson', projectName: 'badjson', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
     fs.writeFileSync(path.join(sessionDir, 'messages.json'), 'not valid json{{{');
 
@@ -988,7 +988,7 @@ describe('loadMessageHistory with sessionId', () => {
     fs.mkdirSync(sessionDir, { recursive: true });
     fs.writeFileSync(
       path.join(sessionDir, 'session.json'),
-      JSON.stringify({ id: 'session_notarray' })
+      JSON.stringify({ id: 'session_notarray', projectPath: '/tmp/notarray', projectName: 'notarray', createdAt: new Date().toISOString(), lastAccessedAt: new Date().toISOString() })
     );
     fs.writeFileSync(
       path.join(sessionDir, 'messages.json'),
@@ -1053,7 +1053,7 @@ describe('forkSession', () => {
 
     const forked = forkSession('/tmp/fork-source');
     expect(forked).not.toBeNull();
-    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9]+$/);
+    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9-]+$/);
     expect(forked!.messageCount).toBe(2);
 
     // The fork should have the messages copied
@@ -1075,7 +1075,7 @@ describe('forkSession', () => {
     const forked = forkSession('/tmp/fork-unique');
 
     expect(forked).not.toBeNull();
-    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9]+$/);
+    expect(forked!.id).toMatch(/^session_\d+_[a-z0-9-]+$/);
     expect(forked!.projectName).toBe('fork-unique');
     expect(forked!.messageCount).toBe(1);
 

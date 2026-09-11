@@ -27,6 +27,8 @@ const BASE_SLASH_COMMANDS = [
   '/undo',
   '/export',
   '/resume',
+  '/new',
+  '/sessions',
   '/compact',
   '/scope', '/scope add', '/scope remove',
   '/memory',

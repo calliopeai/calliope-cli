@@ -46,6 +46,7 @@ function summarizeMessageContent(content: MessageContent): string {
 // ============================================================================
 
 export interface AgentContext {
+  onCheckpoint?: import('../runtime/turn.js').TurnOptions['onCheckpoint'];
   signal?: AbortSignal;
   // State
   provider: LLMProvider;
@@ -196,6 +197,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   };
   try {
     const result = await runTurn({
+      onCheckpoint: ctx.onCheckpoint,
       client: 'terminal', sessionId, cwd: projectDir, provider: ctx.provider, model: ctx.model,
       preferenceSources: ctx.preferenceSources,
       routing: { ...ctx.smartRoutingConfig, ...config.get('routing') },
@@ -258,7 +260,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         const { inputTokens, outputTokens } = response.usage;
         ctx.setStats(s => ({ ...s, inputTokens: s.inputTokens + inputTokens, outputTokens: s.outputTokens + outputTokens, cost: s.cost + cost }));
         ctx.ledger?.recordTokens(inputTokens, outputTokens, cost);
-        storage.recordCost(cost, request.provider, ctx.sessionRef.current?.id);
+        storage.recordCost(cost, request.provider, sessionId);
       },
       onWarning: warning => {
         const key = `${sessionId}::${warning}`;
@@ -288,7 +290,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setContextTokens(ctx.estimateContextTokens());
         checkAndWarnContextLimit(provider, model, ctx.estimateContextTokens(), ctx.addMessage);
         if (response.finishReason === 'length') ctx.addMessage('system', '(auto-continuing...)');
-        else storage.saveMessageHistory(ctx.llmMessages.current);
+        else if (!ctx.onCheckpoint) storage.saveMessageHistory(ctx.llmMessages.current);
         return undefined;
       },
       onRepair: event => {

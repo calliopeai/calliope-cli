@@ -42,7 +42,8 @@ export type RunLogEventType =
   | 'budget_event'
   | 'policy_event'
   | 'routing_decision'
-  | 'run_end';
+  | 'run_end'
+  | 'session_checkpoint';
 
 /** The stable, on-disk shape of a run-log line. */
 export interface RunLogLine {
@@ -476,6 +477,11 @@ export class RunLog {
 
   policyEvent(payload: PolicyEventPayload): void {
     this.append('policy_event', { ...payload });
+  }
+
+  /** Recovery evidence only; never copy conversation or provider-owned content. */
+  sessionCheckpoint(payload: { revision: string; status: string; messageCount: number; checksum: string }): void {
+    this.append('session_checkpoint', { ...payload });
   }
 
   runEnd(payload: RunEndPayload): void {

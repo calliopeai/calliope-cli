@@ -144,8 +144,10 @@ async function main() {
   try {
     writeFileSync(join(probeState, 'config.json'), JSON.stringify({ setupComplete: false,
       defaultProvider: 'auto', routing: { enabled: false, providerPool: [] }, audit: { enabled: false } }));
-    headless = await runOnce(['--headless', '--json', '--provider', 'auto', 'noop'], {
-      env: { ...keylessEnv, CALLIOPE_CONFIG_DIR: probeState }, timeoutMs: 4000,
+    const preload = join(probeState, 'isolate.mjs');
+    writeFileSync(preload, `import os from 'node:os'; import {syncBuiltinESMExports} from 'node:module'; os.homedir = () => process.env.CALLIOPE_BENCH_STATE; syncBuiltinESMExports();`);
+    headless = BINARY_MODE ? { code: null, exit: 0, firstByte: null, timedOut: false, skipped: true } : await runOnce(['--headless', '--json', '--provider', 'auto', 'noop'], {
+      env: { ...keylessEnv, CALLIOPE_CONFIG_DIR: probeState, CALLIOPE_BENCH_STATE: probeState, NODE_OPTIONS: `--import ${JSON.stringify(preload)}` }, timeoutMs: 4000,
     });
   } finally { rmSync(probeState, { recursive: true, force: true }); }
 
@@ -186,7 +188,7 @@ async function main() {
     `\n  * --version exit includes a one-time npm update-check (cached 24h); reported, not gated.`,
   );
   console.log(
-    `  headless keyless probe: exit code ${headless.code}${headless.timedOut ? ' (timed out)' : ''} in ${fmtMs(headless.exit)}, ` +
+    `  headless keyless probe${headless.skipped ? " (skipped for binary)" : ""}: exit code ${headless.code}${headless.timedOut ? ' (timed out)' : ''} in ${fmtMs(headless.exit)}, ` +
       `first stdout byte ${headless.firstByte === null ? 'none' : fmtMs(headless.firstByte)}.`,
   );
   console.log(`    -> isolated empty-provider-pool diagnostic; no inference, not a cold-start gate (see docs/performance.md).`);

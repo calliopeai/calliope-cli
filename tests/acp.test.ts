@@ -255,6 +255,10 @@ describe('session/new + session/prompt', () => {
 
     const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
     await settle();
+    const { readSessionConversation } = await import('../src/storage.js');
+    const snapshot = readSessionConversation(sessionId);
+    expect(snapshot.status).toBe('completed');
+    expect(snapshot.messages.find(message => message.role === 'tool')?.content).toBe('FILE BODY');
 
     expect(res.stopReason).toBe('end_turn');
 

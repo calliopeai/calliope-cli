@@ -48,11 +48,12 @@ vi.mock('../src/config.js', async original => {
 });
 
 vi.mock('../src/storage.js', () => ({
-  getOrCreateSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
+  createSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
   saveIterationLedger: vi.fn(),
   loadIterationLedger: vi.fn(() => undefined),
   addChatMessage: vi.fn(),
   loadMessageHistory: vi.fn(() => null),
+  saveSessionConversation: vi.fn(() => ({ revision: 'test-revision', messages: [], status: 'completed' })),
   getChatHistory: vi.fn(() => []),
   deleteSession: vi.fn(() => true),
   listSessions: vi.fn(() => []),

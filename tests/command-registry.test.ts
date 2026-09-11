@@ -13,24 +13,24 @@ import { fileURLToPath } from 'url';
 import { COMMAND_NAMES } from '../src/ui/commands.js';
 import { SLASH_COMMANDS } from '../src/ui/completions.js';
 
-// The full set of handled labels: 23 visible commands + the /quit alias of
+// The full set of handled labels: visible commands + the /quit alias of
 // /exit + the flag-gated /fleet (always handled here, gated only in completions).
 const EXPECTED_COMMANDS = [
   '/help', '/status', '/doctor', '/clear', '/exit', '/quit',
   '/model', '/provider', '/mode', '/defaults', '/once',
-  '/undo', '/export', '/resume', '/compact',
+  '/undo', '/export', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',
   '/fleet',
 ].sort();
 
-// The 23 visible commands offered as completion roots (no /quit alias, and
+// The visible commands offered as completion roots (no /quit alias, and
 // /fleet only surfaces when fleet mode is enabled).
 const EXPECTED_COMPLETION_ROOTS = [
   '/help', '/status', '/doctor', '/clear', '/exit',
   '/model', '/provider', '/mode', '/defaults', '/once',
-  '/undo', '/export', '/resume', '/compact',
+  '/undo', '/export', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',
@@ -90,7 +90,7 @@ describe('command registry', () => {
       '/add-dir', '/remove-dir', '/dirs', '/set', '/checkpoint', '/cp', '/untrust',
       '/work', '/plan', '/approve', '/route', '/autoroute', '/smart', '/breaker',
       '/theme', '/emoji', '/hooks', '/profile', '/find', '/search', '/project',
-      '/todo', '/plans', '/history', '/context', '/session', '/sessions', '/log',
+      '/todo', '/plans', '/history', '/context', '/session', '/log',
       '/copy', '/edit', '/redo', '/confirm', '/layout', '/density', '/collapse',
       '/bookmark', '/queue', '/flush', '/unstick', '/keys', '/upgrade', '/costs',
     ];

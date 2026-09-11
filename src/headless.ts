@@ -7,6 +7,7 @@
  */
 
 import { runTurn } from './runtime/index.js';
+import { createSession, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
 import { selectProvider, ProviderUnavailableError } from './providers/index.js';
@@ -181,12 +182,21 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   }, outputMode);
 
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let sessionId: string;
+  try { sessionId = createSession(cwd, { activate: false }).id; }
+  catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
+  let revision: string | null = null;
+  emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
       client: 'headless',
+      onCheckpoint: (history, status) => {
+        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
+        revision = saved.revision;
+        runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
+      },
       sessionId, cwd, provider, model, prompt,
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
