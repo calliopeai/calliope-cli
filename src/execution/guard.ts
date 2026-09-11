@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import {dirname} from 'node:path';
 import type { Tool, ToolCall, Message } from '../types.js';
 import type { RouteCandidate } from '../routing/index.js';
 import type { ProviderAttemptBudget } from '../providers/types.js';
 import { throwIfCancelled } from '../cancellation.js';
-import { executionToolDenial, accountLineage, checkExecutionIdentity, integer } from './authority.js';
+import { executionToolDenial, accountLineage, checkExecutionIdentity, integer,assertExecutionStoreOutsideProject } from './authority.js';
 import { ReservationLedger, requestCostNanos } from './ledger.js';
 import { ExecutionLimitError, type ExecutionManifest } from './types.js';
 import {getBudgetCaps,projectBudgetPath} from '../budget.js';
 import {ProjectSpendLedger} from './project-spend.js';
 import {providerQuote,costCapNanos} from './quote.js';
+import {effectiveExecutionManifest} from './child-grants.js';
 
 export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
@@ -26,9 +28,10 @@ export class ExecutionGuard {
   constructor(execution:AgentExecution,private readonly cwd:string) {
     this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();
     const saved=execution.ledger.read(cwd);
+    assertExecutionStoreOutsideProject(saved.manifest.project.root,dirname(execution.ledger.root));
     if(saved.projection.manifestHash!==execution.manifestHash)throw new ExecutionLimitError('conflict','Execution contract does not match the budget ledger.');
-    const agent=accountLineage(saved.manifest,execution.agentId)[0]!;
-    integer(execution.maxOutputTokens,1,100000000);this.manifest=saved.manifest;this.expectedHash=execution.manifestHash;this.agentId=agent.id;this.ledger=execution.ledger;this.maxOutputTokens=execution.maxOutputTokens;
+    const effective=effectiveExecutionManifest(saved.manifest,saved.projection),agent=accountLineage(effective,execution.agentId)[0]!;
+    integer(execution.maxOutputTokens,1,100000000);this.manifest=effective;this.expectedHash=execution.manifestHash;this.agentId=agent.id;this.ledger=execution.ledger;this.maxOutputTokens=execution.maxOutputTokens;
     this.deadline=Math.min(saved.manifest.deadline,agent.deadline);
   }
   check= (call:ToolCall,cwd=this.cwd):string|undefined => {this.assertAuthority?.();return executionToolDenial(this.manifest,this.agentId,call,cwd);};

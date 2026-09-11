@@ -1,7 +1,8 @@
 import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,hex,id,integer,iso,pathName,permits,shape,strings,text,uuid,fail} from './validation.js';
 import {OrchestrationError,type RunManifest} from './types.js';
-import type {CollectedArtifact,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput} from './coordinator-types.js';
+import type {CollectedArtifact,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput,RunPlanContext} from './coordinator-types.js';
+import {validateSpawnAdmission,extendPlan} from '../spawning/validation.js';
 
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
@@ -11,7 +12,7 @@ export function validateExecutionHeader(value:unknown,manifest:RunManifest):Exec
   integer(value.deadline,Date.parse(value.createdAt)+1,Date.parse(value.createdAt)+manifest.plan.limits.timeBudgetMs);
   return value as unknown as ExecutionHeader;
 }
-export function validateCollectedArtifact(value:unknown,manifest:RunManifest):CollectedArtifact {
+export function validateCollectedArtifact(value:unknown,manifest:RunPlanContext):CollectedArtifact {
   shape(value,['id','taskId','agentId','kind','location','path','sha256','bytes','createdAt','source','confidence']);
   const task=manifest.plan.tasks.find(t=>t.id===value.taskId&&t.agentId===value.agentId),spec=task?.outputs.find(o=>o.id===value.id);
   if(!task||!spec||spec.kind!==value.kind||!hex(value.sha256)||!iso(value.createdAt)||value.confidence!==1)fail('Invalid collected artifact provenance.');
@@ -22,7 +23,7 @@ export function validateCollectedArtifact(value:unknown,manifest:RunManifest):Co
   }else if(value.location!=='run'||spec.path!==undefined||value.path!==value.source.eventId+'.txt')fail('Invalid run artifact location.');
   return value as unknown as CollectedArtifact;
 }
-export function validateTaskOutput(value:unknown,manifest:RunManifest):TaskOutput {
+export function validateTaskOutput(value:unknown,manifest:RunPlanContext):TaskOutput {
   shape(value,['version','taskId','agentId','status','summary','changedFiles','artifacts','testEvidence','unresolvedRisks','recommendedNextAction','checks']);
   const task=manifest.plan.tasks.find(t=>t.id===value.taskId&&t.agentId===value.agentId);if(value.version!==1||!task||!['success','partial','failed','denied','cancelled'].includes(String(value.status)))fail('Invalid task output.');
   text(value.summary);text(value.recommendedNextAction);strings(value.changedFiles,256);strings(value.testEvidence,200);strings(value.unresolvedRisks,100);array(value.artifacts,100);array(value.checks,200);
@@ -38,17 +39,19 @@ export function validateTaskOutput(value:unknown,manifest:RunManifest):TaskOutpu
   if(canonicalJson(output.testEvidence)!==canonicalJson(output.checks.filter(c=>c.passed).map(c=>c.id)))fail('Test evidence must name checks actually recorded as passing.');
   return output;
 }
-export function mechanicallyVerified(output:TaskOutput,manifest:RunManifest):boolean {
+export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):boolean {
   const task=manifest.plan.tasks.find(t=>t.id===output.taskId)!,agent=manifest.plan.agents.find(a=>a.id===task.agentId)!;
   if(task.outputs.some(o=>!output.artifacts.some(a=>a.id===o.id))||output.checks.length!==(task.acceptanceChecks?.length??0)||output.checks.some(c=>!c.passed))return false;
   const covered=new Set(output.checks.flatMap(c=>c.criteria));
   return task.acceptanceCriteria.every((_,i)=>covered.has('task:'+i))&&agent.acceptanceCriteria.every((_,i)=>covered.has('agent:'+i));
 }
-export function validateExecutionEvent(value:unknown,manifest:RunManifest):ExecutionEvent {
+export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(value.version!==1||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target']);const c=value.change;
-  if(c.type==='started'){shape(c,['type','ownerId']);if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
+  if(![1,2].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission']);const c=value.change;
+  if(value.version!==(c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
+  if(c.type==='graph_admitted'){shape(c,['type','admission']);if(!header)fail('A graph admission requires its original execution header.');validateSpawnAdmission(c.admission,manifest,header,manifest.plan);}
+  else if(c.type==='started'){shape(c,['type','ownerId']);if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
   else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
   else if(c.type==='agent_started'||c.type==='agent_finished'||c.type==='escalated'){
     shape(c,['type','agentId','taskId',...(c.type==='agent_finished'?['status']:c.type==='escalated'?['target']:[])]);
@@ -69,20 +72,25 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest):Execu
   return value as unknown as ExecutionEvent;
 }
 export const artifactSetHash=(artifacts:CollectedArtifact[])=>digest(canonicalJson(artifacts));
-export function agentStopped(state:ExecutionProjection,manifest:RunManifest,agentId:string):boolean {
+export function agentStopped(state:ExecutionProjection,manifest:RunPlanContext,agentId:string):boolean {
   let current=manifest.plan.agents.find(a=>a.id===agentId);for(let n=0;current&&n<256;n++){if(state.stoppedAgents.includes(current.id)||Object.values(state.tasks).some(t=>t.agentId===current!.id&&t.escalation))return true;current=manifest.plan.agents.find(a=>a.id===current!.parentId);}return false;
 }
 export function replayExecution(header:ExecutionHeader,manifest:RunManifest,events:ExecutionEvent[]):ExecutionProjection {
-  validateExecutionHeader(header,manifest);array(events,MAX_EXECUTION_EVENTS);const analysis=analyzePlan(manifest.plan);
+  validateExecutionHeader(header,manifest);array(events,MAX_EXECUTION_EVENTS);let analysis=analyzePlan(manifest.plan);
   const state:ExecutionProjection={version:1,runId:manifest.id,revision:journalHash(header,[]),status:'ready',ownerId:null,deadline:header.deadline,tasks:Object.create(null),artifacts:Object.create(null),stoppedAgents:[]};
   for(const task of manifest.plan.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
   const seen=new Set<string>(),agentEvents=new Set<string>(),toolStarts=new Map<string,string>();let last=header.createdAt;
   const conflict=(message:string):never=>{throw new OrchestrationError('conflict',message);};
   const active=()=>{if(state.status!=='running'||!state.ownerId)conflict('Coordinator is not active.');};
   for(const event of events){
-    validateExecutionEvent(event,manifest);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
+    validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
     const c=event.change,task='taskId' in c?state.tasks[c.taskId]!:undefined;
-    if(c.type==='started'){
+    if(c.type==='graph_admitted'){
+      const admission=c.admission;if(state.status==='completed'||Date.parse(event.at)>=header.deadline||Date.parse(event.at)<admission.grant.at||admission.grant.grant.accounts.some(a=>Date.parse(event.at)>=a.deadline)||agentStopped(state,manifest,admission.proposal.parentId))conflict('Child graph cannot join a completed, stopped or expired run.');
+      const p=admission.proposal;manifest={...manifest,plan:extendPlan(manifest.plan,{version:p.version,parentId:p.parentId,agents:p.agents,tasks:p.tasks})};analysis=analyzePlan(manifest.plan);
+      for(const task of p.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
+      state.graph={version:1,plan:manifest.plan,hash:analysis.hash,admissions:[...(state.graph?.admissions??[]),admission]};state.version=2;
+    }else if(c.type==='started'){
       if(state.status==='completed'||Date.parse(event.at)>=header.deadline)conflict('Execution is complete or its original deadline expired.');
       for(const t of Object.values(state.tasks))if(t.status==='running')t.status='unknown';state.ownerId=c.ownerId;state.status='running';
     }else if(c.type==='task_started'){

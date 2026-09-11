@@ -67,6 +67,19 @@ describe('cancellable execution', () => {
 });
 
 describe('turn ownership', () => {
+  it('bounds joined admissions, propagates cancellation, and waits for their cleanup before replacement',async()=>{
+    const turns=new TurnController(),events:string[]=[];let clean!:()=>void;
+    const parent=turns.run(signal=>cancellableDelay(10000,signal));await Promise.resolve();
+    const child=turns.join(async signal=>{try{await cancellableDelay(10000,signal);}finally{await new Promise<void>(resolve=>{clean=resolve;});events.push('child cleaned');}});
+    await Promise.resolve();await expect(turns.join(async()=>{})).rejects.toThrow(/already running/);
+    const replacement=turns.replace(async()=>{events.push('replacement');});await vi.waitFor(()=>expect(clean).toBeTypeOf('function'));expect(turns.busy).toBe(true);expect(events).toEqual([]);clean();await Promise.all([parent,child,replacement]);expect(events).toEqual(['child cleaned','replacement']);expect(turns.busy).toBe(false);
+    await turns.join(async()=>{});expect(turns.busy).toBe(false);
+  });
+  it('retains ownership until a joined command completes and rejects additions during cleanup',async()=>{
+    const turns=new TurnController();let finish!:()=>void;const parent=turns.run(async()=>{}),child=turns.join(()=>new Promise<void>(resolve=>{finish=resolve;}));await vi.waitFor(()=>expect(finish).toBeTypeOf('function'));
+    expect(turns.busy).toBe(true);await expect(turns.join(async()=>{})).rejects.toThrow(/finishing/);finish();await Promise.all([parent,child]);expect(turns.busy).toBe(false);
+    let release!:()=>void;const run=turns.run(()=>new Promise<void>(resolve=>{release=resolve;}));await expect(turns.join(async()=>{throw new Error('admission failed');})).rejects.toThrow('admission failed');release();await run;
+  });
   it('rejects overlapping turns and waits for cleanup before replacement', async () => {
     const turns = new TurnController();
     const events: string[] = [];

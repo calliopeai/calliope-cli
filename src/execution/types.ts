@@ -22,17 +22,24 @@ export interface RequestSettlement {
   requestId: string; outcome: 'success' | 'error' | 'cancelled' | 'invalid-usage';
   usage?: { inputTokens: number; outputTokens: number };
 }
+/** Child capacity is a grant, not provider usage or a synthetic request. */
+export interface ChildGrant {
+  version:1;id:string;proposalHash:string;previousGraphHash:string;planHash:string;
+  runManifestHash:string;approvalRevision:string;parentId:string;accounts:ExecutionAccount[];
+}
+export interface RecordedChildGrant {grant:ChildGrant;eventId:string;eventHash:string;at:number}
 export interface ReservationEvent {
-  version: 1; id: string; at: number; previous: string;
-  change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement };
+  version: 1|2; id: string; at: number; previous: string;
+  change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement } | {type:'child_grant';grant:ChildGrant};
   hash: string;
 }
 export interface AccountSpend { tokens: number; costNanos: number }
 export interface ReservationProjection {
-  version: 1; runId: string; manifestHash: string; revision: string;
+  version: 1|2; runId: string; manifestHash: string; revision: string;
   spent: AccountSpend; accounts: Record<string, AccountSpend>;
   requests: Record<string, { reservation: RequestReservation; state: 'pending' | 'settled' | 'unknown' | 'exceeded' }>;
   exceeded: boolean;
+  childGrants?:RecordedChildGrant[];
 }
 export class ExecutionLimitError extends Error {
   constructor(readonly code: 'invalid' | 'authority' | 'budget' | 'deadline' | 'unavailable' | 'locked' | 'conflict' | 'limit', message: string) {

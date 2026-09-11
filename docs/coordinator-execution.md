@@ -1,10 +1,11 @@
 # Coordinator execution
 
-Calliope executes a reviewed, fixed agent/task graph through the shared runtime.
+Calliope executes a reviewed agent/task graph through the shared runtime.
 Independent tasks run concurrently; overlapping read/write scopes are serialized.
 Workers cannot create children, expand authority, or declare their own work verified.
 [Goal planning](goal-planning.md) supplies validated proposals for human approval.
-Dynamic spawning and isolated shell/network execution remain required work under #254.
+[Child admission](child-admission.md) adds reviewed descendants within the original
+contract. Isolated shell/network execution remains required work under #254.
 
 ## Commands and permissions
 
@@ -122,7 +123,7 @@ Execution commands emit newline-delimited JSON envelopes:
 
 Execution results contain `version:2`, `type`, `runId`, `status`, `execution` and
 `exitCode`. `execution` contains the immutable header, events and replayed state.
-Each event has version 1, UUID `id`, `runId`, monotonic sequence/timestamp,
+Existing events have version 1; child graph admissions use version 2. Each has a UUID `id`, `runId`, monotonic sequence/timestamp,
 `previous` hash, typed `change`, and its own SHA-256. Changes include coordinator
 start/finish, task start/finish/reset/acceptance, agent start/finish/stop/reset,
 escalation, tool start/result, and collected artifact. Task output includes status,
@@ -157,9 +158,11 @@ active store when capacity is reached.
 An exclusive owner record prevents simultaneous coordinators. A live PID remains
 authoritative even when its timer expires; a dead PID can be reclaimed under an
 exclusive election lock. PID reuse conservatively blocks recovery. Short writer
-locks serialize control commands and event batches. Stale election/writer locks
-fail closed: confirm their process has stopped and preserve a copy before manual
-recovery. Never delete live locks or rewrite hashes to hide corruption.
+locks serialize control commands and event batches. Private election/writer locks
+with a confirmed dead PID can be reclaimed once per inode; `lock-recovery/` retains
+the old lock as evidence. Live, reused, ambiguous, malformed or already claimed
+locks fail closed. Recovery history is bounded to 64 claims per directory; an
+interrupted recovery requires inspection. Never delete live locks or rewrite hashes.
 
 Approval revision and project identity are pinned. An independent cancellation
 command changes the approval journal; the coordinator observes it within its

@@ -1,4 +1,5 @@
 import type {ArtifactSpec,RunManifest} from './types.js';
+import type {SpawnAdmission,SpawnGraph} from '../spawning/types.js';
 
 export type TaskStatus='pending'|'running'|'completed'|'review_required'|'failed'|'denied'|'cancelled'|'unknown';
 export type ExecutionStatus='ready'|'running'|'completed'|'partial'|'failed'|'denied'|'cancelled';
@@ -16,6 +17,7 @@ export interface TaskOutput {
   unresolvedRisks:string[];recommendedNextAction:string;checks:CheckEvidence[];
 }
 export type ExecutionChange=
+  |{type:'graph_admitted';admission:SpawnAdmission}
   |{type:'started';ownerId:string}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string}
   |{type:'agent_started';agentId:string;taskId:string}
@@ -30,14 +32,14 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
   artifactIds:string[];changedFiles:string[];mutations:boolean;
 }
 export interface ExecutionProjection {
-  version:1;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;
+  version:1|2;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
   tasks:Record<string,TaskState>;artifacts:Record<string,CollectedArtifact>;stoppedAgents:string[];
 }
 export interface ExecutionHeader {
@@ -47,3 +49,4 @@ export interface ExecutionInspection {header:ExecutionHeader;events:ExecutionEve
 export interface ExecutionLease {id:string;check:()=>void;release:()=>void}
 export interface ExecutionJournal {version:1;header:ExecutionHeader;events:ExecutionEvent[];hash:string}
 export interface BoundExecution {manifest:RunManifest;header:ExecutionHeader}
+export type RunPlanContext=Pick<RunManifest,'id'|'project'|'plan'>;

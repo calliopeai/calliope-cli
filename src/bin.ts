@@ -391,6 +391,8 @@ ${bold('USAGE')}
   calliope run status|approve|cancel <id> [--json]   Inspect or review a prepared run
   calliope agents --tree [--run <id>] [--json]   Inspect the declared agent hierarchy
   calliope agents stop|retry <agent> --run <id> [--json]   Control a bounded agent
+  calliope agents spawn <children.json> --run <id> [--approve <hash>] [--json]
+  calliope agents spawn --resume <hash> --run <id> [--json]   Recover child admission
   calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
   calliope session <action> [args] [--json]   Manage private session history without inference
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace

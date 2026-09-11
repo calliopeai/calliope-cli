@@ -66,8 +66,10 @@ use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
 append-only client failures, parallel progress and bounded private inspection.
 [Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
 validated dependency plans and an immutable local run journal.
-[Coordinator execution](docs/coordinator-execution.md) runs reviewed fixed graphs
+[Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
 with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
+[Child admission](docs/child-admission.md) adds hash-approved descendants to an active
+graph without resetting its original scope, budget or clock.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
 then requires hash-bound human approval within one persistent allowance and clock.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool

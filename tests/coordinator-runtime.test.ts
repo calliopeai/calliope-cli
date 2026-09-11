@@ -9,6 +9,7 @@ import {clearModelCache} from '../src/model-detection.js';
 import {executeReviewedRun,prepareRun,changePreparedRun,prepareAgentExecution,controlExecution,inspectExecution,runOrchestrationCommand,agentPreference,RunStore,ExecutionStore,type ProjectPlan} from '../src/orchestration/index.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import {projectBudgetPath} from '../src/budget.js';
+import {inspectSpawn,admitSpawn,executeSpawn,spawnCommand,type SpawnInput} from '../src/spawning/index.js';
 let root:string,project:string,runs:RunStore,requests:any[],respond:(task:any,body:any,signal:AbortSignal)=>Promise<Response>;
 const json=(v:unknown)=>new Response(JSON.stringify(v),{headers:{'content-type':'application/json'}});
 function reply(task:any,body:any) {
@@ -26,6 +27,39 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 const plan=()=>{const p=verifiedPlan();p.limits.tokenBudget=30000;p.limits.costBudgetUsd=1;for(const a of p.agents){a.tokenBudget=a.parentId?10000:30000;a.costBudgetUsd=a.parentId?0.2:1;a.preference={provider:'deepseek',model:'coordinator-toy'};}return p;};
 const reviewed=async(p:ProjectPlan=plan())=>{fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const v=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,v.run.id,'approved',{store:runs});};
+const spawnPlan=()=>{const p=plan();p.limits.maxConcurrent=3;p.limits.tokenBudget=p.agents[0]!.tokenBudget=40000;p.limits.timeBudgetMs=120000;for(const a of p.agents)a.timeBudgetMs=a.parentId?60000:120000;return p;};
+function childInput(p:ProjectPlan):SpawnInput {
+  const agent=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);agent.id='c';agent.allowedPaths=[{path:'c',access:'write'}];task.id='inspect-c';task.agentId='c';task.outputs[0]!.id='report-c';task.outputs[0]!.path='c/report.txt';task.acceptanceChecks![0]!.artifactId='report-c';
+  fs.mkdirSync(join(project,'c'));const input:SpawnInput={version:1,parentId:'coordinator',agents:[agent],tasks:[task]};fs.writeFileSync(join(project,'children.json'),JSON.stringify(input));return input;
+}
+it('adopts approved children while independent workers are still running and verifies all added artifacts',async()=>{
+  const p=spawnPlan(),v=await reviewed(p);childInput(p);
+  let release!:()=>void,started!:()=>void,childStarted!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;}),began=new Promise<void>(resolve=>{started=resolve;}),childBegan=new Promise<void>(resolve=>{childStarted=resolve;});
+  respond=async(task,body)=>{if(task.id==='inspect-a'){started();await held;}if(task.id==='inspect-c')childStarted();return reply(task,body);};
+  const running=executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow'});await began;
+  const preview=await inspectSpawn(project,v.run.id,'children.json',{store:runs}),accepted=await admitSpawn(project,v.run.id,preview.proposal,preview.proposal.hash,{store:runs});
+  try{await childBegan;expect(requests.some(r=>r.task==='inspect-c')).toBe(true);}finally{release();}
+  const [result,child]=await Promise.all([running,executeSpawn(project,accepted.admission,{store:runs})]);expect(result.status).toBe('completed');expect(child.status).toBe('completed');expect(result.execution.state.tasks['inspect-c']!.output!.testEvidence).toEqual(['output-check']);expect(requests).toHaveLength(8);
+  expect(result.execution.state.graph!.admissions).toHaveLength(1);expect(result.execution.events.filter(e=>e.change.type==='graph_admitted')).toHaveLength(1);expect(result.execution.header.deadline).toBe(preview.deadline);
+  const lines:string[]=[];await runOrchestrationCommand('agents',['--tree','--run',v.run.id,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)});expect(JSON.parse(lines[0]!).data.agents.map((a:any)=>a.id)).toContain('c');
+},20000);
+it('cancels a waiting spawned subtree, retains its charged request, and permits a bounded explicit retry',async()=>{
+  const p=spawnPlan(),v=await reviewed(p);childInput(p);
+  let ready!:()=>void,release!:()=>void,childReady!:()=>void;const began=new Promise<void>(r=>{ready=r;}),held=new Promise<void>(r=>{release=r;}),childBegan=new Promise<void>(r=>{childReady=r;});
+  respond=async(task,body,signal)=>{if(task.id==='inspect-a'){ready();await held;}if(task.id==='inspect-c'){childReady();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}return reply(task,body);};
+  const running=executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow'});await began;const preview=await inspectSpawn(project,v.run.id,'children.json',{store:runs}),accepted=await admitSpawn(project,v.run.id,preview.proposal,preview.proposal.hash,{store:runs}),controller=new AbortController();
+  const waiting=executeSpawn(project,accepted.admission,{store:runs,signal:controller.signal});const cancelled=expect(waiting).rejects.toMatchObject({name:'AbortError'});await childBegan;controller.abort();await cancelled;release();const first=await running;
+  expect(first.status).toBe('partial');expect(first.execution.state.tasks['inspect-c']!.status).toBe('cancelled');expect(first.execution.state.tasks['inspect-a']!.status).toBe('completed');
+  const authority=await prepareAgentExecution(project,v.run.id,'c',100,{store:runs}),before=authority.ledger.read(project);expect(Object.values(before.projection.requests).some(r=>r.reservation.agentId==='c'&&r.state==='unknown')).toBe(true);
+  await controlExecution(project,v.run.id,'agent-retry','c',{store:runs});respond=async(task,body)=>reply(task,body);const second=await executeReviewedRun(project,v.run.id,{store:runs,resume:true,approve:async()=> 'allow'});expect(second.status,JSON.stringify({tasks:second.execution.state.tasks,events:second.execution.events.slice(-8)})).toBe('completed');expect(second.execution.header).toEqual(first.execution.header);expect(second.execution.state.tasks['inspect-c']!.attempts).toBe(2);expect(authority.ledger.read(project).projection.childGrants).toEqual(before.projection.childGrants);
+},20000);
+it('requires a reviewed child hash in headless mode and emits actual execution results after approval',async()=>{
+  const p=spawnPlan(),v=await reviewed(p);childInput(p);const authority=await prepareAgentExecution(project,v.run.id,'coordinator',100,{store:runs}),budget=authority.ledger.read(project).manifest,store=new ExecutionStore(join(runs.root,v.run.id),v.manifest);
+  store.create({version:1,runId:v.run.id,manifestHash:v.manifest.hash,approvalRevision:v.run.revision,createdAt:new Date(budget.createdAt).toISOString(),deadline:budget.deadline});const lines:string[]=[],options={cwd:project,store:runs,write:(line:string)=>lines.push(line)};
+  expect(await runOrchestrationCommand('agents',['spawn','children.json','--run',v.run.id,'--json'],options)).toBe(5);expect(requests).toEqual([]);const hash=JSON.parse(lines[0]!).data.proposal.hash;
+  lines.length=0;expect(await runOrchestrationCommand('agents',['spawn','children.json','--run',v.run.id,'--approve',hash,'--allow-mutations','--json'],options)).toBe(0);const rows=lines.map(line=>JSON.parse(line));expect(rows.every(row=>row.version===1)).toBe(true);expect(rows.at(-1).data.status).toBe('completed');expect(rows.at(-1).data.execution.state.tasks['inspect-c'].output.testEvidence).toEqual(['output-check']);expect(requests).toHaveLength(8);
+  lines.length=0;expect(await spawnCommand(['spawn','--resume',hash,'--run',v.run.id,'--json'],options)).toBe(0);expect(requests).toHaveLength(8);
+},20000);
 it('executes independent agents in parallel, verifies their artifacts, and only then runs dependencies',async()=>{
   const view=await reviewed(),started=new Set<string>();let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
   respond=async(task,body)=>{if(['inspect-a','inspect-b'].includes(task.id)&&!body.messages.some((m:any)=>m.role==='tool')){started.add(task.id);if(started.size===2)release();await held;}if(task.id==='verify')expect(fs.existsSync(join(project,'a/report.txt'))&&fs.existsSync(join(project,'b/report.txt'))).toBe(true);return reply(task,body);};
