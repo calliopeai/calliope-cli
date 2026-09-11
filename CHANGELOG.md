@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 3.2.0 — Unreleased (publication blocked by provider evidence)
+
+- Add 33 reviewed live captures, including Fable 5/5.1 and Astra via OpenRouter and native Bedrock, bringing the corpus to 56/72 combinations; add persistent per-run probe caps beneath the cumulative budget and record bounded model-smoke results, provider failures and the xAI deferral (#262).
+- Prepare the 3.2.0 package and release notes; the version bump does not publish or tag a release (#262).
+- Require real-wire coverage for DeepSeek, xAI and Cerebras, and remove retired AI21 from the active release matrix. `providers:readiness` reports credential presence, historical evidence and missing product checks separately (#262).
+- Bound live captures with a persistent dollar ledger, conservative input/output reservations and a single-request cancellation signal. Failed probes retain their reservation; concurrent writers fail closed (#262).
+- Strict Anthropic and Google model discovery now exposes API failures and bypasses cached emergency fallbacks, so diagnostics cannot mistake fallback data for live evidence (#262).
 
 - Share one turn runtime across terminal, headless and ACP: isolated scopes, paired tool results, cancellation cleanup, local repair, and budgeted compression/repair calls. Headless incomplete turns now exit 4; terminal checkpoints follow the session project.
 

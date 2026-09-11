@@ -6,7 +6,7 @@
 > wins**. Keep it updated as the codebase evolves.
 
 `@calliopelabs/cli` (`calliope`) — a multi-model AI agent CLI. TypeScript +
-React/Ink, ESM. v3.1.0. Node ≥ 20.
+React/Ink, ESM. 3.2.0 in preparation; latest published release is 3.1.0. Node ≥ 20.
 
 ---
 

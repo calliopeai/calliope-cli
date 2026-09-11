@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "backend": "google",
+  "model": "gemini-2.5-flash-lite",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T15:21:09.856Z",
+    "sourceOrigin": "https://generativelanguage.googleapis.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "aed9476c-05c9-465b-95ea-270eff77bc7a"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1beta/models/gemini-2.5-flash-lite:generateContent"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=UTF-8"
+      },
+      "body": "ewogICJjYW5kaWRhdGVzIjogWwogICAgewogICAgICAiY29udGVudCI6IHsKICAgICAgICAicGFydHMiOiBbCiAgICAgICAgICB7CiAgICAgICAgICAgICJmdW5jdGlvbkNhbGwiOiB7CiAgICAgICAgICAgICAgIm5hbWUiOiAiZWNobyIsCiAgICAgICAgICAgICAgImFyZ3MiOiB7CiAgICAgICAgICAgICAgICAidGV4dCI6ICJoZWxsbyIKICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICAgIH0KICAgICAgICBdLAogICAgICAgICJyb2xlIjogIm1vZGVsIgogICAgICB9LAogICAgICAiZmluaXNoUmVhc29uIjogIlNUT1AiLAogICAgICAiaW5kZXgiOiAwLAogICAgICAiZmluaXNoTWVzc2FnZSI6ICJNb2RlbCBnZW5lcmF0ZWQgZnVuY3Rpb24gY2FsbChzKS4iCiAgICB9CiAgXSwKICAidXNhZ2VNZXRhZGF0YSI6IHsKICAgICJwcm9tcHRUb2tlbkNvdW50IjogNTksCiAgICAiY2FuZGlkYXRlc1Rva2VuQ291bnQiOiAxMywKICAgICJ0b3RhbFRva2VuQ291bnQiOiA3MiwKICAgICJwcm9tcHRUb2tlbnNEZXRhaWxzIjogWwogICAgICB7CiAgICAgICAgIm1vZGFsaXR5IjogIlRFWFQiLAogICAgICAgICJ0b2tlbkNvdW50IjogNTkKICAgICAgfQogICAgXSwKICAgICJzZXJ2aWNlVGllciI6ICJzdGFuZGFyZCIKICB9LAogICJtb2RlbFZlcnNpb24iOiAiZ2VtaW5pLTIuNS1mbGFzaC1saXRlIiwKICAicmVzcG9uc2VJZCI6ICJaUnlrYXN2NEphQ2o2ZGtQeXRERHFRcyIKfQo=",
+      "sha256": "fac6c5bbf5342543a5e3896c0f4ad47ee77ed1a875b478071ed855ee2079cf11"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 59,
+      "outputTokens": 13
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

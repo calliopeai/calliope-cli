@@ -10,6 +10,9 @@ const fetch = async (input, init) => {
   const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
   sourceOrigin = url.origin;
   const body = JSON.parse(String(init.body));
+  // Fixed toy prompts must fit the reserved 5,000-token input allowance. UTF-8
+  // bytes conservatively bound prompt tokens; leave room for protocol overhead.
+  if (Buffer.byteLength(String(init.body)) > 4000) throw new Error('Probe input exceeds the reserved token allowance');
   if (backend.protocol === 'google') body.generationConfig = { ...body.generationConfig, maxOutputTokens: maxOutput };
   else if (backend.protocol === 'ollama') body.options = { ...body.options, num_predict: maxOutput };
   else if (backend.protocol === 'bedrock') body.inferenceConfig.maxTokens = maxOutput;
@@ -20,7 +23,10 @@ const fetch = async (input, init) => {
   if (backend.protocol === 'bedrock') {
     if (JSON.parse(String(init.body)).inferenceConfig.maxTokens > maxOutput) throw new Error('Native Bedrock request exceeds the signed output cap');
   }
-  const response = await originalFetch(input, { ...init, body: backend.protocol === 'bedrock' ? init.body : JSON.stringify(body), signal });
+  const signals = [signal, init.signal].filter(Boolean);
+  const combinedSignal = signals.length ? AbortSignal.any(signals) : undefined;
+  combinedSignal?.throwIfAborted();
+  const response = await originalFetch(input, { ...init, body: backend.protocol === 'bedrock' ? init.body : JSON.stringify(body), signal: combinedSignal });
   const reader = response.body?.getReader(); if (!reader) throw new Error('Empty response body');
   const chunks = []; let size = 0;
   try {

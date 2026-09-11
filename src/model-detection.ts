@@ -230,7 +230,9 @@ function formatContextLength(tokens: number): string {
 export async function getAvailableModels(provider: LLMProvider, options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
   // Check cache first
   const cached = modelCache.get(provider);
-  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+  // Strict callers require current wire evidence; a cached emergency fallback
+  // must never masquerade as successful live discovery.
+  if (!options.throwOnError && cached && Date.now() - cached.timestamp < CACHE_DURATION) {
     return cached.models;
   }
 
@@ -328,6 +330,7 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
   } catch (error) {
     // Emergency fallback when the API is unreachable. Keep these as the current
     // shipping models — discovery is the source of truth; this is the offline net.
+    if (options.throwOnError) throw error;
     logModelDetectionWarning('Failed to fetch Anthropic models, using fallback list', error, options);
     return [
       { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Most capable model', contextLength: 1000000 },
@@ -385,6 +388,7 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
     // Fallback to known models if API fails
+    if (options.throwOnError) throw error;
     logModelDetectionWarning('Failed to fetch Google models, using fallback list', error, options);
     return [
       { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro', description: 'Most capable', contextLength: 1048576 },
