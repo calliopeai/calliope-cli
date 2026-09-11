@@ -24,6 +24,7 @@ import { debugLog } from '../debug-log.js';
 
 export interface SessionInitDeps {
   sessionRef: React.MutableRefObject<Session | null>;
+  conversationCursor: React.MutableRefObject<{ sessionId: string; revision: string | null } | null>;
   ledgerRef: React.MutableRefObject<IterationLedger>;
   llmMessages: React.MutableRefObject<LLMMessage[]>;
   addMessage: (type: 'system', content: string) => void;
@@ -32,7 +33,7 @@ export interface SessionInitDeps {
 }
 
 export function useSessionInit(deps: SessionInitDeps): void {
-  const { sessionRef, ledgerRef, llmMessages, addMessage, onFleetInstruction } = deps;
+  const { sessionRef, conversationCursor, ledgerRef, llmMessages, addMessage, onFleetInstruction } = deps;
   const initedRef = useRef(false);
 
   useEffect(() => {
@@ -43,7 +44,9 @@ export function useSessionInit(deps: SessionInitDeps): void {
 
     // Always start fresh session - skip resume dialog.
     // (Previous session data is still available via storage APIs if needed.)
-    const session = storage.getOrCreateSession(cwd);
+    let session: Session;
+    try { session = storage.createSession(cwd); }
+    catch { addMessage('system', 'Session recovery directory could not be created; check disk space and permissions, then use /new.'); return; }
     sessionRef.current = session;
     ledgerRef.current.setRetentionLimit(config.get('sessionLogLimit') ?? 0);
     ledgerRef.current.setOnChange(() => {
@@ -66,6 +69,13 @@ export function useSessionInit(deps: SessionInitDeps): void {
           content: systemContent + '\n\n--- Project Context ---\n' + memoryContext,
         };
       }
+    }
+
+    try {
+      const snapshot = storage.saveSessionConversation(session.id, llmMessages.current, { expectedRevision: null, status: 'completed' });
+      conversationCursor.current = { sessionId: session.id, revision: snapshot.revision };
+    } catch (error) {
+      addMessage('system', error instanceof Error ? error.message : 'Session recovery unavailable; start /new.');
     }
 
     // Execute session start hooks

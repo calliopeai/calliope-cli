@@ -23,6 +23,7 @@ import type { ModelInfo } from '../../model-detection.js';
 import type { RoutingDecision } from '../../routing/index.js';
 import { detectComplexity } from '../../risk.js';
 import * as storage from '../../storage.js';
+import { RunLog } from '../../runlog.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from '../../files.js';
 import * as memory from '../../memory.js';
 import { CircuitBreaker } from '../../circuit-breaker.js';
@@ -89,7 +90,9 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   // -- State groups ---------------------------------------------------------
   const proc = useProcessingState();
-  const transcript = useTranscriptState();
+  const sessionRef = useRef<storage.Session | null>(null);
+  const conversationCursor = useRef<{ sessionId: string; revision: string | null } | null>(null);
+  const transcript = useTranscriptState(sessionRef);
   const stats = useSessionStats();
   const modelState = useModelState(initial);
   const modal = useModalState();
@@ -112,7 +115,6 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const surfacedProviderErrorRef = useRef<string | null>(null);
   const inputSubmitRef = useRef<((value: string) => void) | null>(null);
   const openProviderPickerRef = useRef<(() => Promise<void>) | null>(null);
-  const sessionRef = useRef<storage.Session | null>(null);
   const undoStack = useRef<ConversationSnapshot[]>([]);
   const redoStack = useRef<ConversationSnapshot[]>([]);
   const llmMessages = useRef<LLMMessage[]>([{ role: 'system', content: getSystemPromptForProvider(provider) }]);
@@ -216,6 +218,13 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const buildAgentContext = useCallback((): AgentContext => ({
     provider, model, mode, confirmMode, autoRoute, actualProvider, actualModel,
     preferenceSources: modelState.sources,
+    onCheckpoint: (messages, status) => {
+      const cursor = conversationCursor.current;
+      if (!cursor || cursor.sessionId !== sessionRef.current?.id) throw new Error('Session recovery unavailable; start /new before continuing.');
+      const snapshot = storage.saveSessionConversation(cursor.sessionId, messages, { expectedRevision: cursor.revision, status });
+      cursor.revision = snapshot.revision;
+      RunLog.open(cursor.sessionId).sessionCheckpoint({ revision: snapshot.revision, status: snapshot.status, messageCount: snapshot.messages.length, checksum: snapshot.checksum });
+    },
     stats: stats.stats,
     ledger: ledgerRef.current,
     circuitBreaker: circuitBreakerRef.current || undefined,
@@ -305,6 +314,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
     cancelActiveTurn: () => turnController.current.cancel(),
     provider, actualProvider, actualModel, model, mode, confirmMode,
     reloadDefaults: modelState.reload,
+    conversationCursor,
+    clearQueued: () => { setQueuedMessages([]); setEditingQueueIndex(null); },
     submitOnce: async input => { inputSubmitRef.current?.(input); },
     messages, stats: stats.stats, loopActive, isProcessing, thinkingState, streamingResponse,
     queuedMessages: queuedMessages.map(message => message.text), debugEnabled: isDebugEnabled(), modalMode: modal.modalMode,
@@ -342,10 +353,10 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
-    const controlled = ['/provider', '/model', '/defaults'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
+    const controlled = ['/provider', '/model', '/defaults', '/new', '/resume'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
     try {
       if (controlled) {
-        if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before changing provider settings.'); return; }
+        if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before changing provider or session settings.'); return; }
         setIsProcessing(true);
         try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), signal })); }
         finally { setIsProcessing(false); }
@@ -547,10 +558,9 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   // -- Session-selector / resume handlers -----------------------------------
   const handleSessionSelect = useCallback((session: SessionInfo) => {
-    addMessage('system', `Loading session: ${session.projectName}...`);
-    addMessage('system', `Session path: ${session.projectPath}\nTo load this session, run calliope from that directory.`);
+    void handleCommandWrapped(`/resume ${session.id}`);
     modal.setModalMode('none');
-  }, [addMessage, modal]);
+  }, [handleCommandWrapped, modal]);
 
   const handleSessionDelete = useCallback((session: SessionInfo) => {
     if (storage.deleteSession(session.id)) {
@@ -562,50 +572,14 @@ export function useChatController(initial?: ModelPreference): ChatController {
   }, [addMessage, modal]);
 
   const handleSessionResume = useCallback(() => {
-    const savedMessages = storage.loadMessageHistory();
-    if (savedMessages && savedMessages.length > 0) {
-      llmMessages.current.length = 0;
-      for (const msg of savedMessages) {
-        llmMessages.current.push(msg as LLMMessage);
-      }
-      addMessage('system', `✓ Resumed session with ${savedMessages.length} saved messages loaded`);
-      const activeSessionId = sessionRef.current?.id;
-      if (activeSessionId) {
-        ledgerRef.current.loadSnapshot(storage.loadIterationLedger(activeSessionId));
-        storage.saveIterationLedger(ledgerRef.current, activeSessionId);
-      }
-      stats.setContextTokens(estimateContextTokens());
-    } else {
-      const history = storage.getChatHistory(20);
-      if (history.length > 0) {
-        llmMessages.current.length = 0;
-        const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
-        const basePrompt = getSystemPromptForProvider(actualProvider);
-        const memoryContext = memory.buildMemoryContext(activeCwd);
-        llmMessages.current.push({
-          role: 'system',
-          content: memoryContext.trim()
-            ? `${basePrompt}\n\n--- Project Context ---\n${memoryContext}`
-            : basePrompt,
-        });
-        for (const msg of history) {
-          if (msg.role === 'user' || msg.role === 'assistant') {
-            llmMessages.current.push({ role: msg.role, content: msg.content });
-          }
-        }
-        addMessage('system', `✓ Resumed session with ${history.length} chat messages loaded`);
-        stats.setContextTokens(estimateContextTokens());
-      }
-    }
-    modal.setModalMode('none');
-    modal.setPreviousSession(null);
-  }, [addMessage, estimateContextTokens, stats, modal, actualProvider]);
+    void handleCommandWrapped('/resume');
+    modal.setModalMode('none'); modal.setPreviousSession(null);
+  }, [handleCommandWrapped, modal]);
 
   const handleSessionResumeNew = useCallback(() => {
-    addMessage('system', '✓ Starting fresh session');
-    modal.setModalMode('none');
-    modal.setPreviousSession(null);
-  }, [addMessage, modal]);
+    void handleCommandWrapped('/new');
+    modal.setModalMode('none'); modal.setPreviousSession(null);
+  }, [handleCommandWrapped, modal]);
 
   // -- Complexity-warning handlers ------------------------------------------
   const handleComplexityProceed = useCallback(async () => {
@@ -663,7 +637,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   }, [proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
 
   // -- Mount initialization -------------------------------------------------
-  useSessionInit({ sessionRef, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });
+  useSessionInit({ sessionRef, conversationCursor, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });
 
   // -- Region prop bags -----------------------------------------------------
   // Plain objects (not memoized): TerminalChat spreads them, so each region's

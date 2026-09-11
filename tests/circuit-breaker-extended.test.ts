@@ -15,7 +15,7 @@
  * - infinite-loop: maxHistory trimming
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CircuitBreaker } from '../src/circuit-breaker.js';
 import type { IterationData, BreakerType } from '../src/circuit-breaker.js';
 
@@ -35,23 +35,21 @@ function makeIteration(
 // ===========================================================================
 
 describe('wall-clock - session duration', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1000); });
+  afterEach(() => vi.useRealTimers());
   it('should trip when session exceeds maxSessionDurationMs', () => {
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
-    try {
-      const breaker = new CircuitBreaker({
-        breakers: {
-          'wall-clock': { maxSessionDurationMs: 1, maxIterationDurationMs: 5 * 60_000 },
-        },
-      });
+    // Advance explicitly across the 1 ms session boundary.
+    const breaker = new CircuitBreaker({
+      breakers: {
+        'wall-clock': { maxSessionDurationMs: 1, maxIterationDurationMs: 5 * 60_000 },
+      },
+    });
 
-      expect(breaker.check(makeIteration(1, { content: 'hello' })).tripped).toBe(false);
-      clock.mockReturnValue(10_001);
-      const result = breaker.check(makeIteration(2, { content: 'world' }));
-      expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { sessionDurationMs: 1, limitMs: 1 } });
-      expect(result.message).toContain('minutes');
-    } finally {
-      clock.mockRestore();
-    }
+    expect(breaker.check(makeIteration(0, { content: 'before' })).tripped).toBe(false);
+    vi.advanceTimersByTime(1);
+    const result = breaker.check(makeIteration(1, { content: 'hello' }));
+    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { sessionDurationMs: 1, limitMs: 1 } });
+    expect(result.message).toContain('minutes');
   });
 
   it('should not trip on session duration when maxSessionDurationMs is 0', () => {
@@ -74,24 +72,23 @@ describe('wall-clock - session duration', () => {
 // ===========================================================================
 
 describe('wall-clock - iteration duration', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1000); });
+  afterEach(() => vi.useRealTimers());
   it('should trip when a single iteration takes too long', () => {
-    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
-    try {
-      const breaker = new CircuitBreaker({
-        breakers: {
-          // Disable session duration, enable a very tight iteration limit
-          'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1 },
-        },
-      });
+    const breaker = new CircuitBreaker({
+      breakers: {
+        // Disable session duration, enable a very tight iteration limit
+        'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1000 },
+      },
+    });
 
-      expect(breaker.check(makeIteration(1, { content: 'hello' })).tripped).toBe(false);
-      clock.mockReturnValue(10_001);
-      const result = breaker.check(makeIteration(2, { content: 'world' }));
-      expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { iterationDurationMs: 1, limitMs: 1 } });
-      expect(result.message).toContain('Single iteration');
-    } finally {
-      clock.mockRestore();
-    }
+    // First check sets lastIterationStart
+    breaker.check(makeIteration(1, { content: 'hello' }));
+
+    vi.advanceTimersByTime(1000);
+    const result = breaker.check(makeIteration(2, { content: 'world' }));
+    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock' });
+    expect(result.message).toBe('Single iteration took 1s, exceeded limit of 1s.');
   });
 
   it('should not trip on iteration duration when limit is very generous', () => {

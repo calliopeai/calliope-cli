@@ -77,7 +77,7 @@ it('runs each queued override separately and restores the session selection afte
   expect(requests.map(request => request.messages.filter(message => message.role === 'user').at(-1)?.content)).toEqual(['First', 'Second', 'Third', 'Fourth']);
   expect(controller.input.queuedCount).toBe(0); expect(controller.status.provider).toBe('deepseek');
   expect(config.get('defaultProvider')).toBe('deepseek');
-  const session = storage.getOrCreateSession(root), events = readRunLog(RunLog.open(session.id).filePath);
+  const session = storage.getCurrentSession()!, events = readRunLog(RunLog.open(session.id).filePath);
   expect(verifyChain(events).ok).toBe(true);
   expect(events.filter(event => event.type === 'routing_decision').some(event => (event.decision as { preferenceSources?: { provider: string } }).preferenceSources?.provider === 'turn')).toBe(true);
 });
@@ -152,4 +152,78 @@ it('applies the current session mode when a queued turn starts without changing 
   release!(); await pending;
   expect(requests.map(request => request.model)).toEqual(['deepseek-live', 'xai-live']);
   expect(requests[1]!.messages.some(message => message.role === 'system' && typeof message.content === 'string' && message.content.includes('PLAN mode: no mutating tools'))).toBe(true);
+});
+
+it('starts unique sessions, lists them and resumes a validated snapshot after restart', async () => {
+  await mount(); await controller.input.onSubmitMessage('Remember the toy task');
+  const first = storage.getCurrentSession()!;
+  const saved = storage.readSessionConversation(first.id);
+  expect(saved.status).toBe('completed');
+  unmount!(); await mount();
+  const second = storage.getCurrentSession()!; expect(second.id).not.toBe(first.id);
+  expect(storage.readSessionConversation(first.id)).toEqual(saved);
+  await controller.input.onSubmitMessage('/sessions');
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes(first.id))).toBe(true));
+  await controller.input.onSubmitMessage(`/resume ${first.id}`);
+  await controller.input.onSubmitMessage('Continue the toy task');
+  expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Remember the toy task', 'Continue the toy task']);
+  expect(storage.readSessionConversation(second.id).messages).toHaveLength(1);
+  await vi.waitFor(() => expect(controller.input.isProcessing).toBe(false));
+  await controller.input.onSubmitMessage('/NEW');
+  expect(storage.getCurrentSession()!.id).not.toBe(first.id);
+  await controller.input.onSubmitMessage('Fresh task');
+  expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Fresh task']);
+});
+
+it('refuses damaged or cross-project resumes without losing current state', async () => {
+  await mount(); await controller.input.onSubmitMessage('Keep current task');
+  const active = storage.getCurrentSession()!;
+  const other = storage.createSession(root);
+  const file = join(storage.getSessionDirById(other.id)!, 'messages.json');
+  writeFileSync(file, 'private-marker invalid JSON');
+  await vi.waitFor(() => expect(controller.input.isProcessing).toBe(false));
+  await controller.input.onSubmitMessage(`/resume ${other.id}`);
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('damaged'))).toBe(true));
+  expect(controller.transcript.messages.some(message => message.content.includes('private-marker'))).toBe(false);
+  const outside = storage.createSession(tmpdir());
+  await controller.input.onSubmitMessage(`/resume ${outside.id}`);
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('belongs to'))).toBe(true));
+  await controller.input.onSubmitMessage('Continue current task');
+  expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Keep current task', 'Continue current task']);
+  expect(storage.readSessionConversation(active.id).messages.at(-1)?.content).toBe('Done.');
+});
+
+it('saves cancellation for recovery and refuses session switching during an active turn', async () => {
+  holdFirst = true; await mount(); const session = storage.getCurrentSession()!;
+  const pending = controller.input.onSubmitMessage('Interrupted toy task');
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  await controller.input.onSubmitMessage('/new');
+  expect(storage.getCurrentSession()!.id).toBe(session.id);
+  controller.input.onEscape(); await pending;
+  expect(storage.readSessionConversation(session.id).status).toBe('cancelled');
+  expect(storage.readSessionConversation(session.id).messages.at(-1)?.content).toBe('Interrupted toy task');
+});
+
+it('halts before inference on a stale session revision and recovers through explicit resume', async () => {
+  await mount(); const session = storage.getCurrentSession()!, state = storage.readSessionConversation(session.id);
+  storage.saveSessionConversation(session.id, [...state.messages, { role: 'user', content: 'Other terminal' }], { expectedRevision: state.revision, status: 'completed' });
+  await controller.input.onSubmitMessage('Stale write');
+  expect(requests).toEqual([]);
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('another terminal'))).toBe(true));
+  await vi.waitFor(() => expect(controller.input.isProcessing).toBe(false));
+  await controller.input.onSubmitMessage('/resume');
+  await controller.input.onSubmitMessage('Recovered');
+  expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Other terminal', 'Recovered']);
+});
+
+
+it('shows a recovery failure even when cancellation is already in progress', async () => {
+  holdFirst = true; await mount(); const session = storage.getCurrentSession()!;
+  const pending = controller.input.onSubmitMessage('Cancel with a competing writer');
+  await vi.waitFor(() => expect(requests).toHaveLength(1));
+  const state = storage.readSessionConversation(session.id);
+  const replacement = storage.saveSessionConversation(session.id, state.messages, { expectedRevision: state.revision, status: 'interrupted' });
+  controller.input.onEscape(); await pending;
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.type === 'error' && message.content.includes('another terminal'))).toBe(true));
+  expect(storage.readSessionConversation(session.id).revision).toBe(replacement.revision);
 });

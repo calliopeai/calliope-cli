@@ -59,6 +59,8 @@ export const COMMAND_NAMES = [
   '/undo',
   '/export',
   '/resume',
+  '/new',
+  '/sessions',
   '/compact',
   '/scope',
   '/memory',
@@ -80,6 +82,8 @@ export const COMMAND_NAMES = [
 
 export interface CommandContext {
   signal?: AbortSignal;
+  conversationCursor?: React.MutableRefObject<{ sessionId: string; revision: string | null } | null>;
+  clearQueued?: () => void;
   provider?: LLMProvider;
   submitOnce?: (input: string) => Promise<void>;
   reloadDefaults?: (cwd: string) => void;
@@ -210,7 +214,9 @@ Model & Mode
 Conversation
   /undo                       Undo the last change (up to 10 steps)
   /export [file.md]           Export conversation to markdown
-  /resume [sessionId]         Resume a saved session (restores full context)
+  /new                       Start a separate session
+  /sessions                  List saved sessions
+  /resume [sessionId]         Resume validated conversation and tool context
   /compact [status]           Compress conversation context; status shows a summary
 
 Workspace
@@ -976,61 +982,11 @@ Stop a running loop with /loop stop`);
       break;
     }
 
+    case '/new':
+    case '/sessions':
     case '/resume': {
-      // Resume a session by loading saved LLM message history
-      // Usage: /resume [sessionId] - resume a specific session, or current session if no ID
-      const targetSessionId = parts[1];
-      if (targetSessionId) {
-        const resumedSession = storage.setCurrentSessionById(targetSessionId);
-        if (!resumedSession) {
-          ctx.addMessage('system', `Session not found: ${targetSessionId}`);
-          break;
-        }
-        ctx.sessionRef.current = resumedSession;
-        ctx.reloadDefaults?.(resumedSession.projectPath);
-      }
-
-      if (ctx.ledger) {
-        ctx.ledger.loadSnapshot(storage.loadIterationLedger(targetSessionId || ctx.sessionRef.current?.id));
-        if (ctx.sessionRef.current?.id) {
-          storage.saveIterationLedger(ctx.ledger, ctx.sessionRef.current.id);
-        }
-      }
-
-      // Try loading full message history first (preferred - preserves tool calls etc.)
-      const savedMessages = storage.loadMessageHistory(targetSessionId);
-
-      if (savedMessages && savedMessages.length > 0) {
-        // Replace current LLM messages with saved ones
-        ctx.llmMessages.current.length = 0;
-        for (const msg of savedMessages) {
-          ctx.llmMessages.current.push(msg as LLMMessage);
-        }
-        ctx.addMessage('system', `Restored ${savedMessages.length} messages from saved session${targetSessionId ? ` (${targetSessionId})` : ''}`);
-        ctx.setContextTokens(ctx.estimateContextTokens());
-      } else {
-        // Fall back to chat.log history (legacy format, user/assistant only)
-        const history = storage.getChatHistory(20, targetSessionId);
-        if (history.length === 0) {
-          ctx.addMessage('system', 'No previous messages to resume. Start a conversation first, messages are auto-saved.');
-        } else {
-          ctx.llmMessages.current.length = 0;
-          ctx.llmMessages.current.push({
-            role: 'system',
-            content: buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider),
-          });
-          for (const msg of history) {
-            if (msg.role === 'user' || msg.role === 'assistant') {
-              ctx.llmMessages.current.push({
-                role: msg.role,
-                content: msg.content,
-              });
-            }
-          }
-          ctx.addMessage('system', `Loaded ${history.length} messages from chat log (legacy format, tool context not preserved)`);
-          ctx.setContextTokens(ctx.estimateContextTokens());
-        }
-      }
+      const { handleSessionCommand } = await import('./session-commands.js');
+      await handleSessionCommand(parts, ctx);
       break;
     }
 

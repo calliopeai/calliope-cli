@@ -228,3 +228,8 @@ when fleet mode is enabled; with no argument, prints status. See [Fleet mode](./
 - `@filename`, `./path`, `/absolute/path` — reference files inline in a message.
 - `Tab` completes commands and paths. `Shift+Tab` cycles the mode. `Up`/`Down`
   navigate input history. `Ctrl+C` cancels the current operation.
+
+Session recovery: `/new` starts a separate session, `/sessions` lists saved
+sessions, and `/resume [id]` validates and restores a conversation for the
+current project. See [session recovery](session-recovery.md) for interrupted
+tools, concurrent writers and recovery procedures.

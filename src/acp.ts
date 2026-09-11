@@ -46,6 +46,8 @@ import {
 import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
 import { runTurn } from './runtime/index.js';
+import { createSession, saveSessionConversation } from './storage.js';
+import { SessionRecoveryError } from './sessions/index.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
@@ -175,6 +177,7 @@ interface AcpSession {
   /** Configured model, or '' to let the provider pick its default. */
   model: string;
   preference: ResolvedPreference;
+  revision: string | null;
   messages: Message[];
   runlog: RunLog;
   /** Set by session/cancel; checked cooperatively at every loop boundary. */
@@ -247,7 +250,7 @@ class CalliopeAgent implements Agent {
     }
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
-    const sessionId = `acp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const sessionId = createSession(cwd, { activate: false, prefix: 'acp' }).id;
     const runlog = RunLog.open(sessionId);
 
 
@@ -264,6 +267,7 @@ class CalliopeAgent implements Agent {
       resolvedProvider,
       model,
       preference,
+      revision: null,
       messages: [{ role: 'system', content: fullPrompt }],
       runlog,
       cancelled: false,
@@ -294,7 +298,7 @@ class CalliopeAgent implements Agent {
       const stopReason = await session.activeTurn;
       return { stopReason };
     } catch (error) {
-      if (session.cancelled || isCancellation(error)) return { stopReason: 'cancelled' };
+      if (!(error instanceof SessionRecoveryError) && (session.cancelled || isCancellation(error))) return { stopReason: 'cancelled' };
       throw RequestError.internalError({ error: errMessage(error) });
     } finally {
       try { await session.runlog.flush(); }
@@ -322,6 +326,11 @@ class CalliopeAgent implements Agent {
       for (const warning of session.preference.warnings) await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[Warning: ${warning}]\n` } });
       const result = await runTurn({
         client: 'acp',
+        onCheckpoint: (history, status) => {
+          const saved = saveSessionConversation(session.id, history, { expectedRevision: session.revision, status });
+          session.revision = saved.revision;
+          session.runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
+        },
         sessionId: session.id, cwd: session.cwd, provider: session.provider,
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
         preferenceSources: session.preference.sources,

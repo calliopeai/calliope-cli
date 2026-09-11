@@ -184,6 +184,14 @@ describe('headless budget halt', () => {
     const lines = onlyRunLog();
     const end = lines.find((l) => l.type === 'run_end') as unknown as { exitReason: string };
     expect(end.exitReason).toBe('completed');
+    const { readSessionConversation } = await import('../src/storage.js');
+    const sessionId = lines.find(line => line.type === 'run_start')!.session as string;
+    const saved = readSessionConversation(sessionId);
+    expect(saved.status).toBe('completed');
+    expect(saved.messages.at(-1)?.content).toBe('all good');
+    const checkpoints = lines.filter(line => line.type === 'session_checkpoint');
+    expect(checkpoints.at(-1)).toMatchObject({ revision: saved.revision, status: 'completed' });
+    expect(checkpoints.every(line => !('messages' in line) && !('content' in line))).toBe(true);
   });
 });
 

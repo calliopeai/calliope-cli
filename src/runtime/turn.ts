@@ -19,6 +19,7 @@ import { resolvePermission, type PermissionContext } from './permissions.js';
 import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
+import { withSession, type RecoveryStatus } from '../sessions/index.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -50,6 +51,8 @@ export interface TurnOptions {
   routing?: RoutingPreferences;
   preferenceSources?: RoutingDecision['preferenceSources'];
   onRoute?: (decision: RoutingDecision) => void;
+  /** Must finish before execution continues. A failed recovery write stops the turn. */
+  onCheckpoint?: (messages: Message[], status: RecoveryStatus) => void | Promise<void>;
 }
 
 function contextResult(call: ToolCall, result: ToolResult, limit: number): string {
@@ -77,7 +80,7 @@ export function completePendingTools(messages: Message[], reason: string): void 
 }
 
 export function runTurn(options: TurnOptions): Promise<TurnResult> {
-  return withScope(options.cwd, () => executeTurn(options), options.inheritScope);
+  return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
 }
 
 async function executeTurn(options: TurnOptions): Promise<TurnResult> {
@@ -93,6 +96,18 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   let iterations = 0;
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
+  let checkpointFailed = false;
+  // Parallel tools can finish together: serialize snapshots and copy each boundary now.
+  let checkpointTail = Promise.resolve();
+  const checkpoint = (status: RecoveryStatus): Promise<void> => {
+    if (!options.onCheckpoint || checkpointFailed) return checkpointTail;
+    const copy = structuredClone(messages.current);
+    checkpointTail = checkpointTail.then(() => options.onCheckpoint!(copy, status)).catch(error => {
+      checkpointFailed = true;
+      throw error;
+    });
+    return checkpointTail;
+  };
   let currentRequest: RuntimeRequest = { provider: options.provider, model: options.model || DEFAULT_MODELS[options.provider], messages: messages.current, tools: [] };
   const origin = { provider: options.provider, model: options.model };
   const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
@@ -153,6 +168,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   const report = async (call: ToolCall, result: ToolResult, durationMs: number) => {
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model)) });
+    await checkpoint('active');
     await options.onToolResult?.(call, result, iterations);
   };
   const execute = async (call: ToolCall): Promise<boolean> => {
@@ -197,6 +213,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   runlog.userPrompt(options.prompt);
   try {
     throwIfCancelled(signal);
+    await checkpoint('active');
     checkBudget();
     currentRequest = await resolveRoute({ ...currentRequest, tools: (options.tools ?? getTools)() }, true);
     messages.current = currentRequest.messages;
@@ -232,6 +249,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
           onRepair: options.onRepair });
         throwIfCancelled(signal);
         messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+        await checkpoint('active');
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
         checkBudget();
@@ -259,7 +277,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry') { await cancellableDelay(2000, signal); continue; }
@@ -269,6 +287,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     }
     iterations = Math.min(iterations, limit);
   } catch (error) {
+    if (checkpointFailed) { reason = 'error'; throw error; }
     if (signal?.aborted || isCancellation(error)) reason = 'cancelled';
     else if (budget?.exceeded) {
       reason = 'budget';
@@ -276,9 +295,14 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     } else { reason = 'error'; throw error; }
   } finally {
     completePendingTools(messages.current, reason);
-    totals.durationMs = Date.now() - started;
-    runlog.runEnd({ totals, exitReason: reason });
-    await runlog.flush();
+    try {
+      if (!checkpointFailed) await checkpoint(reason === 'completed' || reason === 'cancelled' || reason === 'waiting_for_user' ? reason : 'interrupted');
+    } catch (error) { reason = 'error'; throw error; }
+    finally {
+      totals.durationMs = Date.now() - started;
+      runlog.runEnd({ totals, exitReason: reason });
+      await runlog.flush();
+    }
   }
   return { reason, iterations, totals, budget };
 }

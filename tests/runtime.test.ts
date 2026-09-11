@@ -220,3 +220,73 @@ describe('shared turn runtime', () => {
     expect(messages.map(m => m.role)).toEqual(['assistant', 'tool', 'user']);
   });
 });
+
+it('persists tool requests before dispatch and each result before continuing', async () => {
+  const { writeConversation, readConversation } = await import('../src/sessions/index.js');
+  const dir = join(root, 'recovery'); mkdirSync(dir);
+  let revision: string | null = null;
+  const statuses: string[] = [];
+  chatMock.mockResolvedValueOnce(response(tool())).mockResolvedValueOnce(text());
+  executeMock.mockImplementation(async () => {
+    const saved = readConversation(dir, 'test');
+    expect(saved.messages.at(-1)?.toolCalls?.[0]?.id).toBe('read');
+    return { toolCallId: 'read', result: 'recorded evidence' };
+  });
+  await runTurn(options({
+    onCheckpoint: (messages, status) => {
+      statuses.push(status);
+      revision = writeConversation(dir, 'test', messages, { expectedRevision: revision, status }).revision;
+    },
+    onToolResult: () => expect(readConversation(dir, 'test').messages.at(-1)?.content).toBe('recorded evidence'),
+  }));
+  expect(readConversation(dir, 'test').status).toBe('completed');
+  expect(statuses).toEqual(['active', 'active', 'active', 'active', 'completed']);
+});
+
+it('stops before tool execution when its recovery checkpoint fails and never retries the write', async () => {
+  chatMock.mockResolvedValue(response(tool()));
+  let writes = 0;
+  const retry = vi.fn(() => 'retry' as const);
+  await expect(runTurn(options({ onCheckpoint: () => { if (++writes === 2) throw new Error('recovery disk full'); }, onError: retry }))).rejects.toThrow('recovery disk full');
+  expect(executeMock).not.toHaveBeenCalled(); expect(chatMock).toHaveBeenCalledOnce();
+  expect(retry).not.toHaveBeenCalled(); expect(writes).toBe(2);
+});
+
+it('records unknown outcomes on cancellation and preserves policy-denied results without executing them', async () => {
+  const checkpoints: { messages: Message[]; status: string }[] = [];
+  const controller = new AbortController();
+  chatMock.mockResolvedValue(response(tool()));
+  executeMock.mockImplementation(async () => { controller.abort(); throw new CancellationError(); });
+  const opts = options({ signal: controller.signal, onCheckpoint: (messages, status) => { checkpoints.push({ messages, status }); } });
+  expect((await runTurn(opts)).reason).toBe('cancelled');
+  expect(checkpoints.at(-1)).toMatchObject({ status: 'cancelled' });
+  expect(checkpoints.at(-1)!.messages.at(-1)?.content).toContain('Do not assume completion');
+  expect(checkpoints[1]!.messages.at(-1)?.role).toBe('assistant');
+  executeMock.mockClear(); checkpoints.length = 0;
+  chatMock.mockReset().mockResolvedValueOnce(response(tool('write_file', 'write', { path: 'ok.txt', content: 'bad' }))).mockResolvedValueOnce(text());
+  await runTurn(options({ mode: 'plan', onCheckpoint: (messages, status) => { checkpoints.push({ messages, status }); } }));
+  expect(executeMock).not.toHaveBeenCalled();
+  expect(checkpoints.at(-1)!.messages.find(message => message.role === 'tool')?.content).toContain('[mode]');
+});
+
+it('serializes checkpoints from parallel tools and retains both results across restart', async () => {
+  const { writeConversation, readConversation } = await import('../src/sessions/index.js');
+  const dir = join(root, 'recovery'); mkdirSync(dir);
+  let revision: string | null = null, writing = false;
+  chatMock.mockResolvedValueOnce(response(tool('read_file', 'a'), tool('read_file', 'b'))).mockResolvedValueOnce(text());
+  executeMock.mockImplementation(async call => ({ toolCallId: call.id, result: call.id }));
+  await runTurn(options({ parallel: true, onCheckpoint: async (messages, status) => {
+    expect(writing).toBe(false); writing = true;
+    await new Promise(resolve => setTimeout(resolve, 1));
+    revision = writeConversation(dir, 'test', messages, { expectedRevision: revision, status }).revision;
+    writing = false;
+  } }));
+  expect(readConversation(dir, 'test').messages.filter(message => message.role === 'tool').map(message => message.toolCallId).sort()).toEqual(['a', 'b']);
+});
+
+it('reports a checkpoint failure even when the cancellation signal is already set', async () => {
+  const controller = new AbortController();
+  const opts = options({ signal: controller.signal, onCheckpoint: () => { controller.abort(); throw new Error('checkpoint failed'); } });
+  await expect(runTurn(opts)).rejects.toThrow('checkpoint failed');
+  expect(chatMock).not.toHaveBeenCalled(); expect(executeMock).not.toHaveBeenCalled();
+});
