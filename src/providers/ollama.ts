@@ -15,7 +15,7 @@
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
-import { debugLog, type StreamCallback, type ChatOptions } from './types.js';
+import { normalizeFinishReason, debugLog, type StreamCallback, type ChatOptions } from './types.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 
 // ============================================================================
@@ -55,6 +55,7 @@ interface OllamaChatRequest {
 }
 
 interface OllamaChatResponse {
+  error?: string;
   model: string;
   message: {
     role: string;
@@ -70,6 +71,7 @@ interface OllamaChatResponse {
 }
 
 interface OllamaStreamChunk {
+  error?: string;
   model: string;
   message: {
     role: string;
@@ -322,6 +324,7 @@ async function doChat(
   }
 
   const data = await response.json() as OllamaChatResponse;
+  if (data.error) throw new Error(`Ollama API error: ${data.error}`);
 
   if (data.load_duration && data.load_duration > 10_000_000_000) {
     debugLog(`ollama: cold start for ${model} took ${Math.round(data.load_duration / 1_000_000_000)}s`);
@@ -343,7 +346,7 @@ async function doChat(
   return {
     content: responseContent,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    finishReason: toolCalls.length > 0 ? 'tool_use' : 'stop',
+    finishReason: normalizeFinishReason(data.done_reason, toolCalls.length > 0),
     usage: {
       inputTokens: data.prompt_eval_count || 0,
       outputTokens: data.eval_count || 0,
@@ -363,38 +366,52 @@ async function streamResponse(
   let allToolCalls: ToolCall[] = [];
   let promptTokens = 0;
   let completionTokens = 0;
+  let finishReason: LLMResponse['finishReason'] = 'stop';
+  let pending = '';
+  let receivedDone = false;
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const lines = pending.split('\n');
+      pending = done ? '' : lines.pop()!;
 
-    const text = decoder.decode(value, { stream: true });
-    const lines = text.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        let chunk: OllamaStreamChunk;
+        try {
+          chunk = JSON.parse(line);
+        } catch {
+          throw new Error('Malformed JSON in Ollama response stream');
+        }
+        if (chunk.error) throw new Error(`Ollama stream error: ${chunk.error}`);
 
-    for (const line of lines) {
-      let chunk: OllamaStreamChunk;
-      try {
-        chunk = JSON.parse(line);
-      } catch {
-        continue;
+        if (chunk.message?.content) {
+          content += chunk.message.content;
+          onToken(chunk.message.content);
+        }
+
+        if (chunk.message?.tool_calls) {
+          const parsed = parseOllamaToolCalls(chunk.message.tool_calls);
+          allToolCalls.push(...parsed);
+        }
+
+        if (chunk.done) {
+          receivedDone = true;
+          finishReason = normalizeFinishReason(chunk.done_reason);
+          if (chunk.prompt_eval_count) promptTokens = chunk.prompt_eval_count;
+          if (chunk.eval_count) completionTokens = chunk.eval_count;
+        }
       }
-
-      if (chunk.message?.content) {
-        content += chunk.message.content;
-        onToken(chunk.message.content);
-      }
-
-      if (chunk.message?.tool_calls) {
-        const parsed = parseOllamaToolCalls(chunk.message.tool_calls);
-        allToolCalls.push(...parsed);
-      }
-
-      if (chunk.done) {
-        if (chunk.prompt_eval_count) promptTokens = chunk.prompt_eval_count;
-        if (chunk.eval_count) completionTokens = chunk.eval_count;
-      }
+      if (done) break;
     }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
+
+  if (!receivedDone) throw new Error('Ollama stream ended before its completion frame');
 
   // Fallback: parse text-based tool calls from streamed content
   if (allToolCalls.length === 0 && content.includes('<function=')) {
@@ -409,7 +426,7 @@ async function streamResponse(
   return {
     content,
     toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-    finishReason: allToolCalls.length > 0 ? 'tool_use' : 'stop',
+    finishReason: normalizeFinishReason(finishReason, allToolCalls.length > 0),
     usage: {
       inputTokens: promptTokens,
       outputTokens: completionTokens,

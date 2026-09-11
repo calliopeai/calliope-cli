@@ -7,6 +7,8 @@
 
 ### Added
 
+- Offline conformance contracts using real SDK parsers across all provider adapters, plus reviewed-wire capture/replay tooling and a required prepublish evidence gate (#222).
+
 - A canonical permission resolver across terminal, headless and ACP, with
   source-labelled decisions and tool-call IDs in the audit log (#221).
 
@@ -18,6 +20,8 @@
   and `/memory reload` expose and refresh repository context.
 
 ### Fixed
+
+- Preserve all Anthropic/Gemini system instructions and Gemini tool-result associations. Retain streaming usage and incomplete/failed finish reasons. Buffer fragmented Ollama NDJSON and reject corrupted or incomplete streams.
 
 - Headless now honors pre-tool hooks. The executor rechecks filesystem and
   sandbox boundaries after approval; dangling symlinks fail scope validation.

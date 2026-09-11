@@ -47,7 +47,10 @@
     "bench:binary": "npm run build && bun packaging/build-binary.mjs --native && CALLIOPE_BENCH_BINARY=packaging/dist/calliope-native node bench/cold-start.mjs",
     "bench:ui": "vitest run -c bench/vitest.bench.config.ts bench/keystroke.bench.test.ts",
     "bench:mem": "NODE_OPTIONS=--expose-gc vitest run -c bench/vitest.bench.config.ts bench/memory.bench.test.ts",
-    "prepublishOnly": "npm run build && npm test"
+    "prepublishOnly": "npm run build && npm test && npm run test:conformance:release",
+    "test:conformance": "vitest run tests/provider-conformance.test.ts tests/provider-captures.test.ts",
+    "test:conformance:release": "CALLIOPE_REQUIRE_WIRE_CAPTURES=1 npm run test:conformance",
+    "capture:provider": "npm run build && node scripts/conformance/capture.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.111.0",

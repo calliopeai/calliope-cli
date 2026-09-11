@@ -11,7 +11,7 @@ import { join } from 'path';
 import { homedir } from 'os';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, ImageContent, MessageContent } from '../types.js';
-import { getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 
 // ---------------------------------------------------------------------------
 // AWS Credential Resolution
@@ -389,8 +389,10 @@ export async function chatBedrock(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  maxOutputTokens?: number,
 ): Promise<LLMResponse> {
+  if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1)) throw new Error('maxOutputTokens must be a positive integer');
   const credentials = await getAWSCredentials();
   const region = getAWSRegion();
   const service = 'bedrock';
@@ -410,7 +412,7 @@ export async function chatBedrock(
   const requestBody: Record<string, unknown> = {
     messages: bedrockMessages,
     inferenceConfig: {
-      maxTokens: dynamicMaxTokens,
+      maxTokens: Math.min(dynamicMaxTokens, maxOutputTokens ?? dynamicMaxTokens),
     },
   };
 
@@ -483,12 +485,7 @@ export async function chatBedrock(
   }
 
   // Map stop reasons
-  let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
-  if (data.stopReason === 'tool_use') {
-    finishReason = 'tool_use';
-  } else if (data.stopReason === 'max_tokens') {
-    finishReason = 'length';
-  }
+  const finishReason = normalizeFinishReason(data.stopReason, toolCalls.length > 0);
 
   return {
     content,
@@ -704,11 +701,7 @@ async function chatBedrockStreaming(
           }
           case 'messageStop': {
             const stop = event as { stopReason?: string };
-            if (stop.stopReason === 'tool_use') {
-              finishReason = 'tool_use';
-            } else if (stop.stopReason === 'max_tokens') {
-              finishReason = 'length';
-            }
+            finishReason = normalizeFinishReason(stop.stopReason, toolCalls.length > 0);
             break;
           }
           case 'metadata': {
