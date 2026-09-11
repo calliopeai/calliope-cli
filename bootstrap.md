@@ -57,6 +57,8 @@ Provider/model controls and preference precedence are documented in
 overwrite global defaults; project writes use the shared permission resolver.
 [Session recovery](docs/session-recovery.md) pins each client to a unique session
 and checkpoints the shared runtime at tool boundaries.
+[Session history](docs/session-history.md) adds immutable event ancestry, safety
+branches, recorded replay and private policy-checked transfers.
 
 ```
 src/

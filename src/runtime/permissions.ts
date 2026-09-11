@@ -9,7 +9,7 @@ import { cancellable, isCancellation, throwIfCancelled } from '../cancellation.j
 import { permissionReason, type PermissionDecision, type PermissionLayer } from './types.js';
 
 const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
-export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure']);
+export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import']);
 
 export interface PermissionContext {
   cwd: string;

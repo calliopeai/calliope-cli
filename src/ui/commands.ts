@@ -58,6 +58,11 @@ export const COMMAND_NAMES = [
   '/mode',
   '/undo',
   '/export',
+  '/import',
+  '/branch',
+  '/checkout',
+  '/diff',
+  '/replay',
   '/resume',
   '/new',
   '/sessions',
@@ -213,7 +218,12 @@ Model & Mode
 
 Conversation
   /undo                       Undo the last change (up to 10 steps)
-  /export [file.md]           Export conversation to markdown
+  /branch [name]             Branch and switch conversation with current tool state
+  /checkout <id|name>         Switch conversation; workspace files stay in place
+  /diff <id|name>             Compare another conversation with the current one
+  /replay [revision]          Read recorded conversation without executing tools
+  /export [file.json|file.md]  Save private history JSON or readable markdown
+  /import <file.json>         Validate and import into a separate inactive session
   /new                       Start a separate session
   /sessions                  List saved sessions
   /resume [sessionId]         Resume validated conversation and tool context
@@ -291,37 +301,6 @@ File references: @filename, ./path, /absolute/path`;
       ctx.setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
       resetContextWarnings(); // Reset context warning state
       break;
-
-    case '/export': {
-      // Export conversation to markdown
-      const filename = parts[1] || `calliope-export-${Date.now()}.md`;
-      const fsModule = await import('fs');
-      const path = await import('path');
-
-      let markdown = `# Calliope Conversation Export\n\n`;
-      markdown += `**Date:** ${new Date().toLocaleString()}\n`;
-      markdown += `**Provider:** ${ctx.actualProvider}\n`;
-      markdown += `**Model:** ${ctx.actualModel}\n\n---\n\n`;
-
-      for (const msg of ctx.messages) {
-        if (msg.type === 'user') {
-          markdown += `## \u{1F464} User\n\n${msg.content}\n\n`;
-        } else if (msg.type === 'assistant') {
-          markdown += `## \u{1F916} Assistant\n\n${msg.content}\n\n`;
-        } else if (msg.type === 'tool') {
-          markdown += `> \u{1F527} Tool: ${msg.content}\n\n`;
-        } else if (msg.type === 'system') {
-          markdown += `> \u{2139}\u{FE0F} ${msg.content}\n\n`;
-        } else if (msg.type === 'error') {
-          markdown += `> \u{26A0}\u{FE0F} Error: ${msg.content}\n\n`;
-        }
-      }
-
-      const filepath = path.resolve(process.cwd(), filename);
-      fsModule.writeFileSync(filepath, markdown);
-      ctx.addMessage('system', `✓ Exported to ${filename}`);
-      break;
-    }
 
     case '/undo': {
       if (ctx.undoStack.current.length === 0) {
@@ -982,6 +961,12 @@ Stop a running loop with /loop stop`);
       break;
     }
 
+    case '/export':
+    case '/import':
+    case '/branch':
+    case '/checkout':
+    case '/diff':
+    case '/replay':
     case '/new':
     case '/sessions':
     case '/resume': {

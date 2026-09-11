@@ -20,6 +20,7 @@ import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
 import { withSession, type RecoveryStatus } from '../sessions/index.js';
+import { assessToolRisk } from '../risk.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -53,6 +54,8 @@ export interface TurnOptions {
   onRoute?: (decision: RoutingDecision) => void;
   /** Must finish before execution continues. A failed recovery write stops the turn. */
   onCheckpoint?: (messages: Message[], status: RecoveryStatus) => void | Promise<void>;
+  /** Called once before the first allowed medium-or-higher-risk action in a turn. */
+  onSafetyBranch?: (call: ToolCall) => Promise<void>;
 }
 
 function contextResult(call: ToolCall, result: ToolResult, limit: number): string {
@@ -97,6 +100,8 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let checkpointFailed = false;
+  let safetyFailed = false;
+  let safetyBranch: Promise<void> | undefined;
   // Parallel tools can finish together: serialize snapshots and copy each boundary now.
   let checkpointTail = Promise.resolve();
   const checkpoint = (status: RecoveryStatus): Promise<void> => {
@@ -183,11 +188,21 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     throwIfCancelled(signal);
     if (decision.decision === 'cancelled') { permissionCancelled = true; return true; }
     if (decision.decision !== 'allow') { await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs); return false; }
+    await checkpointTail;
+    if (options.onSafetyBranch && ['medium', 'high', 'critical'].includes(assessToolRisk(call).level)) {
+      safetyBranch ??= Promise.resolve().then(() => options.onSafetyBranch!(call)).catch(error => { if (!isCancellation(error)) safetyFailed = true; throw error; });
+      await safetyBranch;
+    }
+    // A parallel result may have failed to persist while this tool awaited permission.
+    await checkpointTail;
     await options.beforeTool?.(call, iterations);
     throwIfCancelled(signal);
     checkBudget();
     const toolStarted = Date.now();
     const runTool = async (): Promise<ToolResult> => {
+      await checkpointTail;
+      if (safetyFailed) await safetyBranch;
+      throwIfCancelled(signal);
       try { return await executeTool(call, options.cwd, 60000, chunk => options.onToolOutput?.(call, chunk), {
       ...options.toolOptions, signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
     }); } catch (error) {
@@ -277,7 +292,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry') { await cancellableDelay(2000, signal); continue; }
@@ -287,7 +302,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     }
     iterations = Math.min(iterations, limit);
   } catch (error) {
-    if (checkpointFailed) { reason = 'error'; throw error; }
+    if (checkpointFailed || safetyFailed) { reason = 'error'; throw error; }
     if (signal?.aborted || isCancellation(error)) reason = 'cancelled';
     else if (budget?.exceeded) {
       reason = 'budget';

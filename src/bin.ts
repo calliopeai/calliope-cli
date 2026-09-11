@@ -168,6 +168,12 @@ async function main(): Promise<void> {
     process.exit(await runDoctor(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  if (args[0] === 'session') {
+    headlessCancellation = new AbortController();
+    const { runSessionCommand } = await import('./session-management/cli.js');
+    process.exit(await runSessionCommand(args.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   // Handle `replay` before setup/config gates: an audit trail needs no provider.
   if (args[0] === 'replay') {
     const { runReplay } = await import('./replay.js');
@@ -354,6 +360,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 
 ${bold('USAGE')}
   calliope [options] [prompt]
+  calliope session <action> [args] [--json]   Manage private session history without inference
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)

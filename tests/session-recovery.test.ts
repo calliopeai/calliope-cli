@@ -33,7 +33,7 @@ it('round-trips versioned private snapshots with opaque reasoning, tool and imag
   expect(readConversation(dir, 'test')).toEqual(written);
   expect(written.messages).toEqual(messages);
   expect(fs.statSync(join(dir, 'messages.json')).mode & 0o777).toBe(0o600);
-  expect(fs.readdirSync(dir)).toEqual(['messages.json']);
+  expect(fs.readdirSync(dir)).toEqual(['events', 'messages.json']);
   messages[2]!.providerMetadata!.extension = 'changed';
   expect(readConversation(dir, 'test').messages).toEqual(written.messages);
 });
@@ -51,7 +51,7 @@ it('rejects stale writers instead of overwriting newer state', () => {
   const second = save([{ role: 'user', content: 'other terminal' }], first.revision);
   expect(() => save(hello, first.revision)).toThrow(/another terminal/);
   expect(readConversation(dir, 'test')).toEqual(second);
-  expect(fs.readdirSync(dir)).toEqual(['messages.json']);
+  expect(fs.readdirSync(dir)).toEqual(['events', 'messages.json']);
 });
 
 it('rejects a real other-process lock without stealing it', () => {
@@ -154,7 +154,7 @@ it('keeps the previous snapshot and cleans temporary files when fsync fails', ()
   vi.spyOn(fs, 'fsyncSync').mockImplementationOnce(() => { throw new Error('disk failure'); });
   expect(() => save(hello, saved.revision)).toThrow(/disk space/);
   expect(readConversation(dir, 'test')).toEqual(saved);
-  expect(fs.readdirSync(dir)).toEqual(['messages.json']);
+  expect(fs.readdirSync(dir)).toEqual(['events', 'messages.json']);
 });
 
 it('rejects orphan or duplicate tool results and duplicate tool IDs', () => {

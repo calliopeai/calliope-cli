@@ -19,6 +19,8 @@ import * as config from '../src/config.js';
 import { RunLog } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
 import { clearModelCache } from '../src/model-detection.js';
+import * as storage from '../src/storage.js';
+import { branchSession } from '../src/session-management/index.js';
 
 let root: string;
 const text = (content = 'done', tokens = 3): LLMResponse => ({ content, finishReason: 'stop', usage: { inputTokens: tokens, outputTokens: 1 } });
@@ -46,6 +48,49 @@ beforeEach(async () => {
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.useRealTimers(); });
 
 describe('shared turn runtime', () => {
+  it('creates one durable safety branch before allowed parallel mutations and preserves its pre-tool protocol state', async () => {
+    const session = storage.createSession(root, { activate: false }); let revision: string | null = null;
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'a', { path: 'a.txt', content: 'A' }), tool('write_file', 'b', { path: 'b.txt', content: 'B' }))).mockResolvedValueOnce(text());
+    const onSafetyBranch = vi.fn(async () => {
+      const branch = await branchSession(session.id, { kind: 'safety' });
+      expect(executeMock).not.toHaveBeenCalled();
+      expect(branch.state.messages.at(-1)?.toolCalls).toHaveLength(2);
+    });
+    await runTurn(options({ sessionId: session.id, parallel: true, onSafetyBranch, onCheckpoint: (messages, status) => {
+      revision = storage.saveSessionConversation(session.id, messages, { expectedRevision: revision, status }).revision;
+    } }));
+    expect(onSafetyBranch).toHaveBeenCalledTimes(1); expect(executeMock).toHaveBeenCalledTimes(2);
+    expect(readFileSync(join(root, 'a.txt'), 'utf8')).toBe('A');
+    const branch = storage.listSessions(10000).find(item => item.lineage?.sessionId === session.id)!;
+    expect(storage.readSessionConversation(branch.id).messages.some(message => message.role === 'tool')).toBe(false);
+    expect(storage.readSessionConversation(session.id).status).toBe('completed');
+  });
+  it('does not branch for read-only or denied tools', async () => {
+    const onSafetyBranch = vi.fn();
+    chatMock.mockResolvedValueOnce(response(tool(), tool('write_file', 'denied', { path: '../outside', content: 'no' }))).mockResolvedValueOnce(text());
+    await runTurn(options({ onSafetyBranch }));
+    expect(onSafetyBranch).not.toHaveBeenCalled(); expect(executeMock).toHaveBeenCalledTimes(1);
+  });
+  it('stops without tool execution or inference retry when its safety branch fails', async () => {
+    chatMock.mockResolvedValue(response(tool('write_file', 'a', { path: 'a.txt', content: 'no' })));
+    const onError = vi.fn(() => 'retry' as const);
+    await expect(runTurn(options({ onError, onSafetyBranch: () => { throw new Error('safety branch disk failure'); } }))).rejects.toThrow('safety branch disk failure');
+    expect(executeMock).not.toHaveBeenCalled(); expect(chatMock).toHaveBeenCalledTimes(1); expect(onError).not.toHaveBeenCalled();
+  });
+  it('cancels after a safety branch completes without starting its proposed tool', async () => {
+    const controller = new AbortController();
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'a', { path: 'a.txt', content: 'no' })));
+    const result = await runTurn(options({ signal: controller.signal, onSafetyBranch: async () => { controller.abort(); } }));
+    expect(result.reason).toBe('cancelled'); expect(executeMock).not.toHaveBeenCalled();
+  });
+  it('records cancellation when branch work throws AbortError instead of treating it as a recovery failure', async () => {
+    const controller = new AbortController();
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'a', { path: 'a.txt', content: 'no' })));
+    const result = await runTurn(options({ signal: controller.signal, onSafetyBranch: async () => {
+      controller.abort(); const error = new Error('Operation cancelled'); error.name = 'AbortError'; throw error;
+    } }));
+    expect(result.reason).toBe('cancelled'); expect(executeMock).not.toHaveBeenCalled();
+  });
   it.each(['terminal', 'headless', 'acp', 'library'] as const)('%s uses the same execution, accounting and transcript contract', async client => {
     chatMock.mockResolvedValueOnce(response(tool())).mockResolvedValueOnce(text());
     const usage = vi.fn(); const opts = options({ client, onUsage: usage });

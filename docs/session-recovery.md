@@ -49,6 +49,7 @@ revision IDs, checksums, status and counts are added to the snapshot audit event
   "status": "active",
   "droppedMessages": 0,
   "messages": [],
+  "history": {"id": "same UUID as revision", "hash": "event SHA-256", "sessionId": "event owner ID"},
   "checksum": "SHA-256 of the serialized envelope without checksum"
 }
 ```
@@ -56,8 +57,9 @@ revision IDs, checksums, status and counts are added to the snapshot audit event
 Status is `active`, `completed`, `cancelled`, `interrupted`, or
 `waiting_for_user`. The checksum detects damaged or edited content; it is not a
 signature against someone who can rewrite the entire local store. The separate
-run log remains the audit history. Deterministic event replay and branching are
-later work; snapshots retain the latest recovery state.
+run log remains the audit history. New snapshots also reference an immutable
+conversation history head; see [session history](session-history.md) for branching,
+replay, safe transfers and the event schema.
 
 Readers accept legacy message arrays and migrate them on the next successful
 save. Malformed metadata, unknown schema versions, invalid message shapes,
@@ -72,7 +74,8 @@ target count. Overlarge snapshots fail visibly; compact the conversation or
 start `/new`. Retention changes do not mutate the running conversation.
 
 Each save takes an exclusive `messages.lock`, checks the expected revision,
-writes and fsyncs a unique temporary file, then atomically renames it into place.
+appends an immutable delta event, writes and fsyncs a unique temporary snapshot,
+then atomically renames the snapshot into place.
 A stale terminal cannot overwrite another writer's committed snapshot. Session
 IDs also bind chat history, iteration ledgers and runtime session tools (todos
 and plans); another process changing the compatibility `current` pointer cannot
@@ -94,8 +97,8 @@ tools must supply a session ID created by storage.
   A crash after a tool mutation but before its result is saved has an unknown
   outcome; inspect the workspace rather than replaying the tool automatically.
 
-This slice does not persist the pending submission queue, offer snapshot import
-or export, or implement session branches. Those controls remain in phase 3.
+The pending submission queue is not persisted. Branching and private import/export
+are documented in [session history](session-history.md).
 
 The run-log v1 envelope adds `session_checkpoint` events with `revision`,
 `checksum`, `status` and `messageCount`; existing event types are unchanged.

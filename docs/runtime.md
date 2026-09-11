@@ -61,3 +61,10 @@ Callbacks are serialized across parallel tools; a failed write halts execution.
 Terminal, headless and ACP clients enable this callback and save to their own
 session IDs. See [session recovery](session-recovery.md) for the versioned schema
 and unknown tool outcomes after interruption.
+
+When a client supplies `onSafetyBranch`, the shared runtime waits for one safety
+branch before its first allowed medium/high/critical-risk tool. Parallel tools
+share that promise. Failure stops execution and inference retry; cancellation is
+checked again before dispatch. Terminal, headless and ACP wire this to the saved
+session service. A parallel checkpoint failure also stops tools still awaiting
+permission, branch creation or retry. See [session history](session-history.md).
