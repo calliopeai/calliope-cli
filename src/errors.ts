@@ -51,6 +51,9 @@ export class StreamProtocolError extends Error {
  * Classify an error and provide actionable suggestions
  */
 export function classifyError(error: unknown): ClassifiedError {
+  if (error instanceof Error && error.name === 'ExecutionLimitError') return {
+    category: 'invalid_request', message: error.message, suggestion: 'Inspect the execution contract and budget history before retrying.', retryable: false,
+  };
   if (error instanceof StreamInterruptedError || error instanceof StreamProtocolError) return {
     category: 'invalid_request', message: error.message, suggestion: 'Inspect /doctor providers and retry explicitly or choose a compatible model.', retryable: false,
   };

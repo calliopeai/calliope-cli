@@ -10,7 +10,7 @@ import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNon
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
-import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 
@@ -246,7 +246,8 @@ export async function chatOpenAICompatible(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limits?: AdapterLimits
 ): Promise<LLMResponse> {
   // Ollama and LiteLLM use base URL, others use API key
   let apiKey: string | undefined;
@@ -285,14 +286,16 @@ export async function chatOpenAICompatible(
   let activeShim: CompatShim | null = null;
   if (provider === 'openai-compat') {
     activeShim = detectShim(baseURL);
+    if (limits?.bounded && tools.length && !activeShim.supportsTools)
+      throw new Error('Bounded execution requires a server shim that preserves requested tools.');
   }
 
-  const client = new OpenAI({ apiKey, baseURL });
+  const client = new OpenAI({ apiKey, baseURL, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = calculateMaxTokens(provider, model, messages, tools);
+  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens(provider, model, messages, tools), limits?.maxOutputTokens);
   debugLog(`${provider} request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
@@ -310,6 +313,7 @@ export async function chatOpenAICompatible(
         tools: openaiTools.length > 0 ? openaiTools : undefined,
         max_tokens: dynamicMaxTokens,
         stream: true,
+        ...(limits?.bounded ? { stream_options: { include_usage: true } } : {}),
       };
       if (activeShim) streamParams = activeShim.transformRequest(streamParams) as ChatCompletionCreateParamsStreaming;
       const stream = await client.chat.completions.create(streamParams, signal ? { signal } : undefined);
@@ -395,7 +399,7 @@ export async function chatOpenAICompatible(
   } catch (error: unknown) {
     // Ollama model not found - try fallback discovery
     const status = (error as { status?: number })?.status;
-    if (provider === 'ollama' && (status === 404 || String(error).includes('not found'))) {
+    if (!limits?.bounded && provider === 'ollama' && (status === 404 || String(error).includes('not found'))) {
       const fallback = await getOllamaFallbackModel();
       if (fallback && fallback !== model) {
         debugLog(`Ollama model "${model}" not found, falling back to "${fallback}"`);

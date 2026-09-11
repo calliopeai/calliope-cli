@@ -6,6 +6,7 @@
 
 import * as config from '../config.js';
 import { withRetry, StreamProtocolError } from '../errors.js';
+import { ExecutionLimitError } from '../execution/types.js';
 import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
@@ -153,6 +154,12 @@ export async function chat(
   options?: ChatOptions
 ): Promise<LLMResponse> {
   throwIfCancelled(options?.signal);
+  const bounded = !!options?.attemptBudget || !!options?.bounded;
+  const maxOutputTokens = options?.maxOutputTokens;
+  if (maxOutputTokens !== undefined && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 100000000) || bounded && maxOutputTokens === undefined)
+    throw new ExecutionLimitError('invalid','A bounded provider call requires a positive integer output limit.');
+  const limits = { maxOutputTokens, bounded };
+  const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
@@ -185,13 +192,13 @@ export async function chat(
     let response: LLMResponse;
     switch (actualProvider) {
       case 'anthropic':
-        response = await chatAnthropic(messages, backendTools, actualModel, onToken, options?.signal);
+        response = await chatAnthropic(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'google':
-        response = await chatGoogle(messages, backendTools, actualModel, onToken, options?.signal);
+        response = await chatGoogle(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'openai':
-        response = await chatOpenAI(messages, backendTools, actualModel, onToken, options?.signal);
+        response = await chatOpenAI(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'openrouter':
       case 'together':
@@ -203,23 +210,23 @@ export async function chat(
       case 'deepseek':
       case 'xai':
       case 'cerebras':
-        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'ollama':
-        response = await chatOllama(messages, backendTools, actualModel, onToken, options);
+        response = await chatOllama(messages, backendTools, actualModel, onToken, { ...options, ...limits });
         break;
       case 'litellm':
       case 'openai-compat':
-        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'bedrock': {
         const bedrockBase = config.getBaseUrl('bedrock');
         if (bedrockBase) {
           // Gateway/proxy mode (existing)
-          response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
+          response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal, limits);
         } else {
           // Native AWS mode
-          response = await chatBedrock(messages, backendTools, actualModel, onToken, options?.signal);
+          response = await chatBedrock(messages, backendTools, actualModel, onToken, options?.signal, maxOutputTokens);
         }
         break;
       }
@@ -235,6 +242,23 @@ export async function chat(
   let attempt = 0;
   let lastStream: StreamAttempt | undefined;
   const observedChat = async (): Promise<LLMResponse> => {
+    throwIfCancelled(options?.signal);
+    const target = attemptBudget ? providerTarget(actualProvider as HealthProvider).key : undefined;
+    // Admission errors are not provider failures and must not create a network retry.
+    let ticket: string | undefined;
+    try { ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!}) : undefined; }
+    catch (error) {
+      throwIfCancelled(options?.signal);
+      if (error instanceof ExecutionLimitError) throw error;
+      throw new ExecutionLimitError('unavailable','Request admission could not be committed; no provider request was sent.');
+    }
+    let settlementStarted = false;
+    const settle = async (outcome:'success'|'error'|'cancelled', usage?:LLMResponse['usage']) => {
+      if (!attemptBudget || ticket === undefined || settlementStarted) return;
+      settlementStarted = true;
+      try { await attemptBudget.settle(ticket,outcome,usage); }
+      catch (error) { if (error instanceof ExecutionLimitError) throw error; throw new ExecutionLimitError('unavailable','Provider outcome could not be committed; its reservation remains charged.'); }
+    };
     const started = Date.now(), retryIndex = attempt++;
     const stream = onToken ? new StreamAttempt(retryIndex + 1, onToken, options?.onStreamEvent, options?.signal) : undefined;
     lastStream = stream;
@@ -245,8 +269,11 @@ export async function chat(
       catch { healthHistoryWarning(options?.onHealthWarning); }
     };
     try {
+      throwIfCancelled(options?.signal);
+      if (attemptBudget && providerTarget(actualProvider as HealthProvider).key !== target) throw new ExecutionLimitError('authority','Provider endpoint changed during budget admission.');
       const response = await cancellable(doChat(stream?.push), options?.signal);
       if (stream && response.finishReason === 'error') throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
+      await settle(response.finishReason === 'error' ? 'error' : 'success', response.usage);
       stream?.finish('completed');
       const usage = response.usage;
       record({ outcome: response.finishReason === 'error' ? 'error' : 'success',
@@ -259,6 +286,7 @@ export async function chat(
       return response;
     } catch (error) {
       const outcome = healthOutcome(error, options?.signal);
+      await settle(outcome === 'cancelled' ? 'cancelled' : 'error');
       stream?.finish(outcome === 'cancelled' ? 'cancelled' : 'failed');
       record({ outcome, ...(outcome === 'cancelled' ? { capabilities: { cancellation: true } } : { ...healthFailure(error), ...(outcome === 'timeout' ? { failure: 'timeout' as const } : {}) }) });
       throw outcome === 'cancelled' ? error : stream?.failure(error, !!options?.onStreamReset) ?? error;

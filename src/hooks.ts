@@ -322,7 +322,7 @@ async function runHookCommand(
 export async function executeHooks(
   event: HookEvent,
   context: Partial<HookContext>,
-  options: {signal?: AbortSignal} = {}
+  options: {signal?: AbortSignal; bounded?: boolean} = {}
 ): Promise<HookResult[]> {
   throwIfCancelled(options.signal);
   const hooks = getHooksForEvent(event);
@@ -362,7 +362,7 @@ export async function executeHooks(
     // hook is always awaited regardless of its `async` flag. Allowing
     // fire-and-forget here would let `async: true` silently neutralize a
     // guardrail (the discarded result could never set `blocked`).
-    if (hook.async && !BLOCKING_EVENTS.has(event)) {
+    if (hook.async && !BLOCKING_EVENTS.has(event) && !options.bounded) {
       // Fire and forget with debug logging
       runHookCommand(hook, fullContext, options.signal).catch((err) => {
         debugLog(`Async hook '${hook.id}' failed:`, err instanceof Error ? err.message : err);

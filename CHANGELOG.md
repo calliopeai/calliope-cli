@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add a library boundary for inherited agent authority, scoped atomic file operations, deadlines and persistent request reservations across agent ancestors and the project. Bound SDK output/retries and retain unknown spend across restart; ordinary project-capped turns share admission. Orchestration execution commands remain unavailable (#280).
+
 - Add strict agent/task/workspace plans, bounded hierarchy and dependency checks, artifact provenance contracts, and a private immutable run journal. CLI/REPL dry-run, preparation, review, cancellation and graph/tree inspection record inactive runs without invoking child agents (#278). Thread cancellation into policy/hook subprocesses and wait for permission cleanup before returning.
 
 - Reset failed streaming attempts before retry, stop append-only clients after partial failures, preserve assistant tool prefaces, and show independent tool progress. Add bounded private tool-output inspection with `/tools`, resize-aware expand/collapse pages, restart/transfer support, and `calliope session outputs ... --json` (#275).

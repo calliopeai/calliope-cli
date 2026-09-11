@@ -11,7 +11,7 @@ import { analyzeDependencies } from '../parallel-tools.js';
 import { getModelContextLimit } from '../model-detection.js';
 import { isLocalBackend } from '../local-model.js';
 import { resolveIterationLimit } from '../iteration-limit.js';
-import { getBudgetCaps, evaluateBudget, hasBudgetCaps, loadProjectSpend, recordProjectSpend, formatBudgetHalt, type BudgetVerdict } from '../budget.js';
+import { getBudgetCaps, evaluateBudget, hasBudgetCaps, loadProjectSpend, formatBudgetHalt, type BudgetVerdict } from '../budget.js';
 import { RunLog } from '../runlog.js';
 import * as config from '../config.js';
 import { executeHooks } from '../hooks.js';
@@ -24,12 +24,15 @@ import { getSessionDirById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 import { StreamInterruptedError, StreamProtocolError } from '../errors.js';
+import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
+import {randomUUID} from 'node:crypto';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict }
 export interface TurnOptions {
+  execution?: AgentExecution;
   client?: 'terminal' | 'headless' | 'acp' | 'library';
   sessionId: string; cwd: string; provider: LLMProvider; model?: string; prompt: string;
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
@@ -89,17 +92,25 @@ export function completePendingTools(messages: Message[], reason: string): void 
   }
 }
 
-export function runTurn(options: TurnOptions): Promise<TurnResult> {
-  return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
+export async function runTurn(options: TurnOptions): Promise<TurnResult> {
+  const guard=options.execution?new ExecutionGuard(options.execution,options.cwd):undefined;
+  if(!guard)return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
+  const controller=new AbortController(),abort=()=>controller.abort(options.signal?.reason);
+  options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
+  if(Date.now()>=guard.deadline)controller.abort();
+  const timer=setTimeout(()=>controller.abort(),Math.max(0,guard.deadline-Date.now()));
+  try{return await withSession(options.sessionId,()=>withScope(options.cwd,()=>executeTurn({...options,signal:controller.signal},guard),options.inheritScope));}
+  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
 }
 
-async function executeTurn(options: TurnOptions): Promise<TurnResult> {
+async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
   const { signal, messages } = options;
   const started = Date.now();
   const totals: TurnTotals = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
   const runlog = options.runlog ?? RunLog.open(options.sessionId);
   const caps = getBudgetCaps();
   const trackProject = typeof caps.maxCostPerProject === 'number';
+  const projectRunId=guard?.manifest.runId??randomUUID();
   const seenWarnings = new Set<string>();
   const repairedIds = new Set<string>();
   let reason: TurnReason | 'error' = 'iteration_limit';
@@ -141,6 +152,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
       messages: adaptRoutingPrompt(input.messages, decision.selected.provider) };
   };
   const checkBudget = () => {
+    guard?.assertActive(signal);
     if (!hasBudgetCaps(caps)) return;
     const verdict = evaluateBudget(caps, { runCostUsd: totals.cost, runTokens: totals.inputTokens + totals.outputTokens, projectCostUsd: trackProject ? loadProjectSpend(options.cwd).spentUsd : 0 });
     if (verdict.exceeded) {
@@ -153,9 +165,21 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
     checkBudget();
+    if(guard)input={...input,tools:guard.tools(input.tools)};
     input = await resolveRoute(input, false, extra, stream);
     throwIfCancelled(signal);
-    const response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal,
+    if(guard)input={...input,tools:guard.tools(input.tools)};
+    const maxOutputTokens=guard?.maxOutputTokens??(trackProject?input.route?.maxOutputTokens??0:undefined);
+    const requestController=!guard&&trackProject?new AbortController():undefined;
+    const abortRequest=()=>requestController?.abort(signal?.reason);
+    const requestSignal=requestController?.signal??signal;
+    const attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
+      ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage}),durationMs:0})):undefined);
+    signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
+    const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
+    let response:LLMResponse;
+    try {response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
+      ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
       onStreamReset: stream ? options.onStreamReset : undefined,
       onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },
@@ -163,7 +187,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
         options.onWarning?.(message);
       },
-    });
+    });}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     throwIfCancelled(signal);
     const prices = input.route?.price;
     const costSource = prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
@@ -173,7 +197,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     totals.inputTokens += response.usage?.inputTokens ?? 0;
     totals.outputTokens += response.usage?.outputTokens ?? 0;
     totals.cost += cost;
-    if (trackProject) recordProjectSpend(options.cwd, cost);
+    // Project accounting is committed by the attempt receipt, including retries and unknown outcomes.
     runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, cost, costSource });
     options.onUsage?.(response, input, cost);
     for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
@@ -202,7 +226,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     runlog.toolCall({ id: call.id, name: call.name, args: call.arguments });
     totals.toolCalls++;
     await options.onToolStart?.(call, iterations);
-    const decision = await resolvePermission(call, { cwd: options.cwd, mode: options.mode, confirmation: options.confirmation, signal, sessionId: options.sessionId, approvals: options.approvals,
+    const decision = await resolvePermission(call, { cwd: options.cwd, mode: options.mode, confirmation: guard && options.confirmation==='none'?'mutating':options.confirmation, signal, sessionId: options.sessionId, approvals: options.approvals, authority:guard?.check,
       approve: options.approve ? pending => options.approve!(call, pending) : undefined, audit: event => runlog.policyEvent(event) });
     await options.onPermission?.(call, decision);
     throwIfCancelled(signal);
@@ -223,8 +247,8 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
       await checkpointTail;
       if (safetyFailed) await safetyBranch;
       throwIfCancelled(signal);
-      try { return await executeTool(call, options.cwd, 60000, chunk => options.onToolOutput?.(call, chunk), {
-      ...options.toolOptions, signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
+      try { return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(call, chunk), {
+      ...options.toolOptions, ...(guard?{authority:guard.check,fs:agentFiles(guard,options.execution!.agentId,call,signal)}:{}), signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
     }); } catch (error) {
         throwIfCancelled(signal);
         if (isCancellation(error)) throw error;
@@ -240,24 +264,30 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
       throwIfCancelled(signal);
     }
     await report(call, result, Date.now() - toolStarted);
-    if (!signal?.aborted) void executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal }).catch(error => options.onWarning?.(`Post-tool hook failed: ${String(error)}`));
+    if (!signal?.aborted) {
+      const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(error => {
+        throwIfCancelled(signal); options.onWarning?.(`Post-tool hook failed: ${String(error)}`);
+      });
+      if (guard) await post; else void post.catch(() => {});
+    }
     return !result.isError && ['ask_question', 'create_plan'].includes(call.name);
   };
 
   runlog.runStart({ mode: options.client ?? 'library', session: options.sessionId, cwd: options.cwd, provider: options.provider, model: currentRequest.model, config: config.getConfig() as unknown as Record<string, unknown> });
   runlog.userPrompt(options.prompt);
+  const availableTools=()=>guard?guard.tools((options.tools??getTools)()):(options.tools??getTools)();
   try {
     throwIfCancelled(signal);
     await checkpoint('active');
     checkBudget();
-    currentRequest = await resolveRoute({ ...currentRequest, tools: (options.tools ?? getTools)() }, true);
+    currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
     const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
         throwIfCancelled(signal);
         checkBudget();
-        currentRequest = { ...currentRequest, messages: messages.current, tools: (options.tools ?? getTools)() };
+        currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
         const compressed = await autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
           async (summaryMessages, summaryModel) => {
             const response = await request({ ...currentRequest, model: summaryModel || currentRequest.model, messages: summaryMessages, tools: [] }, {}, false);
@@ -312,7 +342,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError)) { await cancellableDelay(2000, signal); continue; }
@@ -323,7 +353,11 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     iterations = Math.min(iterations, limit);
   } catch (error) {
     if (checkpointFailed || safetyFailed) { reason = 'error'; throw error; }
-    if (signal?.aborted || isCancellation(error)) reason = 'cancelled';
+    if (signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError && error.code==='deadline') reason = 'cancelled';
+    else if (error instanceof ExecutionLimitError && error.code==='budget') {
+      reason = 'budget'; budget = { exceeded: true, message: error.message };
+      runlog.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error.message,durationMs:0});
+    }
     else if (budget?.exceeded) {
       reason = 'budget';
       runlog.budgetEvent({ scope: budget.scope ?? 'run', kind: budget.kind ?? 'cost', spent: budget.spent ?? 0, cap: budget.cap ?? 0, message: formatBudgetHalt(budget) });

@@ -141,10 +141,16 @@ describe('project spend ledger', () => {
     expect(loadProjectSpend(PROJECT).spentUsd).toBe(0);
   });
 
-  it('recovers gracefully from a corrupt ledger file', () => {
+  it('rejects corrupt history instead of recovering unspent capacity', () => {
     fs.mkdirSync(path.dirname(projectBudgetPath(PROJECT)), { recursive: true });
-    fs.writeFileSync(projectBudgetPath(PROJECT), 'not json');
-    expect(loadProjectSpend(PROJECT).spentUsd).toBe(0);
+    const file=projectBudgetPath(PROJECT), original=fs.readFileSync(file,'utf8');
+    fs.writeFileSync(file, 'not json');
+    try {
+      expect(()=>loadProjectSpend(PROJECT)).toThrow(/damaged/);
+      expect(()=>recordProjectSpend(PROJECT,1)).toThrow(/damaged/);
+      expect(()=>resetProjectSpend(PROJECT)).toThrow(/damaged/);
+      expect(fs.readFileSync(file,'utf8')).toBe('not json');
+    } finally {fs.writeFileSync(file,original);}
   });
 
   it('keys different project dirs separately', () => {

@@ -20,10 +20,11 @@ export function normalize(response) {
 }
 /** Dispatch directly to adapters so retry policy cannot disguise wire failures. */
 export async function invoke(adapters, backend, model, messages, tools, onToken, signal, limits) {
-  if (backend.protocol === 'anthropic') return adapters.anthropic.chatAnthropic(messages, tools, model, onToken, signal);
-  if (backend.protocol === 'google') return adapters.google.chatGoogle(messages, tools, model, onToken, signal);
-  if (backend.protocol === 'ollama') return adapters.ollama.chatOllama(messages, tools, model, onToken, { signal });
+  const boundedLimits = limits ? { ...limits, bounded: true } : undefined;
+  if (backend.protocol === 'anthropic') return adapters.anthropic.chatAnthropic(messages, tools, model, onToken, signal, boundedLimits);
+  if (backend.protocol === 'google') return adapters.google.chatGoogle(messages, tools, model, onToken, signal, boundedLimits);
+  if (backend.protocol === 'ollama') return adapters.ollama.chatOllama(messages, tools, model, onToken, { signal, ...boundedLimits });
   if (backend.protocol === 'bedrock') return adapters.bedrock.chatBedrock(messages, tools, model, onToken, signal, limits?.maxOutputTokens);
-  if (backend.provider === 'openai') return adapters.openai.chatOpenAI(messages, tools, model, onToken, signal);
-  return adapters.compat.chatOpenAICompatible(backend.provider, messages, tools, model, onToken, signal);
+  if (backend.provider === 'openai') return adapters.openai.chatOpenAI(messages, tools, model, onToken, signal, boundedLimits);
+  return adapters.compat.chatOpenAICompatible(backend.provider, messages, tools, model, onToken, signal, boundedLimits);
 }

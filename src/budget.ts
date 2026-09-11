@@ -7,13 +7,13 @@
  *   - budget.maxCostPerProject (USD, accumulated across runs in a project dir)
  *
  * Per-run caps are checked against totals the caller accumulates during a single
- * run. The per-project cap is checked against a small ledger file under
+ * run. Project-capped requests reserve before dispatch in a versioned ledger under
  * `~/.calliope-cli/projects/<hash>/budget.json`, keyed by a hash of the resolved
  * project path so it never lands inside the user's repo.
  *
- * When a cap is exceeded the runtime stops before the next request or tool, emits
- * a `budget_event`, and halts cleanly (headless exit code 3). Usage from model
- * repair and compression counts toward the same cap.
+ * Admission failures stop execution (headless exit code 3), with a budget or
+ * policy audit event. Unknown outcomes retain reservations; repair, compression
+ * and retries count toward the same cap. See docs/agent-runtime.md.
  */
 
 import * as fs from 'fs';
@@ -21,6 +21,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { createHash } from 'crypto';
 import * as config from './config.js';
+import {ProjectSpendLedger} from './execution/project-spend.js';
 
 export interface BudgetCaps {
   maxCostPerRun?: number;
@@ -77,7 +78,7 @@ export function hasBudgetCaps(caps: BudgetCaps): boolean {
 // Per-project spend ledger
 // ============================================================================
 
-const PROJECTS_DIR = path.join(os.homedir(), '.calliope-cli', 'projects');
+const PROJECTS_DIR = path.join(fs.existsSync(os.homedir()) ? fs.realpathSync(os.homedir()) : os.homedir(), '.calliope-cli', 'projects');
 
 /** Stable per-project key: first 16 hex of sha256 of the resolved path. */
 export function projectKey(projectDir: string): string {
@@ -95,14 +96,8 @@ export function projectBudgetPath(projectDir: string): string {
 }
 
 export function loadProjectSpend(projectDir: string): ProjectSpend {
-  const file = projectBudgetPath(projectDir);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<ProjectSpend>;
-    const spentUsd = typeof parsed.spentUsd === 'number' && parsed.spentUsd >= 0 ? parsed.spentUsd : 0;
-    return { spentUsd, updatedAt: parsed.updatedAt ?? new Date(0).toISOString() };
-  } catch {
-    return { spentUsd: 0, updatedAt: new Date(0).toISOString() };
-  }
+  const state = new ProjectSpendLedger(projectBudgetPath(projectDir)).read();
+  return {spentUsd:state.spentUsd,updatedAt:state.updatedAt};
 }
 
 /**
@@ -110,34 +105,15 @@ export function loadProjectSpend(projectDir: string): ProjectSpend {
  * Returns the new total. A zero/negative delta is a no-op read.
  */
 export function recordProjectSpend(projectDir: string, costUsd: number): number {
-  const current = loadProjectSpend(projectDir);
-  if (!(costUsd > 0)) return current.spentUsd;
-
-  const next: ProjectSpend = {
-    spentUsd: current.spentUsd + costUsd,
-    updatedAt: new Date().toISOString(),
-  };
-  const file = projectBudgetPath(projectDir);
-  const dir = path.dirname(file);
-  try {
-    fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(next, null, 2));
-    fs.renameSync(tmp, file);
-  } catch {
-    // Persistence is best-effort; enforcement still uses the in-memory total.
-  }
-  return next.spentUsd;
+  if (!(costUsd > 0)) return loadProjectSpend(projectDir).spentUsd;
+  return new ProjectSpendLedger(projectBudgetPath(projectDir)).charge(costUsd);
 }
 
-/** Reset a project's accumulated spend (used by tooling/tests). */
+/** Explicit reset retains versioned history and refuses unfinished reservations. */
 export function resetProjectSpend(projectDir: string): void {
   const file = projectBudgetPath(projectDir);
-  try {
-    fs.unlinkSync(file);
-  } catch {
-    /* nothing to reset */
-  }
+  if (!fs.existsSync(file) && !fs.existsSync(file+'.initialized')) return;
+  new ProjectSpendLedger(file).reset();
 }
 
 // ============================================================================
@@ -185,6 +161,7 @@ export function evaluateBudget(caps: BudgetCaps, usage: BudgetUsage): BudgetVerd
 /** One-line halt summary for the user/CI log. */
 export function formatBudgetHalt(verdict: BudgetVerdict): string {
   if (!verdict.exceeded) return '';
+  if (verdict.spent === undefined || verdict.cap === undefined) return verdict.message ?? 'Request cannot fit within the available budget. Halting.';
   const unit = verdict.kind === 'tokens' ? '' : '$';
   const spent = verdict.kind === 'tokens'
     ? String(verdict.spent ?? 0)
