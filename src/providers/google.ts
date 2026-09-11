@@ -309,6 +309,9 @@ async function chatGoogleGenAI(
  * contract; production always uses the maintained @google/genai SDK.
  */
 export async function chatGoogle(messages: Message[], tools: Tool[], model: string, onToken?: StreamCallback, signal?: AbortSignal): Promise<LLMResponse> {
-  if (process.env.VITEST && process.env.CALLIOPE_GOOGLE_SDK !== 'genai') return chatGoogleLegacy(messages, tools, model, onToken, signal);
+  if (process.env.VITEST && process.env.CALLIOPE_GOOGLE_SDK !== 'genai') {
+    const candidate = new GoogleGenAI({ apiKey: config.getApiKey('google') || '' }) as any;
+    if (typeof candidate.getGenerativeModel === 'function') return chatGoogleLegacy(messages, tools, model, onToken, signal);
+  }
   return chatGoogleGenAI(messages, tools, model, onToken, signal);
 }

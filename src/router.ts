@@ -129,6 +129,11 @@ const DEFAULT_TIERS: Partial<Record<LLMProvider, RoutingConfig['tiers']>> = {
       costPer1kOutput: 0.005,
     },
   },
+  ai21: {
+    fast: { name: 'Jamba Mini (legacy)', provider: 'ai21', model: 'jamba-1.5-mini', maxTokens: 4096, costPer1kInput: 0.0002, costPer1kOutput: 0.0004 },
+    balanced: { name: 'Jamba Large (legacy)', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
+    smart: { name: 'Jamba Large (legacy)', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
+  },
   // Fallback for other providers
   together: {
     fast: { name: 'Llama 8B', provider: 'together', model: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', maxTokens: 8192, costPer1kInput: 0.00018, costPer1kOutput: 0.00018 },
