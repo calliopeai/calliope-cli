@@ -15,6 +15,7 @@ it('reserves discovered capacity, rounds cost bounds conservatively and refuses 
   for(const cap of [-1,NaN,Infinity,1e100])expect(()=>costCapNanos(cap)).toThrow();
   for(const patch of [{evidence:'explicit-unverified'}, {discoveredAt:null},{discoveredAt:'bad'},{discoveredAt:new Date(Date.now()-300001).toISOString()},{discoveredAt:new Date(Date.now()+10000).toISOString()},{contextLength:0},{contextLength:1.5},{maxOutputTokens:9},{price:null},{price:{input:1,output:-1}},{capabilities:{chat:false}}])expect(()=>providerQuote({...route,...patch} as RouteCandidate,[],[],false,10)).toThrow();
   expect(()=>providerQuote(undefined,[],[],false,10)).toThrow();expect(()=>providerQuote(route,[],[],false,0)).toThrow();
+  for(const capabilities of [{},{chat:true},{chat:true,tools:true}])expect(()=>providerQuote({...route,capabilities},[],[{name:'read_file'} as any],true,10)).toThrow(/confirm/);
   expect(()=>providerQuote({...route,capabilities:{tools:false}},[],[{name:'read_file'} as any],false,10)).toThrow();expect(()=>providerQuote({...route,capabilities:{streaming:false}},[],[],true,10)).toThrow();
   expect(()=>providerQuote(route,[{role:'user',content:[{type:'image',data:'toy'} as any]}],[],false,10)).toThrow(/Multimodal/);
 });

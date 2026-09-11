@@ -17,8 +17,8 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     integer(maxOutputTokens,1,100000000);
     if(!route || route.evidence!=='live' || !route.discoveredAt || !Number.isFinite(Date.parse(route.discoveredAt)) || Date.now()-Date.parse(route.discoveredAt)>300000 || Date.parse(route.discoveredAt)>Date.now()+1000)
       throw new ExecutionLimitError('authority','Bounded execution requires recent live model discovery.');
-    if(route.capabilities.chat===false || tools.length&&route.capabilities.tools===false || streaming&&route.capabilities.streaming===false)
-      throw new ExecutionLimitError('authority','Live discovery reports an incompatible model.');
+    if(route.capabilities.chat!==true || tools.length&&route.capabilities.tools!==true || streaming&&route.capabilities.streaming!==true)
+      throw new ExecutionLimitError('authority','Live discovery did not confirm the required model capabilities.');
     // The full discovered input capacity is a conservative bound, not a tokenizer estimate.
     const inputTokens=route.contextLength,outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)

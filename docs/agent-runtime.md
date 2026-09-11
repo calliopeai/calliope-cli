@@ -47,7 +47,7 @@ racing every filesystem syscall.
 
 Each attempt, retry, repair and compression call requires durable admission
 before HTTP. Discovery must be live and no older than five minutes, with
-compatible reported capabilities, positive input/output limits and nonnegative
+affirmatively confirmed capabilities, positive input/output limits and nonnegative
 input/output prices. Missing evidence denies bounded execution, even locally.
 A hostname never proves inference is free. Multimodal calls need separate billing
 bounds and currently fail closed.
