@@ -2,7 +2,7 @@
 import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInputTokens = 5000, maxOutputTokens }) {
+export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInputTokens = 5000, maxOutputTokens, runId, maxRunCostUsd }) {
   if (![maxCostUsd, inputRate, outputRate].every(n => Number.isFinite(n) && n >= 0) ||
       ![maxInputTokens, maxOutputTokens].every(n => Number.isSafeInteger(n) && n > 0) || maxOutputTokens > 512) {
     throw new Error('Invalid probe dollar, pricing or token budget');
@@ -11,6 +11,12 @@ export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInput
   const reservedNanoUsd = Math.ceil((maxInputTokens * inputRate + maxOutputTokens * outputRate) * 1000);
   const limitNanoUsd = Math.floor(maxCostUsd * 1e9);
   if (!Number.isSafeInteger(reservedNanoUsd) || !Number.isSafeInteger(limitNanoUsd)) throw new Error('Probe budget exceeds safe accounting range');
+  const scoped = runId !== undefined || maxRunCostUsd !== undefined;
+  const runLimitNanoUsd = Math.floor(maxRunCostUsd * 1e9);
+  if (scoped && (typeof runId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(runId) ||
+      !Number.isFinite(maxRunCostUsd) || maxRunCostUsd < 0 || maxRunCostUsd > maxCostUsd || !Number.isSafeInteger(runLimitNanoUsd))) {
+    throw new Error('Invalid probe run ID or dollar limit');
+  }
   const lock = `${file}.lock`;
   const descriptor = openSync(lock, 'wx', 0o600);
   const temp = `${file}.${randomUUID()}.tmp`;
@@ -29,8 +35,26 @@ export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInput
     }
     const total = ledger.reservations.reduce((sum, r) => sum + r.reservedNanoUsd, 0) + reservedNanoUsd;
     if (!Number.isSafeInteger(total) || total > limitNanoUsd) throw new Error('Probe dollar budget exhausted');
+    const runs = ledger.runs === undefined ? [] : ledger.runs;
+    if (!Array.isArray(runs) || runs.length > 1000 || runs.some(run => !run || typeof run.id !== 'string' ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(run.id) || !Number.isSafeInteger(run.limitNanoUsd) || run.limitNanoUsd < 0 || run.limitNanoUsd > limitNanoUsd) ||
+        new Set(runs.map(run => run.id)).size !== runs.length || ledger.reservations.some(r => r.runId !== undefined && !runs.some(run => run.id === r.runId))) {
+      throw new Error('Invalid probe run ledger');
+    }
+    if (runs.length && !scoped) throw new Error('A run ID and dollar limit are required for this ledger');
+    if (scoped) {
+      const run = runs.find(run => run.id === runId);
+      if (run && run.limitNanoUsd !== runLimitNanoUsd) throw new Error('Probe run dollar limit changed; review before continuing');
+      const runTotal = ledger.reservations.filter(r => r.runId === runId).reduce((sum, r) => sum + r.reservedNanoUsd, 0) + reservedNanoUsd;
+      if (!Number.isSafeInteger(runTotal) || runTotal > runLimitNanoUsd) throw new Error('Probe run dollar budget exhausted');
+      if (!run) {
+        if (runs.length >= 1000) throw new Error('Probe run ledger is full');
+        runs.push({ id: runId, limitNanoUsd: runLimitNanoUsd });
+      }
+      ledger.runs = runs;
+    }
     const reservation = { id: randomUUID(), at: new Date().toISOString(), reservedNanoUsd,
-      maxInputTokens, maxOutputTokens, inputRate, outputRate, status: 'reserved' };
+      maxInputTokens, maxOutputTokens, inputRate, outputRate, status: 'reserved', ...(scoped ? { runId } : {}) };
     ledger.reservations.push(reservation);
     function save() {
       writeFileSync(temp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });
