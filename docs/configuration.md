@@ -111,7 +111,6 @@ wins). The `model` field has no environment fallback.
 | groq | `GROQ_API_KEY` | — | — |
 | fireworks | `FIREWORKS_API_KEY` | — | — |
 | mistral | `MISTRAL_API_KEY` | — | — |
-| ai21 | `AI21_API_KEY` | — | — |
 | huggingface | `HUGGINGFACE_API_KEY` | — | — |
 | ollama | — | `OLLAMA_BASE_URL` | — |
 | litellm | `LITELLM_API_KEY` | `LITELLM_BASE_URL` | — |

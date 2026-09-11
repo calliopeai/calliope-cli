@@ -357,7 +357,6 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (getProviderCred('fireworks').apiKey) providers.push('fireworks');
   if (getProviderCred('mistral').apiKey) providers.push('mistral');
   if (getProviderCred('ollama').baseUrl) providers.push('ollama');
-  if (getProviderCred('ai21').apiKey) providers.push('ai21');
   if (getProviderCred('huggingface').apiKey) providers.push('huggingface');
   if (getProviderCred('litellm').baseUrl) providers.push('litellm');
   const bedrock = getProviderCred('bedrock');

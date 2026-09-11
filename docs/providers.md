@@ -30,7 +30,7 @@ outstanding access or migration requirements.
 
 Select a provider in a session with `/provider <name>`, or set `defaultProvider`
 during setup. `auto` selects the first configured provider (priority order:
-anthropic, openai, google, mistral, openrouter, together, groq, fireworks, ai21,
+anthropic, openai, google, mistral, openrouter, together, groq, fireworks,
 huggingface, bedrock, ollama, litellm).
 
 ## How credentials resolve
@@ -58,7 +58,7 @@ Or store them via the setup wizard, which writes them to `providers.<name>.apiKe
 
 ## Hosted OpenAI-compatible backends
 
-`openrouter`, `together`, `groq`, `fireworks`, `mistral`, and
+`openrouter`, `together`, `groq`, `fireworks`, and `mistral`, plus
 `huggingface` speak the OpenAI chat-completions API and each have a built-in
 base URL, so you only supply an API key:
 

@@ -44,6 +44,8 @@ export interface Message {
   content: MessageContent;
   toolCallId?: string;
   toolCalls?: ToolCall[];
+  /** Provider-owned response state required for some reasoning/tool protocols. */
+  providerMetadata?: Record<string, unknown>;
 }
 
 export interface ToolCall {
@@ -85,6 +87,8 @@ export interface LLMResponse {
   // Non-fatal notices the caller must surface, never swallow (#217). Example:
   // Ollama substituting a fallback model when the requested one isn't pulled.
   warnings?: string[];
+  /** Provider-owned state to carry into the next request without interpreting it. */
+  providerMetadata?: Record<string, unknown>;
 }
 
 // Default model per provider. This is the OFFLINE EMERGENCY FALLBACK only —

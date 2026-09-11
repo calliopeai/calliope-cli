@@ -484,7 +484,6 @@ export function useChatController(): ChatController {
       { id: 'together',    label: 'Together',     configured: !!config.getApiKey('together'),   configHint: 'TOGETHER_API_KEY' },
       { id: 'groq',        label: 'Groq',         configured: !!config.getApiKey('groq'),       configHint: 'GROQ_API_KEY' },
       { id: 'fireworks',   label: 'Fireworks',    configured: !!config.getApiKey('fireworks'),  configHint: 'FIREWORKS_API_KEY' },
-      { id: 'ai21',        label: 'AI21',         configured: !!config.getApiKey('ai21'),       configHint: 'AI21_API_KEY' },
       { id: 'huggingface', label: 'HuggingFace',  configured: !!config.getApiKey('huggingface'),configHint: 'HUGGINGFACE_API_KEY' },
       { id: 'bedrock',     label: 'AWS Bedrock',  configured: hasBedrock,                       configHint: 'AWS_PROFILE or AWS_ACCESS_KEY_ID', note: 'AWS credentials' },
       { id: 'litellm',     label: 'LiteLLM',      configured: !!config.getBaseUrl('litellm'),   configHint: 'LITELLM_BASE_URL' },

@@ -328,8 +328,14 @@ function toBedrockMessages(messages: Message[]): { system: Array<{ text: string 
         }
       }
 
-      if (blocks.length > 0) {
-        bedrockMessages.push({ role: 'assistant', content: blocks });
+      const reasoning = msg.providerMetadata?.bedrock &&
+        (msg.providerMetadata.bedrock as { reasoningContent?: unknown }).reasoningContent;
+      const reasoningBlocks = reasoning
+        ? (Array.isArray(reasoning) ? reasoning : [reasoning]).map(block => ({ reasoningContent: block })) as BedrockContentBlock[]
+        : [];
+      const orderedBlocks = [...reasoningBlocks, ...blocks];
+      if (orderedBlocks.length > 0) {
+        bedrockMessages.push({ role: 'assistant', content: orderedBlocks });
       }
       continue;
     }
@@ -459,6 +465,7 @@ export async function chatBedrock(
         content: Array<{
           text?: string;
           toolUse?: { toolUseId: string; name: string; input: Record<string, unknown> };
+          reasoningContent?: unknown;
         }>;
       };
     };
@@ -469,6 +476,7 @@ export async function chatBedrock(
   // Parse response
   let content = '';
   const toolCalls: ToolCall[] = [];
+  const reasoningContent: unknown[] = [];
 
   if (data.output?.message?.content) {
     for (const block of data.output.message.content) {
@@ -481,6 +489,7 @@ export async function chatBedrock(
           arguments: block.toolUse.input,
         });
       }
+      if (block.reasoningContent) reasoningContent.push(block.reasoningContent);
     }
   }
 
@@ -491,6 +500,7 @@ export async function chatBedrock(
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: data.usage ? {
       inputTokens: data.usage.inputTokens,
       outputTokens: data.usage.outputTokens,
@@ -535,6 +545,7 @@ async function chatBedrockStreaming(
 
   let content = '';
   const toolCalls: ToolCall[] = [];
+  const reasoningContent: unknown[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
@@ -668,7 +679,7 @@ async function chatBedrockStreaming(
             break;
           }
           case 'contentBlockDelta': {
-            const delta = event as { delta?: { text?: string; toolUse?: { input?: string } } };
+            const delta = event as { delta?: { text?: string; toolUse?: { input?: string }; reasoningContent?: unknown } };
             if (delta.delta?.text) {
               content += delta.delta.text;
               onToken(delta.delta.text);
@@ -676,6 +687,7 @@ async function chatBedrockStreaming(
             if (delta.delta?.toolUse?.input) {
               currentToolInput += delta.delta.toolUse.input;
             }
+            if (delta.delta?.reasoningContent) reasoningContent.push(delta.delta.reasoningContent);
             break;
           }
           case 'contentBlockStop': {
@@ -726,6 +738,7 @@ async function chatBedrockStreaming(
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: { inputTokens, outputTokens },
   };
 }

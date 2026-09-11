@@ -46,7 +46,6 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.FIREWORKS_API_KEY) envProviders.push('fireworks');
   if (process.env.MISTRAL_API_KEY) envProviders.push('mistral');
   if (process.env.OLLAMA_BASE_URL) envProviders.push('ollama');
-  if (process.env.AI21_API_KEY) envProviders.push('ai21');
   if (process.env.HUGGINGFACE_API_KEY) envProviders.push('huggingface');
   if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
   if (process.env.BEDROCK_API_KEY || process.env.BEDROCK_BASE_URL) envProviders.push('bedrock');
@@ -73,11 +72,10 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
       { value: 'bedrock', name: 'AWS Bedrock', description: 'AWS Bedrock via gateway/proxy' },
       { value: 'openai-compat', name: 'Generic OpenAI-compatible server', description: 'Any server with OpenAI API: AnythingLLM, LocalAI, Jan, LM Studio, vLLM' },
-      { value: 'ai21', name: 'AI21 Labs', description: 'Jamba models' },
       { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
       { value: 'auto', name: 'Auto (use first available)', description: 'Automatically select based on available keys' },
     ],
-    default: envProviders[0] || 'anthropic',
+    default: (envProviders[0] || 'anthropic') as any,
   });
 
   config.set('defaultProvider', providerChoice as LLMProvider);
@@ -246,7 +244,6 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
     { id: 'together', name: 'Together AI', envKey: 'TOGETHER_API_KEY' },
     { id: 'groq', name: 'Groq', envKey: 'GROQ_API_KEY' },
     { id: 'mistral', name: 'Mistral AI', envKey: 'MISTRAL_API_KEY' },
-    { id: 'ai21', name: 'AI21 Labs', envKey: 'AI21_API_KEY' },
     { id: 'huggingface', name: 'HuggingFace', envKey: 'HUGGINGFACE_API_KEY' },
   ];
 

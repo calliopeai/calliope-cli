@@ -280,7 +280,7 @@ export const TOOLS: Tool[] = [
     description: `Read, set, or list Calliope configuration options. Use this when the user asks to change settings, switch themes, providers, models, or any preference through natural conversation. Always use action "list" first if you need to show available options.
 
 CONFIGURABLE SETTINGS:
-- defaultProvider: AI provider (anthropic, google, openai, together, openrouter, groq, fireworks, mistral, ollama, ai21, huggingface, litellm, bedrock, auto)
+- defaultProvider: AI provider (anthropic, google, openai, together, openrouter, groq, fireworks, mistral, ollama, huggingface, litellm, bedrock, auto)
 - defaultModel: Model name string (provider-specific, e.g. "claude-sonnet-4-6", "gemini-2.0-flash", "gpt-4o")
 - maxIterations: Max agent loop iterations (0 = unlimited)
 - maxIterationTime: Max seconds per iteration (0 = no limit, default: 600)
@@ -606,7 +606,7 @@ export async function executeTool(
           const sections: string[] = [];
 
           if (category === 'providers' || category === 'all') {
-            const providers = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'ai21', 'huggingface', 'litellm', 'bedrock', 'auto'];
+            const providers = ['anthropic', 'google', 'openai', 'together', 'openrouter', 'groq', 'fireworks', 'mistral', 'ollama', 'huggingface', 'litellm', 'bedrock', 'auto'];
             const current = config.get('defaultProvider');
             sections.push('PROVIDERS (defaultProvider):\n' + providers.map(p =>
               `  ${p === current ? '→ ' : '  '}${p}`

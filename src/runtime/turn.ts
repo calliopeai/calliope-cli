@@ -186,7 +186,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         if (response.finishReason === 'error') throw new Error('Provider returned an unsuccessful completion');
         try { checkBudget(); }
         catch (error) {
-          messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}) });
+          messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), ...(response.providerMetadata ? { providerMetadata: response.providerMetadata } : {}) });
           await options.onResponse?.(response, iterations);
           throw error;
         }
@@ -194,7 +194,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
           request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false); checkBudget(); return value; },
           onRepair: options.onRepair });
         throwIfCancelled(signal);
-        messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}) });
+        messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), ...(response.providerMetadata ? { providerMetadata: response.providerMetadata } : {}) });
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
         checkBudget();

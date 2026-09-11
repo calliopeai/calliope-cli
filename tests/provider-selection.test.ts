@@ -31,6 +31,10 @@ beforeEach(() => { resetConfig(); clearEnv(); });
 afterEach(() => { resetConfig(); clearEnv(); });
 
 describe('selectProvider — explicit provider without credentials (#217)', () => {
+  it('fails clearly for retired AI21 even when an old key remains configured', () => {
+    setProviderCred('ai21', { apiKey: 'legacy-ai21-key' });
+    expect(() => selectProvider('ai21')).toThrow('AI21 Studio API was sunset');
+  });
   it('throws ProviderUnavailableError with the fix hint for an API-key provider', () => {
     let caught: unknown;
     try { selectProvider('openai'); } catch (e) { caught = e; }
