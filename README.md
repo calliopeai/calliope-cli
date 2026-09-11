@@ -46,6 +46,17 @@ Headless, for CI and scripts:
 calliope --headless --json "run the tests and summarize failures"
 ```
 
+Plan a project goal within a fixed budget, then approve the returned proposal hash:
+
+```bash
+calliope orchestrate "Inspect the parser and propose a focused fix" --cost 1 --json
+calliope orchestrate approve GOAL_ID PROPOSAL_HASH --allow-mutations --json
+```
+
+Planning exits 5 for review; the [goal workflow](docs/goal-planning.md) documents
+scope limits, approval, recovery and the JSON contract. `/orchestrate` presents
+the proposed plan and approval dialog in the REPL.
+
 Execute a reviewed project task graph with bounded agents:
 
 ```bash

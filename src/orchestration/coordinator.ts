@@ -70,7 +70,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   const lease=store.acquire(),controller=new AbortController(),children=new Map<string,AbortController>(),active=new Map<string,Promise<void>>();let stopReason:'cancelled'|'denied'|'failed'|undefined;
   const stop=(reason:'cancelled'|'denied'|'failed')=>{stopReason??=reason;controller.abort();};
   const abort=()=>stop('cancelled');options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
-  const assertRun=()=>{throwIfCancelled(controller.signal);lease.check();store.assertApproval(store.read().header);if(Date.now()>=budget.deadline)throw new ExecutionLimitError('deadline','Original run deadline expired.');};
+  const assertRun=()=>{throwIfCancelled(controller.signal);lease.check();rootAuthority.assertAuthority?.();store.assertApproval(store.read().header);if(Date.now()>=budget.deadline)throw new ExecutionLimitError('deadline','Original run deadline expired.');};
   const observe=()=>{try{assertRun();const state=store.read().state;for(const [id,child]of children)if(agentStopped(state,view.manifest,view.manifest.plan.tasks.find(t=>t.id===id)!.agentId))child.abort();}catch(error){stop(isCancellation(error)||error instanceof ExecutionLimitError&&error.code==='authority'?'cancelled':error instanceof ExecutionLimitError?'denied':'failed');}};
   const timer=setInterval(observe,100),deadline=setTimeout(()=>stop('denied'),Math.max(0,budget.deadline-Date.now()));
   const childOptions=(signal:AbortSignal):RunActionOptions=>({...options,signal,store:runs,approve:options.approve?decision=>options.approve!(decision,signal):undefined});

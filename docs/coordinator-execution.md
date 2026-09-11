@@ -3,8 +3,8 @@
 Calliope executes a reviewed, fixed agent/task graph through the shared runtime.
 Independent tasks run concurrently; overlapping read/write scopes are serialized.
 Workers cannot create children, expand authority, or declare their own work verified.
-Goal decomposition, dynamic spawning and isolated shell/network execution remain
-separate required work under #254.
+[Goal planning](goal-planning.md) supplies validated proposals for human approval.
+Dynamic spawning and isolated shell/network execution remain required work under #254.
 
 ## Commands and permissions
 

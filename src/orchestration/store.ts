@@ -7,6 +7,8 @@ import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approv
 import { throwIfCancelled } from '../cancellation.js';
 import { analyzePlan, bindPlan, MAX_PLAN_BYTES, shape, hex, uuid, iso, integer, pathName, fail, text } from './validation.js';
 import { OrchestrationError, type EventLink, type OrchestrationEvent, type PreparedRun, type RunChange, type RunInspection, type RunManifest, type PlanAnalysis } from './types.js';
+import {validateGoalLink} from '../goals/validation.js';
+import type {BoundRun} from '../goals/types.js';
 export const MAX_RUNS = 1000, MAX_RUN_EVENTS = 10000, MAX_RUN_EVENT_BYTES = 32 * 1024 * 1024;
 const EVENT_BYTES = 4096;
 const unavailable = () => new OrchestrationError('unavailable', 'Run records are unavailable or damaged. Preserve the directory and inspect a known backup.');
@@ -37,10 +39,11 @@ function writeNew(file: string, value: unknown): void {
 }
 function syncDirectory(path: string): void { const fd = fs.openSync(path, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
 export function validateRunManifest(value: unknown): RunManifest {
-  shape(value, ['version','id','createdAt','project','plan','planHash','source','hash']);
-  if (value.version !== 1 || !uuid(value.id) || !iso(value.createdAt) || !hex(value.planHash)) throw unavailable();
+  shape(value, ['version','id','createdAt','project','plan','planHash','source','hash'],['goal']);
+  if (value.version!==1&&value.version!==2 || !uuid(value.id) || !iso(value.createdAt) || !hex(value.planHash)) throw unavailable();
+  if(value.version===2)validateGoalLink(value.goal);else if(value.goal!==undefined)throw unavailable();
   shape(value.project, ['root','key']); text(value.project.root,4096); if (typeof value.project.root !== 'string' || !isAbsolute(value.project.root) || !hex(value.project.key)) throw unavailable();
-  shape(value.source, ['path','sha256']); pathName(value.source.path); if (!hex(value.source.sha256)) throw unavailable();
+  shape(value.source, ['path','sha256',...(value.version===2?['kind']:[])]); pathName(value.source.path); if (!hex(value.source.sha256)||value.version===2&&value.source.kind!=='goal') throw unavailable();
   const analysis = analyzePlan(value.plan); if (analysis.hash !== value.planHash) throw unavailable(); verify(value);
   return value as unknown as RunManifest;
 }
@@ -123,7 +126,7 @@ export class RunStore {
     } }
     return { runs: runs.sort((a,b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)), unavailable };
   }
-  async prepare(analysis: PlanAnalysis, cwd: string, source: RunManifest['source'], signal?: AbortSignal): Promise<RunInspection> {
+  async prepare(analysis: PlanAnalysis, cwd: string, source: RunManifest['source'], signal?: AbortSignal,binding?:BoundRun): Promise<RunInspection> {
     throwIfCancelled(signal); analysis = analyzePlan(analysis.plan); const project = bindPlan(analysis, cwd);
     directory(this.root, true); const rootIdentity = directory(this.root), lock = join(this.root,'create.lock');
     let fd: number; try { fd = fs.openSync(lock,'wx',0o600); } catch { throw new OrchestrationError('locked','Another run preparation holds create.lock; retry when it finishes.'); }
@@ -131,8 +134,9 @@ export class RunStore {
       fs.writeFileSync(fd, String(process.pid));
       if (this.names().length >= MAX_RUNS) throw new OrchestrationError('limit','Run store contains 1,000 directories; archive old runs before preparing more.');
       throwIfCancelled(signal); sameDirectory(this.root, rootIdentity);
-      const id = randomUUID(), createdAt = this.now(), dir = this.runDir(id);
-      const manifest = signed({ version: 1 as const, id, createdAt, project, plan: analysis.plan, planHash: analysis.hash, source }); validateRunManifest(manifest);
+      if(binding&&(!uuid(binding.id)||!iso(binding.createdAt)))throw new OrchestrationError('invalid','Invalid bound run identity.');if(binding)validateGoalLink(binding.goal);
+      const id = binding?.id??randomUUID(), createdAt = binding?.createdAt??this.now(), dir = this.runDir(id);
+      const manifest = signed({ version: binding?2 as const:1 as const, id, createdAt, project, plan: analysis.plan, planHash: analysis.hash, source,...(binding?{goal:binding.goal}:{}) }); validateRunManifest(manifest);
       fs.mkdirSync(dir,{mode:0o700}); fs.mkdirSync(join(dir,'events'),{mode:0o700}); writeNew(join(dir,'manifest.json'),manifest);
       this.commit(dir, manifest, [], { type:'prepared', manifestHash:manifest.hash }, null, signal);
       return await this.read(id,cwd,signal);
