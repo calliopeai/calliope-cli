@@ -6,12 +6,13 @@
  * the state so the agent loop never reads a stale closure.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
+import type { Submission } from '../../preferences/index.js';
 
 export interface QueueStateHook {
-  queuedMessages: string[];
-  setQueuedMessages: React.Dispatch<React.SetStateAction<string[]>>;
-  queuedMessagesRef: React.MutableRefObject<string[]>;
+  queuedMessages: Submission[];
+  setQueuedMessages: React.Dispatch<React.SetStateAction<Submission[]>>;
+  queuedMessagesRef: React.MutableRefObject<Submission[]>;
   queueInput: string;
   setQueueInput: React.Dispatch<React.SetStateAction<string>>;
   editingQueueIndex: number | null;
@@ -20,21 +21,22 @@ export interface QueueStateHook {
 }
 
 export function useQueueState(): QueueStateHook {
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
-  const queuedMessagesRef = useRef<string[]>([]); // Ref to avoid stale closure in runAgent
+  const [queuedMessages, setState] = useState<Submission[]>([]);
+  const queuedMessagesRef = useRef<Submission[]>([]);
+  const setQueuedMessages: QueueStateHook['setQueuedMessages'] = useCallback(value => {
+    const next = typeof value === 'function' ? value(queuedMessagesRef.current) : value;
+    if (next.length > 100) throw new Error('Message queue is full (100 turns); finish or remove pending work first');
+    queuedMessagesRef.current = next;
+    setState(next);
+  }, []);
   const [queueInput, setQueueInput] = useState('');
   const [editingQueueIndex, setEditingQueueIndex] = useState<number | null>(null);
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    queuedMessagesRef.current = queuedMessages;
-  }, [queuedMessages]);
 
   const reset = useCallback(() => {
     setQueuedMessages([]);
     setQueueInput('');
     setEditingQueueIndex(null);
-  }, []);
+  }, [setQueuedMessages]);
 
   return {
     queuedMessages, setQueuedMessages, queuedMessagesRef,

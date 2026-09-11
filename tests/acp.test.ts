@@ -26,7 +26,8 @@ vi.mock('os', async () => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('../src/config.js', () => ({
+vi.mock('../src/config.js', async original => ({
+  ...await original<typeof import('../src/config.js')>(),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
@@ -193,6 +194,22 @@ beforeEach(() => {
   resetRunLogs();
 });
 
+it('resolves trusted project model defaults for ACP and rejects malformed defaults before starting a session', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpHome, 'project-defaults-')));
+  const { trustProject } = await import('../src/trust.js');
+  const { saveProjectDefaults } = await import('../src/preferences/index.js');
+  try {
+    trustProject(root); await saveProjectDefaults(root, { provider: 'xai', model: 'project-model' });
+    const { conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn, root);
+    scriptChat([{ content: 'Done' }]);
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'Toy prompt' }] })).stopReason).toBe('end_turn');
+    expect(mockChat.mock.calls[0]?.[0]).toBe('xai'); expect(mockChat.mock.calls[0]?.[3]).toBe('project-model');
+    fs.writeFileSync(path.join(root, '.calliope-models.json'), '{');
+    await expect(newSession(conn, root)).rejects.toThrow();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 afterEach(() => {
   fs.rmSync(RUNS_DIR, { recursive: true, force: true });
 });
@@ -224,6 +241,31 @@ describe('initialize', () => {
 // ===========================================================================
 
 describe('session/new + session/prompt', () => {
+  it('honors allow_always only for exact operations in the same ACP session', async () => {
+    const { client, conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn);
+    client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'allow_always' } });
+    mockExecuteTool.mockResolvedValue({ toolCallId: 'write', result: 'ok', isError: false });
+    const write = { id: 'write', name: 'write_file', arguments: { path: 'approval.txt', content: 'toy' } };
+    for (let index = 0; index < 2; index++) {
+      scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
+      expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).stopReason).toBe('end_turn');
+    }
+    expect(client.permissionRequests).toHaveLength(1); expect(mockExecuteTool).toHaveBeenCalledTimes(2);
+    const other = await newSession(conn);
+    scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
+    await conn.prompt({ sessionId: other, prompt: [{ type: 'text', text: 'toy' }] });
+    expect(client.permissionRequests).toHaveLength(2);
+  });
+
+  it('rejects forged allow option IDs and does not offer reusable grants for shell code', async () => {
+    const { client, conn } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+    client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'allow_forged' } });
+    scriptChat([{ toolCalls: [{ id: 'shell', name: 'shell', arguments: { command: 'echo toy' } }] }, { content: 'done' }]);
+    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] });
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(client.permissionRequests[0]!.options.some(option => option.kind === 'allow_always')).toBe(false);
+  });
   it('creates a session whose id round-trips and drives a text + tool-call turn', async () => {
     const { client, conn } = connect();
     await handshake(conn);
@@ -238,6 +280,10 @@ describe('session/new + session/prompt', () => {
 
     const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
     await settle();
+    const { readSessionConversation } = await import('../src/storage.js');
+    const snapshot = readSessionConversation(sessionId);
+    expect(snapshot.status).toBe('completed');
+    expect(snapshot.messages.find(message => message.role === 'tool')?.content).toBe('FILE BODY');
 
     expect(res.stopReason).toBe('end_turn');
 
@@ -277,7 +323,7 @@ describe('session/new + session/prompt', () => {
       const up = u.update as { sessionUpdate: string; status?: string };
       return up.status ? `${up.sessionUpdate}:${up.status}` : up.sessionUpdate;
     });
-    expect(seq).toEqual([
+    expect(seq.filter(event => event !== 'agent_thought_chunk')).toEqual([
       'tool_call:pending',
       'tool_call_update:in_progress',
       'tool_call_update:completed',
@@ -632,4 +678,42 @@ describe('ACP cancellation lifecycle', () => {
     const messages = mockChat.mock.calls.at(-1)![1] as Array<{ role: string; toolCallId?: string }>;
     expect(messages.filter(m => m.role === 'tool' && m.toolCallId === 'write')).toHaveLength(1);
   });
+});
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));
+
+it('reports failed cancellation recovery through JSON-RPC instead of hiding the stale write', async () => {
+  const { conn } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+  let signal: AbortSignal | undefined;
+  mockChat.mockImplementation((_p, _m, _t, _model, _stream, _retry, options) => new Promise((_resolve, reject) => {
+    signal = options.signal;
+    signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
+  }));
+  const pending = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'cancel with conflict' }] });
+  const rejected = expect(pending).rejects.toMatchObject({ code: -32603, data: { error: expect.stringContaining('another terminal') } });
+  await waitFor(() => signal !== undefined);
+  const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+  const state = readSessionConversation(sessionId);
+  const saved = saveSessionConversation(sessionId, state.messages, { expectedRevision: state.revision, status: 'interrupted' });
+  await conn.cancel({ sessionId }); await rejected;
+  expect(readSessionConversation(sessionId).revision).toBe(saved.revision);
+  expect(mockExecuteTool).not.toHaveBeenCalled();
+});
+
+it('returns the existing JSON-RPC error after partial streaming and accepts a later explicit prompt', async () => {
+  const { StreamInterruptedError } = await import('../src/errors.js');
+  const { readSessionConversation } = await import('../src/storage.js');
+  const { conn, client } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+  mockChat.mockImplementationOnce(async (_p, _m, _t, _model, onToken) => { onToken('Partial'); throw new StreamInterruptedError(); });
+  await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).rejects.toMatchObject({ code: -32603 });
+  await settle(); expect(mockChat).toHaveBeenCalledOnce(); expect(mockExecuteTool).not.toHaveBeenCalled();
+  expect(client.updatesOf('agent_message_chunk').map(c => (c as { content: { text: string } }).content.text).join('')).toBe('Partial');
+  expect(readSessionConversation(sessionId)).toMatchObject({ status: 'interrupted' });
+  expect(readSessionConversation(sessionId).messages.some(message => message.role === 'assistant')).toBe(false);
+  scriptChat([{ content: 'Recovered', stream: ['Recovered'] }]);
+  expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue explicitly' }] })).stopReason).toBe('end_turn');
+  expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content)).toEqual(['Recovered']);
 });

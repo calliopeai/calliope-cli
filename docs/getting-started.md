@@ -109,7 +109,7 @@ How should I structure the auth module?
 /exit                 # quit
 ```
 
-See the [Commands reference](./commands.md) for all 22 commands and their subcommands.
+See the [Commands reference](./commands.md) for commands and their subcommands.
 
 ## Non-interactive use
 

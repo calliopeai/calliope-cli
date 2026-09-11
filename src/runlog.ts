@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { createHash } from 'crypto';
 import * as config from './config.js';
+import type { RoutingDecision } from './routing/types.js';
 
 // ============================================================================
 // Schema
@@ -40,7 +41,10 @@ export type RunLogEventType =
   | 'tool_result'
   | 'budget_event'
   | 'policy_event'
-  | 'run_end';
+  | 'routing_decision'
+  | 'run_end'
+  | 'session_checkpoint'
+  | 'stream_attempt';
 
 /** The stable, on-disk shape of a run-log line. */
 export interface RunLogLine {
@@ -69,6 +73,8 @@ export interface AssistantMessagePayload {
   content: string;
   tokens: { input: number; output: number };
   cost: number;
+  /** Missing discovery prices use the documented emergency estimate. */
+  costSource?: 'discovery' | 'fallback';
 }
 
 export interface ToolCallPayload {
@@ -79,6 +85,7 @@ export interface ToolCallPayload {
 }
 
 export interface ToolResultPayload {
+  output?: { id: string; hash: string; truncated: boolean; saved: boolean };
   id: string;
   result: string;
   isError: boolean;
@@ -94,6 +101,10 @@ export interface BudgetEventPayload {
 }
 
 export interface PolicyEventPayload {
+  operationKey?: string;
+  grantId?: string;
+  grantScope?: 'session' | 'project';
+  grantExpiresAt?: number;
   tool: string;
   decision: 'allow' | 'deny' | 'confirm' | 'cancelled';
   toolCallId?: string;
@@ -140,6 +151,8 @@ function redactString(value: string): string {
   for (const pattern of SECRET_VALUE_PATTERNS) {
     out = out.replace(new RegExp(pattern, 'g'), REDACTED);
   }
+  // Credentials in command/error strings may have no recognizable key prefix.
+  out = out.replace(/\b([\w.-]*(?:api[-_]?key|token|secret|password|passwd|authorization|credential)[\w.-]*\s*=\s*)(?:"[^"\n]*"|'[^'\n]*'|[^\s;,]+)/gi, `$1${REDACTED}`);
   return out;
 }
 
@@ -405,13 +418,15 @@ export class RunLog {
   /** Build the next line, advance the chain synchronously, enqueue the write. */
   private append(type: RunLogEventType, payload: Record<string, unknown>): void {
     if (!this.enabled) return;
-    const body: Record<string, unknown> = {
+    // Hash exactly the JSON value written to disk. Optional undefined fields
+    // disappear during serialization and otherwise break verification on replay.
+    const body: Record<string, unknown> = JSON.parse(JSON.stringify({
       v: RUNLOG_SCHEMA_VERSION,
       seq: this.seq,
       ts: new Date().toISOString(),
       type,
       ...payload,
-    };
+    }));
     const hash = hashBody(this.prevHash, body);
     const line: RunLogLine = { ...(body as object), prev_hash: this.prevHash, hash } as RunLogLine;
     this.prevHash = hash;
@@ -440,6 +455,14 @@ export class RunLog {
     this.append('assistant_message', { ...payload });
   }
 
+  routingDecision(decision: RoutingDecision): void {
+    this.append('routing_decision', { decision: redactSecrets(decision) });
+  }
+
+  streamAttempt(event: import('./providers/stream-attempt.js').StreamAttemptEvent, context: { iteration: number; provider: string; model: string }): void {
+    this.append('stream_attempt', { stream: { ...event }, context: redactSecrets(context) });
+  }
+
   toolCall(payload: ToolCallPayload): void {
     this.append('tool_call', {
       id: payload.id,
@@ -454,7 +477,8 @@ export class RunLog {
       : payload.result;
     this.append('tool_result', {
       id: payload.id,
-      result,
+      result: redactSecrets(result),
+      ...(payload.output ? { output: { ...payload.output } } : {}),
       isError: payload.isError,
       durationMs: payload.durationMs,
     });
@@ -465,7 +489,12 @@ export class RunLog {
   }
 
   policyEvent(payload: PolicyEventPayload): void {
-    this.append('policy_event', { ...payload });
+    this.append('policy_event', { ...payload, reason: redactSecrets(payload.reason) });
+  }
+
+  /** Recovery evidence only; never copy conversation or provider-owned content. */
+  sessionCheckpoint(payload: { revision: string; status: string; messageCount: number; checksum: string }): void {
+    this.append('session_checkpoint', { ...payload });
   }
 
   runEnd(payload: RunEndPayload): void {

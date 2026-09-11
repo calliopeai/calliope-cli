@@ -19,11 +19,19 @@ const BASE_SLASH_COMMANDS = [
   '/clear',
   '/exit',
   '/model', '/model list',
-  '/provider',
+  '/provider', '/provider list',
+  '/defaults', '/defaults save', '/defaults reset',
+  '/once',
+  '/doctor', '/doctor providers', '/doctor provider',
+  '/run', '/run prepare', '/run status', '/run approve', '/run cancel', '/run replay', '/run execute', '/run resume', '/run retry', '/run accept', '/agents', '/agents tree', '/agents hud', '/agents hud agents', '/agents hud workflows', '/agents hud off', '/agents stop', '/agents retry', '/tasks', '/tasks graph', '/tools', '/tools list', '/tools last',
+  '/orchestrate', '/orchestrate plan', '/orchestrate list', '/orchestrate status', '/orchestrate proposal', '/orchestrate replay', '/orchestrate approve', '/orchestrate resume', '/orchestrate cancel', '/orchestrate revise',
+  '/permissions', '/permissions list', '/permissions reset', '/permissions revoke',
   '/mode', '/mode plan', '/mode work',
   '/undo',
-  '/export',
+  '/export', '/import', '/branch', '/checkout', '/diff', '/replay',
   '/resume',
+  '/new',
+  '/sessions',
   '/compact',
   '/scope', '/scope add', '/scope remove',
   '/memory',
@@ -44,7 +52,7 @@ export const SLASH_COMMANDS: string[] = config.get('fleet')?.enabled === true
   : BASE_SLASH_COMMANDS;
 
 // Commands that take a path argument (for file tab completion)
-export const PATH_COMMANDS = ['/export', '/restore'];
+export const PATH_COMMANDS = ['/export', '/import', '/restore'];
 
 // ============================================================================
 // Path Completion
@@ -136,7 +144,7 @@ export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): strin
   const allCommands = [
     '/help', '/status', '/clear', '/exit',
     '/model', '/provider', '/mode',
-    '/undo', '/export', '/resume', '/compact',
+    '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
     '/scope', '/memory', '/trust', '/restore',
     '/mcp', '/skills',
     '/config', '/setup', '/cost', '/loop', '/debug',

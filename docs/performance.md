@@ -58,12 +58,12 @@ spawn→process-exit, reporting min/median/p95.
   a one-time network update-check (cached 24 h afterwards), so exit is reported
   but **not** gated.
 
-**Headless is not a keyless cold-start metric.** `node dist/bin.js --headless
-"noop"` with no API keys falls into interactive setup and exits non-zero after
-~0.5 s (no stdout — the setup prompt goes to stderr). It cannot run keyless
-without either a provider network call or a TTY, so `--help` is the honest
-module-load proxy. The bench probes headless once and prints the finding, but
-does not gate on it.
+**Headless is not a cold-start metric.** Headless startup does not open interactive
+setup, but executing a prompt includes backend discovery and routing. The bench
+uses an isolated configuration and an empty automatic provider pool for its
+informational headless probe, so credentials in local configuration cannot cause
+inference. It prints the diagnostic timing without gating it; `--help` remains
+the module-load proxy.
 
 **Binary mode (#187).** Setting `CALLIOPE_BENCH_BINARY=<path>` measures a
 compiled single binary spawned directly (not via `node`) and gates on the 150 ms

@@ -18,7 +18,7 @@ with no Node.js required — see
 - **Sandbox-first execution.** Shell and code tools run inside macOS Seatbelt or Docker sandboxes (`auto`/`native`/`docker`/`off`). Blocklists are advisory; the sandbox is the boundary.
 - **Safety rails that survive long sessions.** Circuit breakers, iteration budgets, git-based checkpoints with `/restore`, and automatic context compaction.
 - **Governance built in.** Tamper-evident audit run logs (on by default), a `replay` command to inspect and verify them, budget caps that halt a run before it overspends, and a pre-tool policy hook for an external allow/deny engine. See [docs/governance.md](docs/governance.md).
-- **Small on purpose.** 22 commands. 16 config keys. 11 flags. v3 removed more code than it kept — the changelog lists everything that went and why.
+- **Focused command surface.** 23 commands, plus optional fleet mode. The [command reference](docs/commands.md) documents the available workflows and subcommands.
 - **Tested like infrastructure.** 3,500 tests, 93%+ line coverage with an enforced 90% floor.
 
 ## Quick start
@@ -33,6 +33,7 @@ Inside a session:
 ```
 /mode plan              think first — the agent proposes, you approve
 /model list             see live-discovered models for your provider
+/defaults save          save the current provider/model for this project
 /scope add ../lib       widen file access deliberately
 /compact                compress context when it grows
 /restore                list git checkpoints; /restore <path> to roll back
@@ -44,6 +45,29 @@ Headless, for CI and scripts:
 ```bash
 calliope --headless --json "run the tests and summarize failures"
 ```
+
+Plan a project goal within a fixed budget, then approve the returned proposal hash:
+
+```bash
+calliope orchestrate "Inspect the parser and propose a focused fix" --cost 1 --json
+calliope orchestrate approve GOAL_ID PROPOSAL_HASH --allow-mutations --json
+```
+
+Planning exits 5 for review; the [goal workflow](docs/goal-planning.md) documents
+scope limits, approval, recovery and the JSON contract. `/orchestrate` presents
+the proposed plan and approval dialog in the REPL.
+
+Execute a reviewed project task graph with bounded agents:
+
+```bash
+calliope run plan.json --dry-run --json
+calliope run plan.json --allow-mutations --json
+```
+
+Independent tasks run concurrently with per-agent permissions and shared budgets.
+Recorded artifact checks determine completion; unverified criteria require human
+acceptance. See [coordinator execution](docs/coordinator-execution.md) for plan
+contracts, provider requirements, cancellation and recovery.
 
 ## Configuration
 
@@ -63,7 +87,7 @@ One file, 16 keys. Credentials live in a per-provider map with environment-varia
 
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`, and friends work as before. v2 configs migrate automatically on first run.
 
-Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
+Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [model preferences](docs/model-preferences.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
 
 ## Editors
 

@@ -6,7 +6,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
-import { getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { getTextContent, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 
 /**
  * Convert MessageContent to Anthropic content format
@@ -54,12 +54,13 @@ export async function chatAnthropic(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limits?: AdapterLimits
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('anthropic');
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, baseURL: config.getBaseUrl('anthropic')?.replace(/\/v1\/?$/, ''), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
 
   // Extract system message
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
@@ -124,7 +125,7 @@ export async function chatAnthropic(
   }));
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = calculateMaxTokens('anthropic', model, messages, tools);
+  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('anthropic', model, messages, tools), limits?.maxOutputTokens);
   debugLog(`Anthropic request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided - handles both text and tool calls
@@ -132,6 +133,7 @@ export async function chatAnthropic(
     let content = '';
     let inputTokens = 0;
     let outputTokens = 0;
+    let inputUsageSeen = false, outputUsageSeen = false;
     const toolCalls: ToolCall[] = [];
     let currentToolId = '';
     let currentToolName = '';
@@ -185,6 +187,7 @@ export async function chatAnthropic(
         } else if (event.type === 'message_delta') {
           if (event.usage) {
             outputTokens = event.usage.output_tokens;
+            outputUsageSeen = typeof event.usage.output_tokens === 'number';
           }
           if (event.delta.stop_reason === 'tool_use') {
             finishReason = 'tool_use';
@@ -197,7 +200,8 @@ export async function chatAnthropic(
             onToken('\n[Request refused by the safety classifier]\n');
           }
         } else if (event.type === 'message_start' && event.message.usage) {
-          inputTokens = event.message.usage.input_tokens;
+          inputTokens = event.message.usage.input_tokens + (event.message.usage.cache_creation_input_tokens || 0) + (event.message.usage.cache_read_input_tokens || 0);
+          inputUsageSeen = typeof event.message.usage.input_tokens === 'number';
         }
       }
 
@@ -205,15 +209,14 @@ export async function chatAnthropic(
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
-        usage: { inputTokens, outputTokens },
+        usage: limits?.bounded && (!inputUsageSeen || !outputUsageSeen) ? undefined : { inputTokens, outputTokens },
       };
     } catch (streamError) {
       throwIfCancelled(signal);
       if (isCancellation(streamError)) throw streamError;
-      // Surface the streaming failure and re-throw so withRetry handles it
+      // Keep diagnostics out of assistant tokens; shared retry handling owns errors.
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog('Anthropic streaming failed:', errMsg);
-      onToken(`\n[Streaming error: ${errMsg}]\n`);
       throw streamError;
     }
   }
@@ -264,9 +267,9 @@ export async function chatAnthropic(
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
-    usage: {
-      inputTokens: response.usage.input_tokens,
+    usage: response.usage ? {
+      inputTokens: response.usage.input_tokens + (response.usage.cache_creation_input_tokens || 0) + (response.usage.cache_read_input_tokens || 0),
       outputTokens: response.usage.output_tokens,
-    },
+    } : undefined,
   };
 }

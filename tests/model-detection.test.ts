@@ -17,6 +17,7 @@ vi.mock('../src/config.js', () => ({
   default: {},
   getApiKey: vi.fn(),
   getBaseUrl: vi.fn(),
+  getProviderCred: vi.fn(() => ({})),
   getConfiguredProviders: vi.fn(() => []),
 }));
 
@@ -30,6 +31,12 @@ vi.mock('openai', () => {
   return { default: MockOpenAI };
 });
 vi.mock('@inquirer/prompts', () => ({ select: vi.fn() }));
+// This unit suite must never invoke the runner's AWS CLI/credential chain.
+// Native credential-helper process behavior has dedicated doctor tests.
+vi.mock('child_process', async original => ({
+  ...await original<typeof import('child_process')>(),
+  execFileSync: vi.fn(() => { throw new Error('No AWS credentials in this unit fixture'); }),
+}));
 
 import {
   getModelContextLimit,
@@ -41,6 +48,7 @@ import {
   preWarmModelCache,
 } from '../src/model-detection.js';
 import * as config from '../src/config.js';
+import { execFileSync } from 'child_process';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,10 +62,13 @@ beforeEach(() => {
   // Stub global fetch
   vi.stubGlobal('fetch', mockFetch);
   mockFetch.mockReset();
+  vi.mocked(execFileSync).mockClear();
+  for (const name of ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN']) vi.stubEnv(name, '');
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 // ===========================================================================
@@ -338,7 +349,7 @@ describe('getAvailableModels - anthropic', () => {
     const models = await getAvailableModels('anthropic');
     expect(models.length).toBe(2);
     expect(models.every(m => m.id.startsWith('claude'))).toBe(true);
-    expect(models[0].contextLength).toBe(200000);
+    expect(models[0].contextLength).toBeUndefined(); // The response supplied no limit.
   });
 
   it('should use fallback models when API returns non-ok status', async () => {
@@ -737,13 +748,14 @@ describe('getAvailableModels - litellm', () => {
 // ===========================================================================
 
 describe('getAvailableModels - bedrock', () => {
-  it('should return empty array when no base URL', async () => {
+  it('should return empty array when gateway and native credentials are unavailable', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
     vi.mocked(config.getApiKey).mockReturnValue(undefined);
     clearModelCache('bedrock');
 
     const models = await getAvailableModels('bedrock');
     expect(models).toEqual([]);
+    expect(execFileSync).toHaveBeenCalledTimes(2); // Both supported export formats fail.
   });
 
   it('should fetch from gateway when base URL is configured', async () => {
@@ -1666,35 +1678,15 @@ describe('OpenRouter name-based model filtering', () => {
 // ===========================================================================
 
 describe('Bedrock context length via gateway', () => {
-  it('should assign correct context lengths to Bedrock models from gateway', async () => {
+  it('reports only context limits actually supplied by the gateway', async () => {
     vi.mocked(config.getBaseUrl).mockReturnValue('https://gw.com/v1');
     vi.mocked(config.getApiKey).mockReturnValue('key');
-    clearModelCache('bedrock');
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: 'anthropic.claude-3-sonnet-20240229-v1:0' },
-          { id: 'meta.llama3-1-70b-instruct-v1:0' },
-          { id: 'mistral.mistral-large-2407-v1:0' },
-          { id: 'cohere.command-r-plus-v1:0' },
-          { id: 'amazon.titan-text-premier-v1:0' },
-          { id: 'amazon.titan-text-express-v1' },
-          { id: 'some.unknown-model-v1' },
-        ],
-      }),
-    });
-
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: [
+      { id: 'gateway-chat', context_length: 65536 }, { id: 'unknown-limit' },
+    ] }) });
     const models = await getAvailableModels('bedrock');
-    const byId = (id: string) => models.find(m => m.id === id);
-
-    expect(byId('anthropic.claude-3-sonnet-20240229-v1:0')?.contextLength).toBe(200000);
-    expect(byId('meta.llama3-1-70b-instruct-v1:0')?.contextLength).toBe(128000);
-    expect(byId('mistral.mistral-large-2407-v1:0')?.contextLength).toBe(128000);
-    expect(byId('cohere.command-r-plus-v1:0')?.contextLength).toBe(128000);
-    expect(byId('amazon.titan-text-premier-v1:0')?.contextLength).toBe(32000);
-    expect(byId('amazon.titan-text-express-v1')?.contextLength).toBe(8192);
-    expect(byId('some.unknown-model-v1')?.contextLength).toBe(32000);
+    expect(models.find(model => model.id === 'gateway-chat')?.contextLength).toBe(65536);
+    expect(models.find(model => model.id === 'unknown-limit')?.contextLength).toBeUndefined();
   });
 
   it('should construct correct gateway URL without /v1 suffix', async () => {
@@ -2087,7 +2079,7 @@ describe('getAvailableModels - google edge cases', () => {
 
     const models = await getAvailableModels('google');
     expect(models[0].description).toBe('Google Gemini model');
-    expect(models[0].contextLength).toBe(1048576);
+    expect(models[0].contextLength).toBeUndefined(); // Missing limits remain unknown.
   });
 
   it('should handle non-ok Google API response', async () => {

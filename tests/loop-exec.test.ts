@@ -188,3 +188,8 @@ describe('#157 headless retry gating', () => {
     expect(stderrCalls.some((s: string) => s.includes('[retry'))).toBe(false);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

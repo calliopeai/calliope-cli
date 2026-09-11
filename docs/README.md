@@ -6,15 +6,17 @@ provider backends, and a small, tested command surface.
 ## Contents
 
 - [Getting started](./getting-started.md) — install, setup, first session
-- [Commands](./commands.md) — all 22 commands and their subcommands
+- [Commands](./commands.md) — slash commands and their subcommands
 - [Configuration](./configuration.md) — config keys, defaults, environment variables
 - [Provider conformance](./provider-conformance.md) — behavioral matrix, captures and release gate
+- [Provider health](./provider-health.md) — doctor diagnostics, event schema, quarantine and recovery
 - [Providers](./providers.md) — supported backends and how credentials resolve
 - [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Repository instructions](./instructions.md) — scoped AGENTS.md, trust, provenance and reload
 - [Next-version roadmap](https://github.com/calliopeai/calliope-cli/issues/254) — priorities, milestones and release gates
 - [Features](./features.md) — the full v3 feature set (and what was removed)
 - [Shared runtime](./runtime.md) — client adapters, cancellation, budgets and exit semantics
+- [Goal planning](./goal-planning.md) — proposed graphs, human approval, shared limits and recovery
 - [Permissions](./permissions.md) — one resolver, explicit client defaults and audited reasons
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)
@@ -29,6 +31,7 @@ provider backends, and a small, tested command surface.
 |---------|-------------|
 | `/help` | List all commands |
 | `/status` | Provider, model, token usage |
+| `/doctor` | Local provider health; `--probe` checks live discovery |
 | `/model [name]` | Browse or switch models |
 | `/provider [name]` | Switch provider |
 | `/mode [plan\|hybrid\|work]` | Switch operating mode |
@@ -54,3 +57,5 @@ provider backends, and a small, tested command surface.
 
 - Issues: https://github.com/calliopeai/calliope-cli/issues
 - Discussions: https://github.com/calliopeai/calliope-cli/discussions
+
+- [Mixed-model teams and workflow HUD](mixed-model-teams.md) — independent planner, reviewer and worker choices with bounded task attempts.

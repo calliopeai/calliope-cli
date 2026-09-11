@@ -8,18 +8,22 @@
  * module (not a component file).
  */
 
+import { providerChoices, createSubmission, drainSubmissions, type ModelPreference, type ResolvedPreference, type Submission } from '../../preferences/index.js';
+import { isCancellation } from '../../cancellation.js';
 import { TurnController } from '../../turn-controller.js';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from 'ink';
 import * as config from '../../config.js';
 import { selectProvider, ProviderUnavailableError } from '../../providers/index.js';
-import { DEFAULT_MODELS, supportsVision } from '../../types.js';
+import { DEFAULT_MODELS } from '../../types.js';
 import { getSystemPromptForProvider } from '../../local-model.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../../types.js';
 import { getModelContextLimit } from '../../model-detection.js';
 import type { ModelInfo } from '../../model-detection.js';
+import type { RoutingDecision } from '../../routing/index.js';
 import { detectComplexity } from '../../risk.js';
 import * as storage from '../../storage.js';
+import { RunLog } from '../../runlog.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from '../../files.js';
 import * as memory from '../../memory.js';
 import { CircuitBreaker } from '../../circuit-breaker.js';
@@ -42,6 +46,7 @@ import { useProcessingState } from './use-processing-state.js';
 import { useTranscriptState } from './use-transcript-state.js';
 import { useSessionStats } from './use-session-stats.js';
 import { useModelState } from './use-model-state.js';
+import { useApprovalState } from './use-approval-state.js';
 import { useModalState } from './use-modal-state.js';
 import { useQueueState } from './use-queue-state.js';
 import { useLoopState } from './use-loop-state.js';
@@ -51,12 +56,17 @@ import type { StatusRegionProps } from '../regions/status-region.js';
 import type { InputRegionProps } from '../regions/input-region.js';
 import type { ModalHostProps } from '../regions/modal-host.js';
 
+import {workflowSnapshot,retainWorkflows,type WorkflowSnapshot,type WorkflowHudMode} from '../workflow-progress.js';
+import type {CoordinatorProgress} from '../../orchestration/progress.js';
+import type {WorkflowRegionProps} from '../regions/workflow-region.js';
+
 const MAX_UNDO_HISTORY = 10;
 
 export interface ChatController {
   width: number;
   resetSession: () => void;
   transcript: TranscriptRegionProps;
+  workflow: WorkflowRegionProps;
   status: StatusRegionProps;
   input: InputRegionProps;
   modal: ModalHostProps;
@@ -80,16 +90,19 @@ function makeCircuitBreaker(): CircuitBreaker {
   return cb;
 }
 
-export function useChatController(): ChatController {
+export function useChatController(initial?: ModelPreference): ChatController {
   const { exit } = useApp();
   const width = useTerminalWidth();
 
   // -- State groups ---------------------------------------------------------
   const proc = useProcessingState();
-  const transcript = useTranscriptState();
+  const sessionRef = useRef<storage.Session | null>(null);
+  const conversationCursor = useRef<{ sessionId: string; revision: string | null } | null>(null);
+  const transcript = useTranscriptState(sessionRef);
   const stats = useSessionStats();
-  const modelState = useModelState();
+  const modelState = useModelState(initial);
   const modal = useModalState();
+  const approval = useApprovalState();
   const queue = useQueueState();
   const loop = useLoopState();
 
@@ -99,6 +112,10 @@ export function useChatController(): ChatController {
   const { provider, model, mode, confirmMode, autoRoute, smartRouteActive, breakerHealth,
     setProvider, setModel, setMode, setBreakerHealth } = modelState;
   const { queuedMessages, setQueuedMessages, queuedMessagesRef, editingQueueIndex, setEditingQueueIndex } = queue;
+  const [workflows,setWorkflows]=useState<WorkflowSnapshot[]>([]);
+  const [workflowHudMode,setWorkflowHudMode]=useState<WorkflowHudMode>('agents');
+  const onWorkflowProgress=useCallback((progress:CoordinatorProgress)=>{const next=workflowSnapshot(progress);setWorkflows(previous=>retainWorkflows(previous,next));},[]);
+  const [lastRoute, setLastRoute] = useState<RoutingDecision>();
   const { loopActive, loopCancelledRef, setLoopActive } = loop;
 
   // -- Long-lived refs ------------------------------------------------------
@@ -107,8 +124,7 @@ export function useChatController(): ChatController {
   useEffect(() => () => turnController.current.cancel(), []);
   const surfacedProviderErrorRef = useRef<string | null>(null);
   const inputSubmitRef = useRef<((value: string) => void) | null>(null);
-  const openProviderPickerRef = useRef<(() => void) | null>(null);
-  const sessionRef = useRef<storage.Session | null>(null);
+  const openProviderPickerRef = useRef<(() => Promise<void>) | null>(null);
   const undoStack = useRef<ConversationSnapshot[]>([]);
   const redoStack = useRef<ConversationSnapshot[]>([]);
   const llmMessages = useRef<LLMMessage[]>([{ role: 'system', content: getSystemPromptForProvider(provider) }]);
@@ -116,6 +132,7 @@ export function useChatController(): ChatController {
   const circuitBreakerRef = useRef<CircuitBreaker>(makeCircuitBreaker());
   const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
     ...getDefaultSmartRoutingConfig(),
+    ...config.get('routing'),
     enabled: config.get('routing')?.enabled ?? false,
     costSensitivity: config.get('routing')?.costSensitivity ?? 0.3,
   });
@@ -136,8 +153,10 @@ export function useChatController(): ChatController {
     providerErrorMessage = err instanceof Error ? err.message : String(err);
     actualProvider = err instanceof ProviderUnavailableError ? err.provider : 'auto';
   }
-  const actualModel = model || DEFAULT_MODELS[actualProvider];
-  const isModalActive = modal.modalMode !== 'none';
+  const matchingRoute = lastRoute?.selected && (isProcessing || lastRoute.requested.provider === provider && lastRoute.requested.model === (model ?? null)) ? lastRoute.selected : undefined;
+  if (matchingRoute) actualProvider = matchingRoute.provider;
+  const actualModel = matchingRoute?.model || model || DEFAULT_MODELS[actualProvider];
+  const isModalActive = modal.modalMode !== 'none' || approval.pending !== null;
   const contextPercentage = Math.round((stats.contextTokens / getModelContextLimit(actualProvider, actualModel)) * 100);
   const resolvedBreakerHealth = config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined;
 
@@ -150,14 +169,17 @@ export function useChatController(): ChatController {
   }, [providerErrorMessage, addMessage]);
 
   // -- Core helpers ---------------------------------------------------------
+  const selection: ResolvedPreference = { provider, model, sources: modelState.sources, warnings: modelState.warnings };
+  const selectionRef = useRef(selection);
+  selectionRef.current = selection;
+  useEffect(() => { for (const warning of modelState.warnings) addMessage('system', warning); }, [modelState.warnings, addMessage]);
+
   const handleEditQueuedMessage = useCallback((index: number, newMsg: string) => {
-    if (newMsg === '') {
-      setQueuedMessages(prev => prev.filter((_, i) => i !== index));
-      addMessage('system', `🗑️ Deleted queued message #${index + 1}`);
-    } else {
-      setQueuedMessages(prev => prev.map((msg, i) => i === index ? newMsg : msg));
-      addMessage('system', `✏️ Updated queued message #${index + 1}`);
-    }
+    try {
+      setQueuedMessages(previous => previous.flatMap((message, i) => i !== index ? [message]
+        : newMsg ? [{ ...createSubmission(newMsg, message.base), id: message.id }] : []));
+      addMessage('system', `${newMsg ? 'Updated' : 'Deleted'} queued message #${index + 1}`);
+    } catch (error) { addMessage('error', error instanceof Error ? error.message : 'Cannot edit queued message'); }
   }, [addMessage, setQueuedMessages]);
 
   const validateAndRepairMessages = useCallback(() => {
@@ -205,11 +227,22 @@ export function useChatController(): ChatController {
   // -- Agent / command context builders ------------------------------------
   const buildAgentContext = useCallback((): AgentContext => ({
     provider, model, mode, confirmMode, autoRoute, actualProvider, actualModel,
+    approvals: approval.store,
+    approve: (decision, signal) => decision.request ? approval.request(decision.request, signal) : Promise.resolve('reject'),
+    preferenceSources: modelState.sources,
+    onCheckpoint: (messages, status) => {
+      const cursor = conversationCursor.current;
+      if (!cursor || cursor.sessionId !== sessionRef.current?.id) throw new Error('Session recovery unavailable; start /new before continuing.');
+      const snapshot = storage.saveSessionConversation(cursor.sessionId, messages, { expectedRevision: cursor.revision, status });
+      cursor.revision = snapshot.revision;
+      RunLog.open(cursor.sessionId).sessionCheckpoint({ revision: snapshot.revision, status: snapshot.status, messageCount: snapshot.messages.length, checksum: snapshot.checksum });
+    },
     stats: stats.stats,
     ledger: ledgerRef.current,
     circuitBreaker: circuitBreakerRef.current || undefined,
     smartRouteActive,
     smartRoutingConfig: smartRoutingConfigRef.current,
+    onRoute: setLastRoute,
     setBreakerHealth,
 
     setStats: stats.setStats,
@@ -218,13 +251,11 @@ export function useChatController(): ChatController {
     setActivityState,
     setContextTokens: stats.setContextTokens,
     setIsProcessing,
-    setQueuedMessages,
     setEditingQueueIndex,
     setLoopIteration: loop.setLoopIteration,
     setLoopActive,
 
     llmMessages,
-    queuedMessagesRef,
     loopCancelledRef,
     sessionRef,
 
@@ -233,32 +264,78 @@ export function useChatController(): ChatController {
     validateAndRepairMessages,
 
     debugLog,
-  }), [provider, model, mode, confirmMode, autoRoute, smartRouteActive, actualProvider, actualModel,
+  }), [approval.store, approval.request, provider, model, modelState.sources, mode, confirmMode, autoRoute, smartRouteActive, actualProvider, actualModel,
     stats.stats, stats.setStats, stats.setContextTokens, setBreakerHealth, setStreamingResponse,
     setThinkingState, setActivityState, setIsProcessing, setQueuedMessages, setEditingQueueIndex,
     loop.setLoopIteration, setLoopActive, addMessage, estimateContextTokens, validateAndRepairMessages]);
+  const agentContextRef = useRef(buildAgentContext);
+  agentContextRef.current = buildAgentContext;
 
-  const runAgent = useCallback(async (content: MessageContent) => {
-    await turnController.current.run(signal => runAgentImpl({ ...buildAgentContext(), signal }, content));
-  }, [buildAgentContext]);
+  const runSubmission = useCallback(async (first: Submission, signal: AbortSignal, modeOverride?: Mode) => {
+    const outcome = await drainSubmissions(first, {
+      signal,
+      next: () => {
+        const next = queuedMessagesRef.current[0];
+        if (next) { setQueuedMessages(previous => previous.slice(1)); setEditingQueueIndex(null); }
+        return next;
+      },
+      run: async submission => {
+        const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
+        const { text, files } = parseFileReferences(submission.prompt, activeCwd);
+        addMessage('user', files.length ? `${text}\n📎 ${formatFileInfo(files)}` : submission.prompt);
+        let content: MessageContent = submission.prompt;
+        if (files.length) {
+          // Retain attached images; the shared router validates discovered vision
+          // support before inference instead of a static provider-name guess.
+          const prepared = processFilesForMessage(text || submission.prompt, files, true);
+          content = prepared.content;
+          for (const warning of prepared.warnings) addMessage('system', warning);
+        }
+        if (fleetActive()) fleetPostMessage(text || submission.prompt);
+        return runAgentImpl({ ...agentContextRef.current(), signal, ...(submission.id === first.id && modeOverride ? { mode: modeOverride } : {}), provider: submission.selection.provider,
+          model: submission.selection.model, preferenceSources: submission.selection.sources }, content);
+      },
+    });
+    if (outcome === 'limit' && queuedMessagesRef.current.length) addMessage('system', 'Processed 100 turns; remaining queued work is paused. Submit a new turn to continue.');
+    return outcome === 'empty';
+  }, [addMessage, setQueuedMessages, setEditingQueueIndex]);
+
+  const runAgent = useCallback(async (submission: Submission, modeOverride?: Mode) => {
+    await turnController.current.run(async signal => { await runSubmission(submission, signal, modeOverride); });
+  }, [runSubmission]);
 
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
-    await turnController.current.run(signal => runLoopImpl({ ...buildAgentContext(), signal }, prompt, maxIter, completionPromise));
-  }, [buildAgentContext]);
+    await turnController.current.run(signal => runLoopImpl({ ...buildAgentContext(), signal, afterLoopTurn: async () => {
+      const next = queuedMessagesRef.current[0];
+      if (!next) return true;
+      setQueuedMessages(previous => previous.slice(1)); setEditingQueueIndex(null);
+      return runSubmission(next, signal);
+    } }, prompt, maxIter, completionPromise));
+  }, [buildAgentContext, runSubmission, setQueuedMessages, setEditingQueueIndex]);
 
   const handleFleetInstruction = useCallback((instruction: string) => {
     if (isProcessingRef.current) {
-      setQueuedMessages(prev => [...prev, instruction]);
+      try { setQueuedMessages(prev => [...prev, createSubmission(instruction, selectionRef.current)]); }
+      catch (error) { addMessage('error', error instanceof Error ? error.message : 'Cannot queue instruction'); }
     } else {
       void inputSubmitRef.current?.(instruction);
     }
-  }, [setQueuedMessages]);
+  }, [setQueuedMessages, addMessage]);
 
   const buildCommandContext = useCallback((): CommandContext => ({
+    onWorkflowProgress,workflowHudMode,setWorkflowHudMode,
+    toolOutputs: transcript.toolOutputs,
+    showToolOutput: output => { modal.setToolOutput(output); modal.setModalMode('tool-output'); },
+    approvals: approval.store,
+    approve: (decision,signal) => decision.request ? approval.request(decision.request,signal) : Promise.resolve('reject'),
     cancelActiveTurn: () => turnController.current.cancel(),
-    actualProvider, actualModel, model, mode, confirmMode,
+    provider, actualProvider, actualModel, model, mode, confirmMode,
+    reloadDefaults: modelState.reload,
+    conversationCursor,
+    clearQueued: () => { setQueuedMessages([]); setEditingQueueIndex(null); },
+    submitOnce: async input => { inputSubmitRef.current?.(input); },
     messages, stats: stats.stats, loopActive, isProcessing, thinkingState, streamingResponse,
-    queuedMessages, debugEnabled: isDebugEnabled(), modalMode: modal.modalMode,
+    queuedMessages: queuedMessages.map(message => message.text), debugEnabled: isDebugEnabled(), modalMode: modal.modalMode,
     ledger: ledgerRef.current,
 
     setProvider, setModel, setMode,
@@ -285,21 +362,39 @@ export function useChatController(): ChatController {
     runLoop,
     startFleetPolling: () => { fleetStartPolling(handleFleetInstruction); },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
+  }), [onWorkflowProgress,workflowHudMode,approval.store, approval.request, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
-    modal.modalMode, modal.setModalMode, modal.setAvailableModels, setProvider, setModel, setMode,
+    modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
     loop.setLoopIteration, addMessage, estimateContextTokens, runLoop, handleFleetInstruction]);
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
-    await handleCommand(cmd, buildCommandContext());
-  }, [buildCommandContext]);
+    const parts = cmd.trim().split(/\s+/);
+    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe')
+      || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry'
+      || parts[0]!.toLowerCase()==='/orchestrate'&&!['list','status','proposal','replay','cancel'].includes(parts[1]??'');
+    try {
+      const orchestration=parts[0]!.toLowerCase()==='/agents'?await import('../../orchestration/index.js'):undefined;
+      if(orchestration?.isSpawnArgs(orchestration.parseOrchestrationArgs(cmd.slice(parts[0]!.length)))){
+        setIsProcessing(true);
+        try{await turnController.current.join(signal=>handleCommand(cmd,{...buildCommandContext(),isProcessing:false,signal}));}
+        finally{if(!turnController.current.busy)setIsProcessing(false);}
+      } else if (controlled) {
+        if (turnController.current.busy) { addMessage('error', 'Wait for the active operation or cancel it before starting another operation or changing settings.'); return; }
+        setIsProcessing(true);
+        try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), isProcessing: false, signal })); }
+        finally { setIsProcessing(false); }
+      } else await handleCommand(cmd, buildCommandContext());
+    } catch (error) {
+      if (!isCancellation(error)) addMessage('error', error instanceof Error ? error.message : 'Command failed');
+    }
+  }, [buildCommandContext, addMessage, setIsProcessing]);
 
   // -- Submit (routing) -----------------------------------------------------
   // The input-widget concerns (history, clearing) live in InputRegion; this is
   // the content-processing half of the original handleSubmit.
   const onSubmitMessage = useCallback(async (trimmed: string) => {
-    if (trimmed.startsWith('/')) {
+    if (trimmed.startsWith('/') && !/^\/once(?:\s|$)/i.test(trimmed)) {
       await handleCommandWrapped(trimmed);
       return;
     }
@@ -328,64 +423,30 @@ export function useChatController(): ChatController {
       return;
     }
 
-    // In hybrid mode, check for complex operations
+    let submission: Submission;
+    try { submission = createSubmission(trimmed, selectionRef.current); }
+    catch (error) { addMessage('error', error instanceof Error ? error.message : 'Invalid prompt'); return; }
     if (mode === 'hybrid') {
-      const complexity = detectComplexity(trimmed);
+      const complexity = detectComplexity(submission.prompt);
       if (complexity.isComplex) {
-        modal.setPendingComplexPrompt({ prompt: trimmed, complexity });
+        modal.setPendingComplexPrompt({ prompt: submission.prompt, submission, complexity });
         modal.setModalMode('complexity-warning');
         return;
       }
     }
-
-    // Save state for undo before modifying conversation
     saveUndoState();
-
-    // Parse file references from input
-    const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
-    const { text: cleanText, files } = parseFileReferences(trimmed, activeCwd);
-
-    // Show user message (with file info if any)
-    if (files.length > 0) {
-      const fileInfo = formatFileInfo(files);
-      addMessage('user', `${cleanText}\n📎 ${fileInfo}`);
-    } else {
-      addMessage('user', trimmed);
-    }
-
-    // Mirror user input to IRC so observers see what prompted each agent run
-    if (fleetActive()) {
-      fleetPostMessage(cleanText || trimmed);
-    }
-
     setIsProcessing(true);
-
-    try {
-      let messageContent: MessageContent;
-      if (files.length > 0) {
-        const visionSupported = supportsVision(provider, model);
-        const { content, warnings } = processFilesForMessage(cleanText || trimmed, files, visionSupported);
-        for (const warning of warnings) {
-          addMessage('system', warning);
-        }
-        messageContent = content;
-      } else {
-        messageContent = trimmed;
-      }
-      await runAgent(messageContent);
-    } finally {
-      if (!turnController.current.busy) {
-        setIsProcessing(false);
-        setThinkingState(null);
-        setStreamingResponse('');
-      }
+    try { await runAgent(submission); }
+    catch (error) { if (!isCancellation(error)) addMessage('error', error instanceof Error ? error.message : 'Turn failed'); }
+    finally {
+      if (!turnController.current.busy) { setIsProcessing(false); setThinkingState(null); setStreamingResponse(''); }
     }
-  }, [handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, mode,
-    modal, setIsProcessing, setThinkingState, setStreamingResponse]);
+  }, [handleCommandWrapped, runAgent, addMessage, saveUndoState, mode, modal, setIsProcessing, setThinkingState, setStreamingResponse]);
 
   // -- Input action handlers ------------------------------------------------
   const handleQueueMessage = useCallback((msg: string) => {
-    setQueuedMessages(prev => [...prev, msg]);
+    try { setQueuedMessages(prev => [...prev, createSubmission(msg, selectionRef.current)]); }
+    catch (error) { addMessage('error', error instanceof Error ? error.message : 'Cannot queue message'); return; }
     addMessage('system', `📨 Queued: "${msg.substring(0, 50)}${msg.length > 50 ? '...' : ''}"`);
   }, [addMessage, setQueuedMessages]);
 
@@ -403,6 +464,7 @@ export function useChatController(): ChatController {
       loopCancelledRef.current = true;
       setThinkingState(null);
       setStreamingResponse('');
+      setActivityState(null);
       setLoopActive(false);
       setEditingQueueIndex(null);
       addMessage('system', '⏹ Cancellation requested. Waiting for active work to stop.');
@@ -412,39 +474,32 @@ export function useChatController(): ChatController {
     } else {
       addMessage('system', '💡 Press Ctrl+C again to quit, or /exit.');
     }
-  }, [isProcessing, modal, addMessage, setIsProcessing, setThinkingState, setStreamingResponse,
+  }, [isProcessing, modal, addMessage, setIsProcessing, setThinkingState, setStreamingResponse, setActivityState,
     setLoopActive, setEditingQueueIndex]);
 
   const handleExit = useCallback(() => { turnController.current.cancel(); exit(); }, [exit]);
 
   const handleDirectSend = useCallback((msg: string) => {
+    let submission: Submission;
+    try { submission = createSubmission(msg, selectionRef.current); }
+    catch (error) { addMessage('error', error instanceof Error ? error.message : 'Invalid prompt'); return; }
     addMessage('system', 'Interrupting the active turn before sending the new message...');
     loopCancelledRef.current = true;
     void turnController.current.replace(async signal => {
-      setIsProcessing(true);
-      setEditingQueueIndex(null);
-      addMessage('user', msg);
-      await runAgentImpl({ ...buildAgentContext(), signal }, msg);
+      setIsProcessing(true); setEditingQueueIndex(null); saveUndoState();
+      await runSubmission(submission, signal);
     }).catch(error => {
-      addMessage('error', error instanceof Error ? error.message : String(error));
+      if (!isCancellation(error)) addMessage('error', error instanceof Error ? error.message : 'Turn failed');
     }).finally(() => {
-      if (!turnController.current.busy) {
-        setIsProcessing(false);
-        setThinkingState(null);
-        setStreamingResponse('');
-        setEditingQueueIndex(null);
-      }
+      if (!turnController.current.busy) { setIsProcessing(false); setThinkingState(null); setStreamingResponse(''); setEditingQueueIndex(null); }
     });
-  }, [addMessage, buildAgentContext, setIsProcessing, setThinkingState, setStreamingResponse, setEditingQueueIndex]);
+  }, [addMessage, runSubmission, saveUndoState, setIsProcessing, setThinkingState, setStreamingResponse, setEditingQueueIndex]);
 
   // -- Modal handlers -------------------------------------------------------
   const handleModelSelect = useCallback((selectedModel: string) => {
-    setModel(selectedModel);
-    config.set('defaultModel', selectedModel);
-    addMessage('system', `Model: ${selectedModel} (saved as default)`);
-    modal.setModalMode('none');
-    modal.setAvailableModels([]);
-  }, [addMessage, setModel, modal]);
+    modal.setModalMode('none'); modal.setAvailableModels([]);
+    void handleCommandWrapped(`/model ${selectedModel}`);
+  }, [handleCommandWrapped, modal]);
 
   const handleModalCancel = useCallback(() => {
     modal.setModalMode('none');
@@ -471,48 +526,21 @@ export function useChatController(): ChatController {
     modal.setLatestVersion(null);
   }, [addMessage, modal, exit]);
 
-  const buildProviderEntries = useCallback((): ProviderEntry[] => {
-    const hasBedrock = !!(config.getApiKey('bedrock') || config.getBaseUrl('bedrock')
-      || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE);
-    return [
-      { id: 'ollama',      label: 'Ollama',       configured: !!config.getBaseUrl('ollama'),    configHint: 'OLLAMA_BASE_URL',   recommended: true, note: 'local, free' },
-      { id: 'anthropic',   label: 'Anthropic',    configured: !!config.getApiKey('anthropic'),  configHint: 'ANTHROPIC_API_KEY' },
-      { id: 'openai',      label: 'OpenAI',       configured: !!config.getApiKey('openai'),     configHint: 'OPENAI_API_KEY' },
-      { id: 'google',      label: 'Google',       configured: !!config.getApiKey('google'),     configHint: 'GOOGLE_API_KEY' },
-      { id: 'mistral',     label: 'Mistral',      configured: !!config.getApiKey('mistral'),    configHint: 'MISTRAL_API_KEY' },
-      { id: 'openrouter',  label: 'OpenRouter',   configured: !!config.getApiKey('openrouter'), configHint: 'OPENROUTER_API_KEY' },
-      { id: 'together',    label: 'Together',     configured: !!config.getApiKey('together'),   configHint: 'TOGETHER_API_KEY' },
-      { id: 'groq',        label: 'Groq',         configured: !!config.getApiKey('groq'),       configHint: 'GROQ_API_KEY' },
-      { id: 'fireworks',   label: 'Fireworks',    configured: !!config.getApiKey('fireworks'),  configHint: 'FIREWORKS_API_KEY' },
-      { id: 'huggingface', label: 'HuggingFace',  configured: !!config.getApiKey('huggingface'),configHint: 'HUGGINGFACE_API_KEY' },
-      { id: 'deepseek',    label: 'DeepSeek',     configured: !!config.getApiKey('deepseek'),    configHint: 'DEEPSEEK_API_KEY' },
-      { id: 'xai',         label: 'xAI',          configured: !!config.getApiKey('xai'),         configHint: 'XAI_API_KEY' },
-      { id: 'cerebras',    label: 'Cerebras',     configured: !!config.getApiKey('cerebras'),    configHint: 'CEREBRAS_API_KEY' },
-      { id: 'bedrock',     label: 'AWS Bedrock',  configured: hasBedrock,                       configHint: 'AWS_PROFILE or AWS_ACCESS_KEY_ID', note: 'AWS credentials' },
-      { id: 'litellm',     label: 'LiteLLM',      configured: !!config.getBaseUrl('litellm'),   configHint: 'LITELLM_BASE_URL' },
-    ];
-  }, []);
-
-  const openProviderPicker = useCallback(() => {
-    modal.setProviderEntries(buildProviderEntries());
+  const openProviderPicker = useCallback(async () => {
+    modal.setProviderEntries(await providerChoices());
     modal.setModalMode('provider');
-  }, [buildProviderEntries, modal]);
+  }, [modal]);
 
   useEffect(() => { openProviderPickerRef.current = openProviderPicker; }, [openProviderPicker]);
 
   const handleProviderSelect = useCallback((entry: ProviderEntry) => {
     if (entry.configured) {
-      setProvider(entry.id);
-      config.set('defaultProvider', entry.id);
-      config.unset('defaultModel');
-      addMessage('system', `Provider: ${entry.label}${entry.id === 'ollama' ? ' (local)' : ''} (saved as default)`);
-      modal.setModalMode('none');
-      modal.setProviderEntries([]);
+      modal.setModalMode('none'); modal.setProviderEntries([]);
+      void handleCommandWrapped(`/provider ${entry.id}`);
       return;
     }
-    modal.setPendingSetupProvider(entry);
-    modal.setModalMode('api-key-setup');
-  }, [addMessage, setProvider, modal]);
+    modal.setPendingSetupProvider(entry); modal.setModalMode('api-key-setup');
+  }, [handleCommandWrapped, modal]);
 
   const handleProviderCancel = useCallback(() => {
     modal.setModalMode('none');
@@ -528,8 +556,8 @@ export function useChatController(): ChatController {
     try {
       if (entry.id === 'ollama') {
         config.setProviderCred('ollama', { baseUrl: value });
-      } else if (entry.id === 'litellm') {
-        config.setProviderCred('litellm', { baseUrl: value });
+      } else if (entry.id === 'litellm' || entry.id === 'openai-compat') {
+        config.setProviderCred(entry.id, { baseUrl: value });
       } else if (entry.id === 'bedrock') {
         process.env.AWS_PROFILE = value;
         delete process.env.AWS_ACCESS_KEY_ID;
@@ -539,16 +567,14 @@ export function useChatController(): ChatController {
       } else {
         config.setProviderCred(entry.id, { apiKey: value });
       }
-      setProvider(entry.id);
-      config.set('defaultProvider', entry.id);
-      config.unset('defaultModel');
-      addMessage('system', `✓ Configured ${entry.label}. Provider switched and saved as default.`);
+      addMessage('system', `Configured ${entry.label}. Checking model discovery...`);
+      void handleCommandWrapped(`/provider ${entry.id}`);
     } catch (e) {
       addMessage('error', `Failed to configure ${entry.label}: ${e instanceof Error ? e.message : String(e)}`);
     }
     modal.setPendingSetupProvider(null);
     modal.setModalMode('none');
-  }, [addMessage, setProvider, modal]);
+  }, [addMessage, handleCommandWrapped, modal]);
 
   const handleApiKeyCancel = useCallback(() => {
     modal.setPendingSetupProvider(null);
@@ -557,10 +583,9 @@ export function useChatController(): ChatController {
 
   // -- Session-selector / resume handlers -----------------------------------
   const handleSessionSelect = useCallback((session: SessionInfo) => {
-    addMessage('system', `Loading session: ${session.projectName}...`);
-    addMessage('system', `Session path: ${session.projectPath}\nTo load this session, run calliope from that directory.`);
+    void handleCommandWrapped(`/resume ${session.id}`);
     modal.setModalMode('none');
-  }, [addMessage, modal]);
+  }, [handleCommandWrapped, modal]);
 
   const handleSessionDelete = useCallback((session: SessionInfo) => {
     if (storage.deleteSession(session.id)) {
@@ -572,63 +597,26 @@ export function useChatController(): ChatController {
   }, [addMessage, modal]);
 
   const handleSessionResume = useCallback(() => {
-    const savedMessages = storage.loadMessageHistory();
-    if (savedMessages && savedMessages.length > 0) {
-      llmMessages.current.length = 0;
-      for (const msg of savedMessages) {
-        llmMessages.current.push(msg as LLMMessage);
-      }
-      addMessage('system', `✓ Resumed session with ${savedMessages.length} saved messages loaded`);
-      const activeSessionId = sessionRef.current?.id;
-      if (activeSessionId) {
-        ledgerRef.current.loadSnapshot(storage.loadIterationLedger(activeSessionId));
-        storage.saveIterationLedger(ledgerRef.current, activeSessionId);
-      }
-      stats.setContextTokens(estimateContextTokens());
-    } else {
-      const history = storage.getChatHistory(20);
-      if (history.length > 0) {
-        llmMessages.current.length = 0;
-        const activeCwd = sessionRef.current?.projectPath ?? process.cwd();
-        const basePrompt = getSystemPromptForProvider(actualProvider);
-        const memoryContext = memory.buildMemoryContext(activeCwd);
-        llmMessages.current.push({
-          role: 'system',
-          content: memoryContext.trim()
-            ? `${basePrompt}\n\n--- Project Context ---\n${memoryContext}`
-            : basePrompt,
-        });
-        for (const msg of history) {
-          if (msg.role === 'user' || msg.role === 'assistant') {
-            llmMessages.current.push({ role: msg.role, content: msg.content });
-          }
-        }
-        addMessage('system', `✓ Resumed session with ${history.length} chat messages loaded`);
-        stats.setContextTokens(estimateContextTokens());
-      }
-    }
-    modal.setModalMode('none');
-    modal.setPreviousSession(null);
-  }, [addMessage, estimateContextTokens, stats, modal, actualProvider]);
+    void handleCommandWrapped('/resume');
+    modal.setModalMode('none'); modal.setPreviousSession(null);
+  }, [handleCommandWrapped, modal]);
 
   const handleSessionResumeNew = useCallback(() => {
-    addMessage('system', '✓ Starting fresh session');
-    modal.setModalMode('none');
-    modal.setPreviousSession(null);
-  }, [addMessage, modal]);
+    void handleCommandWrapped('/new');
+    modal.setModalMode('none'); modal.setPreviousSession(null);
+  }, [handleCommandWrapped, modal]);
 
   // -- Complexity-warning handlers ------------------------------------------
   const handleComplexityProceed = useCallback(async () => {
     modal.setModalMode('none');
-    const prompt = modal.pendingComplexPrompt?.prompt;
+    const submission = modal.pendingComplexPrompt?.submission;
     modal.setPendingComplexPrompt(null);
-    if (prompt === undefined) return;
+    if (!submission) return;
 
     saveUndoState();
-    addMessage('user', typeof prompt === 'string' ? prompt : JSON.stringify(prompt));
     setIsProcessing(true);
     try {
-      await runAgent(prompt);
+      await runAgent(submission);
     } finally {
       setIsProcessing(false);
     }
@@ -636,16 +624,15 @@ export function useChatController(): ChatController {
 
   const handleComplexityPlan = useCallback(() => {
     modal.setModalMode('none');
-    const prompt = modal.pendingComplexPrompt?.prompt;
+    const submission = modal.pendingComplexPrompt?.submission;
     modal.setPendingComplexPrompt(null);
-    if (prompt === undefined) return;
+    if (!submission) return;
 
     setMode('plan');
     addMessage('system', '📋 Switched to Plan mode - I\'ll describe what I would do without executing.');
     saveUndoState();
-    addMessage('user', typeof prompt === 'string' ? prompt : JSON.stringify(prompt));
     setIsProcessing(true);
-    runAgent(prompt).finally(() => setIsProcessing(false));
+    void runAgent(submission, 'plan').catch(error => { if (!isCancellation(error)) addMessage('error', error instanceof Error ? error.message : 'Turn failed'); }).finally(() => setIsProcessing(false));
   }, [modal, setMode, saveUndoState, addMessage, runAgent, setIsProcessing]);
 
   const handleComplexityCancel = useCallback(() => {
@@ -660,6 +647,8 @@ export function useChatController(): ChatController {
 
   // -- Session reset (replaces the old full-remount reset) ------------------
   const resetSession = useCallback(() => {
+    approval.cancel();
+    setWorkflows([]);
     proc.reset();
     transcript.reset();
     stats.reset();
@@ -672,10 +661,10 @@ export function useChatController(): ChatController {
     redoStack.current = [];
     ledgerRef.current.reset();
     resetContextWarnings();
-  }, [proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
+  }, [approval.cancel, proc, transcript, stats, modelState, modal, queue, loop, actualProvider]);
 
   // -- Mount initialization -------------------------------------------------
-  useSessionInit({ sessionRef, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });
+  useSessionInit({ sessionRef, conversationCursor, ledgerRef, llmMessages, addMessage, onFleetInstruction: handleFleetInstruction });
 
   // -- Region prop bags -----------------------------------------------------
   // Plain objects (not memoized): TerminalChat spreads them, so each region's
@@ -694,7 +683,7 @@ export function useChatController(): ChatController {
 
   const inputProps: InputRegionProps = {
     onSubmitMessage, submitRef: inputSubmitRef, disabled: isModalActive, isProcessing,
-    queuedCount: queuedMessages.length, queuedMessages, editingQueueIndex,
+    queuedCount: queuedMessages.length, queuedMessages: queuedMessages.map(message => message.text), editingQueueIndex,
     onQueueMessage: handleQueueMessage, onEditQueuedMessage: handleEditQueuedMessage,
     onSetEditingQueueIndex: setEditingQueueIndex, onDirectSend: handleDirectSend,
     onEscape: handleEscape, onExit: handleExit, onCycleMode: cycleMode,
@@ -702,7 +691,10 @@ export function useChatController(): ChatController {
   };
 
   const modalProps: ModalHostProps = {
-    modalMode: modal.modalMode,
+    toolOutput: modal.toolOutput,
+    pendingApproval: approval.pending,
+    onApprovalAnswer: (id, choice) => { if (approval.answer(id, choice) && choice === 'cancelled') turnController.current.cancel(); },
+    modalMode: approval.pending ? 'confirm' : modal.modalMode,
     availableModels: modal.availableModels, onModelSelect: handleModelSelect, onModalCancel: handleModalCancel,
     availableSessions: modal.availableSessions, onSessionSelect: handleSessionSelect, onSessionDelete: handleSessionDelete,
     latestVersion: modal.latestVersion, onUpgradeConfirm: handleUpgradeConfirm,
@@ -718,6 +710,7 @@ export function useChatController(): ChatController {
     width,
     resetSession,
     transcript: transcriptProps,
+    workflow: {workflows,mode:workflowHudMode,width},
     status: statusProps,
     input: inputProps,
     modal: modalProps,

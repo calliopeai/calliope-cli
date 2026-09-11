@@ -14,14 +14,15 @@ reference is below.
 
 ## Config keys
 
-There are 16 keys. Defaults are the values applied when a key is absent.
+Defaults are the values applied when a key is absent.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `setupComplete` | boolean | `false` | Whether first-run setup has finished. |
-| `defaultProvider` | string | `auto` | Provider used at startup (`auto` picks the first configured one). |
+| `defaultProvider` | string | `auto` | Global provider preference, below trusted project, environment and explicit choices. `auto` uses live routing eligibility. |
 | `defaultModel` | string | *(unset)* | Model used at startup; falls back to the provider's default. |
 | `providers` | object | *(unset)* | Per-provider credentials. See [Provider credentials](#provider-credentials). |
+| `providerHealth` | object | *(defaults)* | Retention, repeated-failure quarantine and probe deadlines. See [Provider health](./provider-health.md#configuration-import-and-recovery). |
 | `fleet` | object | *(unset)* | `{ "enabled": boolean }`. When absent, fleet mode is off. See [Fleet mode](./fleet.md). |
 | `maxIterations` | number | `0` | Max agent-loop iterations (`0` = unlimited; range 0-1000000). |
 | `maxIterationTime` | number | `600` | Max seconds per iteration (`0` = no limit; range 0-3600). |
@@ -32,7 +33,7 @@ There are 16 keys. Defaults are the values applied when a key is absent.
 | `diffStyle` | string | `inline` | Diff display: `inline`, `unified`, or `side-by-side`. |
 | `circuitBreakersEnabled` | boolean | `false` | Enable runaway-loop guardrails. See [Features](./features.md#circuit-breakers). |
 | `sandboxMode` | string | `auto` | Code/shell sandbox: `auto`, `native`, `docker`, or `off`. |
-| `routing` | object | *(unset)* | `{ "enabled": boolean, "costSensitivity": 0-1 }`. Smart model routing (costSensitivity `0` = best quality, `1` = cheapest). |
+| `routing` | object | *(unset)* | Live model eligibility with optional health/cost/latency optimization. `enabled`, `costSensitivity` (0–1), `preferredProviders`, `providerPool`, `discoveryTimeoutMs`. See [Routing](routing.md) for scoring, defaults and evidence limits. |
 | `sessionLogLimit` | number | `0` | Cap retained session-log items (`0` = unlimited; range 0-100000). |
 | `audit` | object | *(on)* | Audit run log: `{ "enabled": boolean, "dir": string, "retention": number }`. On by default. See [Governance](./governance.md#audit-run-logs). |
 | `budget` | object | *(unset)* | Spend caps: `{ "maxCostPerRun": usd, "maxTokensPerRun": n, "maxCostPerProject": usd }`. See [Governance](./governance.md#budget-caps). |
@@ -62,6 +63,11 @@ The remaining keys (`setupComplete`, `defaultProvider`, `defaultModel`,
 `providers`, `fleet`, `maxIterationTime`, `autoSaveHistory`, `autoUpgrade`,
 `circuitBreakersEnabled`) are set by the setup wizard, environment variables,
 or by editing the config file directly.
+
+Provider/model switches are session-only. `/defaults save` persists project
+choices in `.calliope-models.json`; `/once` and invocation `--provider`/`--model`
+flags are temporary. See [Model preferences](model-preferences.md) for precedence
+and trust requirements across terminal, headless and ACP.
 
 > `theme` is accepted by `/config set` but is **not** stored in the config file.
 > It persists separately in `~/.calliope-cli/themes/current.txt`. See

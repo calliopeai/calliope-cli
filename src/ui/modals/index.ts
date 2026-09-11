@@ -9,3 +9,4 @@ export { ModelSelector, SessionSelector, ProviderSelector } from './selectors.js
 export type { ProviderEntry } from './selectors.js';
 export { UpgradePrompt, ComplexityWarning, SessionResumePrompt, ToolConfirmation } from './prompts.js';
 export { ApiKeySetup, KeybindingsModal } from './setup.js';
+export { ToolOutputViewer } from './tool-output.js';

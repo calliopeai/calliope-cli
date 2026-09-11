@@ -7,7 +7,7 @@ export const BACKENDS = [
   { id: 'openai-responses', provider: 'openai', protocol: 'responses' },
   { id: 'ollama', provider: 'ollama', protocol: 'ollama' },
   { id: 'bedrock-native', provider: 'bedrock', protocol: 'bedrock' },
-  ...['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'ai21', 'huggingface', 'litellm', 'bedrock-compat', 'openai-compat'].map(id => ({ id, provider: id === 'bedrock-compat' ? 'bedrock' : id, protocol: 'chat' })),
+  ...['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'deepseek', 'xai', 'cerebras', 'huggingface', 'litellm', 'bedrock-compat', 'openai-compat'].map(id => ({ id, provider: id === 'bedrock-compat' ? 'bedrock' : id, protocol: 'chat' })),
 ];
 export const TOOL = { name: 'echo', description: 'Echo a string. Conformance probe only; never executes.', parameters: { type: 'object', properties: { text: { type: 'string', description: 'Text to echo' } }, required: ['text'] } };
 export const PROBE_TEXT = 'Hello π';
@@ -20,10 +20,11 @@ export function normalize(response) {
 }
 /** Dispatch directly to adapters so retry policy cannot disguise wire failures. */
 export async function invoke(adapters, backend, model, messages, tools, onToken, signal, limits) {
-  if (backend.protocol === 'anthropic') return adapters.anthropic.chatAnthropic(messages, tools, model, onToken, signal);
-  if (backend.protocol === 'google') return adapters.google.chatGoogle(messages, tools, model, onToken, signal);
-  if (backend.protocol === 'ollama') return adapters.ollama.chatOllama(messages, tools, model, onToken, { signal });
+  const boundedLimits = limits ? { ...limits, bounded: true } : undefined;
+  if (backend.protocol === 'anthropic') return adapters.anthropic.chatAnthropic(messages, tools, model, onToken, signal, boundedLimits);
+  if (backend.protocol === 'google') return adapters.google.chatGoogle(messages, tools, model, onToken, signal, boundedLimits);
+  if (backend.protocol === 'ollama') return adapters.ollama.chatOllama(messages, tools, model, onToken, { signal, ...boundedLimits });
   if (backend.protocol === 'bedrock') return adapters.bedrock.chatBedrock(messages, tools, model, onToken, signal, limits?.maxOutputTokens);
-  if (backend.provider === 'openai') return adapters.openai.chatOpenAI(messages, tools, model, onToken, signal);
-  return adapters.compat.chatOpenAICompatible(backend.provider, messages, tools, model, onToken, signal);
+  if (backend.provider === 'openai') return adapters.openai.chatOpenAI(messages, tools, model, onToken, signal, boundedLimits);
+  return adapters.compat.chatOpenAICompatible(backend.provider, messages, tools, model, onToken, signal, boundedLimits);
 }

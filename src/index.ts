@@ -28,6 +28,8 @@ export { runSetup, reconfigure } from './setup.js';
 export { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
 export { selectModelInteractively, getAvailableModels, clearModelCache, getModelInfo, getModelContextLimit, preWarmModelCache } from './model-detection.js';
 export type { ModelInfo } from './model-detection.js';
+export { selectRoute, formatRoutingDecision, RoutingUnavailableError } from './routing/index.js';
+export type { RoutingDecision, RoutingRequest, RoutingPreferences, RoutingRequirements, RouteCandidate } from './routing/index.js';
 
 // HUD system
 export {

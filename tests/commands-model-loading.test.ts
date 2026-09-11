@@ -28,7 +28,8 @@ vi.mock('../src/model-detection.js', () => ({
   preWarmModelCache: vi.fn(),
 }));
 
-vi.mock('../src/config.js', () => ({
+vi.mock('../src/config.js', async original => ({
+  ...await original<typeof import('../src/config.js')>(),
   default: {},
   get: vi.fn(),
   set: vi.fn(),
@@ -235,7 +236,7 @@ describe('/model command — loading state and error handling', () => {
     expect(errMsg).toBeDefined();
     expect(errMsg!.content).toMatch(/anthropic/);
     expect(errMsg!.content).toMatch(/Unauthorized/);
-    expect(errMsg!.content).toMatch(/Check your API key/);
+    expect(errMsg!.content).toMatch(/doctor for diagnostics/);
   });
 
   it('shows provider-specific empty result message when 0 models returned', async () => {
@@ -248,7 +249,7 @@ describe('/model command — loading state and error handling', () => {
     const errMsg = msgs.find(m => m.type === 'error');
     expect(errMsg).toBeDefined();
     expect(errMsg!.content).toMatch(/groq/);
-    expect(errMsg!.content).toMatch(/API key may be invalid/);
+    expect(errMsg!.content).toMatch(/doctor provider/);
   });
 });
 
@@ -275,7 +276,7 @@ describe('/model list command — loading state and error handling', () => {
     expect(errMsg).toBeDefined();
     expect(errMsg!.content).toMatch(/openai/);
     expect(errMsg!.content).toMatch(/Network timeout/);
-    expect(errMsg!.content).toMatch(/Check your API key/);
+    expect(errMsg!.content).toMatch(/doctor for diagnostics/);
   });
 
   it('shows provider-specific empty result message when 0 models returned', async () => {
@@ -288,7 +289,7 @@ describe('/model list command — loading state and error handling', () => {
     const errMsg = msgs.find(m => m.type === 'error');
     expect(errMsg).toBeDefined();
     expect(errMsg!.content).toMatch(/mistral/);
-    expect(errMsg!.content).toMatch(/API key may be invalid/);
+    expect(errMsg!.content).toMatch(/doctor provider/);
   });
 });
 
@@ -375,34 +376,6 @@ describe('/config set — nested routing keys', () => {
     expect(getMessages(ctx).at(-1)?.content).toMatch(/between 0 and 1/);
   });
 });
-
-describe('model/provider persistence (#233)', () => {
-  it('persists defaultModel on explicit /model switch', async () => {
-    const config = await import('../src/config.js');
-    const ctx = makeCtx();
-    await handleCommand('/model gpt-5.3-codex', ctx);
-    expect(vi.mocked(config.set)).toHaveBeenCalledWith('defaultModel', 'gpt-5.3-codex');
-  });
-
-  it('persists defaultProvider and clears defaultModel on /provider switch', async () => {
-    const config = await import('../src/config.js');
-    const providers = await import('../src/providers/index.js');
-    vi.mocked(providers.getAvailableProviders).mockReturnValue(['google'] as never);
-    const ctx = makeCtx();
-    await handleCommand('/provider google', ctx);
-    expect(vi.mocked(config.set)).toHaveBeenCalledWith('defaultProvider', 'google');
-    expect(vi.mocked(config.unset)).toHaveBeenCalledWith('defaultModel');
-  });
-
-  it('persists nothing on /model list', async () => {
-    const config = await import('../src/config.js');
-    vi.mocked(config.set).mockClear();
-    const ctx = makeCtx();
-    await handleCommand('/model list', ctx);
-    expect(vi.mocked(config.set)).not.toHaveBeenCalledWith('defaultModel', expect.anything());
-  });
-});
-
 
 describe('portable instruction commands', () => {
   it('shows scoped sources, reloads edits and removes revoked instructions from a resumed session', async () => {

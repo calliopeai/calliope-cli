@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",
@@ -48,9 +48,10 @@
     "bench:ui": "vitest run -c bench/vitest.bench.config.ts bench/keystroke.bench.test.ts",
     "bench:mem": "NODE_OPTIONS=--expose-gc vitest run -c bench/vitest.bench.config.ts bench/memory.bench.test.ts",
     "prepublishOnly": "npm run build && npm test && npm run test:conformance:release",
-    "test:conformance": "vitest run tests/provider-conformance.test.ts tests/provider-captures.test.ts",
+    "test:conformance": "vitest run tests/provider-conformance.test.ts tests/provider-captures.test.ts tests/provider-readiness.test.ts tests/provider-probe-budget.test.ts",
     "test:conformance:release": "CALLIOPE_REQUIRE_WIRE_CAPTURES=1 npm run test:conformance",
-    "capture:provider": "npm run build && node scripts/conformance/capture.mjs"
+    "capture:provider": "npm run build && node scripts/conformance/capture.mjs",
+    "providers:readiness": "npm run build && node scripts/conformance/report.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.111.0",
@@ -61,6 +62,7 @@
     "ink": "^7.1.0",
     "openai": "^6.46.0",
     "react": "^19.2.3",
+    "string-width": "8.2.2",
     "yaml": "^2.8.2"
   },
   "devDependencies": {

@@ -11,6 +11,7 @@
  */
 
 import * as fs from 'fs';
+import { validateStreamAttemptEvent } from './providers/stream-attempt.js';
 import {
   readRunLog,
   verifyChain,
@@ -115,6 +116,16 @@ export function renderReplay(lines: RunLogLine[], verification: ChainVerificatio
         const p = line as unknown as { tool: string; decision: string; reason?: string };
         const reason = p.reason ? ` — ${p.reason}` : '';
         out.push(`[${t}] ⛨ policy: ${p.decision.toUpperCase()} ${p.tool}${reason}`);
+        break;
+      }
+      case 'routing_decision': {
+        const decision = line.decision as { status?: string; reason?: string; selected?: { provider?: string; model?: string } } | undefined;
+        out.push(`[${t}] route: ${decision?.selected ? `${decision.selected.provider}/${decision.selected.model}` : decision?.status ?? 'unknown'} — ${decision?.reason ?? ''}`);
+        break;
+      }
+      case 'stream_attempt': {
+        try { const stream = validateStreamAttemptEvent(line.stream); out.push(`[${t}] stream attempt ${stream.attempt}: ${stream.state} (${stream.emittedChars} characters)${stream.delayMs === undefined ? '' : `; retry in ${stream.delayMs}ms`}`); }
+        catch { out.push(`[${t}] invalid stream attempt metadata`); }
         break;
       }
       case 'run_end': {

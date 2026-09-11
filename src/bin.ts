@@ -57,7 +57,9 @@ if (process.env.DEBUG === 'true' && !process.env.CALLIOPE_DEBUG) {
 }
 
 // Handle CLI flags
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const delimiter = rawArgs.indexOf('--');
+const args = delimiter < 0 ? rawArgs : rawArgs.slice(0, delimiter);
 
 // Check for god-mode flag (skip all permission prompts)
 const skipPermissions = args.includes('--god-mode') ||
@@ -159,8 +161,38 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Handle `replay` subcommand — render a run-log trace read-only to stdout.
-  // Runs before setup/config gates: replaying an audit trail needs no provider.
+  // Local diagnostics run before setup and do not require provider credentials.
+  if (args[0] === 'doctor') {
+    headlessCancellation = new AbortController();
+    const { runDoctor } = await import('./doctor.js');
+    process.exit(await runDoctor(args.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'permissions') {
+    headlessCancellation = new AbortController();
+    const { runPermissions } = await import('./approvals/index.js');
+    process.exit(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'orchestrate') {
+    headlessCancellation = new AbortController();
+    const { runGoalCommand } = await import('./goals/index.js');
+    process.exit(await runGoalCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'run' || args[0] === 'agents' || args[0] === 'tasks') {
+    headlessCancellation = new AbortController();
+    const { runOrchestrationCommand } = await import('./orchestration/index.js');
+    process.exit(await runOrchestrationCommand(args[0], rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'session') {
+    headlessCancellation = new AbortController();
+    const { runSessionCommand } = await import('./session-management/cli.js');
+    process.exit(await runSessionCommand(args.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  // Handle `replay` before setup/config gates: an audit trail needs no provider.
   if (args[0] === 'replay') {
     const { runReplay } = await import('./replay.js');
     // First non-flag arg after `replay` is the path or session id.
@@ -246,6 +278,9 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Headless startup never opens interactive setup or writes banner text to JSON.
+  if (useHeadless) return startCLI();
+
   // Show warning if god-mode enabled
   if (skipPermissions) {
     console.log(`${colors.magenta}⚡ GOD MODE ENABLED${colors.reset}`);
@@ -292,6 +327,15 @@ async function main(): Promise<void> {
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+  const { parseModelFlags } = await import('./preferences/index.js');
+  let parsed: ReturnType<typeof parseModelFlags>;
+  try { parsed = parseModelFlags(rawArgs); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid provider/model options';
+    if (useHeadless && args.includes('--json')) console.log(JSON.stringify({ type: 'error', timestamp: new Date().toISOString(), data: { message } }));
+    else console.error(message);
+    process.exit(2);
+  }
   // Initialize HUD palette from the persisted theme (dark/light/no-color).
   const { applyCurrentTheme } = await import('./themes.js');
   applyCurrentTheme();
@@ -299,20 +343,23 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
   // Merge in global flags
   const fullOptions = {
     ...options,
+    initialPreference: parsed.preference,
   };
 
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
     const { runHeadless } = await import('./headless.js');
     // Extract prompt from remaining args (non-flag args, skip --max-retries value)
-    const prompt = args.filter((a, i) => {
+    const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && args[i - 1] === '--max-retries') return false;
+      if (i > 0 && parsed.args[i - 1] === '--max-retries') return false;
       return true;
-    }).join(' ');
+    }), ...parsed.literal].join(' ');
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
+      provider: parsed.preference.provider,
+      model: parsed.preference.model ?? undefined,
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
@@ -331,9 +378,27 @@ ${bold('calliope')} - Multi-model AI agent CLI
 
 ${bold('USAGE')}
   calliope [options] [prompt]
+  calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
+  calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
+  calliope orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] [--json]
+  calliope orchestrate status|proposal|replay|resume|cancel <goal-id> [--json]
+  calliope orchestrate revise <goal-id> <plan.json> [--json]   Correct a proposed plan
+  calliope run <plan> --dry-run [--json]   Validate an orchestration plan
+  calliope run prepare <plan> [--json]     Prepare a durable inactive run
+  calliope run <plan> [--allow-mutations] [--json]   Execute a reviewed task graph
+  calliope run execute|resume <id> [--allow-mutations] [--json]   Start/resume workers
+  calliope run retry|accept <id> <task> [--json]   Retry or accept recorded evidence
+  calliope run status|approve|cancel <id> [--json]   Inspect or review a prepared run
+  calliope agents --tree [--run <id>] [--json]   Inspect the declared agent hierarchy
+  calliope agents stop|retry <agent> --run <id> [--json]   Control a bounded agent
+  calliope agents spawn <children.json> --run <id> [--approve <hash>] [--json]
+  calliope agents spawn --resume <hash> --run <id> [--json]   Recover child admission
+  calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
+  calliope session <action> [args] [--json]   Manage private session history without inference
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)
+  calliope doctor [providers|provider <name>] [--json] [--probe]   Inspect provider health
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message
@@ -347,6 +412,9 @@ ${bold('OPTIONS')}
                     Enables unrestricted autonomous execution
   --headless        Headless mode (JSON/text output, no TTY; auto-detected when piped)
   --json            Output JSON events (with --headless)
+  --provider NAME  Select a provider for this invocation (or auto)
+  --model ID       Select a live model for this invocation
+  --               Treat following arguments as literal prompt text
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
   --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
@@ -375,6 +443,7 @@ ${bold('ENVIRONMENT VARIABLES')}
   .env and cli.env in the current directory, then ~/.config/calliope/cli.env
   (global). Existing values are never overwritten.
 
+  CALLIOPE_PROVIDER / CALLIOPE_MODEL  Defaults below explicit session/turn choices
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
 
 ${bold('INTERACTIVE COMMANDS')}

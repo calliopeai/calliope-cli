@@ -442,7 +442,7 @@ export async function chatBedrock(
   debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, access_key_prefix=${credentials.accessKeyId.slice(0, 4)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
 
   if (isStreaming) {
-    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal);
+    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal, maxOutputTokens !== undefined);
   }
 
   // Non-streaming request
@@ -529,7 +529,8 @@ async function chatBedrockStreaming(
   headers: Record<string, string>,
   body: string,
   onToken: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  bounded = false
 ): Promise<LLMResponse> {
   const response = await fetch(url, {
     method: 'POST',
@@ -548,6 +549,7 @@ async function chatBedrockStreaming(
   const reasoningContent: unknown[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let usageSeen = false;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
   let currentToolId = '';
   let currentToolName = '';
@@ -719,6 +721,7 @@ async function chatBedrockStreaming(
           case 'metadata': {
             const meta = event as { usage?: { inputTokens: number; outputTokens: number } };
             if (meta.usage) {
+              usageSeen = typeof meta.usage.inputTokens === 'number' && typeof meta.usage.outputTokens === 'number';
               inputTokens = meta.usage.inputTokens;
               outputTokens = meta.usage.outputTokens;
             }
@@ -739,7 +742,7 @@ async function chatBedrockStreaming(
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
-    usage: { inputTokens, outputTokens },
+    usage: bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
   };
 }
 

@@ -13,24 +13,24 @@ import { fileURLToPath } from 'url';
 import { COMMAND_NAMES } from '../src/ui/commands.js';
 import { SLASH_COMMANDS } from '../src/ui/completions.js';
 
-// The full set of handled labels: 22 visible commands + the /quit alias of
+// The full set of handled labels: visible commands + the /quit alias of
 // /exit + the flag-gated /fleet (always handled here, gated only in completions).
 const EXPECTED_COMMANDS = [
-  '/help', '/status', '/clear', '/exit', '/quit',
-  '/model', '/provider', '/mode',
-  '/undo', '/export', '/resume', '/compact',
+  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/run', '/agents', '/tasks', '/clear', '/exit', '/quit',
+  '/model', '/provider', '/mode', '/defaults', '/once',
+  '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',
   '/fleet',
 ].sort();
 
-// The 22 visible commands offered as completion roots (no /quit alias, and
+// The visible commands offered as completion roots (no /quit alias, and
 // /fleet only surfaces when fleet mode is enabled).
 const EXPECTED_COMPLETION_ROOTS = [
-  '/help', '/status', '/clear', '/exit',
-  '/model', '/provider', '/mode',
-  '/undo', '/export', '/resume', '/compact',
+  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/run', '/agents', '/tasks', '/clear', '/exit',
+  '/model', '/provider', '/mode', '/defaults', '/once',
+  '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',
@@ -42,13 +42,12 @@ function completionRoots(): string[] {
 }
 
 describe('command registry', () => {
-  it('COMMAND_NAMES is exactly the 22 commands + /quit alias + /fleet', () => {
+  it('COMMAND_NAMES is exactly the visible commands + /quit alias + /fleet', () => {
     expect([...COMMAND_NAMES].sort()).toEqual(EXPECTED_COMMANDS);
   });
 
-  it('COMMAND_NAMES has 24 unique entries', () => {
-    expect(COMMAND_NAMES.length).toBe(24);
-    expect(new Set(COMMAND_NAMES).size).toBe(24);
+  it('COMMAND_NAMES has no duplicate entries', () => {
+    expect(new Set(COMMAND_NAMES).size).toBe(COMMAND_NAMES.length);
   });
 
   it('every case label in the executeCommand switch is registered (and vice versa)', () => {
@@ -63,7 +62,7 @@ describe('command registry', () => {
     expect(caseLabels.length).toBe(new Set(caseLabels).size);
   });
 
-  it('completion roots are exactly the 22 visible commands', () => {
+  it('completion roots are exactly the visible commands', () => {
     expect(completionRoots().sort()).toEqual(EXPECTED_COMPLETION_ROOTS);
   });
 
@@ -91,7 +90,7 @@ describe('command registry', () => {
       '/add-dir', '/remove-dir', '/dirs', '/set', '/checkpoint', '/cp', '/untrust',
       '/work', '/plan', '/approve', '/route', '/autoroute', '/smart', '/breaker',
       '/theme', '/emoji', '/hooks', '/profile', '/find', '/search', '/project',
-      '/todo', '/plans', '/history', '/context', '/session', '/sessions', '/log',
+      '/todo', '/plans', '/history', '/context', '/session', '/log',
       '/copy', '/edit', '/redo', '/confirm', '/layout', '/density', '/collapse',
       '/bookmark', '/queue', '/flush', '/unstick', '/keys', '/upgrade', '/costs',
     ];

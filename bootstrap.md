@@ -6,7 +6,7 @@
 > wins**. Keep it updated as the codebase evolves.
 
 `@calliopelabs/cli` (`calliope`) — a multi-model AI agent CLI. TypeScript +
-React/Ink, ESM. v3.1.0. Node ≥ 20.
+React/Ink, ESM. 3.2.0 in preparation; latest published release is 3.1.0. Node ≥ 20.
 
 ---
 
@@ -50,21 +50,49 @@ React/Ink, ESM. v3.1.0. Node ≥ 20.
 Modules live in subdirectories; import via each package's index.
 `runtime.runTurn` owns model/tool execution for terminal, headless and ACP clients.
 Clients adapt presentation and approval; new execution gates belong in the runtime.
-See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics.
+See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics,
+and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.
+Provider/model controls and preference precedence are documented in
+[docs/model-preferences.md](docs/model-preferences.md). Session switches do not
+overwrite global defaults; project writes use the shared permission resolver.
+[Session recovery](docs/session-recovery.md) pins each client to a unique session
+and checkpoints the shared runtime at tool boundaries.
+[Session history](docs/session-history.md) adds immutable event ancestry, safety
+branches, recorded replay and private policy-checked transfers.
+[Permission approvals](docs/permissions.md) bind reusable file approvals to exact
+arguments, canonical project identity and current policy configuration; every
+use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
+[Streaming and tool output](docs/streaming.md) defines attempt replacement,
+append-only client failures, parallel progress and bounded private inspection.
+[Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
+validated dependency plans and an immutable local run journal.
+[Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
+with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
+[Child admission](docs/child-admission.md) adds hash-approved descendants to an active
+graph without resetting its original scope, budget or clock.
+[Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
+then requires hash-bound human approval within one persistent allowance and clock.
+[Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker
+choices and bounded attempts, with a compact HUD driven by recorded execution state.
+[Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
+scopes, deadlines and persistent request reservations across agent ancestors
+and the project. The coordinator supplies ownership and cancellation checks at admission.
 
 ```
 src/
 ├── bin.ts            # entry point
 ├── providers/        # 13 backends (anthropic, google, openai, bedrock, ollama, compat)
+├── health/ / doctor.ts # local observations, quarantine and bounded provider diagnostics
 ├── hud/              # color api, 3 palettes, single skin
 ├── runtime/          # shared turn engine, permissions, repair and retry
+├── approvals/        # local bounded grants, scope preview, queue and revocation CLI
 ├── ui/               # Ink components and terminal runtime adapter
 ├── tools.ts          # tool definitions, registry, execution (shell/file/web/etc.)
 ├── config.ts         # conf store, schema, pre-migration
 ├── types.ts          # core types, DEFAULT_MODELS, pricing
-├── model-detection.ts / model-router.ts / smart-router.ts   # model discovery + routing
+├── models/ / model-detection.ts / routing/ # live metadata + shared routing
 ├── sandbox.ts / sandbox-native.ts / risk.ts / trust.ts / scope.ts  # security boundary
-├── storage.ts / memory.ts / checkpoint.ts / branching.ts    # persistence + session state
+├── storage.ts / sessions/ / memory.ts / checkpoint.ts    # persistence + session state
 ├── auto-compressor.ts / summarization.ts                    # context management
 ├── fleet.ts          # flag-gated IRC fleet bus (sole importer of scuttlebot/)
 ├── agents/           # dynamic/custom tool definitions

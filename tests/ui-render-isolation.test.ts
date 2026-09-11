@@ -21,7 +21,8 @@ import { render } from 'ink-testing-library';
 // Mock heavy / IO-bound modules before importing the tree under test
 // ---------------------------------------------------------------------------
 
-vi.mock('../src/config.js', () => {
+vi.mock('../src/config.js', async original => {
+  const actual = await original<typeof import('../src/config.js')>();
   const get = vi.fn((key: string) => {
     switch (key) {
       case 'defaultProvider': return 'anthropic';
@@ -43,15 +44,16 @@ vi.mock('../src/config.js', () => {
   };
   // Some modules import the default export (config.get); others use named
   // imports — provide both.
-  return { default: api, ...api };
+  return { ...actual, default: api, ...api };
 });
 
 vi.mock('../src/storage.js', () => ({
-  getOrCreateSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
+  createSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
   saveIterationLedger: vi.fn(),
   loadIterationLedger: vi.fn(() => undefined),
   addChatMessage: vi.fn(),
   loadMessageHistory: vi.fn(() => null),
+  saveSessionConversation: vi.fn(() => ({ revision: 'test-revision', messages: [], status: 'completed' })),
   getChatHistory: vi.fn(() => []),
   deleteSession: vi.fn(() => true),
   listSessions: vi.fn(() => []),

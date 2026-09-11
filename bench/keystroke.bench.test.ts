@@ -51,6 +51,7 @@ vi.mock('../src/config.js', () => {
   });
   const api = {
     get,
+    getProviderNames: vi.fn(() => ['anthropic']),
     set: vi.fn(),
     getApiKey: vi.fn(() => undefined),
     getBaseUrl: vi.fn(() => undefined),
@@ -60,11 +61,12 @@ vi.mock('../src/config.js', () => {
 });
 
 vi.mock('../src/storage.js', () => ({
-  getOrCreateSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
+  createSession: vi.fn(() => ({ id: 'test-session', projectPath: '/tmp/test-project' })),
   saveIterationLedger: vi.fn(),
   loadIterationLedger: vi.fn(() => undefined),
   addChatMessage: vi.fn(),
   loadMessageHistory: vi.fn(() => null),
+  saveSessionConversation: vi.fn(() => ({ revision: 'test-revision', messages: [], status: 'completed' })),
   getChatHistory: vi.fn(() => []),
   deleteSession: vi.fn(() => true),
   listSessions: vi.fn(() => []),

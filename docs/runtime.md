@@ -3,16 +3,22 @@
 Terminal, headless and ACP clients call `runTurn` from `src/runtime/index.ts`.
 The package root exports it for programmatic clients. A turn owns model requests,
 compression, local tool repair, permission resolution, tool execution, retries,
-usage accounting, budgets and audit completion. The terminal adapter retains
-routing, display, circuit breakers, checkpoints and queued user input. ACP retains
+usage accounting, budgets and audit completion. Routing also belongs to the runtime; clients retain display, circuit breakers,
+checkpoints and queued user input. ACP retains
 streaming notifications, editor file delegates and permission prompts.
 
-`TurnOptions` supplies a session ID, project directory, resolved provider/model,
+`TurnOptions` supplies a session ID, project directory, requested provider/model,
 message reference, confirmation policy and optional `AbortSignal`. Callbacks
 adapt presentation; they do not bypass the canonical permission resolver. All
 provider calls made during a turn, including repair and compression, count
-against the same budget. The cap is checked before requests and tools; a response
-can exceed the cap because its final usage is known only after it arrives.
+against the same budget. Ordinary per-run counters are checked before requests
+and tools. Project-capped turns and bounded agent contexts additionally reserve
+each attempt before HTTP; missing usage remains charged. See
+[agent runtime authority](agent-runtime.md) for admission, persistence and the
+provider pricing assumptions behind those bounds.
+
+See [Routing](routing.md) for live eligibility, preference preservation,
+protocol history, price evidence and versioned decision events.
 
 Cancellation is terminal for that turn. The engine waits for started parallel
 tools to settle, records explicit interrupted results for missing tool pairs,
@@ -24,8 +30,9 @@ Unknown/plugin operations and mutating tools are never automatically retried.
 
 Scopes are bound to async turn context. Headless and ACP turns start at their
 project root with fresh grants. Terminal turns may inherit explicit scope grants
-only when their project matches the scope's original root. A resumed session in
-another project receives a fresh scope. Concurrent sessions cannot borrow grants
+only when their project matches the scope's original root. Terminal resume
+requires the saved project to match; programmatic turns in another project get
+a fresh scope. Concurrent sessions cannot borrow grants
 from each other. The terminal also creates checkpoints in the session project.
 
 A successful `ask_question` or `create_plan` pauses execution before subsequent
@@ -50,3 +57,27 @@ Tests in `tests/runtime.test.ts` exercise real file/scope checks with a determin
 provider, including concurrent sessions, budget exhaustion and cancellation.
 They establish runtime behavior; provider wire conformance is tracked separately
 in [#222](https://github.com/calliopeai/calliope-cli/issues/222).
+
+Recovery snapshots use the optional `onCheckpoint` callback before provider
+work, before dispatching tools, after each result and at turn completion.
+Callbacks are serialized across parallel tools; a failed write halts execution.
+Terminal, headless and ACP clients enable this callback and save to their own
+session IDs. See [session recovery](session-recovery.md) for the versioned schema
+and unknown tool outcomes after interruption.
+
+When a client supplies `onSafetyBranch`, the shared runtime waits for one safety
+branch before its first allowed medium/high/critical-risk tool. Parallel tools
+share that promise. Failure stops execution and inference retry; cancellation is
+checked again before dispatch. Terminal, headless and ACP wire this to the saved
+session service. A parallel checkpoint failure also stops tools still awaiting
+permission, branch creation or retry. See [session history](session-history.md).
+
+Streaming clients can supply `onStreamReset` for safe partial-attempt replacement.
+Without replacement support, an interrupted partial stream fails without retry.
+`captureToolOutput` persists bounded inspection evidence; a failed output save
+does not rerun the tool. See [streaming and output contracts](streaming.md).
+
+Permission policy and pre-tool hooks receive the turn cancellation signal. The
+resolver waits for their subprocess to settle after cancellation, instead of
+returning while a detached permission process remains alive. POSIX process groups
+are killed on abort; each captured hook/policy stream retains at most 65,536 characters.

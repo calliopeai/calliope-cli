@@ -1,11 +1,39 @@
 # Changelog
 
-## Unreleased
+## 3.2.0 — Unreleased (publication blocked by provider evidence)
+
+- Add independent planner/controller, reviewer and worker model choices to goal planning, with persisted team settings and bounded task attempts. A second controller reviews recorded draft evidence within the original allowance; retries receive failed-check feedback. Add a compact live workflow/agent HUD and display modes without changing headless event envelopes (#288).
+
+- Add bounded goal planning with `/orchestrate` and `calliope orchestrate`: read-only proposal generation, exact-hash approval, human revision, linked execution, persistent shared limits/deadlines and versioned JSON events. Cancellation and restart retain authority and unknown spend; planning prose never counts as verified work (#284).
+
+- Execute reviewed task graphs through bounded agents, parallelize independent tasks, serialize conflicting scopes, and verify declared artifacts against versioned acceptance checks. Add auditable agent/task events, explicit escalation, cross-process cancellation, safe restart/retry and headless execution contracts; unverified criteria require human acceptance (#282).
+
+- Add a library boundary for inherited agent authority, scoped atomic file operations, deadlines and persistent request reservations across agent ancestors and the project. Bound SDK output/retries and retain unknown spend across restart; ordinary project-capped turns share admission (#280).
+
+- Add strict agent/task/workspace plans, bounded hierarchy and dependency checks, artifact provenance contracts, and a private immutable run journal. CLI/REPL dry-run, preparation, review, cancellation and graph/tree inspection record inactive runs without invoking child agents (#278). Thread cancellation into policy/hook subprocesses and wait for permission cleanup before returning.
+
+- Reset failed streaming attempts before retry, stop append-only clients after partial failures, preserve assistant tool prefaces, and show independent tool progress. Add bounded private tool-output inspection with `/tools`, resize-aware expand/collapse pages, restart/transfer support, and `calliope session outputs ... --json` (#275).
+
+- Wire terminal approvals with complete path/command previews and once/session/project/deny choices; bind reusable file grants to exact operations, recheck policy before execution, and add local `/permissions` inspection/revocation with versioned headless JSON. ACP session approvals now honor exact option IDs and bounded scope (#274).
+
+- Add bounded immutable conversation history, manual and automatic safety branches, checkout/diff/replay, private import/export, and a versioned `calliope session ... --json` contract. Session switches restore the visible transcript; transfers preserve provider metadata and current tool state without replaying tools or importing policy grants (#272).
+
+- Add private, versioned recovery snapshots across terminal, headless and ACP turns; pin session tools and saves to their runtime, reject stale writers, and add `/new` and `/sessions` with validated resume (#270).
+
+- Prepare the 3.2.0 package and release notes; the version bump does not publish or tag a release (#262).
+- Require real-wire coverage for DeepSeek, xAI and Cerebras, and remove retired AI21 from the active release matrix. `providers:readiness` reports credential presence, historical evidence and missing product checks separately (#262).
+- Bound live captures with a persistent dollar ledger, conservative input/output reservations and a single-request cancellation signal. Failed probes retain their reservation; concurrent writers fail closed (#262).
+- Strict Anthropic and Google model discovery now exposes API failures and bypasses cached emergency fallbacks, so diagnostics cannot mistake fallback data for live evidence (#262).
 
 - Share one turn runtime across terminal, headless and ACP: isolated scopes, paired tool results, cancellation cleanup, local repair, and budgeted compression/repair calls. Headless incomplete turns now exit 4; terminal checkpoints follow the session project.
 
 
 ### Added
+
+- Shared routing from live model metadata, with explicit preference preservation, capability checks, health/cost/latency scoring, protocol-history pins, and versioned routing events across terminal, headless and ACP (#266).
+
+- Local provider health records, `/doctor` and `calliope doctor --json`, cancellable discovery probes, diagnostic import/export, and repeated-failure quarantine with explicit-provider recovery (#264). See `docs/provider-health.md` for schemas and metric limits.
+- Live REPL provider/model controls with health and discovered cost/capacity, session-only switches, `/once` overrides, `/defaults` project preferences, and invocation flags shared with headless/ACP preference resolution (#268). Queued messages retain separate choices and pause on failure or cancellation. See `docs/model-preferences.md`.
 
 - Offline conformance contracts using real SDK parsers across all provider adapters, plus reviewed-wire capture/replay tooling and a required prepublish evidence gate (#222).
 - 36 live provider captures across nine adapter paths, with recorded provenance, gateway versions and a spend audit; remaining provider gaps still block publication (#222).
@@ -21,6 +49,8 @@
   and `/memory reload` expose and refresh repository context.
 
 ### Fixed
+
+- Preserve audit hash integrity when optional event fields are omitted by JSON serialization. Use discovered prices for turn accounting and adapt built-in prompts after routing without dropping project instructions (#266).
 
 - Use Hugging Face's current router endpoint for discovery and inference; preserve provider quota errors in live capture tooling instead of masking them with rejected SDK retries (#222).
 

@@ -104,7 +104,7 @@ export class ScopeManager {
    *   nearest existing ancestor directory and re-append the remaining segments,
    *   so a write whose parent dir is a symlink out of scope is screened too.
    */
-  private canonicalize(absPath: string): string | null {
+  canonicalize(absPath: string): string | null {
     let current = absPath;
     const tail: string[] = [];
     while (true) {

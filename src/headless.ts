@@ -7,6 +7,7 @@
  */
 
 import { runTurn } from './runtime/index.js';
+import { createSession, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
 import { selectProvider, ProviderUnavailableError } from './providers/index.js';
@@ -17,6 +18,7 @@ import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import { RunLog } from './runlog.js';
 import { formatBudgetHalt } from './budget.js';
+import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import type { Message, LLMProvider } from './types.js';
 
 // ============================================================================
@@ -85,11 +87,14 @@ function now(): string {
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const signal = options.signal;
   const outputMode = options.outputMode || 'json';
-  const provider = options.provider || (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
-  const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
   const maxIterations = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
+  let preference: ResolvedPreference;
+  try { preference = resolvePreferences(cwd, { turn: { ...(options.provider !== undefined ? { provider: options.provider } : {}), ...(options.model !== undefined ? { model: options.model } : {}) } }); }
+  catch (error) { emit({ type: 'error', timestamp: now(), data: { message: error instanceof Error ? error.message : String(error) } }, outputMode); return 2; }
+  const { provider, model } = preference;
+  for (const warning of preference.warnings) emit({ type: 'status', timestamp: now(), data: { message: warning } }, outputMode);
 
   // Build prompt from stdin or --prompt flag
   let prompt = options.prompt || '';
@@ -170,20 +175,36 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     type: 'status',
     timestamp: now(),
     data: {
-      message: 'Starting headless session',
+      message: 'Starting headless session; selecting a route',
       provider: resolvedProvider,
       model: model || DEFAULT_MODELS[resolvedProvider],
     },
   }, outputMode);
 
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
-  const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  let sessionId: string;
+  try { sessionId = createSession(cwd, { activate: false }).id; }
+  catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
+  let revision: string | null = null;
+  emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
+      captureToolOutput: true,
       client: 'headless',
-      sessionId, cwd, provider: resolvedProvider, model, prompt,
+      onSafetyBranch: async () => {
+        const { branchSession } = await import('./session-management/index.js');
+        const branch = await branchSession(sessionId, { kind: 'safety', signal, runlog });
+        emit({ type: 'status', timestamp: now(), data: { message: `Recovery conversation branch: ${branch.session.id}`, sessionId: branch.session.id } }, outputMode);
+      },
+      onCheckpoint: (history, status) => {
+        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
+        revision = saved.revision;
+        runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
+      },
+      sessionId, cwd, provider, model, prompt,
+      preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {
@@ -193,6 +214,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       onToolResult: (call, toolResult) => emit({ type: 'tool_result', timestamp: now(), data: { toolCallId: call.id, name: call.name, result: toolResult.result, isError: !!toolResult.isError } }, outputMode),
       onToolRetry: (_call, attempt, toolResult) => { process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${toolResult.result}\n`); },
       onWarning: message => emit({ type: 'status', timestamp: now(), data: { message } }, outputMode),
+      onRoute: decision => emit({ type: 'status', timestamp: now(), data: { message: decision.reason, routing: decision, provider: decision.selected?.provider, model: decision.selected?.model } }, outputMode),
     });
     if (result.budget?.exceeded) {
       const message = formatBudgetHalt(result.budget);

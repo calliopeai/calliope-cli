@@ -20,6 +20,7 @@
  * default cold-start path.
  */
 
+import { ApprovalStore, type ApprovalChoice } from './approvals/index.js';
 import * as path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
@@ -46,6 +47,9 @@ import {
 import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
 import { runTurn } from './runtime/index.js';
+import { createSession, saveSessionConversation } from './storage.js';
+import { SessionRecoveryError } from './sessions/index.js';
+import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
 import { DEFAULT_MODELS } from './types.js';
@@ -173,6 +177,8 @@ interface AcpSession {
   resolvedProvider: LLMProvider;
   /** Configured model, or '' to let the provider pick its default. */
   model: string;
+  preference: ResolvedPreference;
+  revision: string | null;
   messages: Message[];
   runlog: RunLog;
   /** Set by session/cancel; checked cooperatively at every loop boundary. */
@@ -188,6 +194,7 @@ interface AcpSession {
 // ============================================================================
 
 class CalliopeAgent implements Agent {
+  private readonly approvals = new ApprovalStore();
   private clientCapabilities: ClientCapabilities = {};
   private readonly sessions = new Map<string, AcpSession>();
   /** Tail of the outgoing write chain; awaited to flush notifications. */
@@ -229,8 +236,10 @@ class CalliopeAgent implements Agent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const cwd = params.cwd || process.cwd();
-    const provider = (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
-    const model = process.env.CALLIOPE_MODEL || config.get('defaultModel') || '';
+    let preference: ResolvedPreference;
+    try { preference = resolvePreferences(cwd); }
+    catch (error) { throw RequestError.invalidParams({ error: error instanceof Error ? error.message : String(error) }); }
+    const { provider } = preference, model = preference.model || '';
 
     // Resolve the provider so 'auto' picks a real backend for the system prompt,
     // cost model, and local-backend flag (mirrors the headless runner). Fall back
@@ -243,7 +252,7 @@ class CalliopeAgent implements Agent {
     }
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
-    const sessionId = `acp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const sessionId = createSession(cwd, { activate: false, prefix: 'acp' }).id;
     const runlog = RunLog.open(sessionId);
 
 
@@ -259,6 +268,8 @@ class CalliopeAgent implements Agent {
       provider,
       resolvedProvider,
       model,
+      preference,
+      revision: null,
       messages: [{ role: 'system', content: fullPrompt }],
       runlog,
       cancelled: false,
@@ -289,7 +300,7 @@ class CalliopeAgent implements Agent {
       const stopReason = await session.activeTurn;
       return { stopReason };
     } catch (error) {
-      if (session.cancelled || isCancellation(error)) return { stopReason: 'cancelled' };
+      if (!(error instanceof SessionRecoveryError) && (session.cancelled || isCancellation(error))) return { stopReason: 'cancelled' };
       throw RequestError.internalError({ error: errMessage(error) });
     } finally {
       try { await session.runlog.flush(); }
@@ -314,14 +325,27 @@ class CalliopeAgent implements Agent {
     const messages = { current: session.messages };
     let streamedChars = 0;
     try {
+      for (const warning of session.preference.warnings) await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[Warning: ${warning}]\n` } });
       const result = await runTurn({
+        captureToolOutput: true,
         client: 'acp',
-        sessionId: session.id, cwd: session.cwd, provider: session.resolvedProvider,
+        onSafetyBranch: async () => {
+          const { branchSession } = await import('./session-management/index.js');
+          const branch = await branchSession(session.id, { kind: 'safety', signal: session.controller?.signal, runlog: session.runlog });
+          await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `Recovery conversation branch: ${branch.session.id}\n` } });
+        },
+        onCheckpoint: (history, status) => {
+          const saved = saveSessionConversation(session.id, history, { expectedRevision: session.revision, status });
+          session.revision = saved.revision;
+          session.runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
+        },
+        sessionId: session.id, cwd: session.cwd, provider: session.provider,
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
+        preferenceSources: session.preference.sources,
         runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
-        confirmation: 'mutating', tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
+        confirmation: 'mutating', approvals: this.approvals, tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
         prepare: async request => { streamedChars = 0; return request; },
-        approve: call => this.requestPermission(session, call),
+        approve: (call, decision) => this.requestPermission(session, call, decision.request?.reusable ?? false),
         onToken: token => {
           if (!token || session.cancelled) return;
           streamedChars += token.length;
@@ -336,6 +360,10 @@ class CalliopeAgent implements Agent {
         beforeTool: async call => { await this.emit(session.id, { sessionUpdate: 'tool_call_update', toolCallId: call.id, status: 'in_progress' }); },
         onToolResult: async (call, value) => { await this.reportToolResult(session, call.id, value.displayResult || value.result, !!value.isError, value.result); },
         onWarning: warning => { void this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `\n[Warning: ${warning}]\n` } }); },
+        onRoute: decision => {
+          if (decision.selected) session.resolvedProvider = decision.selected.provider;
+          void this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `\n[Route: ${decision.selected ? `${decision.selected.provider}/${decision.selected.model}` : 'unavailable'}; ${decision.reason}]\n` } });
+        },
       });
       if (result.budget?.exceeded) await this.emit(session.id, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: formatBudgetHalt(result.budget) } });
       await this.flush();
@@ -371,7 +399,7 @@ class CalliopeAgent implements Agent {
    * falls back to Calliope's non-interactive default (deny) when the client does
    * not support the permission request at all.
    */
-  private async requestPermission(session: AcpSession, toolCall: ToolCall): Promise<'allow' | 'reject' | 'cancelled'> {
+  private async requestPermission(session: AcpSession, toolCall: ToolCall, reusable: boolean): Promise<ApprovalChoice> {
     try {
       const res = await cancellable(this.conn.requestPermission({
         sessionId: session.id,
@@ -383,13 +411,13 @@ class CalliopeAgent implements Agent {
         },
         options: [
           { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
-          { optionId: 'allow_always', name: 'Always allow', kind: 'allow_always' },
+          ...(reusable ? [{ optionId: 'allow_always', name: 'Allow this exact operation for this session', kind: 'allow_always' as const }] : []),
           { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
         ],
       }), session.controller?.signal);
       const outcome = res.outcome;
       if (outcome.outcome === 'cancelled') return 'cancelled';
-      if (outcome.outcome === 'selected') return outcome.optionId.startsWith('allow') ? 'allow' : 'reject';
+      if (outcome.outcome === 'selected') return outcome.optionId === 'allow' ? 'allow' : outcome.optionId === 'allow_always' && reusable ? 'allow_session' : 'reject';
       return 'reject';
     } catch (err) {
       if (session.cancelled || isCancellation(err)) return 'cancelled';

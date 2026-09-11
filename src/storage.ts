@@ -7,6 +7,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { randomUUID } from 'node:crypto';
+import { activeSessionId, readPrivateSessionFile, readConversation, writeConversation, SessionRecoveryError, type ConversationState, type ConversationSnapshot, type RecoveryStatus } from './sessions/index.js';
+import type { Message } from './types.js';
 import { IterationLedger } from './iteration-ledger.js';
 import type { IterationLedgerSnapshot } from './iteration-ledger.js';
 
@@ -25,7 +28,7 @@ function getTodayString(date: Date = new Date()): string {
 }
 
 export function createSessionId(): string {
-  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `session_${Date.now()}_${randomUUID()}`;
 }
 
 // ============================================================================
@@ -41,6 +44,7 @@ export interface Session {
   messageCount: number;
   provider: string;
   model: string;
+  lineage?: { version: 1; toolStateHash: string; kind: 'manual' | 'safety' | 'import'; name?: string; sessionId: string; revision: string; stateHash: string; at: string };
 }
 
 export interface ChatMessage {
@@ -97,8 +101,16 @@ export const paths = {
   commandHistory: path.join(CALLIOPE_DIR, 'history', 'commands.txt'),
 };
 
+function activeSessionDir(): string {
+  const id = activeSessionId();
+  if (!id) return paths.currentSession;
+  const dir = getSessionDirById(id);
+  if (!dir) throw new SessionRecoveryError('invalid', 'this run has no saved session for session-scoped tools.');
+  return dir;
+}
+
 function getSessionFilePath(fileName: string, sessionId?: string): string | null {
-  const sessionDir = sessionId ? getSessionDirById(sessionId) : paths.currentSession;
+  const sessionDir = sessionId ? getSessionDirById(sessionId) : activeSessionDir();
   return sessionDir ? path.join(sessionDir, fileName) : null;
 }
 
@@ -123,7 +135,7 @@ export function initStorage(): void {
 
   for (const dir of dirs) {
     if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
   }
 
@@ -163,9 +175,9 @@ function writeJSON(filePath: string, data: unknown): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tmp = `${filePath}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), { flag: 'wx', mode: 0o600 });
     fs.renameSync(tmp, filePath);
   } catch (err) {
     try {
@@ -411,6 +423,51 @@ export function getOrCreateSession(projectPath: string): Session {
   return session;
 }
 
+/** A new terminal owns a unique session, including on the same day/project. */
+export function createSession(projectPath: string, options: { activate?: boolean; prefix?: 'session' | 'acp'; lineage?: Session['lineage'] } = {}): Session {
+  initStorage();
+  const now = new Date().toISOString();
+  const session: Session = { id: createSessionId().replace(/^session_/, `${options.prefix ?? 'session'}_`), projectPath: path.resolve(projectPath),
+    projectName: path.basename(projectPath) || 'unnamed', createdAt: now, lastAccessedAt: now,
+    messageCount: 0, provider: '', model: '', ...(options.lineage ? { lineage: options.lineage } : {}) };
+  const dir = path.join(paths.sessions, `${getTodayString()}_${session.projectName}_${randomUUID()}`);
+  fs.mkdirSync(dir, { mode: 0o700 });
+  fs.mkdirSync(path.join(dir, 'plans'), { mode: 0o700 });
+  writeJSON(path.join(dir, 'session.json'), session);
+  fs.writeFileSync(path.join(dir, 'chat.log'), '', { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, 'todos.txt'), '', { mode: 0o600 });
+  if (options.activate !== false) updateCurrentSymlink(dir);
+  return session;
+}
+
+/** Strict recovery APIs pin the ID; they never fall back to the shared pointer. */
+export function readSessionConversation(sessionId: string): ConversationState {
+  const dir = getSessionDirById(sessionId);
+  if (!dir) throw new SessionRecoveryError('invalid', 'session not found; use /sessions to select an existing session.');
+  return readConversation(dir, sessionId);
+}
+
+export function saveSessionConversation(sessionId: string, messages: Message[], options: {
+  expectedRevision: string | null; status: RecoveryStatus; signal?: AbortSignal;
+}): ConversationSnapshot {
+  const dir = getSessionDirById(sessionId);
+  if (!dir) throw new SessionRecoveryError('invalid', 'session not found; start /new before continuing.');
+  const snapshot = writeConversation(dir, sessionId, messages, { ...options, cap: Math.min(getMaxPersistedMessages(), 10000) });
+  updateSessionSummary(sessionId, snapshot);
+  return snapshot;
+}
+
+/** Listing metadata may lag a committed snapshot after a crash; it is never authoritative. */
+export function updateSessionSummary(sessionId: string, snapshot: ConversationSnapshot): void {
+  const dir = getSessionDirById(sessionId);
+  if (!dir || snapshot.sessionId !== sessionId) return;
+  const session = readSessionFromDir(dir);
+  if (session) {
+    session.messageCount = snapshot.messages.length; session.lastAccessedAt = snapshot.updatedAt;
+    try { writeJSON(path.join(dir, 'session.json'), session); } catch { /* Snapshot is durable. */ }
+  }
+}
+
 /**
  * Update the 'current' symlink to point to active session
  */
@@ -427,7 +484,17 @@ function updateCurrentSymlink(sessionDir: string): void {
 
 function readSessionFromDir(sessionDir: string): Session | null {
   const sessionFile = path.join(sessionDir, 'session.json');
-  return readJSON<Session>(sessionFile, null as unknown as Session);
+  let value: Session | null;
+  try { value = JSON.parse(readPrivateSessionFile(sessionFile, 65536) ?? 'null'); } catch { return null; }
+  const lineage = value?.lineage;
+  if (lineage !== undefined && (!lineage || typeof lineage !== 'object' || Array.isArray(lineage) || lineage.version !== 1 ||
+    !['manual', 'safety', 'import'].includes(lineage.kind) || typeof lineage.sessionId !== 'string' ||
+    !/^[a-zA-Z0-9_-]{1,200}$/.test(lineage.sessionId) || typeof lineage.revision !== 'string' || !/^[a-f0-9-]{36}$/.test(lineage.revision) ||
+    typeof lineage.stateHash !== 'string' || !/^[a-f0-9]{64}$/.test(lineage.stateHash) || typeof lineage.toolStateHash !== 'string' || !/^[a-f0-9]{64}$/.test(lineage.toolStateHash) ||
+    !Number.isFinite(Date.parse(lineage.at)) || lineage.name !== undefined && (typeof lineage.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(lineage.name)))) return null;
+  return value && typeof value.id === 'string' && typeof value.projectPath === 'string' && !/[\x00-\x1f\x7f]/.test(value.projectPath) && path.isAbsolute(value.projectPath)
+    && typeof value.projectName === 'string' && Number.isFinite(Date.parse(value.createdAt))
+    && Number.isFinite(Date.parse(value.lastAccessedAt)) ? value : null;
 }
 
 function touchSession(sessionDir: string, session: Session): Session {
@@ -440,6 +507,8 @@ function touchSession(sessionDir: string, session: Session): Session {
  * Get current session info
  */
 export function getCurrentSession(): Session | null {
+  const id = activeSessionId();
+  if (id) return getSessionById(id);
   try {
     if (fs.existsSync(paths.currentSession)) {
       return readSessionFromDir(paths.currentSession);
@@ -463,7 +532,7 @@ export function listSessions(limit = 10): Session[] {
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name !== 'current') {
         const sessionFile = path.join(paths.sessions, entry.name, 'session.json');
-        const session = readJSON<Session>(sessionFile, null as unknown as Session);
+        const session = readSessionFromDir(path.dirname(sessionFile));
         if (session) {
           sessions.push(session);
         }
@@ -506,11 +575,13 @@ export function deleteSession(sessionId: string): boolean {
 /**
  * Add a message to the current session's chat history
  */
-export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): void {
-  const session = getCurrentSession();
+export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>, sessionId?: string): void {
+  const session = sessionId ? getSessionById(sessionId) : getCurrentSession();
   if (!session) return;
 
-  const historyFile = path.join(paths.currentSession, 'chat.log');
+  const dir = getSessionDirById(session.id);
+  if (!dir) return;
+  const historyFile = path.join(dir, 'chat.log');
 
   const newMessage: ChatMessage = {
     id: `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`,
@@ -522,7 +593,7 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
   appendChatMessage(historyFile, newMessage);
 
   // Update session message count
-  const sessionFile = path.join(paths.currentSession, 'session.json');
+  const sessionFile = path.join(dir, 'session.json');
   session.messageCount += 1;
   session.lastAccessedAt = new Date().toISOString();
   writeJSON(sessionFile, session);
@@ -532,7 +603,7 @@ export function addChatMessage(message: Omit<ChatMessage, 'id' | 'timestamp'>): 
  * Get chat history for current session
  */
 export function getChatHistory(limit?: number, sessionId?: string): ChatMessage[] {
-  const sessionDir = sessionId ? getSessionDirById(sessionId) : paths.currentSession;
+  const sessionDir = sessionId ? getSessionDirById(sessionId) : activeSessionDir();
   if (!sessionDir) return [];
 
   const history = readChatHistory(path.join(sessionDir, 'chat.log'));
@@ -559,7 +630,7 @@ export function getSessionDirById(sessionId: string): string | null {
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name !== 'current') {
         const sessionFile = path.join(paths.sessions, entry.name, 'session.json');
-        const session = readJSON<Session>(sessionFile, null as unknown as Session);
+        const session = readSessionFromDir(path.dirname(sessionFile));
         if (session && session.id === sessionId) {
           return path.join(paths.sessions, entry.name);
         }
@@ -609,25 +680,14 @@ function getMaxPersistedMessages(): number {
   return DEFAULT_MAX_PERSISTED_MESSAGES;
 }
 
+/** Legacy convenience API; new clients use explicit IDs and revisions above. */
 export function saveMessageHistory(messages: unknown[]): void {
   const session = getCurrentSession();
   if (!session) return;
-
   try {
-    const cap = getMaxPersistedMessages();
-    const toPersist = messages.length > cap ? messages.slice(-cap) : messages;
-
-    const messagesFile = path.join(paths.currentSession, 'messages.json');
-    writeJSON(messagesFile, toPersist);
-
-    // Update session metadata
-    const sessionFile = path.join(paths.currentSession, 'session.json');
-    session.messageCount = toPersist.length;
-    session.lastAccessedAt = new Date().toISOString();
-    writeJSON(sessionFile, session);
-  } catch {
-    // Silently fail - don't break the agent loop
-  }
+    const previous = readSessionConversation(session.id);
+    saveSessionConversation(session.id, messages as Message[], { expectedRevision: previous.revision, status: 'completed' });
+  } catch { /* Kept for legacy callers. Interactive recovery uses the throwing API. */ }
 }
 
 /**
@@ -643,16 +703,15 @@ export function loadMessageHistory(sessionId?: string): unknown[] | null {
       if (!sessionDir) return null;
       messagesFile = path.join(sessionDir, 'messages.json');
     } else {
-      messagesFile = path.join(paths.currentSession, 'messages.json');
+      messagesFile = path.join(activeSessionDir(), 'messages.json');
     }
 
     if (!fs.existsSync(messagesFile)) return null;
 
-    const content = fs.readFileSync(messagesFile, 'utf-8');
-    const messages = JSON.parse(content);
-    if (Array.isArray(messages)) {
-      return messages;
-    }
+    const dir = fs.realpathSync(path.dirname(messagesFile));
+    const session = readSessionFromDir(dir);
+    if (!session) return null;
+    return readConversation(dir, session.id).messages;
   } catch {
     // Ignore parse errors
   }
@@ -799,7 +858,7 @@ export function searchChatHistory(query: string): ChatMessage[] {
  * Get todos for current session
  */
 export function getSessionTodos(): Todo[] {
-  const todosFile = path.join(paths.currentSession, 'todos.txt');
+  const todosFile = path.join(activeSessionDir(), 'todos.txt');
   return readTodos(todosFile);
 }
 
@@ -837,7 +896,7 @@ export function addTodo(
     todos.push(todo);
     writeTodos(globalTodosFile, todos);
   } else {
-    const todosFile = path.join(paths.currentSession, 'todos.txt');
+    const todosFile = path.join(activeSessionDir(), 'todos.txt');
     const todos = readTodos(todosFile);
     todos.push(todo);
     writeTodos(todosFile, todos);
@@ -856,7 +915,7 @@ export function updateTodo(
 ): Todo | null {
   const filePath = global
     ? paths.globalTodos.replace('.json', '.txt')
-    : path.join(paths.currentSession, 'todos.txt');
+    : path.join(activeSessionDir(), 'todos.txt');
   const todos = readTodos(filePath);
 
   const index = todos.findIndex(t => t.id === id);
@@ -879,7 +938,7 @@ export function updateTodo(
 export function deleteTodo(id: string, global = false): boolean {
   const filePath = global
     ? paths.globalTodos.replace('.json', '.txt')
-    : path.join(paths.currentSession, 'todos.txt');
+    : path.join(activeSessionDir(), 'todos.txt');
   const todos = readTodos(filePath);
 
   const index = todos.findIndex(t => t.id === id);
@@ -898,7 +957,7 @@ export function deleteTodo(id: string, global = false): boolean {
  * Get plans for current session
  */
 export function getPlans(): Plan[] {
-  const plansDir = path.join(paths.currentSession, 'plans');
+  const plansDir = path.join(activeSessionDir(), 'plans');
   if (!fs.existsSync(plansDir)) return [];
 
   const plans: Plan[] = [];
@@ -920,7 +979,7 @@ export function getPlans(): Plan[] {
  * Save a plan
  */
 export function savePlan(plan: Plan): void {
-  const plansDir = path.join(paths.currentSession, 'plans');
+  const plansDir = path.join(activeSessionDir(), 'plans');
   if (!fs.existsSync(plansDir)) {
     fs.mkdirSync(plansDir, { recursive: true });
   }
@@ -933,7 +992,7 @@ export function savePlan(plan: Plan): void {
  * Get active plan
  */
 export function getActivePlan(): Plan | null {
-  const activeFile = path.join(paths.currentSession, 'plans', 'active.json');
+  const activeFile = path.join(activeSessionDir(), 'plans', 'active.json');
   return readJSON<Plan>(activeFile, null as unknown as Plan);
 }
 
@@ -941,7 +1000,7 @@ export function getActivePlan(): Plan | null {
  * Set active plan
  */
 export function setActivePlan(plan: Plan | null): void {
-  const activeFile = path.join(paths.currentSession, 'plans', 'active.json');
+  const activeFile = path.join(activeSessionDir(), 'plans', 'active.json');
   if (plan) {
     writeJSON(activeFile, plan);
   } else if (fs.existsSync(activeFile)) {
@@ -1212,7 +1271,7 @@ export function deleteTemplate(name: string): boolean {
  * Get active TODO file path
  */
 function getActiveTodoFilePath(): string {
-  return path.join(paths.currentSession, 'active-todo.json');
+  return path.join(activeSessionDir(), 'active-todo.json');
 }
 
 /**

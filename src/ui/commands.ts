@@ -11,10 +11,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import React from 'react';
 import * as config from '../config.js';
-import { selectProvider, getAvailableProviders } from '../providers/index.js';
 import { MODE_CONFIG } from '../types.js';
 import { getSystemPromptForProvider } from '../local-model.js';
-import { getAvailableModels, getModelContextLimit } from '../model-detection.js';
 import * as storage from '../storage.js';
 import * as mcp from '../mcp.js';
 import * as skills from '../skills.js';
@@ -54,10 +52,26 @@ export const COMMAND_NAMES = [
   '/quit',
   '/model',
   '/provider',
+  '/doctor',
+  '/permissions',
+  '/tools',
+  '/run',
+  '/orchestrate',
+  '/agents',
+  '/tasks',
+  '/defaults',
+  '/once',
   '/mode',
   '/undo',
   '/export',
+  '/import',
+  '/branch',
+  '/checkout',
+  '/diff',
+  '/replay',
   '/resume',
+  '/new',
+  '/sessions',
   '/compact',
   '/scope',
   '/memory',
@@ -78,6 +92,19 @@ export const COMMAND_NAMES = [
 // ============================================================================
 
 export interface CommandContext {
+  onWorkflowProgress?: (progress:import('../orchestration/progress.js').CoordinatorProgress)=>void;
+  workflowHudMode?: import('./workflow-progress.js').WorkflowHudMode;
+  setWorkflowHudMode?: (mode:import('./workflow-progress.js').WorkflowHudMode)=>void;
+  toolOutputs?: () => import('../sessions/index.js').CapturedToolOutput[];
+  showToolOutput?: (output: import('../sessions/index.js').CapturedToolOutput) => void;
+  approvals?: import('../approvals/index.js').ApprovalStore;
+  approve?: (decision:import('../runtime/types.js').PermissionDecision,signal?:AbortSignal)=>Promise<import('../approvals/index.js').ApprovalChoice>;
+  signal?: AbortSignal;
+  conversationCursor?: React.MutableRefObject<{ sessionId: string; revision: string | null } | null>;
+  clearQueued?: () => void;
+  provider?: LLMProvider;
+  submitOnce?: (input: string) => Promise<void>;
+  reloadDefaults?: (cwd: string) => void;
   // Current state
   actualProvider: LLMProvider;
   actualModel: string;
@@ -124,7 +151,7 @@ export interface CommandContext {
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
   cancelActiveTurn?: () => void;
   startFleetPolling: () => void;
-  openProviderPicker?: () => void;
+  openProviderPicker?: () => void | Promise<void>;
 }
 
 // Builds the full system prompt including memory context (project + global).
@@ -142,6 +169,7 @@ function getActiveProjectDir(ctx: Pick<CommandContext, 'sessionRef'>): string {
 
 /** Refresh the active prompt; a failed reload must not retain revoked context. */
 function refreshProjectContext(ctx: CommandContext): void {
+  ctx.reloadDefaults?.(getActiveProjectDir(ctx));
   let content = getSystemPromptForProvider(ctx.actualProvider);
   try {
     content = buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider);
@@ -196,12 +224,41 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
 Model & Mode
   /model [name|list]          Switch model, or list/pick available models
   /provider [name|list]       Switch provider, or list providers
+  /doctor [providers|provider <name>]   Provider health; --probe checks discovery
+  /defaults [save|reset]     Inspect or persist project model defaults
+  /once --provider <name> -- <prompt>   Override one turn (also --model)
   /mode [plan|hybrid|work]    Switch mode (Shift+Tab to cycle)
 
 Conversation
   /undo                       Undo the last change (up to 10 steps)
-  /export [file.md]           Export conversation to markdown
-  /resume [sessionId]         Resume a saved session (restores full context)
+  /branch [name]             Branch and switch conversation with current tool state
+  /checkout <id|name>         Switch conversation; workspace files stay in place
+  /diff <id|name>             Compare another conversation with the current one
+  /replay [revision]          Read recorded conversation without executing tools
+  /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
+  /orchestrate <goal>        Plan, review and run within one goal budget
+  /orchestrate <goal> --worker-provider NAME --worker-model ID --reviewer-provider NAME --reviewer-model ID --attempts 1..4
+  /orchestrate status|proposal|replay|resume|cancel <id>  Inspect or control a goal
+  /orchestrate approve <id> <hash>  Review and approve the exact proposal
+  /orchestrate revise <id> <plan>   Correct a proposal before execution
+  /run <plan> --dry-run       Validate a task plan without starting agents
+  /run prepare <plan>         Record an inactive orchestration run
+  /run <plan>                 Execute a reviewed task graph with tool approvals
+  /run execute|resume <id>     Start or resume bounded workers
+  /run retry|accept <id> <task> Retry work or accept recorded evidence
+  /run status|approve|cancel <id>  Inspect or review a prepared run
+  /agents hud agents|workflows|off  Choose compact live progress
+  /agents [tree] [run-id]      Inspect declared agents
+  /agents stop|retry <agent> --run <id>  Control a bounded agent
+  /agents spawn <children.json> --run <id>  Review and execute bounded children
+  /agents spawn --resume <hash> --run <id>  Recover an approved child admission
+  /tasks [graph] [run-id]      Inspect task dependencies
+  /tools [list|last|output-id] Inspect retained tool output; expand/collapse and page
+  /export [file.json|file.md]  Save private history JSON or readable markdown
+  /import <file.json>         Validate and import into a separate inactive session
+  /new                       Start a separate session
+  /sessions                  List saved sessions
+  /resume [sessionId]         Resume validated conversation and tool context
   /compact [status]           Compress conversation context; status shows a summary
 
 Workspace
@@ -235,68 +292,55 @@ File references: @filename, ./path, /absolute/path`;
       break;
     }
 
+    case '/orchestrate': {
+      const { runGoalCommand } = await import('../goals/index.js');
+      const { parseOrchestrationArgs } = await import('../orchestration/index.js');
+      await runGoalCommand(parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { onProgress:ctx.onWorkflowProgress, cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', ...(ctx.provider?{preference:{provider:ctx.provider,...(ctx.model?{model:ctx.model}:{})}}:{}), approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write:text=>ctx.addMessage('system',text.trimEnd()) });
+      break;
+    }
+    case '/run':
+    case '/agents':
+    case '/tasks': {
+      const { runOrchestrationCommand, parseOrchestrationArgs } = await import('../orchestration/index.js');
+      if(command==='/agents'&&parts[1]==='hud'){const mode=parts[2]??'agents';if(parts.length>3||!['agents','workflows','off'].includes(mode)){ctx.addMessage('error','Usage: /agents hud agents|workflows|off');return;}ctx.setWorkflowHudMode?.(mode as import('./workflow-progress.js').WorkflowHudMode);ctx.addMessage('system',`Workflow HUD: ${mode}.`);return;}
+      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { onProgress:ctx.onWorkflowProgress, cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write: text => ctx.addMessage('system', text.trimEnd()) });
+      break;
+    }
+
+    case '/tools': {
+      const { handleToolOutputCommand } = await import('./tool-output-commands.js');
+      handleToolOutputCommand(parts, ctx); break;
+    }
+
+    case '/permissions': {
+      const { runPermissions } = await import('../approvals/index.js');
+      await runPermissions(parts.slice(1), { cwd: getActiveProjectDir(ctx), sessionId: ctx.sessionRef.current?.id,
+        store: ctx.approvals, signal: ctx.signal, write: text => ctx.addMessage('system', text.trimEnd()) });
+      break;
+    }
+
+    case '/doctor': {
+      const { diagnoseProviders, formatDoctor } = await import('../doctor.js');
+      const { report, exitCode } = await diagnoseProviders(parts.slice(1), {
+        signal: ctx.signal,
+        onProgress: provider => ctx.addMessage('system', `Checking ${provider} model discovery...`),
+      });
+      ctx.addMessage(exitCode ? 'error' : 'system', parts.includes('--json') ? JSON.stringify(report) : formatDoctor(report));
+      break;
+    }
+
     case '/provider':
-      if (parts[1] && parts[1] !== 'list') {
-        const requested = parts[1].toLowerCase() as LLMProvider;
-        const available = getAvailableProviders();
-        if (!available.includes(requested)) {
-          ctx.addMessage('error',
-            `Provider "${requested}" is not configured. Run /provider (no args) for an interactive picker with setup.`);
-          break;
-        }
-        ctx.setProvider(requested);
-        // Explicit switches persist as the new defaults; a stale model from
-        // the previous provider must not leak into this one (#233).
-        config.set('defaultProvider', requested);
-        config.unset('defaultModel');
-        ctx.addMessage('system', `Provider: ${selectProvider(requested)} (saved as default)`);
-      } else if (parts[1] === 'list') {
-        ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
-      } else if (ctx.openProviderPicker) {
-        ctx.openProviderPicker();
-      } else {
-        ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
-      }
-      break;
-
     case '/model':
-      if (parts[1] && parts[1] !== 'list') {
-        const newModel = parts[1];
-        const oldModel = ctx.model || ctx.actualModel;
-
-        // Check context compatibility before switching (#26)
-        const oldLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, oldModel);
-        const newLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, newModel);
-        const currentTokens = ctx.estimateContextTokens();
-        const newPct = Math.round((currentTokens / newLimit) * 100);
-
-        ctx.setModel(newModel);
-        config.set('defaultModel', newModel);
-        ctx.setContextTokens(currentTokens);
-
-        let switchWarning = '';
-        if (newPct > 80) {
-          switchWarning = `\n⚠️  Context at ${newPct}% of new model limit (${Math.round(currentTokens/1000)}K/${Math.round(newLimit/1000)}K). Consider /compact.`;
-        } else if (newLimit < oldLimit) {
-          switchWarning = `\n📉 Context window: ${Math.round(oldLimit/1000)}K → ${Math.round(newLimit/1000)}K (${newPct}% used)`;
-        }
-        ctx.addMessage('system', `Model: ${oldModel} → ${newModel} (saved as default)${switchWarning}`);
-      } else {
-        // No arg or `list`: open the model picker (absorbs the old /models listing)
-        ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
-        try {
-          const models = await getAvailableModels(ctx.actualProvider, { throwOnError: true });
-          if (models.length > 0) {
-            ctx.setAvailableModels(models);
-            ctx.setModalMode('model');
-          } else {
-            ctx.addMessage('error', `No models found for ${ctx.actualProvider} — API key may be invalid`);
-          }
-        } catch (e) {
-          ctx.addMessage('error', `Failed to fetch models for ${ctx.actualProvider}: ${e instanceof Error ? e.message : String(e)}. Check your API key.`);
-        }
-      }
+    case '/defaults': {
+      const { handleModelCommand } = await import('./model-commands.js');
+      await handleModelCommand(cmd, ctx);
       break;
+    }
+    case '/once': {
+      if (ctx.submitOnce) await ctx.submitOnce(cmd);
+      else ctx.addMessage('error', 'Usage: /once [--provider <name>] [--model <id>] -- <prompt>');
+      break;
+    }
 
     case '/mode':
       if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
@@ -316,37 +360,6 @@ File references: @filename, ./path, /absolute/path`;
       ctx.setStats({ inputTokens: 0, outputTokens: 0, cost: 0, messageCount: 0 });
       resetContextWarnings(); // Reset context warning state
       break;
-
-    case '/export': {
-      // Export conversation to markdown
-      const filename = parts[1] || `calliope-export-${Date.now()}.md`;
-      const fsModule = await import('fs');
-      const path = await import('path');
-
-      let markdown = `# Calliope Conversation Export\n\n`;
-      markdown += `**Date:** ${new Date().toLocaleString()}\n`;
-      markdown += `**Provider:** ${ctx.actualProvider}\n`;
-      markdown += `**Model:** ${ctx.actualModel}\n\n---\n\n`;
-
-      for (const msg of ctx.messages) {
-        if (msg.type === 'user') {
-          markdown += `## \u{1F464} User\n\n${msg.content}\n\n`;
-        } else if (msg.type === 'assistant') {
-          markdown += `## \u{1F916} Assistant\n\n${msg.content}\n\n`;
-        } else if (msg.type === 'tool') {
-          markdown += `> \u{1F527} Tool: ${msg.content}\n\n`;
-        } else if (msg.type === 'system') {
-          markdown += `> \u{2139}\u{FE0F} ${msg.content}\n\n`;
-        } else if (msg.type === 'error') {
-          markdown += `> \u{26A0}\u{FE0F} Error: ${msg.content}\n\n`;
-        }
-      }
-
-      const filepath = path.resolve(process.cwd(), filename);
-      fsModule.writeFileSync(filepath, markdown);
-      ctx.addMessage('system', `✓ Exported to ${filename}`);
-      break;
-    }
 
     case '/undo': {
       if (ctx.undoStack.current.length === 0) {
@@ -1007,60 +1020,17 @@ Stop a running loop with /loop stop`);
       break;
     }
 
+    case '/export':
+    case '/import':
+    case '/branch':
+    case '/checkout':
+    case '/diff':
+    case '/replay':
+    case '/new':
+    case '/sessions':
     case '/resume': {
-      // Resume a session by loading saved LLM message history
-      // Usage: /resume [sessionId] - resume a specific session, or current session if no ID
-      const targetSessionId = parts[1];
-      if (targetSessionId) {
-        const resumedSession = storage.setCurrentSessionById(targetSessionId);
-        if (!resumedSession) {
-          ctx.addMessage('system', `Session not found: ${targetSessionId}`);
-          break;
-        }
-        ctx.sessionRef.current = resumedSession;
-      }
-
-      if (ctx.ledger) {
-        ctx.ledger.loadSnapshot(storage.loadIterationLedger(targetSessionId || ctx.sessionRef.current?.id));
-        if (ctx.sessionRef.current?.id) {
-          storage.saveIterationLedger(ctx.ledger, ctx.sessionRef.current.id);
-        }
-      }
-
-      // Try loading full message history first (preferred - preserves tool calls etc.)
-      const savedMessages = storage.loadMessageHistory(targetSessionId);
-
-      if (savedMessages && savedMessages.length > 0) {
-        // Replace current LLM messages with saved ones
-        ctx.llmMessages.current.length = 0;
-        for (const msg of savedMessages) {
-          ctx.llmMessages.current.push(msg as LLMMessage);
-        }
-        ctx.addMessage('system', `Restored ${savedMessages.length} messages from saved session${targetSessionId ? ` (${targetSessionId})` : ''}`);
-        ctx.setContextTokens(ctx.estimateContextTokens());
-      } else {
-        // Fall back to chat.log history (legacy format, user/assistant only)
-        const history = storage.getChatHistory(20, targetSessionId);
-        if (history.length === 0) {
-          ctx.addMessage('system', 'No previous messages to resume. Start a conversation first, messages are auto-saved.');
-        } else {
-          ctx.llmMessages.current.length = 0;
-          ctx.llmMessages.current.push({
-            role: 'system',
-            content: buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider),
-          });
-          for (const msg of history) {
-            if (msg.role === 'user' || msg.role === 'assistant') {
-              ctx.llmMessages.current.push({
-                role: msg.role,
-                content: msg.content,
-              });
-            }
-          }
-          ctx.addMessage('system', `Loaded ${history.length} messages from chat log (legacy format, tool context not preserved)`);
-          ctx.setContextTokens(ctx.estimateContextTokens());
-        }
-      }
+      const { handleSessionCommand } = await import('./session-commands.js');
+      await handleSessionCommand(parts, ctx);
       break;
     }
 

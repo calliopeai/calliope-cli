@@ -36,6 +36,13 @@ export interface RetryOptions {
   onRetry?: (attempt: number, error: Error, delayMs: number) => void;
 }
 
+export class StreamInterruptedError extends Error {
+  constructor() { super('Response stream stopped after partial output. Start a new turn to continue; the partial response was not committed.'); this.name = 'StreamInterruptedError'; }
+}
+export class StreamProtocolError extends Error {
+  constructor(message: string) { super(message); this.name = 'StreamProtocolError'; }
+}
+
 // ============================================================================
 // Error Classification
 // ============================================================================
@@ -44,6 +51,12 @@ export interface RetryOptions {
  * Classify an error and provide actionable suggestions
  */
 export function classifyError(error: unknown): ClassifiedError {
+  if (error instanceof Error && error.name === 'ExecutionLimitError') return {
+    category: 'invalid_request', message: error.message, suggestion: 'Inspect the execution contract and budget history before retrying.', retryable: false,
+  };
+  if (error instanceof StreamInterruptedError || error instanceof StreamProtocolError) return {
+    category: 'invalid_request', message: error.message, suggestion: 'Inspect /doctor providers and retry explicitly or choose a compatible model.', retryable: false,
+  };
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
@@ -354,7 +367,7 @@ export function classifyError(error: unknown): ClassifiedError {
 /**
  * Format an error for user display with category-specific styling
  */
-export function formatError(error: unknown, context?: { tool?: string; provider?: string }): string {
+export function formatError(error: unknown, context?: { tool?: string; provider?: string; retrying?: boolean }): string {
   const classified = classifyError(error);
 
   // Category-specific icons
@@ -390,7 +403,7 @@ export function formatError(error: unknown, context?: { tool?: string; provider?
   }
   
   // Add retry info for retryable errors
-  if (classified.retryable && classified.retryAfterMs) {
+  if (context?.retrying !== false && classified.retryable && classified.retryAfterMs) {
     const waitSecs = Math.round(classified.retryAfterMs / 1000);
     if (waitSecs > 0) {
       output += `\n   ⏳ Auto-retry in ${waitSecs}s...`;

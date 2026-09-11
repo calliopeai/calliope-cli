@@ -15,7 +15,7 @@ import { StringDecoder } from 'string_decoder';
 import type { PolicyEventPayload } from './runlog.js';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox/index.js';
-import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
+import { scopeManager, validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
 import { getPluginTools, isPluginTool, executePluginTool } from './plugins.js';
 import config from './config.js';
 import { generateDiff as generateFileDiff } from './diff.js';
@@ -374,7 +374,10 @@ function validatePath(filePath: string, cwd: string): string {
   // code-execution / trust foothold if the agent can plant or read them (#141).
   const cliStateDir = path.join(os.homedir(), '.calliope-cli');
   const absResolved = path.resolve(cwd, filePath);
-  if (absResolved === cliStateDir || absResolved.startsWith(cliStateDir + path.sep)) {
+  const canonical = scopeManager.canonicalize(absResolved);
+  const canonicalState = scopeManager.canonicalize(cliStateDir) ?? cliStateDir;
+  if (absResolved === cliStateDir || absResolved.startsWith(cliStateDir + path.sep) ||
+    canonical && (canonical === canonicalState || canonical.startsWith(canonicalState + path.sep))) {
     throw new Error(`Refusing tool access inside the Calliope state directory (${cliStateDir}); hooks/plugins/skills/trust there are protected`);
   }
 
@@ -397,6 +400,7 @@ function validatePath(filePath: string, cwd: string): string {
 export interface FsDelegate {
   readTextFile?(absPath: string): Promise<string>;
   writeTextFile?(absPath: string, content: string): Promise<void>;
+  listFiles?(absPath:string,recursive:boolean):Promise<string>;
 }
 
 /**
@@ -407,6 +411,7 @@ export interface FsDelegate {
  * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
+  authority?: (call:ToolCall,cwd:string)=>string|undefined;
   auditPermission?: (event: PolicyEventPayload) => void;
   signal?: AbortSignal;
   appendAnchorHash?: boolean;
@@ -465,9 +470,17 @@ export async function executeTool(
         throwIfCancelled(signal);
         return cancellable(delegate.writeTextFile!(file, content), signal);
       } : undefined,
+      listFiles: delegate.listFiles ? async (file,recursive) => {
+        throwIfCancelled(signal);return cancellable(delegate.listFiles!(file,recursive),signal);
+      } : undefined,
     } };
   }
   const { id, name, arguments: args } = toolCall;
+  const authority = options?.authority?.(toolCall,cwd);
+  if (authority) {
+    options?.auditPermission?.({tool:name,toolCallId:id,decision:'deny',source:'scope',reason:authority,durationMs:0});
+    return {toolCallId:id,result:permissionReason('scope',authority),isError:true};
+  }
   const boundary = checkToolBoundary(toolCall, cwd);
   if (boundary) {
     const reason = permissionReason(boundary.layer, boundary.reason);
@@ -476,7 +489,7 @@ export async function executeTool(
   }
 
   // Mirror tool call to the fleet channel
-  if (fleetActive()) {
+  if (!options?.authority && fleetActive()) {
     await fleetMirrorToolCall(name, args);
   }
 
@@ -520,7 +533,7 @@ export async function executeTool(
       case 'list_files': {
         const listPath = args.path !== undefined && typeof args.path !== 'string' ? undefined : args.path as string | undefined;
         const recursive = typeof args.recursive === 'boolean' ? args.recursive : false;
-        result = await listFiles(listPath, recursive, cwd);
+        result = options?.fs?.listFiles ? await options.fs.listFiles(validatePath(listPath || '.',cwd),recursive) : await listFiles(listPath, recursive, cwd);
         break;
       }
 

@@ -12,7 +12,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mocks — must be declared before any import that touches the module graph
 // ---------------------------------------------------------------------------
 
-vi.mock('../src/config.js', () => ({
+vi.mock('../src/config.js', async original => ({
+  ...await original<typeof import('../src/config.js')>(),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
@@ -283,3 +284,8 @@ it('cancels an unfinished stdin pipe and removes its listeners', async () => {
     input.destroy();
   }
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

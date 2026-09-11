@@ -9,16 +9,18 @@
 
 import { useState, useCallback } from 'react';
 import type { ModelInfo } from '../../model-detection.js';
-import type { MessageContent, ToolCall } from '../../types.js';
+import type { MessageContent } from '../../types.js';
 import type { SessionInfo } from '../types.js';
 import type { ProviderEntry } from '../modals/index.js';
+import type { Submission } from '../../preferences/index.js';
 
 export type ModalMode =
   | 'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume'
-  | 'complexity-warning' | 'keys' | 'sessions' | 'provider' | 'api-key-setup';
+  | 'tool-output' | 'complexity-warning' | 'keys' | 'sessions' | 'provider' | 'api-key-setup';
 
 export interface PendingComplexPrompt {
   prompt: MessageContent;
+  submission?: Submission;
   complexity: { isComplex: boolean; reason?: string };
 }
 
@@ -28,12 +30,9 @@ export interface PreviousSessionInfo {
   messageCount: number;
 }
 
-export interface PendingToolCall {
-  toolCall: ToolCall;
-  resolve: (approved: boolean) => void;
-}
-
 export interface ModalStateHook {
+  toolOutput: import('../../sessions/index.js').CapturedToolOutput | null;
+  setToolOutput: React.Dispatch<React.SetStateAction<import('../../sessions/index.js').CapturedToolOutput | null>>;
   modalMode: ModalMode;
   setModalMode: React.Dispatch<React.SetStateAction<ModalMode>>;
   providerEntries: ProviderEntry[];
@@ -44,8 +43,6 @@ export interface ModalStateHook {
   setPendingComplexPrompt: React.Dispatch<React.SetStateAction<PendingComplexPrompt | null>>;
   previousSession: PreviousSessionInfo | null;
   setPreviousSession: React.Dispatch<React.SetStateAction<PreviousSessionInfo | null>>;
-  pendingToolCall: PendingToolCall | null;
-  setPendingToolCall: React.Dispatch<React.SetStateAction<PendingToolCall | null>>;
   availableModels: ModelInfo[];
   setAvailableModels: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
   availableSessions: SessionInfo[];
@@ -56,35 +53,33 @@ export interface ModalStateHook {
 }
 
 export function useModalState(): ModalStateHook {
+  const [toolOutput, setToolOutput] = useState<import('../../sessions/index.js').CapturedToolOutput | null>(null);
   const [modalMode, setModalMode] = useState<ModalMode>('none');
   const [providerEntries, setProviderEntries] = useState<ProviderEntry[]>([]);
   const [pendingSetupProvider, setPendingSetupProvider] = useState<ProviderEntry | null>(null);
   const [pendingComplexPrompt, setPendingComplexPrompt] = useState<PendingComplexPrompt | null>(null);
   const [previousSession, setPreviousSession] = useState<PreviousSessionInfo | null>(null);
-  const [pendingToolCall, setPendingToolCall] = useState<PendingToolCall | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [availableSessions, setAvailableSessions] = useState<SessionInfo[]>([]);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
 
   const reset = useCallback(() => {
-    setModalMode('none');
+    setModalMode('none'); setToolOutput(null);
     setProviderEntries([]);
     setPendingSetupProvider(null);
     setPendingComplexPrompt(null);
     setPreviousSession(null);
-    setPendingToolCall(null);
     setAvailableModels([]);
     setAvailableSessions([]);
     setLatestVersion(null);
   }, []);
 
   return {
-    modalMode, setModalMode,
+    modalMode, setModalMode, toolOutput, setToolOutput,
     providerEntries, setProviderEntries,
     pendingSetupProvider, setPendingSetupProvider,
     pendingComplexPrompt, setPendingComplexPrompt,
     previousSession, setPreviousSession,
-    pendingToolCall, setPendingToolCall,
     availableModels, setAvailableModels,
     availableSessions, setAvailableSessions,
     latestVersion, setLatestVersion,

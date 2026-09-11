@@ -31,6 +31,7 @@ export interface PolicyResult {
 }
 
 export interface PolicyOptions {
+  signal?: AbortSignal;
   /** Override the configured command (tests / embedding). */
   command?: string;
   /** Override the configured timeout in ms. */
@@ -74,6 +75,7 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
   const command = options.command ?? getPolicyCommand();
   const started = Date.now();
 
+  if (options.signal?.aborted) return Promise.resolve({decision:'deny',source:'policy',reason:'Policy evaluation cancelled',durationMs:0});
   if (!command) {
     return Promise.resolve({ decision: 'allow', source: 'none', durationMs: 0 });
   }
@@ -105,10 +107,11 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
     }
 
     let stderr = '';
-    let timedOut = false;
+    let timedOut = false, cancelled = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
 
     proc.stderr?.on('data', (d) => {
-      stderr += d.toString();
+      stderr = (stderr + d.toString()).slice(0,65536);
     });
 
     const signalGroup = (signal: NodeJS.Signals): void => {
@@ -125,12 +128,15 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
 
     const timer = setTimeout(() => {
       timedOut = true;
+      killTimer = setTimeout(() => signalGroup('SIGKILL'), 2000);
       signalGroup('SIGTERM');
-      setTimeout(() => signalGroup('SIGKILL'), 2000);
     }, timeoutMs);
 
+    const abort = () => { cancelled = true; signalGroup('SIGKILL'); };
+    const cleanup = () => { clearTimeout(timer); if (killTimer) clearTimeout(killTimer); options.signal?.removeEventListener('abort',abort); if (cancelled || timedOut) { try { if (proc.pid) process.kill(-proc.pid,'SIGKILL'); } catch { /* Group already exited. */ } } };
     proc.on('close', (code) => {
-      clearTimeout(timer);
+      cleanup();
+      if (cancelled) { done({decision:'deny',source:'policy',reason:'Policy evaluation cancelled'}); return; }
       if (timedOut) {
         // Fail closed on timeout.
         done({ decision: 'deny', source: 'policy', reason: `policy hook timed out after ${timeoutMs}ms (fail closed)` });
@@ -148,11 +154,14 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
     });
 
     proc.on('error', (err) => {
-      clearTimeout(timer);
+      cleanup();
       // Fail closed on runtime spawn error (e.g. command not found).
       done({ decision: 'deny', source: 'policy', reason: `policy hook error: ${err.message}` });
     });
 
+    options.signal?.addEventListener('abort',abort,{once:true});
+    if (options.signal?.aborted) abort();
+    proc.stdin?.on?.('error', () => { /* Process close/error owns the decision. */ });
     // Feed the tool-call JSON to the policy on stdin, then close it.
     try {
       proc.stdin?.write(input);

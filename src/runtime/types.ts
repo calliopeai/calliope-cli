@@ -1,5 +1,6 @@
 export type PermissionLayer = 'mode' | 'confirmation' | 'scope' | 'sandbox' | 'blocklist' | 'hook' | 'policy' | 'default' | 'resolver' | 'cancellation';
 export interface PermissionDecision {
+  request?: import('../approvals/types.js').ApprovalRequest;
   decision: 'allow' | 'deny' | 'confirm' | 'cancelled';
   layer: PermissionLayer;
   reason: string;

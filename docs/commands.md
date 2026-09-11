@@ -1,6 +1,6 @@
 # Commands
 
-Calliope exposes 22 slash commands, plus `/fleet` when fleet mode is enabled.
+Calliope exposes slash commands, plus `/fleet` when fleet mode is enabled.
 Type `/help` in a session to print the same list. Commands are entered at the
 prompt; arguments in `[brackets]` are optional.
 
@@ -18,6 +18,14 @@ Show the active provider, model, token usage, terminal capabilities, and fleet s
 /status
 ```
 
+### `/doctor [providers|provider <name>]`
+Report credentials, endpoint, discovery evidence, observed capabilities, recent
+latency/errors, and quarantine. Defaults to local observations; `--probe` permits
+bounded live model discovery. `--json` returns the versioned diagnostic document.
+Use `/doctor provider <name> --reset` after fixing a quarantined endpoint.
+The same arguments work with `calliope doctor` in headless environments.
+See [Provider health](./provider-health.md) for export/import and recovery.
+
 ### `/clear`
 Clear the conversation and reset context to the system prompt.
 ```
@@ -34,20 +42,33 @@ Exit Calliope. `/quit` is an alias.
 
 ### `/model [name|list]`
 Switch model, or open the picker of live-discovered models. `/model` and
-`/model list` fetch the current provider's models; `/model <name>` switches directly.
+`/model list` fetch the current provider's models; `/model <name>` validates live
+eligibility before switching for this session. The picker shows discovered
+capacity and estimated cost, with missing values marked unknown.
 ```
 /model
 /model claude-sonnet-4-6
 ```
 
 ### `/provider [name|list]`
-Switch provider, or list configured providers. `/provider` opens the picker;
-`/provider list` prints the current and available providers; `/provider <name>` switches.
+Switch provider, or list providers with local health. `/provider` opens the picker;
+`/provider <name>` validates discovery before switching for this session. `auto`
+is supported. An incompatible choice leaves the prior selection intact.
 ```
 /provider
 /provider anthropic
 /provider list
 ```
+
+### `/defaults [save|reset]`
+Inspect the project selection and the defaults for a new session. `save` persists
+the current selection to the project; `reset` clears project overrides. Loading
+requires project trust, and writes obey policy. Global defaults are unchanged.
+
+### `/once [--provider <name>] [--model <id>] -- <prompt>`
+Override one turn, including its retries and tool continuations. Queued messages
+retain separate choices; these overrides never become saved defaults. See
+[Model preferences](model-preferences.md) for precedence, bounds and recovery.
 
 ### `/mode [plan|hybrid|work]`
 Switch operating mode. With no argument, prints the current mode. Press
@@ -61,6 +82,12 @@ Switch operating mode. With no argument, prints the current mode. Press
 - `work` — execute directly
 
 ## Conversation
+
+### `/tools [list|last|output-id]`
+List bounded retained tool output or open a selected record. E/Enter collapses
+or expands; N/P changes page; Esc closes. Output survives restart when saved.
+`calliope session outputs <session-id> [output-id] --json` provides local headless
+inspection. See [streaming and output storage](streaming.md) for limits.
 
 ### `/undo`
 Revert the last change. Up to 10 steps are retained.
@@ -207,3 +234,39 @@ when fleet mode is enabled; with no argument, prints status. See [Fleet mode](./
 - `@filename`, `./path`, `/absolute/path` — reference files inline in a message.
 - `Tab` completes commands and paths. `Shift+Tab` cycles the mode. `Up`/`Down`
   navigate input history. `Ctrl+C` cancels the current operation.
+
+Session recovery: `/new` starts a separate session, `/sessions` lists saved
+sessions, and `/resume [id]` validates and restores a conversation for the
+current project. See [session recovery](session-recovery.md) for interrupted
+tools, concurrent writers and recovery procedures.
+
+## Orchestration
+
+`/orchestrate <goal>` creates a read-only proposal within a persistent budget,
+displays its complete plan, and requests exact-hash approval before starting
+workers. `/orchestrate status|proposal|replay|resume|cancel <goal-id>` inspects or
+controls it; `approve <goal-id> <proposal-hash>` approves the current proposal
+and `revise <goal-id> <plan.json>` records a human correction before allocation.
+Headless `calliope orchestrate <goal> --json` stops at review (exit 5).
+See [goal limits, schemas and recovery](goal-planning.md).
+
+`/run <plan> --dry-run` validates a project plan without writes or inference.
+`/run prepare <plan>` records an inactive run; `/run list`, `/run status [id]`,
+`/run approve <id>`, `/run cancel <id>` and `/run replay <id>` inspect its journal
+and record review decisions. `/agents tree [id]` shows the declared hierarchy;
+`/tasks graph [id]` shows dependencies and scope conflicts. `/run <plan>` executes
+the reviewed graph, or use `/run execute <id>` after separate approval.
+`/run resume <id>` continues eligible pending work; `/run retry <id> <task>`
+explicitly resets a retryable task; `/run accept <id> <task>` records human
+acceptance against unchanged evidence. `/agents stop|retry <agent> --run <id>`
+controls that agent subtree. Headless equivalents support `--json`;
+`--allow-mutations` explicitly authorizes scoped worker writes permitted by policy.
+See [contracts](orchestration.md) and [execution and recovery](coordinator-execution.md).
+
+### Mixed-model orchestration
+
+`/orchestrate <goal>` accepts `--planner-provider`, `--planner-model`,
+`--worker-provider`, `--worker-model`, `--reviewer-provider`, `--reviewer-model`
+and `--attempts 1..4`. All model IDs come from discovery. `/agents hud
+agents|workflows|off` controls compact live progress. See
+[mixed-model teams](mixed-model-teams.md) for approval, retry and budget semantics.

@@ -1,25 +1,28 @@
 /** Terminal presentation adapter for the shared turn runtime. */
 import type React from 'react';
+import { approvalDisplayText } from '../approvals/index.js';
 import { runTurn } from '../runtime/index.js';
 import { cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import { estimateContextUsage } from '../providers/types.js';
 import { getTools } from '../tools.js';
-import { RISK_CONFIG, calculateCost } from '../types.js';
+import { RISK_CONFIG } from '../types.js';
 import { assessToolRisk } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
-import * as router from '../router.js';
+import { formatRoutingDecision, type RoutingDecision } from '../routing/index.js';
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { createStreamFlusher } from '../streaming.js';
+import { ToolProgress } from './tool-progress.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
 import type { SmartRoutingConfig } from '../router.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../types.js';
 import type { SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
+import { SessionRecoveryError } from '../sessions/index.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { shouldCheckpoint, createCheckpoint } from '../checkpoint.js';
 import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
@@ -46,10 +49,16 @@ function summarizeMessageContent(content: MessageContent): string {
 // ============================================================================
 
 export interface AgentContext {
+  approvals?: import('../approvals/index.js').ApprovalStore;
+  approve?: (decision: import('../runtime/types.js').PermissionDecision, signal?: AbortSignal) => Promise<import('../approvals/index.js').ApprovalChoice>;
+  onCheckpoint?: import('../runtime/turn.js').TurnOptions['onCheckpoint'];
   signal?: AbortSignal;
   // State
   provider: LLMProvider;
   model: string | undefined;
+  onRoute?: (decision: RoutingDecision) => void;
+  preferenceSources?: RoutingDecision['preferenceSources'];
+  afterLoopTurn?: () => Promise<boolean>;
   mode: Mode;
   confirmMode: boolean;
   autoRoute: boolean;
@@ -73,19 +82,17 @@ export interface AgentContext {
   setActivityState: (v: ActivityState | null) => void;
   setContextTokens: (v: number) => void;
   setIsProcessing: (v: boolean) => void;
-  setQueuedMessages: (fn: string[] | ((prev: string[]) => string[])) => void;
   setEditingQueueIndex: (v: number | null) => void;
   setLoopIteration: (v: number) => void;
   setLoopActive: (v: boolean) => void;
 
   // Refs
   llmMessages: React.MutableRefObject<LLMMessage[]>;
-  queuedMessagesRef: React.MutableRefObject<string[]>;
   loopCancelledRef: React.MutableRefObject<boolean>;
   sessionRef: React.MutableRefObject<Session | null>;
 
   // Callbacks
-  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string, isError?: boolean) => void;
+  addMessage: (type: 'user' | 'assistant' | 'tool' | 'system' | 'error', content: string, isError?: boolean, output?: import('../sessions/index.js').CapturedToolOutput) => void;
   estimateContextTokens: () => number;
   validateAndRepairMessages: () => boolean;
 
@@ -146,7 +153,7 @@ export function _resetModeTracking(): void {
   previousTurnMode = null;
 }
 
-export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<void> {
+export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<boolean> {
   throwIfCancelled(ctx.signal);
   ctx.debugLog('runAgent', 'ENTER', typeof content === 'string' ? content.substring(0, 50) : '[complex]');
 
@@ -156,30 +163,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   ctx.llmMessages.current.push({ role: 'user', content });
   ctx.setStats(s => ({ ...s, messageCount: s.messageCount + 1 }));
   ctx.setStreamingResponse('');
-
-  // Smart routing (cross-provider) takes precedence over autoRoute (single-provider)
-  let effectiveModel = ctx.model;
-  let effectiveProvider = ctx.provider;
-  if (ctx.smartRouteActive && ctx.smartRoutingConfig?.enabled && typeof content === 'string') {
-    const decision = router.smartRoute(content, ctx.smartRoutingConfig, {
-      messageCount: ctx.stats.messageCount,
-      hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
-    });
-    effectiveModel = decision.selected.model;
-    effectiveProvider = decision.selected.provider;
-    if (effectiveModel !== ctx.model || effectiveProvider !== ctx.provider) {
-      ctx.addMessage('system', `[Smart route: ${decision.selected.provider}/${decision.selected.tier} - ${decision.taskType}/${decision.complexity}]`);
-    }
-  } else if (ctx.autoRoute && typeof content === 'string') {
-    const routeDecision = router.routeRequest(content, ctx.provider, {
-      messageCount: ctx.stats.messageCount,
-      hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
-    });
-    effectiveModel = routeDecision.model.model;
-    if (effectiveModel !== ctx.model) {
-      ctx.addMessage('system', `[Auto-route: ${routeDecision.tier} tier - ${routeDecision.reason}]`);
-    }
-  }
 
   const maxIterations = resolveIterationLimit(config.get('maxIterations'));
   const hasParentRun = Boolean(
@@ -198,8 +181,8 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
 
   const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
   const projectDir = ctx.sessionRef.current?.projectPath ?? process.cwd();
-  const provider = effectiveProvider === 'auto' ? ctx.actualProvider as LLMProvider : effectiveProvider;
-  const model = effectiveModel || ctx.actualModel;
+  let provider = ctx.actualProvider as LLMProvider;
+  let model = ctx.actualModel;
   const justLeftPlanMode = previousTurnMode === 'plan' && ctx.mode !== 'plan';
   previousTurnMode = ctx.mode;
   let flusher: ReturnType<typeof createStreamFlusher> | undefined;
@@ -207,28 +190,49 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   let streamStarted = false;
   let errorShown = false;
   let finalResponse = false;
+  let lastResponseCost: number | undefined;
   const blocked = new Set<string>();
+  const toolProgress = new ToolProgress();
+  const showToolProgress = () => ctx.setActivityState(toolProgress.snapshot());
   const failed = ctx.ledger?.getFailedApproachesMessage();
   if (failed) ctx.llmMessages.current.push({ role: 'user', content: failed });
   const clearDisplay = () => {
+    toolProgress.clear();
     flusher?.destroy();
     ctx.setThinkingState(null);
     ctx.setActivityState(null);
     ctx.setStreamingResponse('');
   };
+  ctx.signal?.addEventListener('abort', clearDisplay, { once: true });
   try {
     const result = await runTurn({
-      client: 'terminal', sessionId, cwd: projectDir, provider, model,
+      captureToolOutput: true,
+      onCheckpoint: ctx.onCheckpoint,
+      onSafetyBranch: ctx.onCheckpoint ? async () => {
+        const { branchSession } = await import('../session-management/index.js');
+        const branch = await branchSession(sessionId, { kind: 'safety', signal: ctx.signal, mode: ctx.mode });
+        ctx.addMessage('system', `Recovery conversation branch: ${branch.session.id}. Use /checkout to recover its conversation and tool state.`);
+      } : undefined,
+      client: 'terminal', sessionId, cwd: projectDir, provider: ctx.provider, model: ctx.model,
+      preferenceSources: ctx.preferenceSources,
+      routing: { ...ctx.smartRoutingConfig, ...config.get('routing') },
+      onRoute: decision => {
+        if (decision.selected) { provider = decision.selected.provider; model = decision.selected.model; }
+        ctx.onRoute?.(decision);
+        ctx.addMessage(decision.selected ? 'system' : 'error', formatRoutingDecision(decision));
+      },
       prompt: summarizeMessageContent(content), messages: ctx.llmMessages,
       signal: ctx.signal, mode: ctx.mode, maxIterations,
       inheritScope: true, parallel: true, continueOnLength: true, tools: getTools,
-      confirmation: ctx.confirmMode ? 'risk' : 'none',
+      confirmation: ctx.confirmMode ? 'interactive' : 'none',
+      approvals: ctx.approvals,
+      approve: ctx.approve ? (_call, decision) => ctx.approve!(decision, ctx.signal) : undefined,
       prepare: async (request, index) => {
         iteration = index;
         finalResponse = false;
         ctx.ledger?.startIteration(ctx.ledger.getNextIterationNumber());
         flusher?.destroy();
-        flusher = createStreamFlusher(delta => ctx.setStreamingResponse(prev => prev + delta));
+        flusher = createStreamFlusher(delta => { if (!ctx.signal?.aborted) ctx.setStreamingResponse(prev => prev + delta); });
         streamStarted = false;
         ctx.setStreamingResponse('');
         ctx.setThinkingState({ status: index === 1 ? 'Analyzing request...' : 'Processing response...',
@@ -260,19 +264,24 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setContextTokens(ctx.estimateContextTokens());
         ctx.addMessage('system', `🔄 Auto-compressed ${result.summarizedCount} messages using ${result.method} (${Math.round(result.originalTokens / 1000)}K → ${Math.round(result.compressedTokens / 1000)}K tokens)`);
       },
+      onStreamReset: () => {
+        flusher?.destroy(); flusher = createStreamFlusher(delta => { if (!ctx.signal?.aborted) ctx.setStreamingResponse(prev => prev + delta); });
+        streamStarted = false; ctx.setStreamingResponse('');
+      },
       onToken: token => {
         if (!streamStarted) { ctx.setThinkingState(null); streamStarted = true; }
         flusher?.push(token);
       },
       onRetry: (attempt, error, delayMs) => ctx.setThinkingState({ status: `Retrying... (attempt ${attempt + 1})`,
-        detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`, iteration,
+        detail: `${approvalDisplayText(classifyError(error).message)} Waiting ${Math.round(delayMs / 1000)}s`, iteration,
         maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined }),
       onUsage: (response, request, cost) => {
+        lastResponseCost = response.usage ? cost : undefined;
         if (!response.usage) return;
         const { inputTokens, outputTokens } = response.usage;
         ctx.setStats(s => ({ ...s, inputTokens: s.inputTokens + inputTokens, outputTokens: s.outputTokens + outputTokens, cost: s.cost + cost }));
         ctx.ledger?.recordTokens(inputTokens, outputTokens, cost);
-        storage.recordCost(cost, request.provider, ctx.sessionRef.current?.id);
+        storage.recordCost(cost, request.provider, sessionId);
       },
       onWarning: warning => {
         const key = `${sessionId}::${warning}`;
@@ -283,7 +292,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         if (ctx.circuitBreaker) {
           const breaker = ctx.circuitBreaker.check({ iteration: index, inputTokens: response.usage?.inputTokens,
             outputTokens: response.usage?.outputTokens,
-            cost: response.usage ? calculateCost(model, response.usage.inputTokens, response.usage.outputTokens) : undefined,
+            cost: lastResponseCost,
             toolCalls: response.toolCalls?.map(call => ({ name: call.name, arguments: call.arguments })),
             content: response.content, timestamp: new Date() });
           ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
@@ -294,7 +303,10 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           }
         }
         if (fleetActive() && response.content) fleetMirrorAssistant(response.content);
-        if (response.toolCalls?.length) return;
+        if (response.toolCalls?.length) {
+          if (response.content) ctx.addMessage('assistant', response.content);
+          ctx.setStreamingResponse(''); ctx.setThinkingState(null); return;
+        }
         finalResponse = true;
         ctx.setThinkingState(null);
         ctx.addMessage('assistant', response.content);
@@ -302,7 +314,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
         ctx.setContextTokens(ctx.estimateContextTokens());
         checkAndWarnContextLimit(provider, model, ctx.estimateContextTokens(), ctx.addMessage);
         if (response.finishReason === 'length') ctx.addMessage('system', '(auto-continuing...)');
-        else storage.saveMessageHistory(ctx.llmMessages.current);
+        else if (!ctx.onCheckpoint) storage.saveMessageHistory(ctx.llmMessages.current);
         return undefined;
       },
       onRepair: event => {
@@ -314,10 +326,12 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
             : event.corrected ? '🔧 Repair did not resolve the malformed call; surfacing the error.' : '🔧 Repair produced no usable tool call; surfacing the original error.');
         }
       },
+      onToolStart: call => { toolProgress.start(call.id, call.name); showToolProgress(); },
+      onToolRetry: call => { toolProgress.retry(call.id); showToolProgress(); },
       onPermission: (call, decision) => {
         const risk = assessToolRisk(call);
         const display = risk.level !== 'none' ? ` [${RISK_CONFIG[risk.level].bar}]` : '';
-        const preview = String(call.arguments.command || call.arguments.path || '...');
+        const preview = approvalDisplayText(String(call.arguments.command || call.arguments.path || '...'));
         if (decision.decision !== 'allow') {
           blocked.add(call.id);
           ctx.addMessage('tool', `${call.name}: ${preview}${display}\n${decision.reason}`);
@@ -327,21 +341,21 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       beforeTool: call => {
         const args = call.arguments;
         const thought = call.name === 'think' ? String(args.thought || '') : undefined;
-        ctx.setActivityState({ action: `Executing ${call.name}`, target: String(args.path || args.command || '').substring(0, 40), startTime: Date.now() });
+        toolProgress.running(call.id); showToolProgress();
         ctx.setThinkingState({ status: thought ? 'Reasoning...' : `Executing ${call.name}...`, thinking: thought,
           detail: (thought || String(args.path || args.command || '...')).substring(0, 60), iteration,
           maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined });
         if (shouldCheckpoint(call.name, args, projectDir)) createCheckpoint(call.name, args, projectDir);
       },
       onToolOutput: (call, chunk) => {
-        if (call.name === 'shell') ctx.setActivityState({ action: 'Running shell', target: String(call.arguments.command || '').substring(0, 40),
-          startTime: Date.now(), detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60) });
+        if (!ctx.signal?.aborted) { toolProgress.output(call.id, chunk); showToolProgress(); }
       },
-      onToolResult: (call, result) => {
+      onToolResult: (call, result, _iteration, output) => {
+        toolProgress.finish(call.id); showToolProgress();
         if (blocked.has(call.id)) return;
         const args = call.arguments;
         ctx.ledger?.recordAction(call.name, args, result.isError ? 'error' : 'ok', result.isError ? result.result : undefined);
-        if (call.name === 'think' && !result.isError) ctx.addMessage('tool', String(args.thought || ''));
+        if (call.name === 'think' && !result.isError) ctx.addMessage('tool', output?.record.content ?? approvalDisplayText(String(args.thought || '')), false, output);
         else if (call.name === 'ask_question' && !result.isError) {
           let question = `❓ ${String(args.question || '')}`;
           if (typeof args.context === 'string') question += `\n   ${args.context}`;
@@ -353,15 +367,15 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
           if (Array.isArray(args.steps)) plan += '\n' + args.steps.map((step, i) => `   ${i + 1}. [ ] ${step}`).join('\n');
           ctx.addMessage('assistant', plan + '\n\n   Switch to work mode (Shift+Tab) and reply to execute, or give feedback to revise.');
         } else {
-          const display = result.displayResult || result.result;
-          ctx.addMessage('tool', display.split('\n').slice(0, 5).join('\n') + (display.split('\n').length > 5 ? '\n...' : ''), result.isError);
+          const display = output?.record.content ?? approvalDisplayText((result.displayResult || result.result).slice(0, 65536));
+          ctx.addMessage('tool', display, result.isError, output);
         }
       },
       onIterationEnd: () => { ctx.ledger?.endIteration(finalResponse ? 'success' : undefined); },
       onError: (error, index) => {
         clearDisplay();
         ctx.ledger?.endIteration('error');
-        const message = formatError(error, { provider });
+        const message = approvalDisplayText(formatError(error, { provider, retrying: false }));
         ctx.addMessage('error', message);
         errorShown = true;
         runErrorSummary = message;
@@ -400,26 +414,14 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     if (runId) ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
     ctx.setContextTokens(ctx.estimateContextTokens());
     if (ctx.mode === 'plan' && result.totals.toolCalls === 0 && result.reason !== 'cancelled') ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
-    // An incomplete or failed turn must not spend more by draining queued work.
-    if (!['completed', 'waiting_for_user'].includes(result.reason)) return;
-    const queued = [...ctx.queuedMessagesRef.current];
-    if (queued.length) {
-      ctx.setQueuedMessages([]);
-      ctx.queuedMessagesRef.current = [];
-      const followUp = queued.length === 1 ? queued[0]! : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
-      ctx.addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
-      await cancellableDelay(100, ctx.signal);
-      await runAgentImpl(ctx, followUp);
-    }
+    return ['completed', 'waiting_for_user'].includes(result.reason);
   } catch (error) {
-    const cancelled = ctx.signal?.aborted || isCancellation(error);
-    if (!cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
+    const recoveryFailure = error instanceof SessionRecoveryError;
+    const cancelled = !recoveryFailure && (ctx.signal?.aborted || isCancellation(error));
+    if (recoveryFailure || !cancelled && !errorShown) ctx.addMessage('error', approvalDisplayText(formatError(error, { provider, retrying: false })));
     if (runId) ctx.ledger?.finishRun(runId, cancelled ? 'stopped' : 'failed', { errorSummary: cancelled ? 'Operation cancelled' : String(error) });
-    if (!cancelled) {
-      ctx.setQueuedMessages([]);
-      ctx.queuedMessagesRef.current = [];
-    }
-  } finally { clearDisplay(); }
+    return false;
+  } finally { ctx.signal?.removeEventListener('abort', clearDisplay); clearDisplay(); }
 }
 
 // ============================================================================
@@ -463,7 +465,11 @@ export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: nu
 
       try {
         // Run the agent
-        await runAgentImpl(ctx, iterationPrompt);
+        if (!await runAgentImpl(ctx, iterationPrompt) || ctx.afterLoopTurn && !await ctx.afterLoopTurn()) {
+          loopOutcome = ctx.signal?.aborted ? 'cancelled' : 'error';
+          loopErrorSummary = 'Turn stopped; queued work and remaining loop iterations are paused';
+          break;
+        }
 
         // Check for completion promise in the last assistant message
         if (completionPromise) {

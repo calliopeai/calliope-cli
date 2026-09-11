@@ -30,7 +30,8 @@ vi.mock('os', async () => {
 let budgetCaps: Record<string, number> | undefined;
 let policyConfig: { command?: string } | undefined;
 
-vi.mock('../src/config.js', () => ({
+vi.mock('../src/config.js', async original => ({
+  ...await original<typeof import('../src/config.js')>(),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
@@ -131,6 +132,20 @@ function stderrText(): string {
 // ---------------------------------------------------------------------------
 
 describe('headless budget halt', () => {
+  it('emits a stable status event for a durable safety branch before an allowed write', async () => {
+    mockChat.mockResolvedValueOnce({ ...toolResponse(), toolCalls: [{ id: 'write', name: 'write_file', arguments: { path: 'toy.txt', content: 'toy' } }] })
+      .mockResolvedValueOnce(finalResponse());
+    mockExecuteTool.mockResolvedValue({ toolCallId: 'write', result: 'ok', isError: false });
+    expect(await runHeadless({ prompt: 'go', provider: 'anthropic', outputMode: 'json', cwd: CWD })).toBe(0);
+    const output = vi.mocked(process.stdout.write).mock.calls.map(call => String(call[0])).join('').trim().split('\n').map(line => JSON.parse(line));
+    const branchEvent = output.find(event => event.type === 'status' && event.data.message.startsWith('Recovery conversation branch:'));
+    expect(branchEvent).toMatchObject({ type: 'status', timestamp: expect.any(String), data: { sessionId: expect.any(String) } });
+    const { getSessionById, readSessionConversation } = await import('../src/storage.js');
+    expect(getSessionById(branchEvent.data.sessionId)?.lineage?.kind).toBe('safety');
+    expect(readSessionConversation(branchEvent.data.sessionId).messages.at(-1)?.toolCalls?.[0]?.id).toBe('write');
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(onlyRunLog().some(event => event.type === 'policy_event' && event.tool === 'session_branch' && String(event.reason).includes(branchEvent.data.sessionId))).toBe(true);
+  });
   it('exits 3 when the run cost cap is exceeded', async () => {
     budgetCaps = { maxCostPerRun: 0.00001 };
     // claude-sonnet-4-6 = $3/M input; 10k input ≈ $0.00003 > cap.
@@ -183,6 +198,14 @@ describe('headless budget halt', () => {
     const lines = onlyRunLog();
     const end = lines.find((l) => l.type === 'run_end') as unknown as { exitReason: string };
     expect(end.exitReason).toBe('completed');
+    const { readSessionConversation } = await import('../src/storage.js');
+    const sessionId = lines.find(line => line.type === 'run_start')!.session as string;
+    const saved = readSessionConversation(sessionId);
+    expect(saved.status).toBe('completed');
+    expect(saved.messages.at(-1)?.content).toBe('all good');
+    const checkpoints = lines.filter(line => line.type === 'session_checkpoint');
+    expect(checkpoints.at(-1)).toMatchObject({ revision: saved.revision, status: 'completed' });
+    expect(checkpoints.every(line => !('messages' in line) && !('content' in line))).toBe(true);
   });
 });
 
@@ -270,3 +293,8 @@ it('honors pre-tool hooks in headless mode and audits the displayed reason', asy
     expect(verifyChain(trace).ok).toBe(true);
   } finally { gate.mockRestore(); }
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));
