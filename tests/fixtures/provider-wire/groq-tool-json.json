@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "backend": "groq",
+  "model": "openai/gpt-oss-20b",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T16:02:58.332Z",
+    "sourceOrigin": "https://api.groq.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "36cbdbb9-f51c-48af-b312-592c2e24c976"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/openai/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLWRhOTNkN2ZkLTlmYzMtNDA4Ny1iNmQ5LTNjMTdmODg1MjAxOSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkxNDI1NzgsIm1vZGVsIjoib3BlbmFpL2dwdC1vc3MtMjBiIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsInJlYXNvbmluZyI6IldlIGFyZSBpbnN0cnVjdGVkOiBcIkNhbGwgZWNobyBleGFjdGx5IG9uY2Ugd2l0aCB0ZXh0PVwiaGVsbG9cIi4gRG8gbm90IHdyaXRlIHByb3NlLlwiIFNvIHdlIG5lZWQgdG8gY2FsbCB0aGUgZnVuY3Rpb24gd2l0aCB0aGUgYXJndW1lbnQuIFVzZSB0aGUgdG9vbC4gVGhlIGNvcnJlY3QgdXNhZ2U6IGNhbGwgZnVuY3Rpb24gXCJlY2hvXCIgd2l0aCBwYXJhbSB7dGV4dDogXCJoZWxsb1wifS4gTm8gcHJvc2UuIFNvIG91dHB1dDogdGhlIGZ1bmN0aW9uIGNhbGwuIiwidG9vbF9jYWxscyI6W3siaWQiOiJmY185OTcwZmYyOS0xOTI4LTRhYjQtYWZkNy1kOWYwMWNlYjA3ZjgiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjpcImhlbGxvXCJ9In19XX0sImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoidG9vbF9jYWxscyJ9XSwidXNhZ2UiOnsicXVldWVfdGltZSI6MC4yMDQ3MjYwMDEsInByb21wdF90b2tlbnMiOjE0MiwicHJvbXB0X3RpbWUiOjAuMDA4MjEyNDI4LCJjb21wbGV0aW9uX3Rva2VucyI6ODUsImNvbXBsZXRpb25fdGltZSI6MC4wOTQyODY0ODMsInRvdGFsX3Rva2VucyI6MjI3LCJ0b3RhbF90aW1lIjowLjEwMjQ5ODkxMSwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjo2M319LCJ1c2FnZV9icmVha2Rvd24iOm51bGwsInN5c3RlbV9maW5nZXJwcmludCI6ImZwX2U5OWU5M2YyYWMiLCJ4X2dyb3EiOnsiaWQiOiJyZXFfMDFtMjhrYWN3eWU0ZTlnYmNjMTR0YXJyeGIiLCJzZWVkIjoxNzg3NDkxOTM0fSwic2VydmljZV90aWVyIjoib25fZGVtYW5kIn0K",
+      "sha256": "0351f6457af05544cc835c28145d49b2e9abe281661d8db87fb7653095c80525"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 142,
+      "outputTokens": 85
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}
