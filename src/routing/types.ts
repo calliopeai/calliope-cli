@@ -53,4 +53,5 @@ export interface RoutingDecision {
   alternatives: RouteCandidate[];
   exclusions: { provider: string; model?: string; reason: string }[];
   reason: string;
+  preferenceSources?: { provider: string; model: string | null };
 }

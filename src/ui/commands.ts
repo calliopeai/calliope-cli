@@ -11,10 +11,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import React from 'react';
 import * as config from '../config.js';
-import { selectProvider, getAvailableProviders } from '../providers/index.js';
 import { MODE_CONFIG } from '../types.js';
 import { getSystemPromptForProvider } from '../local-model.js';
-import { getAvailableModels, getModelContextLimit } from '../model-detection.js';
 import * as storage from '../storage.js';
 import * as mcp from '../mcp.js';
 import * as skills from '../skills.js';
@@ -55,6 +53,8 @@ export const COMMAND_NAMES = [
   '/model',
   '/provider',
   '/doctor',
+  '/defaults',
+  '/once',
   '/mode',
   '/undo',
   '/export',
@@ -80,6 +80,9 @@ export const COMMAND_NAMES = [
 
 export interface CommandContext {
   signal?: AbortSignal;
+  provider?: LLMProvider;
+  submitOnce?: (input: string) => Promise<void>;
+  reloadDefaults?: (cwd: string) => void;
   // Current state
   actualProvider: LLMProvider;
   actualModel: string;
@@ -126,7 +129,7 @@ export interface CommandContext {
   runLoop: (prompt: string, maxIter: number, completionPromise?: string) => void;
   cancelActiveTurn?: () => void;
   startFleetPolling: () => void;
-  openProviderPicker?: () => void;
+  openProviderPicker?: () => void | Promise<void>;
 }
 
 // Builds the full system prompt including memory context (project + global).
@@ -144,6 +147,7 @@ function getActiveProjectDir(ctx: Pick<CommandContext, 'sessionRef'>): string {
 
 /** Refresh the active prompt; a failed reload must not retain revoked context. */
 function refreshProjectContext(ctx: CommandContext): void {
+  ctx.reloadDefaults?.(getActiveProjectDir(ctx));
   let content = getSystemPromptForProvider(ctx.actualProvider);
   try {
     content = buildFullSystemPrompt(getActiveProjectDir(ctx), ctx.actualProvider);
@@ -199,6 +203,8 @@ Model & Mode
   /model [name|list]          Switch model, or list/pick available models
   /provider [name|list]       Switch provider, or list providers
   /doctor [providers|provider <name>]   Provider health; --probe checks discovery
+  /defaults [save|reset]     Inspect or persist project model defaults
+  /once --provider <name> -- <prompt>   Override one turn (also --model)
   /mode [plan|hybrid|work]    Switch mode (Shift+Tab to cycle)
 
 Conversation
@@ -249,67 +255,17 @@ File references: @filename, ./path, /absolute/path`;
     }
 
     case '/provider':
-      if (parts[1] && parts[1] !== 'list') {
-        const requested = parts[1].toLowerCase() as LLMProvider;
-        const available = getAvailableProviders();
-        if (!available.includes(requested)) {
-          ctx.addMessage('error',
-            `Provider "${requested}" is not configured. Run /provider (no args) for an interactive picker with setup.`);
-          break;
-        }
-        ctx.setProvider(requested);
-        // Explicit switches persist as the new defaults; a stale model from
-        // the previous provider must not leak into this one (#233).
-        config.set('defaultProvider', requested);
-        config.unset('defaultModel');
-        ctx.addMessage('system', `Provider: ${selectProvider(requested)} (saved as default)`);
-      } else if (parts[1] === 'list') {
-        ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
-      } else if (ctx.openProviderPicker) {
-        ctx.openProviderPicker();
-      } else {
-        ctx.addMessage('system', `Provider: ${ctx.actualProvider} | Available: ${getAvailableProviders().join(', ')}`);
-      }
-      break;
-
     case '/model':
-      if (parts[1] && parts[1] !== 'list') {
-        const newModel = parts[1];
-        const oldModel = ctx.model || ctx.actualModel;
-
-        // Check context compatibility before switching (#26)
-        const oldLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, oldModel);
-        const newLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, newModel);
-        const currentTokens = ctx.estimateContextTokens();
-        const newPct = Math.round((currentTokens / newLimit) * 100);
-
-        ctx.setModel(newModel);
-        config.set('defaultModel', newModel);
-        ctx.setContextTokens(currentTokens);
-
-        let switchWarning = '';
-        if (newPct > 80) {
-          switchWarning = `\n⚠️  Context at ${newPct}% of new model limit (${Math.round(currentTokens/1000)}K/${Math.round(newLimit/1000)}K). Consider /compact.`;
-        } else if (newLimit < oldLimit) {
-          switchWarning = `\n📉 Context window: ${Math.round(oldLimit/1000)}K → ${Math.round(newLimit/1000)}K (${newPct}% used)`;
-        }
-        ctx.addMessage('system', `Model: ${oldModel} → ${newModel} (saved as default)${switchWarning}`);
-      } else {
-        // No arg or `list`: open the model picker (absorbs the old /models listing)
-        ctx.addMessage('system', `Fetching models for ${ctx.actualProvider}...`);
-        try {
-          const models = await getAvailableModels(ctx.actualProvider, { throwOnError: true });
-          if (models.length > 0) {
-            ctx.setAvailableModels(models);
-            ctx.setModalMode('model');
-          } else {
-            ctx.addMessage('error', `No models found for ${ctx.actualProvider} — API key may be invalid`);
-          }
-        } catch (e) {
-          ctx.addMessage('error', `Failed to fetch models for ${ctx.actualProvider}: ${e instanceof Error ? e.message : String(e)}. Check your API key.`);
-        }
-      }
+    case '/defaults': {
+      const { handleModelCommand } = await import('./model-commands.js');
+      await handleModelCommand(cmd, ctx);
       break;
+    }
+    case '/once': {
+      if (ctx.submitOnce) await ctx.submitOnce(cmd);
+      else ctx.addMessage('error', 'Usage: /once [--provider <name>] [--model <id>] -- <prompt>');
+      break;
+    }
 
     case '/mode':
       if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
@@ -1031,6 +987,7 @@ Stop a running loop with /loop stop`);
           break;
         }
         ctx.sessionRef.current = resumedSession;
+        ctx.reloadDefaults?.(resumedSession.projectPath);
       }
 
       if (ctx.ledger) {

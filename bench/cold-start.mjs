@@ -15,11 +15,10 @@
  *                *first byte* is a clean module-load proxy and is gated; its
  *                *exit* includes a one-time network update-check (cached for 24h
  *                afterwards) so exit is REPORTED but NOT gated.
- *   - `--headless "noop"` cannot run without API keys: with no keys it falls
- *                into interactive setup and exits non-zero after ~0.5s. It is
- *                therefore NOT a valid keyless cold-start metric. We probe it
- *                once, print the finding, and do not gate on it. See
- *                docs/performance.md.
+ *   - `--headless "noop"` includes backend discovery/routing, so it is not a
+ *                module-load metric. Its informational probe uses an isolated
+ *                configuration and an empty automatic provider pool, preventing
+ *                inference with credentials from the developer's machine.
  *
  * ARTIFACT / BUDGET (node mode vs. binary mode):
  *   - Default (`npm run bench`, `npm run bench:cold`): measures `node dist/bin.js`
@@ -34,7 +33,8 @@ import { spawn } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { summarize, fmtMs } from './lib/stats.mjs';
 import { budget as budgetFor, CI } from './budgets.mjs';
 
@@ -131,15 +131,23 @@ async function main() {
   const config = await measure('--config', ['--config']);
   const version = await measure('--version', ['--version']);
 
-  // Informational headless probe (single run, not gated). Empty out any API-key
-  // env vars so this reflects the honest keyless path.
+  // Informational headless probe (single run, not gated). An empty provider pool
+  // prevents inference even if a project/global env file supplies credentials.
   const keylessEnv = {};
   for (const k of Object.keys(process.env)) {
     if (/API_KEY|BASE_URL|ANTHROPIC|OPENAI|GOOGLE|OLLAMA|GROQ|MISTRAL|TOGETHER|OPENROUTER|BEDROCK|AI21|HUGGINGFACE|LITELLM/.test(k)) {
       keylessEnv[k] = '';
     }
   }
-  const headless = await runOnce(['--headless', 'noop'], { env: keylessEnv, timeoutMs: 4000 });
+  const probeState = mkdtempSync(join(tmpdir(), 'calliope-bench-headless-'));
+  let headless;
+  try {
+    writeFileSync(join(probeState, 'config.json'), JSON.stringify({ setupComplete: false,
+      defaultProvider: 'auto', routing: { enabled: false, providerPool: [] }, audit: { enabled: false } }));
+    headless = await runOnce(['--headless', '--json', '--provider', 'auto', 'noop'], {
+      env: { ...keylessEnv, CALLIOPE_CONFIG_DIR: probeState }, timeoutMs: 4000,
+    });
+  } finally { rmSync(probeState, { recursive: true, force: true }); }
 
   const coldBudget = budgetFor(BUDGET_KEY);
 
@@ -179,9 +187,9 @@ async function main() {
   );
   console.log(
     `  headless keyless probe: exit code ${headless.code}${headless.timedOut ? ' (timed out)' : ''} in ${fmtMs(headless.exit)}, ` +
-      `first stdout byte ${headless.firstByte === null ? 'none (setup went to stderr)' : fmtMs(headless.firstByte)}.`,
+      `first stdout byte ${headless.firstByte === null ? 'none' : fmtMs(headless.firstByte)}.`,
   );
-  console.log(`    -> headless requires keys; not a valid keyless cold-start metric (see docs/performance.md).`);
+  console.log(`    -> isolated empty-provider-pool diagnostic; no inference, not a cold-start gate (see docs/performance.md).`);
 
   const breaches = gates.filter((g) => g.value !== undefined && g.value > coldBudget);
   const pass = breaches.length === 0;

@@ -33,6 +33,7 @@ Inside a session:
 ```
 /mode plan              think first — the agent proposes, you approve
 /model list             see live-discovered models for your provider
+/defaults save          save the current provider/model for this project
 /scope add ../lib       widen file access deliberately
 /compact                compress context when it grows
 /restore                list git checkpoints; /restore <path> to roll back
@@ -63,7 +64,7 @@ One file, 16 keys. Credentials live in a per-provider map with environment-varia
 
 `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OLLAMA_BASE_URL`, and friends work as before. v2 configs migrate automatically on first run.
 
-Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
+Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [model preferences](docs/model-preferences.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
 
 ## Editors
 

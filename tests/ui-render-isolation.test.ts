@@ -21,7 +21,8 @@ import { render } from 'ink-testing-library';
 // Mock heavy / IO-bound modules before importing the tree under test
 // ---------------------------------------------------------------------------
 
-vi.mock('../src/config.js', () => {
+vi.mock('../src/config.js', async original => {
+  const actual = await original<typeof import('../src/config.js')>();
   const get = vi.fn((key: string) => {
     switch (key) {
       case 'defaultProvider': return 'anthropic';
@@ -43,7 +44,7 @@ vi.mock('../src/config.js', () => {
   };
   // Some modules import the default export (config.get); others use named
   // imports — provide both.
-  return { default: api, ...api };
+  return { ...actual, default: api, ...api };
 });
 
 vi.mock('../src/storage.js', () => ({

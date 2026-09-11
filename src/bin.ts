@@ -57,7 +57,9 @@ if (process.env.DEBUG === 'true' && !process.env.CALLIOPE_DEBUG) {
 }
 
 // Handle CLI flags
-const args = process.argv.slice(2);
+const rawArgs = process.argv.slice(2);
+const delimiter = rawArgs.indexOf('--');
+const args = delimiter < 0 ? rawArgs : rawArgs.slice(0, delimiter);
 
 // Check for god-mode flag (skip all permission prompts)
 const skipPermissions = args.includes('--god-mode') ||
@@ -252,6 +254,9 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  // Headless startup never opens interactive setup or writes banner text to JSON.
+  if (useHeadless) return startCLI();
+
   // Show warning if god-mode enabled
   if (skipPermissions) {
     console.log(`${colors.magenta}⚡ GOD MODE ENABLED${colors.reset}`);
@@ -298,6 +303,15 @@ async function main(): Promise<void> {
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+  const { parseModelFlags } = await import('./preferences/index.js');
+  let parsed: ReturnType<typeof parseModelFlags>;
+  try { parsed = parseModelFlags(rawArgs); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid provider/model options';
+    if (useHeadless && args.includes('--json')) console.log(JSON.stringify({ type: 'error', timestamp: new Date().toISOString(), data: { message } }));
+    else console.error(message);
+    process.exit(2);
+  }
   // Initialize HUD palette from the persisted theme (dark/light/no-color).
   const { applyCurrentTheme } = await import('./themes.js');
   applyCurrentTheme();
@@ -305,20 +319,23 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
   // Merge in global flags
   const fullOptions = {
     ...options,
+    initialPreference: parsed.preference,
   };
 
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
     const { runHeadless } = await import('./headless.js');
     // Extract prompt from remaining args (non-flag args, skip --max-retries value)
-    const prompt = args.filter((a, i) => {
+    const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && args[i - 1] === '--max-retries') return false;
+      if (i > 0 && parsed.args[i - 1] === '--max-retries') return false;
       return true;
-    }).join(' ');
+    }), ...parsed.literal].join(' ');
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
+      provider: parsed.preference.provider,
+      model: parsed.preference.model ?? undefined,
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
@@ -354,6 +371,9 @@ ${bold('OPTIONS')}
                     Enables unrestricted autonomous execution
   --headless        Headless mode (JSON/text output, no TTY; auto-detected when piped)
   --json            Output JSON events (with --headless)
+  --provider NAME  Select a provider for this invocation (or auto)
+  --model ID       Select a live model for this invocation
+  --               Treat following arguments as literal prompt text
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
   --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
@@ -382,6 +402,7 @@ ${bold('ENVIRONMENT VARIABLES')}
   .env and cli.env in the current directory, then ~/.config/calliope/cli.env
   (global). Existing values are never overwritten.
 
+  CALLIOPE_PROVIDER / CALLIOPE_MODEL  Defaults below explicit session/turn choices
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
 
 ${bold('INTERACTIVE COMMANDS')}

@@ -19,7 +19,7 @@ Defaults are the values applied when a key is absent.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `setupComplete` | boolean | `false` | Whether first-run setup has finished. |
-| `defaultProvider` | string | `auto` | Provider used at startup (`auto` picks the first configured one). |
+| `defaultProvider` | string | `auto` | Global provider preference, below trusted project, environment and explicit choices. `auto` uses live routing eligibility. |
 | `defaultModel` | string | *(unset)* | Model used at startup; falls back to the provider's default. |
 | `providers` | object | *(unset)* | Per-provider credentials. See [Provider credentials](#provider-credentials). |
 | `providerHealth` | object | *(defaults)* | Retention, repeated-failure quarantine and probe deadlines. See [Provider health](./provider-health.md#configuration-import-and-recovery). |
@@ -63,6 +63,11 @@ The remaining keys (`setupComplete`, `defaultProvider`, `defaultModel`,
 `providers`, `fleet`, `maxIterationTime`, `autoSaveHistory`, `autoUpgrade`,
 `circuitBreakersEnabled`) are set by the setup wizard, environment variables,
 or by editing the config file directly.
+
+Provider/model switches are session-only. `/defaults save` persists project
+choices in `.calliope-models.json`; `/once` and invocation `--provider`/`--model`
+flags are temporary. See [Model preferences](model-preferences.md) for precedence
+and trust requirements across terminal, headless and ACP.
 
 > `theme` is accepted by `/config set` but is **not** stored in the config file.
 > It persists separately in `~/.calliope-cli/themes/current.txt`. See

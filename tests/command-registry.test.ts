@@ -17,7 +17,7 @@ import { SLASH_COMMANDS } from '../src/ui/completions.js';
 // /exit + the flag-gated /fleet (always handled here, gated only in completions).
 const EXPECTED_COMMANDS = [
   '/help', '/status', '/doctor', '/clear', '/exit', '/quit',
-  '/model', '/provider', '/mode',
+  '/model', '/provider', '/mode', '/defaults', '/once',
   '/undo', '/export', '/resume', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
@@ -29,7 +29,7 @@ const EXPECTED_COMMANDS = [
 // /fleet only surfaces when fleet mode is enabled).
 const EXPECTED_COMPLETION_ROOTS = [
   '/help', '/status', '/doctor', '/clear', '/exit',
-  '/model', '/provider', '/mode',
+  '/model', '/provider', '/mode', '/defaults', '/once',
   '/undo', '/export', '/resume', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',

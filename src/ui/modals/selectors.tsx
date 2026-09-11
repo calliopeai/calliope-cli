@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { formatModelDetails } from '../../preferences/index.js';
 import type { ModelInfo } from '../../model-detection.js';
 import type { LLMProvider } from '../../types.js';
 import type { SessionInfo } from '../types.js';
@@ -49,6 +50,7 @@ export function ModelSelector({
           </Text>
         );
       })}
+      {models[index] && <Text dimColor>{formatModelDetails(models[index]!)}</Text>}
       {models.length > pageSize && (
         <Text dimColor>  ({index + 1}/{models.length})</Text>
       )}
@@ -138,6 +140,7 @@ export interface ProviderEntry {
   id: LLMProvider;
   label: string;           // Display name
   configured: boolean;     // Has creds?
+  health?: string;
   configHint: string;      // e.g. "ANTHROPIC_API_KEY" or "AWS_PROFILE / AWS_ACCESS_KEY_ID"
   recommended?: boolean;   // Highlight as easiest option (Ollama)
   note?: string;           // Extra info (e.g. "local, free")
@@ -188,7 +191,7 @@ export function ProviderSelector({
             </Text>
             <Text color={starColor}>{star} </Text>
             <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
-              {p.label}
+              {p.label}{p.health ? ` [${p.health}]` : ''}
             </Text>
             {p.note && <Text dimColor>  — {p.note}</Text>}
             {tag && <Text color="yellow">{tag}</Text>}

@@ -46,6 +46,7 @@ import {
 import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
 import { runTurn } from './runtime/index.js';
+import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
 import { DEFAULT_MODELS } from './types.js';
@@ -173,6 +174,7 @@ interface AcpSession {
   resolvedProvider: LLMProvider;
   /** Configured model, or '' to let the provider pick its default. */
   model: string;
+  preference: ResolvedPreference;
   messages: Message[];
   runlog: RunLog;
   /** Set by session/cancel; checked cooperatively at every loop boundary. */
@@ -229,8 +231,10 @@ class CalliopeAgent implements Agent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const cwd = params.cwd || process.cwd();
-    const provider = (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
-    const model = process.env.CALLIOPE_MODEL || config.get('defaultModel') || '';
+    let preference: ResolvedPreference;
+    try { preference = resolvePreferences(cwd); }
+    catch (error) { throw RequestError.invalidParams({ error: error instanceof Error ? error.message : String(error) }); }
+    const { provider } = preference, model = preference.model || '';
 
     // Resolve the provider so 'auto' picks a real backend for the system prompt,
     // cost model, and local-backend flag (mirrors the headless runner). Fall back
@@ -259,6 +263,7 @@ class CalliopeAgent implements Agent {
       provider,
       resolvedProvider,
       model,
+      preference,
       messages: [{ role: 'system', content: fullPrompt }],
       runlog,
       cancelled: false,
@@ -314,10 +319,12 @@ class CalliopeAgent implements Agent {
     const messages = { current: session.messages };
     let streamedChars = 0;
     try {
+      for (const warning of session.preference.warnings) await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[Warning: ${warning}]\n` } });
       const result = await runTurn({
         client: 'acp',
         sessionId: session.id, cwd: session.cwd, provider: session.provider,
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
+        preferenceSources: session.preference.sources,
         runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
         confirmation: 'mutating', tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
         prepare: async request => { streamedChars = 0; return request; },
