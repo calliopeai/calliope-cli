@@ -28,6 +28,7 @@ for (const capture of captures) it(`captured ${capture.backend}/${capture.scenar
   // Preserve a private gateway's path prefix without contacting its origin.
   const endpointPath = capture.exchanges[0].request.path;
   if (backend.protocol === 'ollama') vi.mocked(config.getBaseUrl).mockReturnValue('https://replay.invalid' + endpointPath.replace(/\/api\/chat$/, ''));
+  else if (backend.protocol === 'google') vi.mocked(config.getBaseUrl).mockReturnValue('https://replay.invalid' + endpointPath.replace(/\/v1beta\/models\/.*$/, ''));
   else if (backend.protocol === 'chat' && backend.provider !== 'openai') vi.mocked(config.getBaseUrl).mockReturnValue('https://replay.invalid' + endpointPath.replace(/\/chat\/completions$/, ''));
   const result = await invoke(adapters, backend, capture.model,
     probeMessages(capture.scenario), capture.scenario === 'tool' ? [TOOL] : [], capture.stream ? () => {} : undefined);
