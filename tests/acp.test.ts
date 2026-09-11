@@ -47,6 +47,7 @@ vi.mock('../src/providers/index.js', () => ({
 }));
 
 vi.mock('../src/tools.js', () => ({
+  checkToolBoundary: vi.fn(() => undefined),
   TOOLS: [],
   executeTool: (...args: unknown[]) => mockExecuteTool(...args),
   getTools: vi.fn(() => []),

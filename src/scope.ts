@@ -101,29 +101,23 @@ class ScopeManager {
    *   so a write whose parent dir is a symlink out of scope is screened too.
    */
   private canonicalize(absPath: string): string | null {
-    try {
-      return fs.realpathSync(absPath);
-    } catch {
-      // Path (or an ancestor) does not exist, or realpath failed. Walk up to the
-      // nearest existing ancestor, canonicalize it, then re-append the tail.
-    }
-
     let current = absPath;
     const tail: string[] = [];
     while (true) {
-      const parent = path.dirname(current);
-      if (parent === current) {
-        // Reached filesystem root without finding an existing ancestor.
-        return absPath;
+      try {
+        // lstat distinguishes a missing path from an existing dangling symlink.
+        // Reconstructing a dangling link as a normal new file would let a write
+        // follow it outside scope after validation.
+        fs.lstatSync(current);
+        try { return path.join(fs.realpathSync(current), ...tail); }
+        catch { return null; }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return null;
       }
+      const parent = path.dirname(current);
+      if (parent === current) return null;
       tail.unshift(path.basename(current));
       current = parent;
-      try {
-        const realParent = fs.realpathSync(current);
-        return path.join(realParent, ...tail);
-      } catch {
-        // Keep walking up.
-      }
     }
   }
 

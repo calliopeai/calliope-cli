@@ -46,7 +46,8 @@ vi.mock('../src/providers/index.js', () => {
   };
 });
 
-vi.mock('../src/tools.js', () => ({ TOOLS: [], executeTool: vi.fn(), getTools: vi.fn(() => []) }));
+vi.mock('../src/tools.js', () => ({
+  checkToolBoundary: vi.fn(() => undefined), TOOLS: [], executeTool: vi.fn(), getTools: vi.fn(() => []) }));
 vi.mock('../src/types.js', () => ({
   getSystemPrompt: vi.fn(() => 'You are a helpful assistant.'),
   DEFAULT_MODELS: { openai: 'gpt-4o', anthropic: 'claude-3-5-sonnet-20241022' },

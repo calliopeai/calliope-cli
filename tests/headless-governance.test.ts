@@ -56,6 +56,7 @@ vi.mock('../src/providers/index.js', () => ({
 }));
 
 vi.mock('../src/tools.js', () => ({
+  checkToolBoundary: vi.fn(() => undefined),
   TOOLS: [],
   executeTool: (...args: unknown[]) => mockExecuteTool(...args),
   getTools: vi.fn(() => []),
@@ -251,4 +252,21 @@ describe('headless policy hook', () => {
     expect(code).toBe(0);
     expect(mockExecuteTool).toHaveBeenCalledTimes(1);
   });
+});
+
+
+it('honors pre-tool hooks in headless mode and audits the displayed reason', async () => {
+  const hooks = await import('../src/hooks.js');
+  const gate = vi.spyOn(hooks, 'checkHooksAllow').mockResolvedValueOnce({ allowed: false, reason: 'repository freeze' });
+  mockChat.mockResolvedValueOnce(toolResponse()).mockResolvedValueOnce(finalResponse());
+  try {
+    expect(await runHeadless({ prompt: 'go', provider: 'anthropic', cwd: CWD })).toBe(0);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    const trace = onlyRunLog();
+    const decision = trace.find(line => line.type === 'policy_event') as unknown as { source: string; decision: string; reason: string };
+    const result = trace.find(line => line.type === 'tool_result') as unknown as { result: string };
+    expect(decision).toMatchObject({ decision: 'deny', source: 'hook', reason: '[hook] Blocked by hook: repository freeze' });
+    expect(result.result).toBe(decision.reason);
+    expect(verifyChain(trace).ok).toBe(true);
+  } finally { gate.mockRestore(); }
 });

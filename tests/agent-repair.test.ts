@@ -40,6 +40,7 @@ vi.mock('../src/providers/types.js', () => ({
 }));
 
 vi.mock('../src/tools.js', () => ({
+  checkToolBoundary: vi.fn(() => undefined),
   executeTool: (...args: unknown[]) => executeToolMock(...args),
   getTools: vi.fn(() => [READ_FILE_TOOL]),
 }));
