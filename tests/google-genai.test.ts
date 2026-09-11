@@ -17,11 +17,10 @@ import { chatGoogle } from '../src/providers/google.js';
 
 describe('Google GenAI maintained SDK adapter', () => {
   beforeEach(() => {
-    process.env.CALLIOPE_GOOGLE_SDK = 'genai';
     generateContent.mockReset();
     generateContentStream.mockReset();
   });
-  afterEach(() => { delete process.env.CALLIOPE_GOOGLE_SDK; });
+  afterEach(() => {});
 
   it('sends multimodal content and parses function calls', async () => {
     generateContent.mockResolvedValue({
