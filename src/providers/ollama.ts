@@ -12,6 +12,7 @@
  * - Streaming support with proper tool call collection
  */
 
+import { cancellable, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
 import { debugLog, type StreamCallback, type ChatOptions } from './types.js';
@@ -247,13 +248,14 @@ export async function chatOllama(
   debugLog(`ollama native request: model=${model}, tools=${ollamaTools.length}, stream=${!!onToken}, format=${!!options?.format}`);
 
   try {
-    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format);
+    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format, options?.signal);
   } catch (error) {
+    throwIfCancelled(options?.signal);
     const errMsg = error instanceof Error ? error.message : String(error);
 
     // Model not found — try fallback
     if (errMsg.includes('not found') || errMsg.includes('404')) {
-      return tryFallback(baseUrl, model, ollamaMessages, ollamaTools, onToken);
+      return tryFallback(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.signal);
     }
 
     // Tool-related error (400) — retry without tools
@@ -261,7 +263,7 @@ export async function chatOllama(
       debugLog(`ollama: model "${model}" rejected tools, retrying without tools (will retry in ${TOOL_SKIP_COUNT} calls)`);
       toolUnsupportedModels.set(model, TOOL_SKIP_COUNT);
       const cleanMessages = toOllamaMessages(messages, true);
-      return doChat(baseUrl, model, cleanMessages, [], onToken);
+      return doChat(baseUrl, model, cleanMessages, [], onToken, undefined, options?.signal);
     }
 
     throw error;
@@ -274,8 +276,10 @@ async function doChat(
   messages: OllamaMessage[],
   tools: OllamaTool[],
   onToken?: StreamCallback,
-  format?: unknown
+  format?: unknown,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
+  throwIfCancelled(signal);
   const requestBody: OllamaChatRequest = {
     model,
     messages,
@@ -286,6 +290,7 @@ async function doChat(
 
   let response = await fetch(`${baseUrl}/api/chat`, {
     method: 'POST',
+    ...(signal ? { signal } : {}),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
   });
@@ -300,6 +305,7 @@ async function doChat(
       const { format: _dropped, ...withoutFormat } = requestBody;
       response = await fetch(`${baseUrl}/api/chat`, {
         method: 'POST',
+        ...(signal ? { signal } : {}),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(withoutFormat),
       });
@@ -416,9 +422,12 @@ async function tryFallback(
   originalModel: string,
   messages: OllamaMessage[],
   tools: OllamaTool[],
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
-  const fallback = await getOllamaFallbackModel();
+  throwIfCancelled(signal);
+  const fallback = await cancellable(getOllamaFallbackModel(), signal);
+  throwIfCancelled(signal);
   if (!fallback || fallback === originalModel) {
     throw new Error(`Ollama model "${originalModel}" not found. Pull it with: ollama pull ${originalModel}`);
   }
@@ -427,6 +436,6 @@ async function tryFallback(
   // Substituting the model is a decision the user must see, not a silent swap
   // (#217): attach a warning the TUI/headless surface, don't hide it.
   const warning = `ollama: model "${originalModel}" not found — using "${fallback}" (ollama pull ${originalModel} to use it)`;
-  const response = await doChat(baseUrl, fallback, messages, tools, onToken);
+  const response = await doChat(baseUrl, fallback, messages, tools, onToken, undefined, signal);
   return { ...response, warnings: [warning, ...(response.warnings ?? [])] };
 }

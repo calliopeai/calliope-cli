@@ -9,6 +9,7 @@ import { withRetry } from '../errors.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
 import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions } from './types.js';
+import { throwIfCancelled } from '../cancellation.js';
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
 import { chatAnthropic } from './anthropic.js';
 import { chatGoogle } from './google.js';
@@ -129,8 +130,11 @@ export async function chat(
   onRetry?: RetryCallback,
   options?: ChatOptions
 ): Promise<LLMResponse> {
+  throwIfCancelled(options?.signal);
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+  const callback = onToken;
+  if (callback && options?.signal) onToken = token => { if (!options.signal!.aborted) callback(token); };
 
   // Local backends see a simplified (but execution-lossless) tool schema:
   // first-sentence descriptions, capped enums, and the edit_file anchor_hash
@@ -139,16 +143,17 @@ export async function chat(
   const backendTools = isLocalBackend(actualProvider) ? simplifyToolsForLocal(tools) : tools;
 
   const doChat = async (): Promise<LLMResponse> => {
+    throwIfCancelled(options?.signal);
     let response: LLMResponse;
     switch (actualProvider) {
       case 'anthropic':
-        response = await chatAnthropic(messages, backendTools, actualModel, onToken);
+        response = await chatAnthropic(messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'google':
-        response = await chatGoogle(messages, backendTools, actualModel, onToken);
+        response = await chatGoogle(messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'openai':
-        response = await chatOpenAI(messages, backendTools, actualModel, onToken);
+        response = await chatOpenAI(messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'openrouter':
       case 'together':
@@ -157,22 +162,22 @@ export async function chat(
       case 'mistral':
       case 'ai21':
       case 'huggingface':
-        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'ollama':
         response = await chatOllama(messages, backendTools, actualModel, onToken, options);
         break;
       case 'litellm':
-        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
+        response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'bedrock': {
         const bedrockBase = config.getBaseUrl('bedrock');
         if (bedrockBase) {
           // Gateway/proxy mode (existing)
-          response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken);
+          response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         } else {
           // Native AWS mode
-          response = await chatBedrock(messages, backendTools, actualModel, onToken);
+          response = await chatBedrock(messages, backendTools, actualModel, onToken, options?.signal);
         }
         break;
       }
@@ -180,11 +185,13 @@ export async function chat(
         throw new Error(`Provider ${actualProvider} not implemented`);
     }
     // Validate and sanitize response before returning
+    throwIfCancelled(options?.signal);
     return validateLLMResponse(response);
   };
 
   // Wrap with retry logic
   return withRetry(doChat, {
+    signal: options?.signal,
     maxRetries: 2,
     initialDelayMs: 1000,
     onRetry: onRetry,

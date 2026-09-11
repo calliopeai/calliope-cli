@@ -30,7 +30,7 @@ is implemented and tested against the official TypeScript SDK
 | `authenticate` | ✅ | No-op — Calliope authenticates via locally-configured provider keys |
 | `session/new` | ✅ | One Calliope session per ACP session; the session id round-trips |
 | `session/prompt` | ✅ | Drives the agent loop (chat + tools) to a stop reason |
-| `session/cancel` | ✅ | Aborts the in-flight turn; returns `stopReason: cancelled` |
+| `session/cancel` | ✅ | Aborts provider I/O and pending permission waits; returns `stopReason: cancelled` |
 | `session/update` (streaming) | ✅ | `agent_message_chunk`, `tool_call`, `tool_call_update` |
 | `session/request_permission` | ✅ | Asked for mutating/destructive tools (see below) |
 | `fs/read_text_file`, `fs/write_text_file` | ✅ | Preferred for file tools when the client advertises `fs` |
@@ -144,3 +144,14 @@ and deny), mid-prompt cancellation, and client-side filesystem delegation are al
 covered by in-process tests that drive the SDK's client against the agent
 (`tests/acp.test.ts`, `tests/acp-fs-delegate.test.ts`). A live editor smoke test
 in Zed and JetBrains is pending and tracked on the release checklist.
+
+## Cancellation and instructions
+
+Each session owns one active prompt. Concurrent prompts in the same session are
+rejected; a completed cancellation permits a new prompt. Late permission replies
+cannot authorize tools from a cancelled turn. Cancellation preserves assistant /
+tool-result pairing for the next request. It cannot undo completed writes or
+retract remote operations; see [cancellation limits](./features.md#cancellation).
+
+Trusted [repository instructions](./instructions.md) load from the session's
+`cwd` when the session is created.

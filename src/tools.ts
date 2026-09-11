@@ -4,6 +4,8 @@
  * Tool definitions and execution for the agent.
  */
 
+import { cancellable, isCancellation, throwIfCancelled } from './cancellation.js';
+import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
 import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -403,6 +405,7 @@ export interface FsDelegate {
  * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
+  signal?: AbortSignal;
   appendAnchorHash?: boolean;
   fs?: FsDelegate;
 }
@@ -417,6 +420,26 @@ export async function executeTool(
   onOutput?: (chunk: string) => void,
   options?: ExecuteToolOptions
 ): Promise<ToolResult> {
+  const signal = options?.signal;
+  throwIfCancelled(signal);
+  if (onOutput && signal) {
+    const output = onOutput;
+    onOutput = chunk => { if (!signal.aborted) output(chunk); };
+  }
+  // A cancelled editor read must not be followed by a write using a late reply.
+  const delegate = options?.fs;
+  if (delegate && signal) {
+    options = { ...options, fs: {
+      readTextFile: delegate.readTextFile ? async file => {
+        throwIfCancelled(signal);
+        return cancellable(delegate.readTextFile!(file), signal);
+      } : undefined,
+      writeTextFile: delegate.writeTextFile ? async (file, content) => {
+        throwIfCancelled(signal);
+        return cancellable(delegate.writeTextFile!(file, content), signal);
+      } : undefined,
+    } };
+  }
   const { id, name, arguments: args } = toolCall;
 
   // Mirror tool call to the fleet channel
@@ -424,9 +447,10 @@ export async function executeTool(
     await fleetMirrorToolCall(name, args);
   }
 
+  throwIfCancelled(signal);
   // Handle plugin tools
   if (isPluginTool(name)) {
-    return executePluginTool(toolCall, cwd);
+    return cancellable(executePluginTool(toolCall, cwd), signal);
   }
 
   try {
@@ -437,7 +461,7 @@ export async function executeTool(
         if (typeof args.command !== 'string') {
           return { toolCallId: id, result: 'Error: command must be a string', isError: true };
         }
-        result = await executeShell(args.command, cwd, timeout, onOutput);
+        result = await executeShell(args.command, cwd, timeout, onOutput, signal);
         break;
       }
 
@@ -514,7 +538,7 @@ export async function executeTool(
         if (typeof args.code !== 'string') {
           return { toolCallId: id, result: 'Error: code must be a string', isError: true };
         }
-        result = await executeCode(args.language as 'python' | 'node' | 'bash', args.code, cwd, timeout);
+        result = await executeCode(args.language as 'python' | 'node' | 'bash', args.code, cwd, timeout, signal);
         break;
       }
 
@@ -534,7 +558,7 @@ export async function executeTool(
           return { toolCallId: id, result: 'Error: operation must be a string', isError: true };
         }
         const gitArgs = typeof args.args === 'string' ? args.args : '';
-        result = await executeGit(args.operation, gitArgs, cwd);
+        result = await executeGit(args.operation, gitArgs, cwd, signal);
         break;
       }
 
@@ -674,6 +698,7 @@ export async function executeTool(
         return { toolCallId: id, result: `Unknown tool: ${name}`, isError: true };
     }
 
+    throwIfCancelled(signal);
     // Generate human-friendly display summary for large results (#25)
     const lines = result.split('\n');
     let displayResult: string | undefined;
@@ -684,6 +709,8 @@ export async function executeTool(
 
     return { toolCallId: id, result, displayResult };
   } catch (error) {
+    throwIfCancelled(signal);
+    if (isCancellation(error)) throw error;
     const msg = error instanceof Error ? error.message : String(error);
     return { toolCallId: id, result: `Error: ${msg}`, isError: true };
   }
@@ -875,7 +902,8 @@ function validateShellPaths(command: string, cwd: string): string | null {
 /**
  * Execute a shell command
  */
-async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void): Promise<string> {
+async function executeShell(command: string, cwd: string, timeout: number, onOutput?: (chunk: string) => void, signal?: AbortSignal): Promise<string> {
+  throwIfCancelled(signal);
   // Check against blocked command patterns using normalized matching (#60)
   const blocked = matchesBlocklist(command);
   if (blocked) {
@@ -886,6 +914,15 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
   const scopeError = validateShellPaths(command, cwd);
   if (scopeError) {
     return `Error: ${scopeError}`;
+  }
+
+  if (sandbox.getSandboxMode() === 'docker') {
+    const result = await sandbox.executeInSandbox('bash', `cd /project\n${command}`, {
+      timeout, mountWorkdir: true, readOnly: true,
+    }, cwd, signal);
+    throwIfCancelled(signal);
+    const output = result.stdout + (result.stderr ? `\nstderr: ${result.stderr}` : '');
+    return result.success ? output || '(no output)' : `Exit code ${result.exitCode}\n${output}`;
   }
 
   // Check if native sandbox should be used
@@ -906,6 +943,7 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
     // Network is OFF by default; opt in via CALLIOPE_SHELL_NETWORK=1 (#133).
     const networkEnabled = process.env.CALLIOPE_SHELL_NETWORK === '1';
     const result = await sandbox.executeInNativeSandbox(command, cwd, {
+      signal,
       timeout,
       networkEnabled,
     });
@@ -925,10 +963,12 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
   return new Promise((resolve, reject) => {
     const proc = spawn('bash', ['-c', command], {
       cwd,
+      detached: detachedProcess,
       env: { ...process.env, TERM: 'dumb' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    const stopped = bindProcessCancellation(proc, signal);
     let stdout = '';
     let stderr = '';
     let truncated = false;
@@ -962,8 +1002,9 @@ async function executeShell(command: string, cwd: string, timeout: number, onOut
       reject(new Error('Command timed out'));
     }, timeout);
 
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       clearTimeout(timer);
+      await stopped;
       let output = stdout + (stderr ? `\nstderr: ${stderr}` : '');
 
       if (truncated) {
@@ -1251,8 +1292,10 @@ async function executeCode(
   language: 'python' | 'node' | 'bash',
   code: string,
   cwd: string,
-  timeout: number
+  timeout: number,
+  signal?: AbortSignal
 ): Promise<string> {
+  throwIfCancelled(signal);
   const sandboxLang = language === 'node' ? 'node' : language;
 
   // Determine execution strategy from sandboxMode config
@@ -1260,11 +1303,11 @@ async function executeCode(
 
   if (strategy === 'docker') {
     // Docker sandbox path (existing behaviour)
-    const result = await sandbox.execute(sandboxLang as sandbox.Language, code, {
+    const result = await sandbox.executeInSandbox(sandboxLang as sandbox.Language, code, {
       timeout,
       mountWorkdir: true,
       readOnly: true,
-    }, cwd);
+    }, cwd, signal);
 
     const sandboxIndicator = result.sandboxed ? '[sandboxed:docker]' : '[unsandboxed]';
     const statusIndicator = result.success ? 'ok' : 'err';
@@ -1292,12 +1335,12 @@ async function executeCode(
 
     const startTime = Date.now();
     const result = await sandbox.executeInNativeSandbox(cmd, cwd, {
+      signal,
       timeout,
       readOnlyPaths: [tempDir],
+    }).finally(() => {
+      try { fs.rmSync(tempDir, { recursive: true }); } catch { /* ignore */ }
     });
-
-    // Cleanup temp
-    try { fs.rmSync(tempDir, { recursive: true }); } catch { /* ignore */ }
 
     const duration = Date.now() - startTime;
     const sandboxIndicator = result.sandboxed ? `[sandboxed:${result.backend}]` : '[unsandboxed]';
@@ -1311,7 +1354,7 @@ async function executeCode(
   }
 
   // Unsandboxed fallback (mode === 'off' or nothing available)
-  const result = await sandbox.executeUnsafe(sandboxLang as sandbox.Language, code, timeout);
+  const result = await sandbox.executeUnsafe(sandboxLang as sandbox.Language, code, timeout, signal);
 
   const statusIndicator = result.success ? 'ok' : 'err';
   let output = `[unsandboxed] ${statusIndicator} [${language}]\n`;
@@ -1414,7 +1457,7 @@ function shellEscape(s: string): string {
 // because the shell-metachar strip used before did not catch them.
 const DANGEROUS_GIT_FLAG_RE = /^(--upload-pack|--receive-pack|--exec|--config-env)(=|$)/;
 
-async function executeGit(operation: string, args: string, cwd: string): Promise<string> {
+async function executeGit(operation: string, args: string, cwd: string, signal?: AbortSignal): Promise<string> {
   const allowedOps = ['status', 'diff', 'log', 'branch', 'add', 'commit', 'push', 'pull', 'stash'];
 
   if (!allowedOps.includes(operation)) {
@@ -1470,7 +1513,7 @@ async function executeGit(operation: string, args: string, cwd: string): Promise
       return `Unknown operation: ${operation}`;
   }
 
-  return executeShell(command, cwd, 30000);
+  return executeShell(command, cwd, 30000, undefined, signal);
 }
 
 /**

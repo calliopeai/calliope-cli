@@ -104,6 +104,7 @@ export { skipPermissions, useHeadless, maxRetries };
 // ---------------------------------------------------------------------------
 
 let shuttingDown = false;
+let headlessCancellation: AbortController | undefined;
 
 /**
  * Run cleanup exactly once, then exit. Re-entrant calls (e.g. a second Ctrl-C
@@ -124,8 +125,8 @@ export async function shutdown(exitCode = 0): Promise<void> {
 
 /** Register signal + top-level error handlers. Idempotent. */
 export function registerProcessHandlers(): void {
-  process.on('SIGINT', () => { void shutdown(0); });
-  process.on('SIGTERM', () => { void shutdown(0); });
+  process.on('SIGINT', () => { if (headlessCancellation) headlessCancellation.abort(); else void shutdown(0); });
+  process.on('SIGTERM', () => { if (headlessCancellation) headlessCancellation.abort(); else void shutdown(0); });
   process.on('unhandledRejection', (reason) => {
     console.error('Unhandled rejection:', reason instanceof Error ? reason.message : reason);
     void shutdown(1);
@@ -307,7 +308,9 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       if (i > 0 && args[i - 1] === '--max-retries') return false;
       return true;
     }).join(' ');
+    headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
+      signal: headlessCancellation.signal,
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,

@@ -589,3 +589,46 @@ describe('audit run log', () => {
     expect(verifyChain(lines).ok).toBe(true);
   });
 });
+
+
+describe('ACP cancellation lifecycle', () => {
+  it('aborts provider I/O and accepts a fresh prompt after cancellation', async () => {
+    const { conn } = connect();
+    await handshake(conn);
+    const sessionId = await newSession(conn);
+    let signal: AbortSignal | undefined;
+    mockChat.mockImplementationOnce(async (...args) => {
+      signal = args[6].signal;
+      return new Promise((_, reject) => signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
+    });
+    const first = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'work' }] });
+    await waitFor(() => signal !== undefined);
+    await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'overlap' }] })).rejects.toThrow('Invalid params');
+    await conn.cancel({ sessionId });
+    expect((await first).stopReason).toBe('cancelled');
+    expect(signal!.aborted).toBe(true);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    scriptChat([{ content: 'fresh response' }]);
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason).toBe('end_turn');
+  });
+
+  it('cancels a pending permission request without waiting for an answer', async () => {
+    const { client, conn } = connect();
+    await handshake(conn);
+    const sessionId = await newSession(conn);
+    let answer!: (value: RequestPermissionResponse) => void;
+    vi.spyOn(client, 'requestPermission').mockImplementation(() => new Promise(resolve => { answer = resolve; }));
+    scriptChat([{ toolCalls: [{ id: 'write', name: 'write_file', arguments: { path: 'file.txt', content: 'no' } }] }]);
+    const pending = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write' }] });
+    await waitFor(() => answer !== undefined);
+    await conn.cancel({ sessionId });
+    expect((await pending).stopReason).toBe('cancelled');
+    answer({ outcome: { outcome: 'selected', optionId: 'allow' } });
+    await settle();
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    scriptChat([{ content: 'resumed' }]);
+    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] });
+    const messages = mockChat.mock.calls.at(-1)![1] as Array<{ role: string; toolCallId?: string }>;
+    expect(messages.filter(m => m.role === 'tool' && m.toolCallId === 'write')).toHaveLength(1);
+  });
+});

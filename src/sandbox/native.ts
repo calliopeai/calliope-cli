@@ -6,6 +6,8 @@
  * Linux Landlock support is planned for the future.
  */
 
+import { throwIfCancelled } from '../cancellation.js';
+import { bindProcessCancellation, detachedProcess } from '../process-cancellation.js';
 import { spawn, execFileSync } from 'child_process';
 import * as os from 'os';
 
@@ -24,6 +26,7 @@ export interface NativeSandboxResult {
 }
 
 export interface NativeSandboxOptions {
+  signal?: AbortSignal;
   /** Timeout in milliseconds (default: 60000) */
   timeout?: number;
   /** Allow network access (default: false) */
@@ -273,11 +276,12 @@ export function executeInNativeSandbox(
   cwd: string,
   options: NativeSandboxOptions = {},
 ): Promise<NativeSandboxResult> {
+  throwIfCancelled(options.signal);
   const backend = getAvailableBackend();
 
   switch (backend) {
     case 'seatbelt':
-      return executeWithSeatbelt(command, cwd, options);
+      return executeWithSeatbelt(command, cwd, options).then(result => { throwIfCancelled(options.signal); return result; });
     case 'landlock':
       // Landlock not yet implemented — fall through to unsandboxed
       return Promise.resolve({
@@ -319,11 +323,13 @@ function executeWithSeatbelt(
 
     const child = spawn('sandbox-exec', ['-p', profile, 'bash', '-c', command], {
       cwd,
+      detached: detachedProcess,
       timeout,
       env: { ...process.env, TERM: 'dumb' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    const stopped = bindProcessCancellation(child, options.signal);
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill('SIGKILL');
@@ -349,8 +355,9 @@ function executeWithSeatbelt(
       }
     });
 
-    child.on('close', (code) => {
+    child.on('close', async (code) => {
       clearTimeout(timer);
+      await stopped;
 
       if (stdoutTruncated) stdout += TRUNCATION_WARNING;
       if (stderrTruncated) stderr += TRUNCATION_WARNING;

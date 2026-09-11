@@ -8,6 +8,7 @@
  * module (not a component file).
  */
 
+import { TurnController } from '../../turn-controller.js';
 import { useCallback, useEffect, useRef } from 'react';
 import { useApp } from 'ink';
 import * as config from '../../config.js';
@@ -102,6 +103,8 @@ export function useChatController(): ChatController {
 
   // -- Long-lived refs ------------------------------------------------------
   const isProcessingRef = useRef(false);
+  const turnController = useRef(new TurnController());
+  useEffect(() => () => turnController.current.cancel(), []);
   const surfacedProviderErrorRef = useRef<string | null>(null);
   const inputSubmitRef = useRef<((value: string) => void) | null>(null);
   const openProviderPickerRef = useRef<(() => void) | null>(null);
@@ -236,11 +239,11 @@ export function useChatController(): ChatController {
     loop.setLoopIteration, setLoopActive, addMessage, estimateContextTokens, validateAndRepairMessages]);
 
   const runAgent = useCallback(async (content: MessageContent) => {
-    await runAgentImpl(buildAgentContext(), content);
+    await turnController.current.run(signal => runAgentImpl({ ...buildAgentContext(), signal }, content));
   }, [buildAgentContext]);
 
   const runLoop = useCallback(async (prompt: string, maxIter: number, completionPromise?: string) => {
-    await runLoopImpl(buildAgentContext(), prompt, maxIter, completionPromise);
+    await turnController.current.run(signal => runLoopImpl({ ...buildAgentContext(), signal }, prompt, maxIter, completionPromise));
   }, [buildAgentContext]);
 
   const handleFleetInstruction = useCallback((instruction: string) => {
@@ -252,6 +255,7 @@ export function useChatController(): ChatController {
   }, [setQueuedMessages]);
 
   const buildCommandContext = useCallback((): CommandContext => ({
+    cancelActiveTurn: () => turnController.current.cancel(),
     actualProvider, actualModel, model, mode, confirmMode,
     messages, stats: stats.stats, loopActive, isProcessing, thinkingState, streamingResponse,
     queuedMessages, debugEnabled: isDebugEnabled(), modalMode: modal.modalMode,
@@ -370,9 +374,11 @@ export function useChatController(): ChatController {
       }
       await runAgent(messageContent);
     } finally {
-      setIsProcessing(false);
-      setThinkingState(null);
-      setStreamingResponse('');
+      if (!turnController.current.busy) {
+        setIsProcessing(false);
+        setThinkingState(null);
+        setStreamingResponse('');
+      }
     }
   }, [handleCommandWrapped, runAgent, addMessage, provider, model, saveUndoState, mode,
     modal, setIsProcessing, setThinkingState, setStreamingResponse]);
@@ -393,12 +399,13 @@ export function useChatController(): ChatController {
 
   const handleEscape = useCallback(() => {
     if (isProcessing) {
-      setIsProcessing(false);
+      turnController.current.cancel();
+      loopCancelledRef.current = true;
       setThinkingState(null);
       setStreamingResponse('');
       setLoopActive(false);
       setEditingQueueIndex(null);
-      addMessage('system', '⏹ Operation cancelled. Press Ctrl+C again to quit.');
+      addMessage('system', '⏹ Cancellation requested. Waiting for active work to stop.');
     } else if (modal.modalMode !== 'none') {
       modal.setModalMode('none');
       modal.setPendingComplexPrompt(null);
@@ -408,25 +415,27 @@ export function useChatController(): ChatController {
   }, [isProcessing, modal, addMessage, setIsProcessing, setThinkingState, setStreamingResponse,
     setLoopActive, setEditingQueueIndex]);
 
-  const handleExit = useCallback(() => { exit(); }, [exit]);
+  const handleExit = useCallback(() => { turnController.current.cancel(); exit(); }, [exit]);
 
   const handleDirectSend = useCallback((msg: string) => {
-    setIsProcessing(false);
-    setThinkingState(null);
-    setStreamingResponse('');
-    setEditingQueueIndex(null);
-
-    addMessage('system', '⚡ Direct send - interrupting current operation');
-    addMessage('user', msg);
-
-    setIsProcessing(true);
-    runAgent(msg).finally(() => {
-      setIsProcessing(false);
-      setThinkingState(null);
-      setStreamingResponse('');
+    addMessage('system', 'Interrupting the active turn before sending the new message...');
+    loopCancelledRef.current = true;
+    void turnController.current.replace(async signal => {
+      setIsProcessing(true);
       setEditingQueueIndex(null);
+      addMessage('user', msg);
+      await runAgentImpl({ ...buildAgentContext(), signal }, msg);
+    }).catch(error => {
+      addMessage('error', error instanceof Error ? error.message : String(error));
+    }).finally(() => {
+      if (!turnController.current.busy) {
+        setIsProcessing(false);
+        setThinkingState(null);
+        setStreamingResponse('');
+        setEditingQueueIndex(null);
+      }
     });
-  }, [addMessage, runAgent, setIsProcessing, setThinkingState, setStreamingResponse, setEditingQueueIndex]);
+  }, [addMessage, buildAgentContext, setIsProcessing, setThinkingState, setStreamingResponse, setEditingQueueIndex]);
 
   // -- Modal handlers -------------------------------------------------------
   const handleModelSelect = useCallback((selectedModel: string) => {

@@ -277,3 +277,37 @@ describe('local-backend tool-call repair loop', () => {
     expect(surfaced).toHaveLength(1);
   });
 });
+
+
+describe('interactive cancellation', () => {
+  it('threads the signal to the provider and skips tools from a late response', async () => {
+    const controller = new AbortController();
+    const ctx = makeCtx();
+    ctx.signal = controller.signal;
+    chatMock.mockImplementationOnce(async (...args: unknown[]) => {
+      expect((args[6] as { signal: AbortSignal }).signal).toBe(controller.signal);
+      controller.abort();
+      return { content: '', toolCalls: [{ id: 'late', name: 'read_file', arguments: { path: 'file.txt' } }], finishReason: 'tool_use' };
+    });
+    await runAgentImpl(ctx, 'work');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).not.toHaveBeenCalled();
+    expect(ctx.collectedMessages.some(m => m.type === 'error')).toBe(false);
+    expect(ctx.ledgerSpy.finishRun).toHaveBeenCalledWith(expect.anything(), 'stopped', { errorSummary: 'Operation cancelled' });
+  });
+
+  it('stops after a cancelled tool and does not make another provider call', async () => {
+    const controller = new AbortController();
+    const ctx = makeCtx();
+    ctx.signal = controller.signal;
+    chatMock.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'first', name: 'read_file', arguments: { path: 'file.txt' } }], finishReason: 'tool_use' });
+    executeToolMock.mockImplementationOnce(async (_call, _cwd, _timeout, _output, options) => {
+      expect(options.signal).toBe(controller.signal);
+      controller.abort();
+      return { toolCallId: 'first', result: 'interrupted', isError: true };
+    });
+    await runAgentImpl(ctx, 'work');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(executeToolMock).toHaveBeenCalledTimes(1);
+  });
+});

@@ -1,3 +1,4 @@
+import { PassThrough } from 'node:stream';
 /**
  * Tests for headless retry budget (--max-retries / maxRetries option).
  *
@@ -209,4 +210,59 @@ describe('headless surfaces provider warnings (#217)', () => {
     const warnLines = stderrLines().filter((s) => s.includes('STATUS:') && s.includes(warning));
     expect(warnLines).toHaveLength(1);
   });
+});
+
+
+describe('headless cancellation', () => {
+  it('does not dispatch an already cancelled run', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    expect(await runHeadless({ prompt: 'work', provider: 'anthropic', outputMode: 'text', signal: controller.signal })).toBe(130);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+  });
+
+  it('passes cancellation to provider I/O and does not execute late tool calls', async () => {
+    const controller = new AbortController();
+    mockChat.mockImplementationOnce(async (...args) => {
+      expect(args[6].signal).toBe(controller.signal);
+      controller.abort();
+      return toolCallResponse('shell');
+    });
+    expect(await runHeadless({ prompt: 'work', provider: 'anthropic', outputMode: 'text', signal: controller.signal })).toBe(130);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a transient tool failure after cancellation', async () => {
+    const controller = new AbortController();
+    mockChat.mockResolvedValueOnce(toolCallResponse('read_file'));
+    mockExecuteTool.mockImplementationOnce(async (_call, _cwd, _timeout, _output, options) => {
+      expect(options.signal).toBe(controller.signal);
+      controller.abort();
+      return { toolCallId: 'tc_1', result: 'network timeout', isError: true };
+    });
+    expect(await runHeadless({ prompt: 'work', provider: 'anthropic', outputMode: 'text', signal: controller.signal })).toBe(130);
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+it('cancels an unfinished stdin pipe and removes its listeners', async () => {
+  const input = new PassThrough();
+  const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as typeof process.stdin);
+  const controller = new AbortController();
+  try {
+    const run = runHeadless({ signal: controller.signal });
+    input.write('partial prompt');
+    controller.abort();
+    expect(await run).toBe(130);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(input.listenerCount('data')).toBe(0);
+    expect(input.listenerCount('end')).toBe(0);
+    expect(input.listenerCount('error')).toBe(0);
+  } finally {
+    stdin.mockRestore();
+    input.destroy();
+  }
 });

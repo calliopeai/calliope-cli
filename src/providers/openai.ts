@@ -8,6 +8,7 @@
  */
 
 import OpenAI from 'openai';
+import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
 import { calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
@@ -337,7 +338,8 @@ async function chatOpenAIResponses(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
@@ -367,7 +369,7 @@ async function chatOpenAIResponses(
         tools: responsesTools.length > 0 ? responsesTools : undefined,
         max_output_tokens: dynamicMaxTokens,
       } as unknown;
-      const stream = client.responses.stream(streamParams as Parameters<typeof client.responses.stream>[0]);
+      const stream = client.responses.stream(streamParams as Parameters<typeof client.responses.stream>[0], signal ? { signal } : undefined);
 
       for await (const event of stream) {
         const typedEvent = event as ResponsesStreamEvent;
@@ -409,6 +411,8 @@ async function chatOpenAIResponses(
         usage: { inputTokens, outputTokens },
       };
     } catch (streamError) {
+      throwIfCancelled(signal);
+      if (isCancellation(streamError)) throw streamError;
       // Surface the streaming failure and re-throw so withRetry handles it
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog('OpenAI Responses API streaming failed:', errMsg);
@@ -425,7 +429,7 @@ async function chatOpenAIResponses(
     max_output_tokens: dynamicMaxTokens,
   } as unknown;
   const response = await client.responses.create(
-    createParams as Parameters<typeof client.responses.create>[0]
+    createParams as Parameters<typeof client.responses.create>[0], signal ? { signal } : undefined
   ) as unknown as ResponsesAPIResponse;
 
   // Extract content and tool calls from response
@@ -471,11 +475,12 @@ export async function chatOpenAI(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   // Route to Responses API for models that require it (o3, o4-mini, etc.)
   if (requiresResponsesAPI(model)) {
-    return chatOpenAIResponses(messages, tools, model, onToken);
+    return chatOpenAIResponses(messages, tools, model, onToken, signal);
   }
 
   const apiKey = config.getApiKey('openai');
@@ -503,7 +508,7 @@ export async function chatOpenAI(
         tools: openaiTools.length > 0 ? openaiTools : undefined,
         max_tokens: dynamicMaxTokens,
         stream: true,
-      });
+      }, signal ? { signal } : undefined);
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
@@ -565,6 +570,8 @@ export async function chatOpenAI(
         finishReason,
       };
     } catch (streamError) {
+      throwIfCancelled(signal);
+      if (isCancellation(streamError)) throw streamError;
       // Surface the streaming failure and re-throw so withRetry handles it
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog('OpenAI streaming failed:', errMsg);
@@ -579,7 +586,7 @@ export async function chatOpenAI(
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
     max_tokens: dynamicMaxTokens,
-  });
+  }, signal ? { signal } : undefined);
 
   if (!response.choices || response.choices.length === 0) {
     throw new Error('Empty response from OpenAI API');

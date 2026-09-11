@@ -4,6 +4,8 @@
  * Provides retry logic, error classification, and actionable suggestions.
  */
 
+import { cancellable, cancellableDelay, isCancellation, throwIfCancelled } from './cancellation.js';
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -26,6 +28,7 @@ export interface ClassifiedError {
 }
 
 export interface RetryOptions {
+  signal?: AbortSignal;
   maxRetries?: number;
   initialDelayMs?: number;
   maxDelayMs?: number;
@@ -401,19 +404,12 @@ export function formatError(error: unknown, context?: { tool?: string; provider?
 // Retry Logic
 // ============================================================================
 
-const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry'>> = {
+const DEFAULT_RETRY_OPTIONS: Required<Omit<RetryOptions, 'onRetry' | 'signal'>> = {
   maxRetries: 3,
   initialDelayMs: 1000,
   maxDelayMs: 30000,
   backoffMultiplier: 2,
 };
-
-/**
- * Sleep for a given number of milliseconds
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 /**
  * Execute a function with retry logic
@@ -428,8 +424,11 @@ export async function withRetry<T>(
 
   for (let attempt = 1; attempt <= opts.maxRetries + 1; attempt++) {
     try {
-      return await fn();
+      throwIfCancelled(opts.signal);
+      return await cancellable(fn(), opts.signal);
     } catch (error) {
+      throwIfCancelled(opts.signal);
+      if (isCancellation(error)) throw error;
       lastError = error instanceof Error ? error : new Error(String(error));
 
       // Check if we should retry
@@ -448,7 +447,7 @@ export async function withRetry<T>(
         opts.onRetry(attempt, lastError, retryDelay);
       }
 
-      await sleep(retryDelay);
+      await cancellableDelay(retryDelay, opts.signal);
 
       // Exponential backoff
       delay *= opts.backoffMultiplier;

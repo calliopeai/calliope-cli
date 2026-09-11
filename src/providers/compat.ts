@@ -7,6 +7,7 @@
 
 import OpenAI from 'openai';
 import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions.js';
+import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
@@ -241,7 +242,8 @@ export async function chatOpenAICompatible(
   messages: Message[],
   tools: Tool[],
   model: string,
-  onToken?: StreamCallback
+  onToken?: StreamCallback,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   // Ollama and LiteLLM use base URL, others use API key
   let apiKey: string | undefined;
@@ -306,7 +308,7 @@ export async function chatOpenAICompatible(
         stream: true,
       };
       if (activeShim) streamParams = activeShim.transformRequest(streamParams) as ChatCompletionCreateParamsStreaming;
-      const stream = await client.chat.completions.create(streamParams);
+      const stream = await client.chat.completions.create(streamParams, signal ? { signal } : undefined);
 
       for await (const chunk of stream) {
         const choice = chunk.choices[0];
@@ -368,6 +370,8 @@ export async function chatOpenAICompatible(
         finishReason,
       };
     } catch (streamError) {
+      throwIfCancelled(signal);
+      if (isCancellation(streamError)) throw streamError;
       // Surface the streaming failure and re-throw so withRetry handles it
       const errMsg = streamError instanceof Error ? streamError.message : String(streamError);
       debugLog(`${provider} streaming failed:`, errMsg);
@@ -387,7 +391,7 @@ export async function chatOpenAICompatible(
       max_tokens: dynamicMaxTokens,
     };
     if (activeShim) reqParams = activeShim.transformRequest(reqParams) as ChatCompletionCreateParamsNonStreaming;
-    response = await client.chat.completions.create(reqParams);
+    response = await client.chat.completions.create(reqParams, signal ? { signal } : undefined);
   } catch (error: unknown) {
     // Ollama model not found - try fallback discovery
     const status = (error as { status?: number })?.status;
@@ -403,7 +407,7 @@ export async function chatOpenAICompatible(
           max_tokens: dynamicMaxTokens,
         };
         if (activeShim) fallbackParams = activeShim.transformRequest(fallbackParams) as ChatCompletionCreateParamsNonStreaming;
-        response = await client.chat.completions.create(fallbackParams);
+        response = await client.chat.completions.create(fallbackParams, signal ? { signal } : undefined);
       } else {
         throw new Error(`Ollama model "${model}" not found. Pull it with: ollama pull ${model}`);
       }

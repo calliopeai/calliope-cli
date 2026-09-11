@@ -5,6 +5,7 @@
  * when approaching token limits. Falls back to heuristic summarization.
  */
 
+import { throwIfCancelled } from './cancellation.js';
 import { chat } from './providers/index.js';
 import { summarizeMessages, estimateTotalTokens, validateMessageHistory } from './summarization.js';
 import type { Message as LLMMessage, LLMProvider, Tool } from './types.js';
@@ -120,6 +121,7 @@ export async function llmSummarize(
   messages: LLMMessage[],
   provider: LLMProvider,
   model?: string,
+  signal?: AbortSignal,
 ): Promise<string | null> {
   try {
     // Build conversation text for the summarizer
@@ -136,12 +138,13 @@ export async function llmSummarize(
       { role: 'user', content: `${COMPRESSION_PROMPT}\n\n${conversationText}` },
     ];
 
-    const response = await chat(provider, summaryMessages, emptyTools, model);
+    const response = await chat(provider, summaryMessages, emptyTools, model, undefined, undefined, { signal });
     if (response.content && response.content.length > 20) {
       return response.content;
     }
     return null;
   } catch {
+    throwIfCancelled(signal);
     return null;
   }
 }
@@ -169,6 +172,7 @@ export async function autoCompress(
   contextLimit: number,
   provider: LLMProvider,
   model?: string,
+  signal?: AbortSignal,
 ): Promise<CompressionResult> {
   // Use the exact same token estimation method as the UI to avoid threshold mismatches
   const currentTokens = estimateTotalTokens(messages);
@@ -218,7 +222,7 @@ export async function autoCompress(
   let method: 'llm' | 'heuristic' = 'heuristic';
 
   if (config.useLlm && !status.llmTemporarilyDisabled) {
-    summary = await llmSummarize(toSummarize, provider, config.compressionModel || model);
+    summary = await llmSummarize(toSummarize, provider, config.compressionModel || model, signal);
     if (summary) {
       method = 'llm';
       resetAutoCompressorState();
