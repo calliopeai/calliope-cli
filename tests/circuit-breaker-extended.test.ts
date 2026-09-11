@@ -45,9 +45,10 @@ describe('wall-clock - session duration', () => {
       },
     });
 
-    vi.advanceTimersByTime(2);
+    expect(breaker.check(makeIteration(0, { content: 'before' })).tripped).toBe(false);
+    vi.advanceTimersByTime(1);
     const result = breaker.check(makeIteration(1, { content: 'hello' }));
-    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock' });
+    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock', data: { sessionDurationMs: 1, limitMs: 1 } });
     expect(result.message).toContain('minutes');
   });
 
@@ -84,10 +85,10 @@ describe('wall-clock - iteration duration', () => {
     // First check sets lastIterationStart
     breaker.check(makeIteration(1, { content: 'hello' }));
 
-    vi.advanceTimersByTime(2000);
+    vi.advanceTimersByTime(1000);
     const result = breaker.check(makeIteration(2, { content: 'world' }));
     expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock' });
-    expect(result.message).toBe('Single iteration took 2s, exceeded limit of 1s.');
+    expect(result.message).toBe('Single iteration took 1s, exceeded limit of 1s.');
   });
 
   it('should not trip on iteration duration when limit is very generous', () => {
