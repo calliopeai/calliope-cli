@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add reviewed isolated worker plans: retain per-attempt Git worktrees, run bounded verification commands in required Docker containment, and collect actual diffs and content-bound test evidence without changing the source checkout (#290).
+
 - Add independent planner/controller, reviewer and worker model choices to goal planning, with persisted team settings and bounded task attempts. A second controller reviews recorded draft evidence within the original allowance; retries receive failed-check feedback. Add a compact live workflow/agent HUD and display modes without changing headless event envelopes (#288).
 
 - Add bounded goal planning with `/orchestrate` and `calliope orchestrate`: read-only proposal generation, exact-hash approval, human revision, linked execution, persistent shared limits/deadlines and versioned JSON events. Cancellation and restart retain authority and unknown spend; planning prose never counts as verified work (#284).

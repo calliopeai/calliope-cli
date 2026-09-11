@@ -9,6 +9,7 @@ import {ExecutionStore,readArtifactBytes} from './execution-store.js';
 import {mechanicallyVerified,validateCollectedArtifact} from './execution-journal.js';
 import type {RunActionOptions} from './actions.js';
 import type {CollectedArtifact,TaskOutput,TaskStatus} from './coordinator-types.js';
+import type {WorkerWorktree,CommandEvidence} from '../isolation/index.js';
 
 const hashBytes=(value:Buffer)=>createHash('sha256').update(value).digest('hex');
 const contextForTask=(store:ExecutionStore,taskId:string)=>store.manifest.plan.tasks.some(t=>t.id===taskId)?store.manifest:store.context();
@@ -30,7 +31,8 @@ export async function readCollectedArtifact(store:ExecutionStore,artifact:Collec
   validateCollectedArtifact(artifact,contextForTask(store,artifact.taskId));
   throwIfCancelled(options.signal);const file=artifact.location==='project'?resolve(store.manifest.project.root,artifact.path):join(store.root,'artifacts',artifact.path);
   if(canonicalPath(file)!==file)throw new OrchestrationError('conflict','Artifact path changed or became an alias.');
-  if(artifact.location==='project')await authorizeSessionAction(store.manifest.project.root,'read_file',{path:file,operation:'orchestration-verification',runId:store.manifest.id,artifactId:artifact.id},options);
+  const sourcePath=contextForTask(store,artifact.taskId).plan.tasks.find(t=>t.id===artifact.taskId)!.outputs.find(o=>o.id===artifact.id)!.path;
+  if(sourcePath)await authorizeSessionAction(store.manifest.project.root,'read_file',{path:resolve(store.manifest.project.root,sourcePath),operation:'orchestration-verification',runId:store.manifest.id,artifactId:artifact.id},options);
   throwIfCancelled(options.signal);return checkArtifactSnapshot(store,artifact);
 }
 /** Recheck already-authorized content synchronously at the journal commit boundary. */
@@ -39,26 +41,36 @@ export function checkArtifactSnapshot(store:ExecutionStore,artifact:CollectedArt
   const file=artifact.location==='project'?resolve(store.manifest.project.root,artifact.path):join(store.root,'artifacts',artifact.path),bytes=readArtifactBytes(file,1024*1024,artifact.location==='run');
   if(hashBytes(bytes)!==artifact.sha256||bytes.length!==artifact.bytes)throw new OrchestrationError('conflict','Artifact changed after collection; recorded output cannot be used.');return bytes;
 }
-export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,content:string,options:RunActionOptions={}):Promise<{output:TaskOutput;status:TaskStatus}> {
-  const claim=workerReport(content,task),artifacts:CollectedArtifact[]=[],contents=new Map<string,Buffer>(),risks=[...claim.risks];
+export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,content:string,options:RunActionOptions&{workspace?:WorkerWorktree;executorOutputs?:Map<string,string>}={}):Promise<{output:TaskOutput;status:TaskStatus}> {
+  options.workspace?.assertVerified(options.signal);
+  const taskContext=contextForTask(store,task.id),verifiedWorkspaceHash=options.workspace?.snapshot(taskContext.plan.agents.find(a=>a.id===task.agentId)!.allowedPaths,options.signal);
+  const claim=workerReport(content,task),prior=store.read().state,artifacts:CollectedArtifact[]=prior.tasks[task.id]!.artifactIds.map(id=>prior.artifacts[id]!),contents=new Map<string,Buffer>(),risks=[...claim.risks];
   for(const spec of task.outputs){
+    const existing=artifacts.find(a=>a.id===spec.id);if(existing){contents.set(spec.id,checkArtifactSnapshot(store,existing));continue;}
     throwIfCancelled(options.signal);const eventId=randomUUID();let path:string,bytes:Buffer;
     try {
-      if(spec.path){path=spec.path;const file=resolve(store.manifest.project.root,path);await authorizeSessionAction(store.manifest.project.root,'read_file',{path:file,operation:'orchestration-artifact',runId:store.manifest.id,taskId:task.id},options);throwIfCancelled(options.signal);bytes=readArtifactBytes(file);}
-      else {const content=claim.outputs.get(spec.id);if(content===undefined){risks.push(`Missing declared artifact: ${spec.id}.`);continue;}path=store.writeArtifact(eventId,content,options.signal);bytes=Buffer.from(content);}
+      if(spec.path){path=spec.path;const file=resolve(store.manifest.project.root,path);await authorizeSessionAction(store.manifest.project.root,'read_file',{path:file,operation:'orchestration-artifact',runId:store.manifest.id,taskId:task.id},options);throwIfCancelled(options.signal);options.workspace?.assertIdentity();bytes=readArtifactBytes(options.workspace?resolve(options.workspace.filesRoot,path):file);if(options.workspace)path=store.writeArtifact(eventId,bytes,options.signal);}
+      else {const reserved=task.isolation&&(spec.id===task.isolation.patchArtifactId||task.isolation.commands.some(c=>c.artifactId===spec.id));const content=reserved?options.executorOutputs?.get(spec.id):claim.outputs.get(spec.id);if(content===undefined){risks.push(`Missing declared artifact: ${spec.id}.`);continue;}path=store.writeArtifact(eventId,content,options.signal);bytes=Buffer.from(content);}
     }catch(error){throwIfCancelled(options.signal);if(error instanceof OrchestrationError&&error.code==='limit')throw error;risks.push(`Artifact ${spec.id} could not be collected under current policy and scope.`);continue;}
-    const artifact:CollectedArtifact={id:spec.id,taskId:task.id,agentId:task.agentId,kind:spec.kind,location:spec.path?'project':'run',path,sha256:hashBytes(bytes),bytes:bytes.length,createdAt:new Date().toISOString(),source:{runId:store.manifest.id,eventId},confidence:1};
+    const artifact:CollectedArtifact={id:spec.id,taskId:task.id,agentId:task.agentId,kind:spec.kind,location:spec.path&&!options.workspace?'project':'run',path,sha256:hashBytes(bytes),bytes:bytes.length,createdAt:new Date().toISOString(),source:{runId:store.manifest.id,eventId},confidence:1};
     await store.append({type:'artifact',artifact},options.signal,eventId);artifacts.push(artifact);contents.set(spec.id,bytes);
   }
   const checks=(task.acceptanceChecks??[]).map(check=>{
     const bytes=contents.get(check.artifactId),artifact=artifacts.find(a=>a.id===check.artifactId);let passed=false;
-    if(bytes){if(check.kind==='exists')passed=true;else if(check.kind==='contains')passed=bytes.toString('utf8').includes(check.expected!);else if(check.kind==='sha256')passed=artifact!.sha256===check.expected;else try{passed=canonicalJson(JSON.parse(bytes.toString()))===canonicalJson(JSON.parse(check.expected!));}catch{/* Invalid JSON is failed evidence. */}}
+    if(bytes){if(check.kind==='command'){try{const receipt=JSON.parse(bytes.toString()) as CommandEvidence&{workspace:{before:string;after:string|null}};passed=receipt.version===1&&receipt.kind==='isolated-command'&&receipt.outcome==='passed'&&receipt.exitCode===0&&receipt.cleanupConfirmed&&/^[a-f0-9]{64}$/.test(receipt.workspace.before)&&receipt.workspace.before===receipt.workspace.after&&receipt.workspace.after===verifiedWorkspaceHash;}catch{/* Malformed executor evidence is never a pass. */}}else if(check.kind==='exists')passed=true;else if(check.kind==='contains')passed=bytes.toString('utf8').includes(check.expected!);else if(check.kind==='sha256')passed=artifact!.sha256===check.expected;else try{passed=canonicalJson(JSON.parse(bytes.toString()))===canonicalJson(JSON.parse(check.expected!));}catch{/* Invalid JSON is failed evidence. */}}
     return{id:check.id,artifactId:check.artifactId,kind:check.kind,criteria:check.criteria,passed,observedHash:artifact?.sha256??null};
   });
   const state=store.read().state.tasks[task.id]!,output:TaskOutput={version:1,taskId:task.id,agentId:task.agentId,status:'partial',summary:claim.summary,changedFiles:[...state.changedFiles],artifacts,testEvidence:checks.filter(c=>c.passed).map(c=>c.id),unresolvedRisks:risks.slice(0,100),recommendedNextAction:'Review the remaining acceptance criteria.',checks};
   const complete=mechanicallyVerified(output,contextForTask(store,task.id)),failed=artifacts.length!==task.outputs.length||checks.some(c=>!c.passed);
+  options.workspace?.assertVerified(options.signal);
   if(complete){output.status='success';output.recommendedNextAction='Continue with dependency-ready work.';}
   else if(failed){output.status='failed';output.recommendedNextAction='Inspect failed or missing evidence before retrying.';}
   else output.unresolvedRisks=[...risks.slice(0,99),'Natural-language acceptance criteria still require human review.'];
   return{output,status:complete?'completed':failed?'failed':'review_required'};
+}
+/** Retain completed process evidence even when cancellation stops later collection. */
+export async function recordExecutorArtifact(store:ExecutionStore,task:ProjectTask,id:string,content:string):Promise<void> {
+  if(!task.isolation?.commands.some(c=>c.artifactId===id))throw new OrchestrationError('invalid','Executor result is not declared by this task.');
+  const eventId=randomUUID(),path=store.writeArtifact(eventId,content),bytes=Buffer.from(content);
+  await store.append({type:'artifact',artifact:{id,taskId:task.id,agentId:task.agentId,kind:'test_result',location:'run',path,sha256:hashBytes(bytes),bytes:bytes.length,createdAt:new Date().toISOString(),source:{runId:store.manifest.id,eventId},confidence:1}},undefined,eventId);
 }

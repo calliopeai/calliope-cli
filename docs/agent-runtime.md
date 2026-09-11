@@ -123,7 +123,8 @@ project total.
 
 Synthetic tests exercise installed SDKs, concurrent agent/ordinary project spend,
 restart, approval races, policy denial, file conflicts, cancellation, malformed
-state and retention. They do not replace real-wire captures. Scheduling, artifact
-verification, task retries/cancellation trees, executable run events and isolated
-shell/network tools remain required, along with the brain/KG and improvement loop
-in #254. See [orchestration plans](orchestration.md).
+state and retention. They do not replace real-wire captures. See
+[coordinator execution](coordinator-execution.md) for scheduling and recovery,
+and [isolated workers](isolated-workers.md) for version 3 worktrees and reviewed
+container verification. Brain/KG, controlled improvement and broader worker-tool
+support remain tracked in #254.

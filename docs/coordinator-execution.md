@@ -5,7 +5,8 @@ Independent tasks run concurrently; overlapping read/write scopes are serialized
 Workers cannot create children, expand authority, or declare their own work verified.
 [Goal planning](goal-planning.md) supplies validated proposals for human approval.
 [Child admission](child-admission.md) adds reviewed descendants within the original
-contract. Isolated shell/network execution remains required work under #254.
+contract. [Version 3 isolated plans](isolated-workers.md) add retained worker
+worktrees and reviewed verification commands in required Docker containment.
 
 ## Commands and permissions
 
@@ -40,6 +41,8 @@ dialog. Plan mode and non-interactive safe defaults remain enforced. Execute,
 retry, acceptance, stop and cancellation also pass the shared permission gates.
 REPL cancellation signals all children and waits for cleanup before another turn.
 Run cancellation and agent stop remain available during execution.
+For version 3 plans, the flag also authorizes declared verification commands
+under their required read-only mounts, network restriction and current policy.
 
 The default per-request output cap is 1,024 tokens, further limited by live
 discovery. This is an operator budget, not a model capability claim. Explicit
@@ -74,6 +77,8 @@ has a passing mapped check. These checks prove precisely their predicates:
 an existence or substring check cannot establish arbitrary semantic correctness.
 Review the mapping accordingly. Check IDs in `testEvidence` identify those
 acceptance checks; they do not imply that a compiler or test suite ran.
+Version 3 adds `command` checks backed by captured process results and unchanged
+workspace content. Those checks certify the exact reviewed command and its exit.
 
 Artifacts with project paths are read under current policy and bound to actual
 bytes, SHA-256, run/task/agent IDs and a trusted source event ID. Inline outputs

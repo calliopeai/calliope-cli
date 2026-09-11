@@ -59,3 +59,4 @@ provider backends, and a small, tested command surface.
 - Discussions: https://github.com/calliopeai/calliope-cli/discussions
 
 - [Mixed-model teams and workflow HUD](mixed-model-teams.md) — independent planner, reviewer and worker choices with bounded task attempts.
+- [Isolated workers](isolated-workers.md) — retained worktrees, reviewed container checks and actual process/diff evidence.

@@ -14,14 +14,15 @@ export interface ProjectTask {
   id: string; agentId: string; objective: string; inputs: AgentInput[]; outputs: ArtifactSpec[];
   dependencies: string[]; acceptanceCriteria: string[];
   acceptanceChecks?: AcceptanceCheck[];
+  isolation?: import('../isolation/contracts.js').TaskIsolation;
 }
 export interface AcceptanceCheck {
-  id: string; artifactId: string; kind: 'exists' | 'contains' | 'sha256' | 'json';
+  id: string; artifactId: string; kind: 'exists' | 'contains' | 'sha256' | 'json' | 'command';
   criteria: string[]; expected?: string;
 }
 export interface ProjectPlan {
-  version: 1 | 2; id: string; goal: string;
-  workspace: { id: string; root: '.'; allowedTools: string[]; allowedPaths: PathGrant[] };
+  version: 1 | 2 | 3; id: string; goal: string;
+  workspace: { id: string; root: '.'; allowedTools: string[]; allowedPaths: PathGrant[]; isolation?: import('../isolation/contracts.js').WorktreeIsolation };
   limits: { maxAgents: number; maxTasks: number; maxDepth: number; maxConcurrent: number; tokenBudget: number; costBudgetUsd: number; timeBudgetMs: number };
   agents: AgentContract[]; tasks: ProjectTask[];
 }

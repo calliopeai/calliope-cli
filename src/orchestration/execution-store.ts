@@ -105,7 +105,7 @@ export class ExecutionStore {
       beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);syncDir(this.root);for(const event of added)this.onEvent?.(event);return added;
     }finally{fs.closeSync(fd!);try{const after=this.identity();if(before.dev===after.dev&&before.ino===after.ino){fs.rmSync(temp,{force:true});const current=fs.lstatSync(lock);if(current.ino===lockIdentity.ino&&current.dev===lockIdentity.dev)fs.unlinkSync(lock);}}catch{/* Preserve foreign state. */}}
   }
-  writeArtifact(eventId:string,content:string,signal?:AbortSignal):string {
+  writeArtifact(eventId:string,content:string|Buffer,signal?:AbortSignal):string {
     this.identity();if(!uuid(eventId)||Buffer.byteLength(content)>1024*1024)throw new OrchestrationError('limit','Artifact size or ID is invalid.');const dir=join(this.root,'artifacts');privateDirectory(dir);throwIfCancelled(signal);
     const listing=fs.opendirSync(dir);let bytes=Buffer.byteLength(content),count=1;try{let entry:fs.Dirent|null;while((entry=listing.readSync())){if(!entry.isFile()||!entry.name.endsWith('.txt')||!uuid(entry.name.slice(0,-4)))throw unavailable();bytes+=fs.lstatSync(join(dir,entry.name)).size;if(++count>10000||bytes>64*1024*1024)throw new OrchestrationError('limit','Run artifact retention reached; preserve existing evidence.');}}finally{listing.closeSync();}
     const path=eventId+'.txt';writeNew(join(dir,path),content);syncDir(dir);return path;

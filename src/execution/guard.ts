@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import {dirname} from 'node:path';
+import {dirname,relative,resolve,isAbsolute} from 'node:path';
+import {canonicalPath} from '../approvals/index.js';
 import type { Tool, ToolCall, Message } from '../types.js';
 import type { RouteCandidate } from '../routing/index.js';
 import type { ProviderAttemptBudget } from '../providers/types.js';
@@ -16,6 +17,8 @@ export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
   /** Trusted coordinator ownership/revocation check; may only narrow authority. */
   assertAuthority?: () => void;
+  /** Supplied by the coordinator; policy and money remain bound to the source project. */
+  workspace?: {filesRoot:string;assertIdentity:()=>void};
 }
 export class ExecutionGuard {
   readonly manifest:ExecutionManifest;
@@ -25,22 +28,37 @@ export class ExecutionGuard {
   private readonly ledger:ReservationLedger;
   readonly maxOutputTokens:number;
   private readonly assertAuthority?:()=>void;
+  readonly filesRoot:string;
+  private readonly workspace?:AgentExecution['workspace'];
   constructor(execution:AgentExecution,private readonly cwd:string) {
-    this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();
+    this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();this.workspace=execution.workspace;this.workspace?.assertIdentity();
     const saved=execution.ledger.read(cwd);
     assertExecutionStoreOutsideProject(saved.manifest.project.root,dirname(execution.ledger.root));
     if(saved.projection.manifestHash!==execution.manifestHash)throw new ExecutionLimitError('conflict','Execution contract does not match the budget ledger.');
     const effective=effectiveExecutionManifest(saved.manifest,saved.projection),agent=accountLineage(effective,execution.agentId)[0]!;
     integer(execution.maxOutputTokens,1,100000000);this.manifest=effective;this.expectedHash=execution.manifestHash;this.agentId=agent.id;this.ledger=execution.ledger;this.maxOutputTokens=execution.maxOutputTokens;
     this.deadline=Math.min(saved.manifest.deadline,agent.deadline);
+    this.filesRoot=this.workspace?.filesRoot??this.manifest.project.root;
+    if(this.workspace)assertExecutionStoreOutsideProject(this.manifest.project.root,this.filesRoot);
   }
-  check= (call:ToolCall,cwd=this.cwd):string|undefined => {this.assertAuthority?.();return executionToolDenial(this.manifest,this.agentId,call,cwd);};
+  check= (call:ToolCall,cwd=this.cwd):string|undefined => {
+    this.assertAuthority?.();this.workspace?.assertIdentity();
+    const denial=executionToolDenial(this.manifest,this.agentId,call,cwd);if(denial||!this.workspace)return denial;
+    if(['read_file','write_file','edit_file','list_files'].includes(call.name))try{this.filePath(resolve(cwd,String(call.arguments.path??'.')));}catch{return 'Isolated file path is outside its workspace or aliases Git metadata.';}
+    return undefined;
+  };
+  filePath(file:string):string {
+    if(!this.workspace)return file;this.workspace.assertIdentity();
+    const rel=relative(this.manifest.project.root,file);
+    if(rel==='..'||rel.startsWith('../')||isAbsolute(rel)||rel.split('/').some(p=>p.toLowerCase()==='.git'))throw new ExecutionLimitError('authority','Isolated file path exceeds its project scope.');
+    const path=resolve(this.filesRoot,rel);if(canonicalPath(path)!==path)throw new ExecutionLimitError('authority','Isolated file path became an alias.');return path;
+  }
   tools(tools:Tool[]):Tool[] {
     const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
     return tools.filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files'].includes(tool.name));
   }
   assertActive(signal?:AbortSignal):void {
-    throwIfCancelled(signal);this.assertAuthority?.();checkExecutionIdentity(this.manifest,this.cwd);
+    throwIfCancelled(signal);this.assertAuthority?.();this.workspace?.assertIdentity();checkExecutionIdentity(this.manifest,this.cwd);
     if(Date.now()>=this.deadline)throw new ExecutionLimitError('deadline','Agent deadline expired.');
     const saved=this.ledger.read(this.cwd);if(saved.projection.manifestHash!==this.expectedHash)throw new ExecutionLimitError('conflict','Execution contract changed.');
     if(saved.projection.exceeded)throw new ExecutionLimitError('budget','Provider usage exceeded its reservation; further execution is stopped.');
