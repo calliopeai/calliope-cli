@@ -12,7 +12,8 @@ chunks, including UTF-8 boundaries. These tests are deterministic and offline.
 | Google | JSON / SSE | Function results are associated by function name; Calliope generates internal call IDs. All system directives become `systemInstruction`. |
 | OpenAI Chat Completions | JSON / SSE | Requests streamed usage, including usage-only terminal chunks. |
 | OpenAI Responses | JSON / named SSE | Separate completed/incomplete/failed events; native call IDs differ from output-item IDs. |
-| OpenRouter, Together, Groq, Fireworks, Mistral, AI21, Hugging Face | OpenAI-compatible JSON / SSE | Usage is consumed when supplied. Missing usage stays unavailable, with a visible notice that accounting is incomplete. |
+| OpenRouter, Together, Groq, Fireworks, Mistral, Hugging Face | OpenAI-compatible JSON / SSE | Usage is consumed when supplied. Missing usage stays unavailable, with a visible notice that accounting is incomplete. Hugging Face discovery and inference use `router.huggingface.co/v1`. |
+| AI21 legacy Studio adapter | OpenAI-compatible JSON / SSE | The configured service returned HTTP 410 on September 11, 2026. Its retirement must be resolved before release; synthetic coverage does not establish availability. |
 | LiteLLM, Bedrock compatibility endpoint, generic OpenAI compatibility endpoint | OpenAI-compatible JSON / SSE | Endpoint/shim capabilities vary. The suite tests the unmodified protocol; existing shim tests cover documented tool stripping. |
 | Ollama native | JSON / NDJSON | Internal call IDs are generated; incomplete JSON records survive chunk boundaries. Malformed frames, server error envelopes and streams missing their final frame fail. |
 | Bedrock native Converse | JSON / binary AWS event stream | SigV4 signing and native call IDs; capture output caps are applied before signing. |
@@ -25,8 +26,11 @@ provider billing; absent usage cannot support complete token/cost totals.
 
 ## Real-wire release evidence
 
-**Real provider captures are still missing.** Synthetic HTTP shapes are useful
-regressions, but cannot establish what every deployed provider actually sends.
+**36 of 64 required combinations have real captures**, collected on September 11,
+2026 UTC. Nine adapter paths passed text and tool probes in JSON and streaming
+mode. The [live test report](provider-live-testing.md) records models, local server
+versions, gateway routing, access failures and spend. Synthetic HTTP shapes remain
+useful regressions, but cannot establish what every deployed provider sends.
 `tests/fixtures/provider-wire/` stores only reviewed captures with origin metadata,
 model, timestamp, SDK versions, response bytes and checksums. Generated call IDs are
 excluded from normalized expectations; function names and arguments are asserted.
@@ -54,5 +58,7 @@ headers are excluded from stored metadata. Review the decoded response, origin
 and expected result before committing it: checksums detect changed bytes, not a
 fabricated provenance claim. A failed or noncompliant probe is not release evidence.
 
-The protocol corpus, additional error captures and comparisons against real local
-server versions remain tracked in [#222](https://github.com/calliopeai/calliope-cli/issues/222).
+The remaining 28 combinations and additional error captures remain tracked in
+[#222](https://github.com/calliopeai/calliope-cli/issues/222). The gate remains closed
+for OpenAI Chat/Responses, Google, OpenRouter, Groq, Fireworks and the retired AI21
+adapter. Gateway captures count only for the adapter actually invoked.

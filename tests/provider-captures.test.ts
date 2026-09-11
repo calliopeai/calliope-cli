@@ -72,6 +72,18 @@ it('records response bytes without credentials and enforces the one-request limi
   expect(Buffer.from(recorder.exchanges[0].body, 'base64').toString()).toBe('toy response');
   await expect(recorder.fetch('https://probe.invalid/', {})).rejects.toThrow('request limit'); expect(fetch).toHaveBeenCalledTimes(1);
 });
+it('preserves a provider quota error through the real SDK without retry traffic', async () => {
+  const upstream = vi.fn(async () => new Response(JSON.stringify({ error: {
+    message: 'No credits remaining', type: 'insufficient_quota', code: 'credit_balance_exhausted',
+  } }), { status: 429, headers: { 'content-type': 'application/json' } }));
+  const recorder = createRecorder(upstream, { protocol: 'chat' }, 32);
+  vi.stubGlobal('fetch', recorder.fetch);
+  await expect(openai.chatOpenAI(probeMessages('text'), [], 'test-model')).rejects.toMatchObject({
+    status: 429, code: 'credit_balance_exhausted',
+  });
+  expect(upstream).toHaveBeenCalledTimes(1);
+  expect(recorder.exchanges[0].headers).toEqual({ 'content-type': 'application/json' });
+});
 it.each([
   ['google', { generationConfig: { temperature: 0 } }, { generationConfig: { temperature: 0, maxOutputTokens: 32 } }],
   ['ollama', { options: { temperature: 0 } }, { options: { temperature: 0, num_predict: 32 } }],

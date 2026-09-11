@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "backend": "bedrock-native",
+  "model": "amazon.nova-micro-v1:0",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:23.479Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/model/amazon.nova-micro-v1%3A0/converse"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6MjQ5fSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidGV4dCI6IkhlbGxvIM+AIn1dLCJyb2xlIjoiYXNzaXN0YW50In19LCJzdG9wUmVhc29uIjoiZW5kX3R1cm4iLCJ1c2FnZSI6eyJpbnB1dFRva2VucyI6Niwib3V0cHV0VG9rZW5zIjozLCJzZXJ2ZXJUb29sVXNhZ2UiOnt9LCJ0b3RhbFRva2VucyI6OX19",
+      "sha256": "3abe203503bbbc50dfdec4b575d23e6c238c7cb9605d451623a1de2bc37775ce"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 6,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

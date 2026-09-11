@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "bedrock-compat",
+  "model": "conformance-bedrock",
+  "scenario": "text",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:30.397Z",
+    "sourceOrigin": "http://127.0.0.1:14000",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "LiteLLM",
+      "version": "1.100.1",
+      "upstream": {
+        "provider": "bedrock",
+        "model": "amazon.nova-micro-v1:0",
+        "region": "us-east-1"
+      },
+      "retries": 0
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream; charset=utf-8"
+      },
+      "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLTMzODViOGY1LWUwZTUtNDI1ZS04M2Q2LWQwYTUzYTY4YTIxZSIsImNyZWF0ZWQiOjE3ODkxMDEyNzAsIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiSGVsbG8iLCJyb2xlIjoiYXNzaXN0YW50In19XSwicHJvdmlkZXJfc3BlY2lmaWNfZmllbGRzIjp7fX0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC0zMzg1YjhmNS1lMGU1LTQyNWUtODNkNi1kMGE1M2E2OGEyMWUiLCJjcmVhdGVkIjoxNzg5MTAxMjcwLCJtb2RlbCI6ImNvbmZvcm1hbmNlLWJlZHJvY2siLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiDPgCJ9fV0sInByb3ZpZGVyX3NwZWNpZmljX2ZpZWxkcyI6e319CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtMzM4NWI4ZjUtZTBlNS00MjVlLTgzZDYtZDBhNTNhNjhhMjFlIiwiY3JlYXRlZCI6MTc4OTEwMTI3MCwibW9kZWwiOiJjb25mb3JtYW5jZS1iZWRyb2NrIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY2hvaWNlcyI6W3siZmluaXNoX3JlYXNvbiI6InN0b3AiLCJpbmRleCI6MCwiZGVsdGEiOnt9fV0sInByb3ZpZGVyX3NwZWNpZmljX2ZpZWxkcyI6e319CgpkYXRhOiBbRE9ORV0KCg==",
+      "sha256": "730b1befaf25ac1d03bdb34322b07c4a1b250ad64dbde0ad2c57ac778b422012"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": null,
+    "tools": []
+  }
+}

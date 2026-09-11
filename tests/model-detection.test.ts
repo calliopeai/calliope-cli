@@ -1365,6 +1365,7 @@ describe('getAvailableModels - openai-compatible providers', () => {
     });
 
     const models = await getAvailableModels('huggingface');
+    expect(OpenAI).toHaveBeenLastCalledWith({ apiKey: 'test-key', baseURL: 'https://router.huggingface.co/v1' });
     const ids = models.map(m => m.id);
     expect(ids).toContain('meta-llama/Llama-3-70b');
     expect(ids).not.toContain('sentence-transformers/all-MiniLM-embed');

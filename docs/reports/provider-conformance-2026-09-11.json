@@ -1,0 +1,1051 @@
+{
+  "version": 1,
+  "capturedAt": "2026-09-11T04:35:16.016Z",
+  "authorization": {
+    "budgetUsd": 500
+  },
+  "summary": {
+    "attempts": 47,
+    "successfulCaptures": 36,
+    "adapterPathsWithAllFour": 9,
+    "requiredCombinations": 64,
+    "missing": [
+      "google/text/json",
+      "google/text/stream",
+      "google/tool/json",
+      "google/tool/stream",
+      "openai-chat/text/json",
+      "openai-chat/text/stream",
+      "openai-chat/tool/json",
+      "openai-chat/tool/stream",
+      "openai-responses/text/json",
+      "openai-responses/text/stream",
+      "openai-responses/tool/json",
+      "openai-responses/tool/stream",
+      "openrouter/text/json",
+      "openrouter/text/stream",
+      "openrouter/tool/json",
+      "openrouter/tool/stream",
+      "groq/text/json",
+      "groq/text/stream",
+      "groq/tool/json",
+      "groq/tool/stream",
+      "fireworks/text/json",
+      "fireworks/text/stream",
+      "fireworks/tool/json",
+      "fireworks/tool/stream",
+      "ai21/text/json",
+      "ai21/text/stream",
+      "ai21/tool/json",
+      "ai21/tool/stream"
+    ]
+  },
+  "spend": {
+    "reservedUsd": 47,
+    "reportedTokenUsageEstimateUsd": 0.0029526600000000006,
+    "allAttemptsConservativeTokenEnvelopeUsd": 0.08363623999999999,
+    "unreportedPaidUsageAttempts": [
+      36,
+      38,
+      40,
+      42
+    ],
+    "unreportedLocalUsageAttempts": [
+      44,
+      46
+    ],
+    "billingVerified": false,
+    "method": "Sequential toy probes; persist a $1 reservation before every request, never refund failures, stop at $500. Each request has <=512 output tokens and a 30s deadline; SDK retries cannot issue another HTTP request. The cost envelope allows 5,000 input tokens per attempt and counts failed requests at their full token allowance. Rates are USD per million tokens. Reservations are not spend. No tools, files, or project context were sent."
+  },
+  "pricingSources": {
+    "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "openaiChat": "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+    "openaiResponses": "https://developers.openai.com/api/docs/models/gpt-5-nano",
+    "mistral": "https://docs.mistral.ai/inference/pricing",
+    "together": "https://api.together.xyz/v1/models",
+    "huggingface": "https://router.huggingface.co/v1/models",
+    "bedrock": "https://aws.amazon.com/blogs/machine-learning/prompting-for-the-best-price-performance/"
+  },
+  "unavailable": {
+    "openai": "Model discovery succeeded; inference rejected with credit_balance_exhausted (HTTP 429 or SSE error).",
+    "google": "Model discovery rejected configured API key (HTTP 400).",
+    "ai21": "GET /studio/v1/models returned HTTP 410 with retirement notice: https://docs.ai21.com/august-deprecation-notice",
+    "openrouter": "No configured credential.",
+    "groq": "No configured credential.",
+    "fireworks": "No configured credential."
+  },
+  "attempts": [
+    {
+      "number": 1,
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:32:34.534Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1,
+        "output": 5
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 13,
+        "outputTokens": 5
+      },
+      "estimatedUsd": 0.000038,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:32:35.413Z"
+    },
+    {
+      "number": 2,
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:32:35.413Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1,
+        "output": 5
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 13,
+        "outputTokens": 5
+      },
+      "estimatedUsd": 0.000038,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:32:35.875Z"
+    },
+    {
+      "number": 3,
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:32:35.875Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1,
+        "output": 5
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 584,
+        "outputTokens": 52
+      },
+      "estimatedUsd": 0.000844,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:32:36.747Z"
+    },
+    {
+      "number": 4,
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:32:36.747Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1,
+        "output": 5
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 584,
+        "outputTokens": 52
+      },
+      "estimatedUsd": 0.000844,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:32:37.514Z"
+    },
+    {
+      "number": 5,
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini-2024-07-18",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:32:57.681Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.15,
+        "output": 0.6
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:00.369Z"
+    },
+    {
+      "number": 6,
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini-2024-07-18",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:00.369Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.15,
+        "output": 0.6
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:02.121Z"
+    },
+    {
+      "number": 7,
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini-2024-07-18",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:02.122Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.15,
+        "output": 0.6
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:03.901Z"
+    },
+    {
+      "number": 8,
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini-2024-07-18",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:03.901Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.15,
+        "output": 0.6
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:05.621Z"
+    },
+    {
+      "number": 9,
+      "backend": "openai-responses",
+      "model": "gpt-5-nano-2025-08-07",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:05.827Z",
+      "maxOutputTokens": 512,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.05,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:08.219Z"
+    },
+    {
+      "number": 10,
+      "backend": "openai-responses",
+      "model": "gpt-5-nano-2025-08-07",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:08.219Z",
+      "maxOutputTokens": 512,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.05,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:08.967Z"
+    },
+    {
+      "number": 11,
+      "backend": "openai-responses",
+      "model": "gpt-5-nano-2025-08-07",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:08.968Z",
+      "maxOutputTokens": 512,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.05,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:10.928Z"
+    },
+    {
+      "number": 12,
+      "backend": "openai-responses",
+      "model": "gpt-5-nano-2025-08-07",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:10.929Z",
+      "maxOutputTokens": 512,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.05,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/.",
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:11.532Z"
+    },
+    {
+      "number": 13,
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:11.741Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.000045759999999999996,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:12.963Z"
+    },
+    {
+      "number": 14,
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:12.964Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.000045759999999999996,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:13.506Z"
+    },
+    {
+      "number": 15,
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:13.506Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 200,
+        "outputTokens": 22
+      },
+      "estimatedUsd": 0.00023087999999999998,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:14.326Z"
+    },
+    {
+      "number": 16,
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:14.327Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 200,
+        "outputTokens": 22
+      },
+      "estimatedUsd": 0.00023087999999999998,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:14.722Z"
+    },
+    {
+      "number": 17,
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:14.920Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.1,
+        "output": 0.1
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 9,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.0000012000000000000002,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:15.386Z"
+    },
+    {
+      "number": 18,
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:15.387Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.1,
+        "output": 0.1
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 9,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.0000012000000000000002,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:15.800Z"
+    },
+    {
+      "number": 19,
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:15.801Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.1,
+        "output": 0.1
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 89,
+        "outputTokens": 10
+      },
+      "estimatedUsd": 0.0000099,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:16.250Z"
+    },
+    {
+      "number": 20,
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:16.250Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.1,
+        "output": 0.1
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 89,
+        "outputTokens": 10
+      },
+      "estimatedUsd": 0.0000099,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:16.607Z"
+    },
+    {
+      "number": 21,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:16.808Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:18.772Z"
+    },
+    {
+      "number": 22,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:18.773Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.000006735000000000001,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:19.521Z"
+    },
+    {
+      "number": 23,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:19.521Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "Connection error.",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:33:21.271Z"
+    },
+    {
+      "number": 24,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:21.272Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 200,
+        "outputTokens": 16
+      },
+      "estimatedUsd": 0.0000334,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:22.251Z"
+    },
+    {
+      "number": 25,
+      "backend": "bedrock-native",
+      "model": "amazon.nova-micro-v1:0",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:22.452Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 6,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 6.300000000000001e-7,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:23.479Z"
+    },
+    {
+      "number": 26,
+      "backend": "bedrock-native",
+      "model": "amazon.nova-micro-v1:0",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:23.480Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 6,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 6.300000000000001e-7,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:24.347Z"
+    },
+    {
+      "number": 27,
+      "backend": "bedrock-native",
+      "model": "amazon.nova-micro-v1:0",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:24.347Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 416,
+        "outputTokens": 54
+      },
+      "estimatedUsd": 0.000022120000000000005,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:25.183Z"
+    },
+    {
+      "number": 28,
+      "backend": "bedrock-native",
+      "model": "amazon.nova-micro-v1:0",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:25.184Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 416,
+        "outputTokens": 42
+      },
+      "estimatedUsd": 0.000020440000000000004,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:25.948Z"
+    },
+    {
+      "number": 29,
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:26.150Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1231,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:48.108Z"
+    },
+    {
+      "number": 30,
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:48.109Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1231,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:48.270Z"
+    },
+    {
+      "number": 31,
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:33:48.271Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1296,
+        "outputTokens": 15
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:49.571Z"
+    },
+    {
+      "number": 32,
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:33:49.572Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1296,
+        "outputTokens": 15
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:33:50.412Z"
+    },
+    {
+      "number": 33,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:21.115Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.000006735000000000001,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:21.975Z"
+    },
+    {
+      "number": 34,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:21.975Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.135,
+        "output": 0.4
+      },
+      "status": "failed",
+      "error": "429 status code (no body)",
+      "httpStatus": 429,
+      "finishedAt": "2026-09-11T04:34:22.480Z"
+    },
+    {
+      "number": 35,
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:22.673Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 41,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0.000045759999999999996,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:23.706Z"
+    },
+    {
+      "number": 36,
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:23.706Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:25.880Z"
+    },
+    {
+      "number": 37,
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:25.881Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 200,
+        "outputTokens": 16
+      },
+      "estimatedUsd": 0.00022464,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:26.832Z"
+    },
+    {
+      "number": 38,
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:26.833Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:27.315Z"
+    },
+    {
+      "number": 39,
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:27.517Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 6,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 6.300000000000001e-7,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:29.864Z"
+    },
+    {
+      "number": 40,
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:29.868Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:30.397Z"
+    },
+    {
+      "number": 41,
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:30.398Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 416,
+        "outputTokens": 43
+      },
+      "estimatedUsd": 0.000020580000000000003,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:30.854Z"
+    },
+    {
+      "number": 42,
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:30.855Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0.035,
+        "output": 0.14
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:31.288Z"
+    },
+    {
+      "number": 43,
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "scenario": "text",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:31.488Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1231,
+        "outputTokens": 3
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:31.891Z"
+    },
+    {
+      "number": 44,
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "scenario": "text",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:31.892Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:32.052Z"
+    },
+    {
+      "number": 45,
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:34:32.053Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 1296,
+        "outputTokens": 15
+      },
+      "estimatedUsd": 0,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:33.338Z"
+    },
+    {
+      "number": 46,
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "scenario": "tool",
+      "stream": true,
+      "startedAt": "2026-09-11T04:34:33.339Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 0,
+        "output": 0
+      },
+      "status": "captured",
+      "usage": null,
+      "estimatedUsd": null,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:34:34.284Z"
+    },
+    {
+      "number": 47,
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+      "scenario": "tool",
+      "stream": false,
+      "startedAt": "2026-09-11T04:35:15.380Z",
+      "maxOutputTokens": 128,
+      "reservedUsd": 1,
+      "pricingPerMillion": {
+        "input": 1.04,
+        "output": 1.04
+      },
+      "status": "captured",
+      "usage": {
+        "inputTokens": 200,
+        "outputTokens": 22
+      },
+      "estimatedUsd": 0.00023087999999999998,
+      "httpStatus": 200,
+      "finishedAt": "2026-09-11T04:35:16.016Z"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "together",
+  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:14.326Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json; charset=utf-8"
+      },
+      "body": "ewogICJpZCI6ICJvem9rR1luLWZkTm1uLWEzOTNmM2ZjNWNmZWEyNWUiLAogICJvYmplY3QiOiAiY2hhdC5jb21wbGV0aW9uIiwKICAiY3JlYXRlZCI6IDE3ODkxMDExOTMsCiAgIm1vZGVsIjogIm1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsCiAgInByb21wdCI6IFtdLAogICJjaG9pY2VzIjogWwogICAgewogICAgICAiZmluaXNoX3JlYXNvbiI6ICJ0b29sX2NhbGxzIiwKICAgICAgInNlZWQiOiAxNjQxMDQ0ODkzMDcwMjY1NTAwMCwKICAgICAgImluZGV4IjogMCwKICAgICAgImxvZ3Byb2JzIjogbnVsbCwKICAgICAgIm1lc3NhZ2UiOiB7CiAgICAgICAgInJvbGUiOiAiYXNzaXN0YW50IiwKICAgICAgICAiY29udGVudCI6IG51bGwsCiAgICAgICAgInRvb2xfY2FsbHMiOiBbCiAgICAgICAgICB7CiAgICAgICAgICAgICJpbmRleCI6IDAsCiAgICAgICAgICAgICJpZCI6ICJjYWxsXzZqYnR5djlxZDVpeHFrd3c0dW4zaW84NSIsCiAgICAgICAgICAgICJ0eXBlIjogImZ1bmN0aW9uIiwKICAgICAgICAgICAgImZ1bmN0aW9uIjogewogICAgICAgICAgICAgICJhcmd1bWVudHMiOiAie1widGV4dFwiOlwiaGVsbG9cIn0iLAogICAgICAgICAgICAgICJuYW1lIjogImVjaG8iCiAgICAgICAgICAgIH0KICAgICAgICAgIH0KICAgICAgICBdCiAgICAgIH0KICAgIH0KICBdLAogICJ1c2FnZSI6IHsKICAgICJwcm9tcHRfdG9rZW5zIjogMjAwLAogICAgImNvbXBsZXRpb25fdG9rZW5zIjogMjIsCiAgICAidG90YWxfdG9rZW5zIjogMjIyLAogICAgImNhY2hlZF90b2tlbnMiOiAwCiAgfQp9",
+      "sha256": "8c7827a9b6b856ff0775ca16ca1b02a348538484200b0702aace8363479063ea"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 200,
+      "outputTokens": 22
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

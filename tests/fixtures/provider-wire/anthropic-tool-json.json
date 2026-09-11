@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "backend": "anthropic",
+  "model": "claude-haiku-4-5-20251001",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:32:36.747Z",
+    "sourceOrigin": "https://api.anthropic.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/messages"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJtb2RlbCI6ImNsYXVkZS1oYWlrdS00LTUtMjAyNTEwMDEiLCJpZCI6Im1zZ18wMTFDZXcyVlZBZnJrYm1QSjNVYVFwTjgiLCJ0eXBlIjoibWVzc2FnZSIsInJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjpbeyJ0eXBlIjoidG9vbF91c2UiLCJpZCI6InRvb2x1XzAxR3BQUlJBUzNFejhndXNGMVFoZk0xdCIsIm5hbWUiOiJlY2hvIiwiaW5wdXQiOnsidGV4dCI6ImhlbGxvIn0sImNhbGxlciI6eyJ0eXBlIjoiZGlyZWN0In19XSwiY29udGFpbmVyIjpudWxsLCJzdG9wX3JlYXNvbiI6InRvb2xfdXNlIiwic3RvcF9zZXF1ZW5jZSI6bnVsbCwic3RvcF9kZXRhaWxzIjpudWxsLCJ1c2FnZSI6eyJpbnB1dF90b2tlbnMiOjU4NCwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MCwiY2FjaGVfY3JlYXRpb24iOnsiZXBoZW1lcmFsXzVtX2lucHV0X3Rva2VucyI6MCwiZXBoZW1lcmFsXzFoX2lucHV0X3Rva2VucyI6MH0sIm91dHB1dF90b2tlbnMiOjUyLCJzZXJ2aWNlX3RpZXIiOiJzdGFuZGFyZCIsImluZmVyZW5jZV9nZW8iOiJub3RfYXZhaWxhYmxlIn19",
+      "sha256": "ea80524c000d63713a3bd8aa02fbd5574aff4a3fb5d0ba3ab0402336f46861c2"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 584,
+      "outputTokens": 52
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

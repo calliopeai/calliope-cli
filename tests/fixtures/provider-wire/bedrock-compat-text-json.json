@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "backend": "bedrock-compat",
+  "model": "conformance-bedrock",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:29.863Z",
+    "sourceOrigin": "http://127.0.0.1:14000",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "LiteLLM",
+      "version": "1.100.1",
+      "upstream": {
+        "provider": "bedrock",
+        "model": "amazon.nova-micro-v1:0",
+        "region": "us-east-1"
+      },
+      "retries": 0
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLWMzMmI2MTgwLTRiNzktNGU3Yi1iYTBkLTA5MDU1Mzk4YTU2NCIsImNyZWF0ZWQiOjE3ODkxMDEyNjksIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJzdG9wIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IkhlbGxvIM+AIiwicm9sZSI6ImFzc2lzdGFudCJ9fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjozLCJwcm9tcHRfdG9rZW5zIjo2LCJ0b3RhbF90b2tlbnMiOjksImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MCwidGV4dF90b2tlbnMiOjN9LCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOnsiY2FjaGVfd3JpdGVfdG9rZW5zIjowLCJjYWNoZWRfdG9rZW5zIjowLCJ0ZXh0X3Rva2VucyI6NiwiY2FjaGVfY3JlYXRpb25fdG9rZW5zIjowfSwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MH19",
+      "sha256": "9424b720ba2afe3facf7b053e1e0ea72b75e7daabf2128f72ea3b49e48bc9d56"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 6,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

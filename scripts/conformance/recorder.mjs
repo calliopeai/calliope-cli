@@ -33,7 +33,10 @@ const fetch = async (input, init) => {
   const bytes = Buffer.concat(chunks);
   const headers = { 'content-type': response.headers.get('content-type') || 'application/json' };
   exchanges.push({ request: { method: init.method, path: url.pathname }, status: response.status, headers, body: bytes.toString('base64'), sha256: digest(bytes) });
-  return new Response(bytes, { status: response.status, headers });
+  // Preserve the first provider error instead of allowing the SDK to replace it
+  // with a connection error when the one-request guard rejects its retry.
+  // This local SDK control is not part of the captured wire headers.
+  return new Response(bytes, { status: response.status, headers: { ...headers, 'x-should-retry': 'false' } });
 };
   return { fetch, exchanges, sourceOrigin: () => sourceOrigin };
 }

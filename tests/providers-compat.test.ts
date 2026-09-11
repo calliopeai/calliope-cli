@@ -469,7 +469,7 @@ describe('chatOpenAICompatible', () => {
 
     it('should use correct base URL for huggingface', async () => {
       await chatOpenAICompatible('huggingface', [{ role: 'user', content: 'hi' }], [], 'test-model');
-      expect(lastClientConfig!.baseURL).toBe('https://api-inference.huggingface.co/v1');
+      expect(lastClientConfig!.baseURL).toBe('https://router.huggingface.co/v1');
     });
 
     it('should append /v1 for Ollama base URL', async () => {

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "backend": "huggingface",
+  "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+  "scenario": "text",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:33:19.521Z",
+    "sourceOrigin": "https://router.huggingface.co",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "body": "ZGF0YTogeyJpZCI6IjhlYzhlN2Y4ZDJmNjJkZmE0M2Q0NWNiMTU0NGUzMGU3Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTEwMTE5OSwibW9kZWwiOiJtZXRhLWxsYW1hL2xsYW1hLTMuMy03MGItaW5zdHJ1Y3QiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV0sInN5c3RlbV9maW5nZXJwcmludCI6IiIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjQxLCJjb21wbGV0aW9uX3Rva2VucyI6MCwidG90YWxfdG9rZW5zIjo0MSwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjpudWxsLCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjpudWxsfSwic2xhX21ldHJpY3MiOnsidHRmdF9tcyI6MzQ2LCJ0c191cyI6MTc4OTEwMTE5OTQyNTg1N319CgpkYXRhOiB7ImlkIjoiOGVjOGU3ZjhkMmY2MmRmYTQzZDQ1Y2IxNTQ0ZTMwZTciLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MTAxMTk5LCJtb2RlbCI6Im1ldGEtbGxhbWEvbGxhbWEtMy4zLTcwYi1pbnN0cnVjdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiSGVsbG8ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiIiLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo0MSwiY29tcGxldGlvbl90b2tlbnMiOjEsInRvdGFsX3Rva2VucyI6NDIsInByb21wdF90b2tlbnNfZGV0YWlscyI6bnVsbCwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6bnVsbH0sInNsYV9tZXRyaWNzIjp7InR0ZnRfbXMiOjM0NiwidHNfdXMiOjE3ODkxMDExOTk0MjU5NTB9fQoKZGF0YTogeyJpZCI6IjhlYzhlN2Y4ZDJmNjJkZmE0M2Q0NWNiMTU0NGUzMGU3Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTEwMTE5OSwibW9kZWwiOiJtZXRhLWxsYW1hL2xsYW1hLTMuMy03MGItaW5zdHJ1Y3QiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiDPgCJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV0sInN5c3RlbV9maW5nZXJwcmludCI6IiIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjQxLCJjb21wbGV0aW9uX3Rva2VucyI6MiwidG90YWxfdG9rZW5zIjo0MywicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjpudWxsLCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjpudWxsfSwic2xhX21ldHJpY3MiOnsidHRmdF9tcyI6MzQ2LCJ0c191cyI6MTc4OTEwMTE5OTQ0NDU4Mn19CgpkYXRhOiB7ImlkIjoiOGVjOGU3ZjhkMmY2MmRmYTQzZDQ1Y2IxNTQ0ZTMwZTciLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MTAxMTk5LCJtb2RlbCI6Im1ldGEtbGxhbWEvbGxhbWEtMy4zLTcwYi1pbnN0cnVjdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6e30sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiIiLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo0MSwiY29tcGxldGlvbl90b2tlbnMiOjMsInRvdGFsX3Rva2VucyI6NDQsInByb21wdF90b2tlbnNfZGV0YWlscyI6bnVsbCwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6bnVsbH0sInNsYV9tZXRyaWNzIjp7InR0ZnRfbXMiOjM0NiwidHNfdXMiOjE3ODkxMDExOTk0NjI5NTh9fQoKZGF0YTogeyJpZCI6IjhlYzhlN2Y4ZDJmNjJkZmE0M2Q0NWNiMTU0NGUzMGU3Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTEwMTE5OSwibW9kZWwiOiJtZXRhLWxsYW1hL2xsYW1hLTMuMy03MGItaW5zdHJ1Y3QiLCJjaG9pY2VzIjpbXSwic3lzdGVtX2ZpbmdlcnByaW50IjoiIiwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6NDEsImNvbXBsZXRpb25fdG9rZW5zIjozLCJ0b3RhbF90b2tlbnMiOjQ0LCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOm51bGwsImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOm51bGx9LCJzbGFfbWV0cmljcyI6eyJ0dGZ0X21zIjozNDYsInRzX3VzIjoxNzg5MTAxMTk5NDYzMDQyfX0KCmRhdGE6IFtET05FXQoK",
+      "sha256": "91120fc9fb486aba92884ee39ebbd194233ac9a0b9d95a625bfad1d5ba1c73f2"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 41,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}

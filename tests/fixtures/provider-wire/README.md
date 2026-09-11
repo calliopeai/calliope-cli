@@ -1,8 +1,9 @@
 # Captured provider responses
 
-No real provider responses have been supplied or captured for this release yet.
-Synthetic wire contracts live in `tests/helpers/provider-wire.ts` and do not
-satisfy the real-capture release gate.
+This directory contains 36 real captures from nine adapter paths, collected on
+September 11, 2026 UTC. See [the live test report](../../../docs/provider-live-testing.md)
+for models, gateway routes, server versions, spend and the 28 missing combinations.
+Synthetic contracts in `tests/helpers/provider-wire.ts` do not satisfy this gate.
 
 Run `npm run capture:provider -- --help` for the opt-in toy probe recorder. Live
 API calls require authorization for the specific provider/model and spend.

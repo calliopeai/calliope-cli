@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "backend": "openai-compat",
+  "model": "devstral:latest",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:33.338Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    },
+    "server": {
+      "name": "Ollama",
+      "version": "0.33.2"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLTY2NiIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkxMDEyNzMsIm1vZGVsIjoiZGV2c3RyYWw6bGF0ZXN0Iiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIiLCJ0b29sX2NhbGxzIjpbeyJpZCI6ImNhbGxfMjYxa2FjNnIiLCJpbmRleCI6MCwidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJhcmd1bWVudHMiOiJ7XCJ0ZXh0XCI6XCJoZWxsb1wifSJ9fV19LCJmaW5pc2hfcmVhc29uIjoidG9vbF9jYWxscyJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MTI5NiwiY29tcGxldGlvbl90b2tlbnMiOjE1LCJ0b3RhbF90b2tlbnMiOjEzMTF9fQo=",
+      "sha256": "7b236dfea7db17528dd588996296b9f1e4c7bd55d87e9eb05e9406d23077dc2f"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 1296,
+      "outputTokens": 15
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

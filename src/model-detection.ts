@@ -41,7 +41,7 @@ const PROVIDER_BASE_URLS: Record<string, string> = {
   fireworks: 'https://api.fireworks.ai/inference/v1',
   mistral: 'https://api.mistral.ai/v1',
   ai21: 'https://api.ai21.com/studio/v1',
-  huggingface: 'https://api-inference.huggingface.co/v1',
+  huggingface: 'https://router.huggingface.co/v1',
   // Bedrock uses a configurable gateway URL, not a fixed URL
 };
 

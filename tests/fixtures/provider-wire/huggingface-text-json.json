@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "backend": "huggingface",
+  "model": "meta-llama/Llama-3.3-70B-Instruct:novita",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T04:34:21.974Z",
+    "sourceOrigin": "https://router.huggingface.co",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/generative-ai": "0.24.1"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6IjBkMjlhZTUxODk2Mzg5NWM5YTVlY2ZhZmEwYzMxYWYxIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc4OTEwMTI2MSwibW9kZWwiOiJtZXRhLWxsYW1hL2xsYW1hLTMuMy03MGItaW5zdHJ1Y3QiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IkhlbGxvIM+AIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo0MSwiY29tcGxldGlvbl90b2tlbnMiOjMsInRvdGFsX3Rva2VucyI6NDQsInByb21wdF90b2tlbnNfZGV0YWlscyI6bnVsbCwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6bnVsbH0sInN5c3RlbV9maW5nZXJwcmludCI6IiJ9Cg==",
+      "sha256": "b238c42da67db516bcecbc0dae45d9cbd5a3f8a1a168e9242780de61b89c45ce"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 41,
+      "outputTokens": 3
+    },
+    "tools": []
+  }
+}
