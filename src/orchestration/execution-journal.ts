@@ -19,8 +19,9 @@ export function validateCollectedArtifact(value:unknown,manifest:RunPlanContext)
   pathName(value.path);integer(value.bytes,0,1024*1024);shape(value.source,['runId','eventId']);
   if(value.source.runId!==manifest.id||!uuid(value.source.eventId))fail('Artifact requires a source event in this run.');
   if(value.location==='project') {
+    if(manifest.plan.workspace.isolation)fail('Isolated artifacts must be retained as immutable run snapshots.');
     if(value.path!==spec.path||!permits(manifest.plan.agents.find(a=>a.id===task.agentId)!.allowedPaths,value.path,'write'))fail('Artifact exceeds the reviewed output scope.');
-  }else if(value.location!=='run'||spec.path!==undefined||value.path!==value.source.eventId+'.txt')fail('Invalid run artifact location.');
+  }else if(value.location!=='run'||spec.path!==undefined&&!manifest.plan.workspace.isolation||value.path!==value.source.eventId+'.txt')fail('Invalid run artifact location.');
   return value as unknown as CollectedArtifact;
 }
 export function validateTaskOutput(value:unknown,manifest:RunPlanContext):TaskOutput {
@@ -107,7 +108,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     }else if(c.type==='tool'){
       active();if(task!.status!=='running')conflict('Tool evidence requires an active task.');
       const agent=manifest.plan.agents.find(a=>a.id===manifest.plan.tasks.find(t=>t.id===c.taskId)!.agentId)!;
-      if(c.mutating!==['write_file','edit_file'].includes(c.name))fail('Tool mutation classification differs from the executor.');
+      if(c.mutating!==(['write_file','edit_file'].includes(c.name)||!!manifest.plan.workspace.isolation&&c.name==='shell'))fail('Tool mutation classification differs from the executor.');
       const key=c.taskId+':'+task!.attempts+':'+c.callId,scope=canonicalJson({name:c.name,path:c.path,mutating:c.mutating});
       if(c.stage==='started'){if(toolStarts.has(key))conflict('Duplicate tool start.');toolStarts.set(key,scope);}else{if(toolStarts.get(key)!==scope)conflict('Tool result has no matching start.');toolStarts.set(key,'finished');}
       if(!agent.allowedTools.includes(c.name)||c.path!==null&&!permits(agent.allowedPaths,c.path,c.mutating?'write':'read')){if(c.success)fail('Successful tool evidence exceeds agent authority.');}

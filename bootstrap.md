@@ -70,6 +70,8 @@ validated dependency plans and an immutable local run journal.
 with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active
 graph without resetting its original scope, budget or clock.
+[Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
+worktrees, reviewed Docker verification commands and immutable process/diff evidence.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
 then requires hash-bound human approval within one persistent allowance and clock.
 [Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker

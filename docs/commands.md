@@ -262,6 +262,8 @@ acceptance against unchanged evidence. `/agents stop|retry <agent> --run <id>`
 controls that agent subtree. Headless equivalents support `--json`;
 `--allow-mutations` explicitly authorizes scoped worker writes permitted by policy.
 See [contracts](orchestration.md) and [execution and recovery](coordinator-execution.md).
+Version 3 plans use retained worktrees and declared container verification commands;
+see [isolated workers](isolated-workers.md) for image, permission and evidence requirements.
 
 ### Mixed-model orchestration
 
