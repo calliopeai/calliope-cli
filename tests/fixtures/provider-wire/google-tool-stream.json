@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "backend": "google",
+  "model": "gemini-2.5-flash-lite",
+  "scenario": "tool",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T15:21:10.734Z",
+    "sourceOrigin": "https://generativelanguage.googleapis.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "17c5e442-95b8-428c-95e2-2291766f6b63"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "body": "ZGF0YTogeyJjYW5kaWRhdGVzIjogW3siY29udGVudCI6IHsicGFydHMiOiBbeyJmdW5jdGlvbkNhbGwiOiB7Im5hbWUiOiAiZWNobyIsImFyZ3MiOiB7InRleHQiOiAiaGVsbG8ifX19XSwicm9sZSI6ICJtb2RlbCJ9LCJmaW5pc2hSZWFzb24iOiAiU1RPUCIsImluZGV4IjogMCwiZmluaXNoTWVzc2FnZSI6ICJNb2RlbCBnZW5lcmF0ZWQgZnVuY3Rpb24gY2FsbChzKS4ifV0sInVzYWdlTWV0YWRhdGEiOiB7InByb21wdFRva2VuQ291bnQiOiA1OSwiY2FuZGlkYXRlc1Rva2VuQ291bnQiOiAxMywidG90YWxUb2tlbkNvdW50IjogNzIsInByb21wdFRva2Vuc0RldGFpbHMiOiBbeyJtb2RhbGl0eSI6ICJURVhUIiwidG9rZW5Db3VudCI6IDU5fV0sInNlcnZpY2VUaWVyIjogInN0YW5kYXJkIn0sIm1vZGVsVmVyc2lvbiI6ICJnZW1pbmktMi41LWZsYXNoLWxpdGUiLCJyZXNwb25zZUlkIjogIlpoeWthc3lXSDZDajZka1B5dEREcVFzIn0NCg0K",
+      "sha256": "087d08769e732627bec0e79ed12566ce3f237ae7d3c89265af3af4d2e63424b9"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 59,
+      "outputTokens": 13
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

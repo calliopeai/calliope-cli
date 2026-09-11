@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "backend": "fireworks",
+  "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T16:03:01.608Z",
+    "sourceOrigin": "https://api.fireworks.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "ad436b84-f11e-4a91-84eb-51a18c858f97"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/inference/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLTk5NmQ3OThkZTNhZDRlMWZhM2I4YmU1YzNjODRjYzI5Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc4OTE0MjU4MSwibW9kZWwiOiJhY2NvdW50cy9maXJld29ya3MvbW9kZWxzL25lbW90cm9uLWxpZ2h0bmluZy0zcDUtMzBiLWEzYiIsImNob2ljZXMiOlt7ImluZGV4IjowLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiIiwicmVhc29uaW5nX2NvbnRlbnQiOiJXZSBuZWVkIHRvIGNhbGwgZWNobyBmdW5jdGlvbiB3aXRoIHRleHQgXCJoZWxsb1wiLiBUaGVuIHByZXN1bWFibHkgb3V0cHV0IHJlc3VsdC4gU28gd2UgY2FsbCBmdW5jdGlvbi4iLCJ0b29sX2NhbGxzIjpbeyJpbmRleCI6MCwiaWQiOiJjaGF0Y21wbC10b29sLWFhOWE5ODllNzgxNGNjZDMiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjogXCJoZWxsb1wifSJ9LCJuYW1lIjpudWxsfV0sInRvb2xzIjpudWxsfSwiZmluaXNoX3JlYXNvbiI6InRvb2xfY2FsbHMifV0sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjI5NCwidG90YWxfdG9rZW5zIjozNDAsImNvbXBsZXRpb25fdG9rZW5zIjo0NiwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjB9fX0=",
+      "sha256": "3e4874f21d2e92da11c4f74c8cdd90413e24289b817d60dd19cee9f67937c1c7"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 294,
+      "outputTokens": 46
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}
