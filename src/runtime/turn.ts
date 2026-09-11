@@ -240,7 +240,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
       throwIfCancelled(signal);
     }
     await report(call, result, Date.now() - toolStarted);
-    if (!signal?.aborted) void executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }).catch(error => options.onWarning?.(`Post-tool hook failed: ${String(error)}`));
+    if (!signal?.aborted) void executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal }).catch(error => options.onWarning?.(`Post-tool hook failed: ${String(error)}`));
     return !result.isError && ['ask_question', 'create_plan'].includes(call.name);
   };
 

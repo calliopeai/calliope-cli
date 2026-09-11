@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { spawn } from 'child_process';
+import { throwIfCancelled } from './cancellation.js';
 
 // Debug logging helper
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
@@ -210,8 +211,10 @@ export function getHooksForEvent(event: HookEvent): Hook[] {
  */
 async function runHookCommand(
   hook: Hook,
-  context: HookContext
+  context: HookContext,
+  signal?: AbortSignal
 ): Promise<HookResult> {
+  throwIfCancelled(signal);
   return new Promise((resolve) => {
     const timeout = hook.timeout || 10000;
 
@@ -241,15 +244,15 @@ async function runHookCommand(
 
     let stdout = '';
     let stderr = '';
-    let timedOut = false;
+    let timedOut = false, cancelled = false;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
 
     proc.stdout?.on('data', (data) => {
-      stdout += data.toString();
+      stdout = (stdout + data.toString()).slice(0,65536);
     });
 
     proc.stderr?.on('data', (data) => {
-      stderr += data.toString();
+      stderr = (stderr + data.toString()).slice(0,65536);
     });
 
     // Signal the whole process group (negative pid) so the shell's children die
@@ -272,13 +275,15 @@ async function runHookCommand(
     // command that traps/ignores SIGTERM cannot outlive its timeout.
     const timer = setTimeout(() => {
       timedOut = true;
-      signalGroup('SIGTERM');
       killTimer = setTimeout(() => signalGroup('SIGKILL'), 2000);
+      signalGroup('SIGTERM');
     }, timeout);
 
+    const abort = () => { cancelled = true; signalGroup('SIGKILL'); };
+    const cleanup = () => { clearTimeout(timer); if (killTimer) clearTimeout(killTimer); signal?.removeEventListener('abort',abort); if (cancelled || timedOut) { try { if (proc.pid) process.kill(-proc.pid,'SIGKILL'); } catch { /* Group already exited. */ } } };
     proc.on('close', (code) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
+      cleanup();
+      if (cancelled) { resolve({success:false,blocked:true,error:'Hook cancelled'}); return; }
 
       if (timedOut) {
         resolve({
@@ -300,13 +305,14 @@ async function runHookCommand(
     });
 
     proc.on('error', (err) => {
-      clearTimeout(timer);
-      if (killTimer) clearTimeout(killTimer);
+      cleanup();
       resolve({
         success: false,
         error: err.message,
       });
     });
+    signal?.addEventListener('abort',abort,{once:true});
+    if (signal?.aborted) abort();
   });
 }
 
@@ -315,13 +321,16 @@ async function runHookCommand(
  */
 export async function executeHooks(
   event: HookEvent,
-  context: Partial<HookContext>
+  context: Partial<HookContext>,
+  options: {signal?: AbortSignal} = {}
 ): Promise<HookResult[]> {
+  throwIfCancelled(options.signal);
   const hooks = getHooksForEvent(event);
   const results: HookResult[] = [];
   const fullContext: HookContext = { event, ...context };
 
   for (const hook of hooks) {
+    throwIfCancelled(options.signal);
     // Check condition if specified
     if (hook.condition) {
       let matches = false;
@@ -355,13 +364,13 @@ export async function executeHooks(
     // guardrail (the discarded result could never set `blocked`).
     if (hook.async && !BLOCKING_EVENTS.has(event)) {
       // Fire and forget with debug logging
-      runHookCommand(hook, fullContext).catch((err) => {
+      runHookCommand(hook, fullContext, options.signal).catch((err) => {
         debugLog(`Async hook '${hook.id}' failed:`, err instanceof Error ? err.message : err);
       });
       results.push({ success: true });
     } else {
-      const result = await runHookCommand(hook, fullContext);
-      results.push(result);
+      const result = await runHookCommand(hook, fullContext, options.signal);
+      throwIfCancelled(options.signal); results.push(result);
 
       // If hook blocks, stop executing more hooks
       if (result.blocked) {
@@ -378,9 +387,11 @@ export async function executeHooks(
  */
 export async function checkHooksAllow(
   event: HookEvent,
-  context: Partial<HookContext>
+  context: Partial<HookContext>,
+  options: {signal?: AbortSignal} = {}
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const results = await executeHooks(event, context);
+  const results = await executeHooks(event, context, options);
+  throwIfCancelled(options.signal);
 
   for (const result of results) {
     if (result.blocked) {

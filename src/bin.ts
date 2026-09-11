@@ -174,6 +174,12 @@ async function main(): Promise<void> {
     process.exit(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  if (args[0] === 'run' || args[0] === 'agents' || args[0] === 'tasks') {
+    headlessCancellation = new AbortController();
+    const { runOrchestrationCommand } = await import('./orchestration/index.js');
+    process.exit(await runOrchestrationCommand(args[0], rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   if (args[0] === 'session') {
     headlessCancellation = new AbortController();
     const { runSessionCommand } = await import('./session-management/cli.js');
@@ -367,6 +373,11 @@ ${bold('calliope')} - Multi-model AI agent CLI
 ${bold('USAGE')}
   calliope [options] [prompt]
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
+  calliope run <plan> --dry-run [--json]   Validate an orchestration plan
+  calliope run prepare <plan> [--json]     Prepare a durable inactive run
+  calliope run status|approve|cancel <id> [--json]   Inspect or review a prepared run
+  calliope agents --tree [--run <id>] [--json]   Inspect the declared agent hierarchy
+  calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
   calliope session <action> [args] [--json]   Manage private session history without inference
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
