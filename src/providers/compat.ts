@@ -15,7 +15,7 @@ import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.
 import { getOllamaFallbackModel } from '../model-detection.js';
 
 // API base URLs for OpenAI-compatible providers
-const PROVIDER_BASE_URLS: Record<string, string> = {
+export const PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
   openrouter: 'https://openrouter.ai/api/v1',
   together: 'https://api.together.xyz/v1',
   groq: 'https://api.groq.com/openai/v1',

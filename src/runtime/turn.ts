@@ -103,7 +103,12 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
   const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
     checkBudget();
-    const response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal });
+    const response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal,
+      onHealthWarning: message => {
+        runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: 'allow', reason: message, durationMs: 0 });
+        options.onWarning?.(message);
+      },
+    });
     throwIfCancelled(signal);
     const cost = response.usage ? calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
     totals.inputTokens += response.usage?.inputTokens ?? 0;

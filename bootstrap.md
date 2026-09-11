@@ -56,6 +56,7 @@ See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope seman
 src/
 ├── bin.ts            # entry point
 ├── providers/        # 13 backends (anthropic, google, openai, bedrock, ollama, compat)
+├── health/ / doctor.ts # local observations, quarantine and bounded provider diagnostics
 ├── hud/              # color api, 3 palettes, single skin
 ├── runtime/          # shared turn engine, permissions, repair and retry
 ├── ui/               # Ink components and terminal runtime adapter

@@ -159,8 +159,14 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  // Handle `replay` subcommand — render a run-log trace read-only to stdout.
-  // Runs before setup/config gates: replaying an audit trail needs no provider.
+  // Local diagnostics run before setup and do not require provider credentials.
+  if (args[0] === 'doctor') {
+    headlessCancellation = new AbortController();
+    const { runDoctor } = await import('./doctor.js');
+    process.exit(await runDoctor(args.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  // Handle `replay` before setup/config gates: an audit trail needs no provider.
   if (args[0] === 'replay') {
     const { runReplay } = await import('./replay.js');
     // First non-flag arg after `replay` is the path or session id.
@@ -334,6 +340,7 @@ ${bold('USAGE')}
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)
+  calliope doctor [providers|provider <name>] [--json] [--probe]   Inspect provider health
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message

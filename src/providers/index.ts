@@ -9,7 +9,8 @@ import { withRetry } from '../errors.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
 import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions } from './types.js';
-import { throwIfCancelled } from '../cancellation.js';
+import { cancellable, throwIfCancelled } from '../cancellation.js';
+import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
 import { chatAnthropic } from './anthropic.js';
 import { chatGoogle } from './google.js';
@@ -35,12 +36,33 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getBaseUrl('ollama')) providers.push('ollama');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
   if (config.getBaseUrl('litellm')) providers.push('litellm');
+  if (config.getBaseUrl('openai-compat')) providers.push('openai-compat');
   if (config.getApiKey('deepseek')) providers.push('deepseek');
   if (config.getApiKey('xai')) providers.push('xai');
   if (config.getApiKey('cerebras')) providers.push('cerebras');
-  if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
+  if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || nativeBedrockConfigured()) providers.push('bedrock');
 
   return providers;
+}
+
+function nativeBedrockConfigured(): boolean {
+  try { const target = providerTarget('bedrock'); return target.protocol === 'bedrock-converse' && target.credentials === 'configured'; }
+  catch { return false; }
+}
+
+let healthHistoryWarningShown = false;
+function healthHistoryWarning(warn?: (message: string) => void): void {
+  if (warn) warn('Provider health history is unavailable; run calliope doctor to inspect or restore it.');
+  else if (!healthHistoryWarningShown) {
+    healthHistoryWarningShown = true;
+    process.stderr.write('Provider health history is unavailable; run calliope doctor to inspect or restore it.\n');
+  }
+}
+function quarantined(provider: LLMProvider): boolean {
+  try {
+    const store = new HealthStore(), target = providerTarget(provider as HealthProvider);
+    return summarizeHealth(store.read(), target, store.settings).quarantine.active;
+  } catch { healthHistoryWarning(); return false; }
 }
 
 /**
@@ -70,7 +92,7 @@ function unavailableMessage(provider: LLMProvider): string {
     return 'ai21 is retired: the AI21 Studio API was sunset on August 9, 2026. Remove the provider or migrate to a supported endpoint such as Hugging Face, Together, or an explicitly configured OpenAI-compatible gateway.';
   }
   const { apiKey, baseUrl } = config.getProviderEnvVars(provider);
-  if (provider === 'ollama' || provider === 'litellm') {
+  if (provider === 'ollama' || provider === 'litellm' || provider === 'openai-compat') {
     const fixes = ['calliope --setup', `/config set providers.${provider}.baseUrl <url>`];
     if (baseUrl) fixes.push(`export ${baseUrl}`);
     return `${provider} is selected but has no base URL. Fix: ${joinFixes(fixes)}.`;
@@ -96,10 +118,10 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   if (preferred !== 'auto') {
     if (preferred === 'ai21') throw new ProviderUnavailableError(preferred, unavailableMessage(preferred));
     // For Ollama/LiteLLM, check base URL instead of API key
-    if (preferred === 'ollama' || preferred === 'litellm') {
+    if (preferred === 'ollama' || preferred === 'litellm' || preferred === 'openai-compat') {
       if (config.getBaseUrl(preferred)) return preferred;
     } else if (preferred === 'bedrock') {
-      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return preferred;
+      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || nativeBedrockConfigured()) return preferred;
     } else {
       const key = config.getApiKey(preferred);
       if (key) return preferred;
@@ -109,19 +131,12 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm', 'openai-compat'];
 
-  for (const p of priority) {
-    if (p === 'ollama' || p === 'litellm') {
-      if (config.getBaseUrl(p)) return p;
-    } else if (p === 'bedrock') {
-      if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) return p;
-    } else if (config.getApiKey(p)) {
-      return p;
-    }
-  }
+  const available = getAvailableProviders();
+  for (const p of priority) if (available.includes(p) && !quarantined(p)) return p;
 
-  throw new Error('No API keys configured. Run `calliope --setup` to configure.');
+  throw new Error('No API keys configured or all available providers are quarantined. Run `calliope --setup` or `calliope doctor`.');
 }
 
 /**
@@ -139,6 +154,17 @@ export async function chat(
   throwIfCancelled(options?.signal);
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+  let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
+  try {
+    const store = new HealthStore(), target = providerTarget(actualProvider as HealthProvider);
+    health = { store, target };
+    const quarantine = summarizeHealth(store.read(), target, store.settings).quarantine;
+    if (quarantine.active) {
+      const message = `${actualProvider} is quarantined after ${quarantine.failures} failures (${quarantine.reason}) until ${quarantine.expiresAt}; honoring your explicit selection for a recovery attempt.`;
+      if (options?.onHealthWarning) options.onHealthWarning(message);
+      else process.stderr.write(message + '\n');
+    }
+  } catch { healthHistoryWarning(options?.onHealthWarning); }
   const callback = onToken;
   if (callback && options?.signal) onToken = token => { if (!options.signal!.aborted) callback(token); };
 
@@ -177,6 +203,7 @@ export async function chat(
         response = await chatOllama(messages, backendTools, actualModel, onToken, options);
         break;
       case 'litellm':
+      case 'openai-compat':
         response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal);
         break;
       case 'bedrock': {
@@ -199,7 +226,33 @@ export async function chat(
   };
 
   // Wrap with retry logic
-  return withRetry(doChat, {
+  let attempt = 0;
+  const observedChat = async (): Promise<LLMResponse> => {
+    const started = Date.now(), retryIndex = attempt++;
+    const record = (observation: Omit<import('../health/types.js').HealthObservation, 'provider' | 'target' | 'type'>) => {
+      if (!health) return;
+      try { health.store.append({ provider: health.target.provider, target: health.target.key, type: 'attempt',
+        durationMs: Math.max(0, Math.min(86400000, Date.now() - started)), retryIndex, ...observation }); }
+      catch { healthHistoryWarning(options?.onHealthWarning); }
+    };
+    try {
+      const response = await cancellable(doChat(), options?.signal);
+      const usage = response.usage;
+      record({ outcome: response.finishReason === 'error' ? 'error' : 'success',
+        ...(response.finishReason === 'error' ? { failure: 'response' as const } : {}),
+        capabilities: {
+          ...(response.toolCalls?.length ? { tools: true } : {}),
+          ...(onToken ? { streaming: true } : {}),
+          usage: !!usage && Number.isSafeInteger(usage.inputTokens) && usage.inputTokens >= 0 && Number.isSafeInteger(usage.outputTokens) && usage.outputTokens >= 0,
+        } });
+      return response;
+    } catch (error) {
+      const outcome = healthOutcome(error, options?.signal);
+      record({ outcome, ...(outcome === 'cancelled' ? { capabilities: { cancellation: true } } : { ...healthFailure(error), ...(outcome === 'timeout' ? { failure: 'timeout' as const } : {}) }) });
+      throw error;
+    }
+  };
+  return withRetry(observedChat, {
     signal: options?.signal,
     maxRetries: 2,
     initialDelayMs: 1000,

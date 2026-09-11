@@ -14,7 +14,7 @@ reference is below.
 
 ## Config keys
 
-There are 16 keys. Defaults are the values applied when a key is absent.
+Defaults are the values applied when a key is absent.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -22,6 +22,7 @@ There are 16 keys. Defaults are the values applied when a key is absent.
 | `defaultProvider` | string | `auto` | Provider used at startup (`auto` picks the first configured one). |
 | `defaultModel` | string | *(unset)* | Model used at startup; falls back to the provider's default. |
 | `providers` | object | *(unset)* | Per-provider credentials. See [Provider credentials](#provider-credentials). |
+| `providerHealth` | object | *(defaults)* | Retention, repeated-failure quarantine and probe deadlines. See [Provider health](./provider-health.md#configuration-import-and-recovery). |
 | `fleet` | object | *(unset)* | `{ "enabled": boolean }`. When absent, fleet mode is off. See [Fleet mode](./fleet.md). |
 | `maxIterations` | number | `0` | Max agent-loop iterations (`0` = unlimited; range 0-1000000). |
 | `maxIterationTime` | number | `600` | Max seconds per iteration (`0` = no limit; range 0-3600). |

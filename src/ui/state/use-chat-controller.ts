@@ -292,8 +292,15 @@ export function useChatController(): ChatController {
     loop.setLoopIteration, addMessage, estimateContextTokens, runLoop, handleFleetInstruction]);
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
+    if (cmd.trim().split(/\s+/)[0] === '/doctor' && cmd.split(/\s+/).includes('--probe')) {
+      if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before probing providers.'); return; }
+      setIsProcessing(true);
+      try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), signal })); }
+      finally { setIsProcessing(false); }
+      return;
+    }
     await handleCommand(cmd, buildCommandContext());
-  }, [buildCommandContext]);
+  }, [buildCommandContext, addMessage, setIsProcessing]);
 
   // -- Submit (routing) -----------------------------------------------------
   // The input-widget concerns (history, clearing) live in InputRegion; this is

@@ -46,6 +46,16 @@ try {
   const output = resolve(values.output); mkdirSync(dirname(output), { recursive: true });
   writeFileSync(output, JSON.stringify(capture, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
   outcome = 'captured';
+  try {
+    const { HealthStore, providerTarget, healthDigest } = await import('../../dist/health/index.js');
+    const target = providerTarget(backend.provider);
+    // A native Bedrock probe may coexist with a configured gateway. Avoid
+    // attributing evidence to an endpoint different from the adapter invoked.
+    if ((backend.id === 'bedrock-native') === (target.protocol === 'bedrock-converse') || backend.provider !== 'bedrock') {
+      new HealthStore().append({ provider: target.provider, target: target.key, type: 'conformance', outcome: 'success', evidenceHash: healthDigest(capture),
+        capabilities: { ...(values.scenario === 'tool' ? { tools: true } : {}), ...(values.stream ? { streaming: true } : {}), usage: !!capture.expected.usage } });
+    }
+  } catch { console.error('Capture saved; provider health history could not be updated.'); }
   console.log(`Captured ${backend.id} to ${output}. Review decoded response bytes and expected semantics before adding it to CI; tool calls were not executed.`);
 } catch (error) {
   outcome = signal.aborted ? 'cancelled' : 'failed';

@@ -9,14 +9,38 @@ import OpenAI from 'openai';
 import { select } from '@inquirer/prompts';
 import * as config from './config.js';
 import type { LLMProvider } from './types.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { cancellable, throwIfCancelled } from './cancellation.js';
+import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
 
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
 
-interface ModelFetchOptions {
+export interface ModelFetchOptions {
   quiet?: boolean;
+  signal?: AbortSignal;
   /** Rethrow the underlying error instead of returning []. Use for interactive
    *  flows (like /model) where the user should see the real reason. */
   throwOnError?: boolean;
+}
+
+const discoveryContext = new AsyncLocalStorage<ModelFetchOptions & { cleanups: Promise<void>[] }>();
+function fetchModelMetadata(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): ReturnType<typeof fetch> {
+  const signal = discoveryContext.getStore()?.signal;
+  throwIfCancelled(signal);
+  if (!signal) return init === undefined ? fetch(input) : fetch(input, init);
+  return fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([signal, init.signal]) : signal });
+}
+function discoveryTransportOptions() {
+  return discoveryContext.getStore()?.signal ? { fetch: fetchModelMetadata, maxRetries: 0 } : {};
+}
+
+/** Scope transport cancellation to this discovery call, including concurrent probes. */
+export async function getAvailableModels(provider: LLMProvider, options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
+  throwIfCancelled(options.signal);
+  return discoveryContext.run({ ...options, cleanups: [] }, async () => {
+    try { return await cancellable(loadAvailableModels(provider, options), options.signal); }
+    finally { await Promise.allSettled(discoveryContext.getStore()!.cleanups); }
+  });
 }
 
 function logModelDetectionWarning(message: string, error?: unknown, options: ModelFetchOptions = {}): void {
@@ -227,7 +251,7 @@ function formatContextLength(tokens: number): string {
 /**
  * Get available models for a provider
  */
-export async function getAvailableModels(provider: LLMProvider, options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
+async function loadAvailableModels(provider: LLMProvider, options: ModelFetchOptions): Promise<ModelInfo[]> {
   // Check cache first
   const cached = modelCache.get(provider);
   // Strict callers require current wire evidence; a cached emergency fallback
@@ -285,6 +309,7 @@ export async function getAvailableModels(provider: LLMProvider, options: ModelFe
         throw new Error(`Model detection not implemented for ${provider}`);
     }
 
+    throwIfCancelled(options.signal);
     // Cache the results
     modelCache.set(provider, { models, timestamp: Date.now() });
   } catch (error) {
@@ -303,7 +328,7 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/models', {
+    const response = await fetchModelMetadata('https://api.anthropic.com/v1/models', {
       headers: {
         'x-api-key': apiKey,
         'anthropic-version': '2023-06-01'
@@ -366,7 +391,7 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
 
   try {
     // Use REST API directly for model listing
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const response = await fetchModelMetadata(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
 
     if (!response.ok) {
       throw new Error(`Google API error: ${response.status}`);
@@ -407,7 +432,7 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, ...discoveryTransportOptions() });
   const response = await client.models.list();
 
   // Filter for chat-compatible models (GPT and reasoning models)
@@ -436,7 +461,7 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('openrouter');
   if (!apiKey) throw new Error('OpenRouter API key not configured');
 
-  const response = await fetch('https://openrouter.ai/api/v1/models', {
+  const response = await fetchModelMetadata(`${(config.getBaseUrl('openrouter') || 'https://openrouter.ai/api/v1').replace(/\/+$/, '')}/models`, {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'HTTP-Referer': 'https://calliope.ai',
@@ -503,7 +528,7 @@ async function getTogetherModels(): Promise<ModelInfo[]> {
   if (!apiKey) throw new Error('Together API key not configured');
 
   // Together's API returns a raw array, not wrapped in { data: [...] } like OpenAI
-  const response = await fetch('https://api.together.xyz/v1/models', {
+  const response = await fetchModelMetadata(`${(config.getBaseUrl('together') || 'https://api.together.xyz/v1').replace(/\/+$/, '')}/models`, {
     headers: {
       'Authorization': `Bearer ${apiKey}`,
     }
@@ -545,8 +570,9 @@ async function getGroqModels(): Promise<ModelInfo[]> {
   if (!apiKey) throw new Error('Groq API key not configured');
 
   const client = new OpenAI({
+    ...discoveryTransportOptions(),
     apiKey,
-    baseURL: 'https://api.groq.com/openai/v1'
+    baseURL: config.getBaseUrl('groq') || 'https://api.groq.com/openai/v1'
   });
 
   const response = await client.models.list();
@@ -567,8 +593,9 @@ async function getMistralModels(): Promise<ModelInfo[]> {
   if (!apiKey) throw new Error('Mistral API key not configured');
 
   const client = new OpenAI({
+    ...discoveryTransportOptions(),
     apiKey,
-    baseURL: 'https://api.mistral.ai/v1'
+    baseURL: config.getBaseUrl('mistral') || 'https://api.mistral.ai/v1'
   });
 
   const response = await client.models.list();
@@ -592,7 +619,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
   }
 
   try {
-    const response = await fetch(`${baseUrl}/api/tags`);
+    const response = await fetchModelMetadata(`${baseUrl}/api/tags`);
     if (!response.ok) {
       throw new Error(`Ollama API error: ${response.status}`);
     }
@@ -605,7 +632,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
     for (const model of models) {
       let contextLength: number | undefined;
       try {
-        const showResp = await fetch(`${baseUrl}/api/show`, {
+        const showResp = await fetchModelMetadata(`${baseUrl}/api/show`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: model.name }),
@@ -688,7 +715,7 @@ async function getLiteLLMModels(): Promise<ModelInfo[]> {
   }
 
   try {
-    const response = await fetch(`${baseUrl}/v1/models`);
+    const response = await fetchModelMetadata(`${baseUrl}/v1/models`);
     if (!response.ok) {
       throw new Error(`LiteLLM API error: ${response.status}`);
     }
@@ -720,7 +747,7 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
     if (apiKey) {
       headers['Authorization'] = `Bearer ${apiKey}`;
     }
-    const response = await fetch(modelsUrl, { headers });
+    const response = await fetchModelMetadata(modelsUrl, { headers });
     if (response.ok) {
       const data = await response.json() as { data: Array<{ id: string }> };
       return data.data
@@ -751,19 +778,37 @@ async function resolveAwsCredentialsViaCli(profile: string): Promise<{
 } | null> {
   try {
     const { execFileSync } = await import('child_process');
+    const signal = discoveryContext.getStore()?.signal;
+    const read = async (format: string): Promise<string> => {
+      const args = ['configure', 'export-credentials', '--profile', profile, '--format', format];
+      if (!signal) return execFileSync('aws', args, { encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] });
+      throwIfCancelled(signal);
+      const { spawn } = await import('node:child_process');
+      throwIfCancelled(signal);
+      return new Promise<string>((resolve, reject) => {
+        const capacity = new AbortController();
+        const combined = AbortSignal.any([signal, AbortSignal.timeout(10000), capacity.signal]);
+        const child = spawn('aws', args, { stdio: ['ignore', 'pipe', 'pipe'], detached: detachedProcess });
+        const cleanup = bindProcessCancellation(child, combined);
+        discoveryContext.getStore()?.cleanups.push(cleanup);
+        const chunks: Buffer[] = []; let size = 0;
+        child.stdout.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > 1024 * 1024) capacity.abort();
+          else chunks.push(chunk);
+        });
+        child.stderr.resume();
+        child.once('error', () => { void cleanup.then(() => reject(new Error('AWS profile credential resolution failed'))); });
+        child.once('close', code => { void cleanup.then(() => code === 0 && !combined.aborted
+          ? resolve(Buffer.concat(chunks).toString('utf8')) : reject(new Error('AWS profile credential resolution failed'))); });
+      });
+    };
     let output = '';
     try {
-      output = execFileSync(
-        'aws',
-        ['configure', 'export-credentials', '--profile', profile, '--format', 'env-no-export'],
-        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
-      );
+      output = await read('env-no-export');
     } catch {
-      output = execFileSync(
-        'aws',
-        ['configure', 'export-credentials', '--profile', profile, '--format', 'env'],
-        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
-      );
+      throwIfCancelled(signal);
+      output = await read('env');
     }
     const envs: Record<string, string> = {};
     for (const rawLine of output.split(/\r?\n/)) {
@@ -891,7 +936,7 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
     const signature = createHmac('sha256', signingKey).update(stringToSign).digest('hex');
 
     headers['Authorization'] = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-    return fetch(url, { headers });
+    return fetchModelMetadata(url, { headers });
   };
 
   // 1. ListFoundationModels (direct on-demand access).
@@ -1029,7 +1074,7 @@ async function getOpenAICompatModels(): Promise<ModelInfo[]> {
   if (!baseUrl.endsWith('/v1')) baseUrl = `${baseUrl}/v1`;
   const apiKey = config.getApiKey('openai-compat') || 'openai-compat';
 
-  const response = await fetch(`${baseUrl}/models`, {
+  const response = await fetchModelMetadata(`${baseUrl}/models`, {
     headers: { 'Authorization': `Bearer ${apiKey}` },
   });
 
@@ -1049,10 +1094,10 @@ async function getOpenAICompatibleModels(provider: LLMProvider): Promise<ModelIn
   const apiKey = config.getApiKey(provider);
   if (!apiKey) throw new Error(`${provider} API key not configured`);
 
-  const baseURL = PROVIDER_BASE_URLS[provider];
+  const baseURL = config.getBaseUrl(provider) || PROVIDER_BASE_URLS[provider];
   if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
 
-  const client = new OpenAI({ apiKey, baseURL });
+  const client = new OpenAI({ apiKey, baseURL, ...discoveryTransportOptions() });
   const response = await client.models.list();
 
   return response.data

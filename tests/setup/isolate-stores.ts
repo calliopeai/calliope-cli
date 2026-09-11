@@ -27,6 +27,8 @@
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { beforeEach } from 'vitest';
+import { rmSync } from 'node:fs';
 
 if (!process.env.CALLIOPE_CONFIG_DIR) {
   const tag = process.env.VITEST_POOL_ID ?? String(process.pid);
@@ -44,6 +46,11 @@ if (!process.env.CALLIOPE_CONFIG_DIR) {
   process.env.HOME = base;
   process.env.USERPROFILE = base; // Windows CI
 }
+
+// Provider observations are persistent in production. Start each test with an
+// empty health history so unrelated adapter tests cannot quarantine each other.
+process.env.CALLIOPE_HEALTH_DIR = join(process.env.CALLIOPE_CONFIG_DIR!, 'provider-health');
+beforeEach(() => rmSync(process.env.CALLIOPE_HEALTH_DIR!, { recursive: true, force: true }));
 
 // Hermeticity: never let the AWS SDK's credential chain reach for the EC2
 // metadata endpoint (on CI runners the IMDS attempt retries past test

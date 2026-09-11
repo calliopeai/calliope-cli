@@ -54,6 +54,7 @@ export const COMMAND_NAMES = [
   '/quit',
   '/model',
   '/provider',
+  '/doctor',
   '/mode',
   '/undo',
   '/export',
@@ -78,6 +79,7 @@ export const COMMAND_NAMES = [
 // ============================================================================
 
 export interface CommandContext {
+  signal?: AbortSignal;
   // Current state
   actualProvider: LLMProvider;
   actualModel: string;
@@ -196,6 +198,7 @@ export async function handleCommand(cmd: string, ctx: CommandContext): Promise<v
 Model & Mode
   /model [name|list]          Switch model, or list/pick available models
   /provider [name|list]       Switch provider, or list providers
+  /doctor [providers|provider <name>]   Provider health; --probe checks discovery
   /mode [plan|hybrid|work]    Switch mode (Shift+Tab to cycle)
 
 Conversation
@@ -232,6 +235,16 @@ Fleet
 
 File references: @filename, ./path, /absolute/path`;
       ctx.addMessage('system', help);
+      break;
+    }
+
+    case '/doctor': {
+      const { diagnoseProviders, formatDoctor } = await import('../doctor.js');
+      const { report, exitCode } = await diagnoseProviders(parts.slice(1), {
+        signal: ctx.signal,
+        onProgress: provider => ctx.addMessage('system', `Checking ${provider} model discovery...`),
+      });
+      ctx.addMessage(exitCode ? 'error' : 'system', parts.includes('--json') ? JSON.stringify(report) : formatDoctor(report));
       break;
     }
 

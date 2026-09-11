@@ -1,6 +1,6 @@
 # Commands
 
-Calliope exposes 22 slash commands, plus `/fleet` when fleet mode is enabled.
+Calliope exposes 23 slash commands, plus `/fleet` when fleet mode is enabled.
 Type `/help` in a session to print the same list. Commands are entered at the
 prompt; arguments in `[brackets]` are optional.
 
@@ -17,6 +17,14 @@ Show the active provider, model, token usage, terminal capabilities, and fleet s
 ```
 /status
 ```
+
+### `/doctor [providers|provider <name>]`
+Report credentials, endpoint, discovery evidence, observed capabilities, recent
+latency/errors, and quarantine. Defaults to local observations; `--probe` permits
+bounded live model discovery. `--json` returns the versioned diagnostic document.
+Use `/doctor provider <name> --reset` after fixing a quarantined endpoint.
+The same arguments work with `calliope doctor` in headless environments.
+See [Provider health](./provider-health.md) for export/import and recovery.
 
 ### `/clear`
 Clear the conversation and reset context to the system prompt.
