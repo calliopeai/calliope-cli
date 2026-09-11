@@ -12,6 +12,8 @@ import {providerQuote,costCapNanos} from './quote.js';
 
 export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
+  /** Trusted coordinator ownership/revocation check; may only narrow authority. */
+  assertAuthority?: () => void;
 }
 export class ExecutionGuard {
   readonly manifest:ExecutionManifest;
@@ -20,20 +22,22 @@ export class ExecutionGuard {
   private readonly agentId:string;
   private readonly ledger:ReservationLedger;
   readonly maxOutputTokens:number;
+  private readonly assertAuthority?:()=>void;
   constructor(execution:AgentExecution,private readonly cwd:string) {
+    this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();
     const saved=execution.ledger.read(cwd);
     if(saved.projection.manifestHash!==execution.manifestHash)throw new ExecutionLimitError('conflict','Execution contract does not match the budget ledger.');
     const agent=accountLineage(saved.manifest,execution.agentId)[0]!;
     integer(execution.maxOutputTokens,1,100000000);this.manifest=saved.manifest;this.expectedHash=execution.manifestHash;this.agentId=agent.id;this.ledger=execution.ledger;this.maxOutputTokens=execution.maxOutputTokens;
     this.deadline=Math.min(saved.manifest.deadline,agent.deadline);
   }
-  check= (call:ToolCall,cwd=this.cwd):string|undefined => executionToolDenial(this.manifest,this.agentId,call,cwd);
+  check= (call:ToolCall,cwd=this.cwd):string|undefined => {this.assertAuthority?.();return executionToolDenial(this.manifest,this.agentId,call,cwd);};
   tools(tools:Tool[]):Tool[] {
     const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
     return tools.filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files'].includes(tool.name));
   }
   assertActive(signal?:AbortSignal):void {
-    throwIfCancelled(signal);checkExecutionIdentity(this.manifest,this.cwd);
+    throwIfCancelled(signal);this.assertAuthority?.();checkExecutionIdentity(this.manifest,this.cwd);
     if(Date.now()>=this.deadline)throw new ExecutionLimitError('deadline','Agent deadline expired.');
     const saved=this.ledger.read(this.cwd);if(saved.projection.manifestHash!==this.expectedHash)throw new ExecutionLimitError('conflict','Execution contract changed.');
     if(saved.projection.exceeded)throw new ExecutionLimitError('budget','Provider usage exceeded its reservation; further execution is stopped.');

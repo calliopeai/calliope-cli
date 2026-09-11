@@ -5,6 +5,7 @@ import { approvalDisplayText } from '../approvals/index.js';
 import { OrchestrationError, type AgentContract, type PreparedRun, type ProjectTask, type ProjectPlan, type OrchestrationEvent } from './types.js';
 import { RunStore } from './store.js';
 import { loadRunPlan, prepareRun, changePreparedRun, inspectRun, type RunActionOptions } from './actions.js';
+import {executionCommand,type ExecutionCommandOptions} from './execution-cli.js';
 export const ORCHESTRATION_USAGE = 'calliope run <plan> --dry-run | run prepare <plan> | run [list|status|replay] [run-id] | run approve|cancel <run-id> | agents [--tree] [--run <id>] | tasks [--graph] [--run <id>] [--json]';
 /** Quotes group arguments only; substitutions and commands are never evaluated. */
 export function parseOrchestrationArgs(input: string): string[] {
@@ -88,7 +89,8 @@ export function formatOrchestration(report: OrchestrationReport): string {
   const display = approvalDisplayText(lines.join('\n'));
   return display.length > 32000 ? display.slice(0,32000)+'\n[Display limited to 32,000 characters; use --json for the complete report.]' : display;
 }
-export async function runOrchestrationCommand(namespace: OrchestrationNamespace,args:string[],options:RunActionOptions & {cwd?:string;write?:(text:string)=>void} = {}): Promise<number> {
+export async function runOrchestrationCommand(namespace: OrchestrationNamespace,args:string[],options:ExecutionCommandOptions = {}): Promise<number> {
+  const executed=await executionCommand(namespace,args,options);if(executed!==null)return executed;
   const result = await orchestrationCommand(namespace,args,options);
   const delimiter = args.indexOf('--'), json = args.slice(0, delimiter < 0 ? args.length : delimiter).includes('--json');
   (options.write ?? (text => {process.stdout.write(text); }))(json ? JSON.stringify(result.report)+'\n' : formatOrchestration(result.report)+'\n');

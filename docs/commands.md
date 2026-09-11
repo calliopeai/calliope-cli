@@ -240,12 +240,17 @@ sessions, and `/resume [id]` validates and restores a conversation for the
 current project. See [session recovery](session-recovery.md) for interrupted
 tools, concurrent writers and recovery procedures.
 
-## Orchestration preparation
+## Orchestration
 
 `/run <plan> --dry-run` validates a project plan without writes or inference.
 `/run prepare <plan>` records an inactive run; `/run list`, `/run status [id]`,
 `/run approve <id>`, `/run cancel <id>` and `/run replay <id>` inspect its journal
 and record review decisions. `/agents tree [id]` shows the declared hierarchy;
-`/tasks graph [id]` shows dependencies and scope conflicts. Child execution is
-not yet available. See [contracts and commands](orchestration.md) for limits,
-policy behavior, schemas and recovery.
+`/tasks graph [id]` shows dependencies and scope conflicts. `/run <plan>` executes
+the reviewed graph, or use `/run execute <id>` after separate approval.
+`/run resume <id>` continues eligible pending work; `/run retry <id> <task>`
+explicitly resets a retryable task; `/run accept <id> <task>` records human
+acceptance against unchanged evidence. `/agents stop|retry <agent> --run <id>`
+controls that agent subtree. Headless equivalents support `--json`;
+`--allow-mutations` explicitly authorizes scoped worker writes permitted by policy.
+See [contracts](orchestration.md) and [execution and recovery](coordinator-execution.md).

@@ -23,7 +23,7 @@ const BASE_SLASH_COMMANDS = [
   '/defaults', '/defaults save', '/defaults reset',
   '/once',
   '/doctor', '/doctor providers', '/doctor provider',
-  '/run', '/run prepare', '/run status', '/run approve', '/run cancel', '/run replay', '/agents', '/agents tree', '/tasks', '/tasks graph', '/tools', '/tools list', '/tools last',
+  '/run', '/run prepare', '/run status', '/run approve', '/run cancel', '/run replay', '/run execute', '/run resume', '/run retry', '/run accept', '/agents', '/agents tree', '/agents stop', '/agents retry', '/tasks', '/tasks graph', '/tools', '/tools list', '/tools last',
   '/permissions', '/permissions list', '/permissions reset', '/permissions revoke',
   '/mode', '/mode plan', '/mode work',
   '/undo',

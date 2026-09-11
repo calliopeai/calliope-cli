@@ -375,8 +375,12 @@ ${bold('USAGE')}
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
   calliope run <plan> --dry-run [--json]   Validate an orchestration plan
   calliope run prepare <plan> [--json]     Prepare a durable inactive run
+  calliope run <plan> [--allow-mutations] [--json]   Execute a reviewed task graph
+  calliope run execute|resume <id> [--allow-mutations] [--json]   Start/resume workers
+  calliope run retry|accept <id> <task> [--json]   Retry or accept recorded evidence
   calliope run status|approve|cancel <id> [--json]   Inspect or review a prepared run
   calliope agents --tree [--run <id>] [--json]   Inspect the declared agent hierarchy
+  calliope agents stop|retry <agent> --run <id> [--json]   Control a bounded agent
   calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
   calliope session <action> [args] [--json]   Manage private session history without inference
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace

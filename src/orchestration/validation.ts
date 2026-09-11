@@ -64,7 +64,7 @@ function agent(v: unknown): asserts v is AgentContract {
 /** Pure validation: no model lookup, process creation, file writes or execution. */
 export function analyzePlan(value: unknown): PlanAnalysis {
   const raw = planJson(value); const v: unknown = JSON.parse(raw);
-  shape(v, ['version','id','goal','workspace','limits','agents','tasks']); if (v.version !== 1) fail('Unsupported plan version.'); id(v.id); text(v.goal);
+  shape(v, ['version','id','goal','workspace','limits','agents','tasks']); if (v.version !== 1 && v.version !== 2) fail('Unsupported plan version.'); id(v.id); text(v.goal);
   shape(v.workspace, ['id','root','allowedTools','allowedPaths']); id(v.workspace.id); if (v.workspace.root !== '.') fail('Workspace root must be the current project (.).'); tools(v.workspace.allowedTools); paths(v.workspace.allowedPaths);
   shape(v.limits, ['maxAgents','maxTasks','maxDepth','maxConcurrent','tokenBudget','costBudgetUsd','timeBudgetMs']);
   integer(v.limits.maxAgents, 1, MAX_AGENTS); integer(v.limits.maxTasks, 1, MAX_TASKS); integer(v.limits.maxDepth, 0, MAX_DEPTH); integer(v.limits.maxConcurrent, 1, 16);
@@ -93,11 +93,21 @@ export function analyzePlan(value: unknown): PlanAnalysis {
   }
   const tasks = new Map<string, ProjectPlan['tasks'][number]>(), producers = new Map<string, string>();
   for (const item of v.tasks) {
-    shape(item, ['id','agentId','objective','inputs','outputs','dependencies','acceptanceCriteria']); id(item.id); id(item.agentId); text(item.objective); inputs(item.inputs); strings(item.dependencies, MAX_TASKS); item.dependencies.forEach(id); strings(item.acceptanceCriteria, 100, 1); array(item.outputs, 100, 1);
+    shape(item, ['id','agentId','objective','inputs','outputs','dependencies','acceptanceCriteria',...(v.version===2?['acceptanceChecks']:[])]); id(item.id); id(item.agentId); text(item.objective); inputs(item.inputs); strings(item.dependencies, MAX_TASKS); item.dependencies.forEach(id); strings(item.acceptanceCriteria, 100, 1); array(item.outputs, 100, 1);
     if (tasks.has(item.id) || !agents.has(item.agentId)) fail('Duplicate task ID or missing assigned agent.');
     const owner = agents.get(item.agentId)!;
     for (const output of item.outputs) { artifact(output); if (producers.has(output.id)) fail('Artifact IDs must be unique across tasks.'); producers.set(output.id, item.id); if (output.path && !permits(owner.allowedPaths, output.path, 'write')) fail('Artifact output exceeds the agent write scope.'); }
     for (const input of item.inputs) if (input.kind === 'file' && !permits(owner.allowedPaths, input.value, 'read')) fail('Task input exceeds its agent scope.');
+    if(v.version===2) {
+      array(item.acceptanceChecks,200);const checks=new Set<string>();
+      for(const check of item.acceptanceChecks){
+        shape(check,['id','artifactId','kind','criteria'],['expected']);id(check.id);id(check.artifactId);strings(check.criteria,200,1);
+        if(checks.has(check.id)||!item.outputs.some(output=>obj(output)&&output.id===check.artifactId)||!['exists','contains','sha256','json'].includes(String(check.kind)))fail('Invalid acceptance check or artifact reference.');checks.add(check.id);
+        for(const criterion of check.criteria){const match=/^(task|agent):(0|[1-9][0-9]?)$/.exec(criterion);if(!match||Number(match[2])>=(match[1]==='task'?item.acceptanceCriteria.length:owner.acceptanceCriteria.length))fail('Acceptance checks must reference declared task/agent criteria.');}
+        if(check.kind==='exists'){if(check.expected!==undefined)fail('Existence checks have no expected value.');}
+        else {text(check.expected);if(check.kind==='sha256'&&!hex(check.expected))fail('Expected SHA-256 is invalid.');if(check.kind==='json'){try{planJson(JSON.parse(check.expected));}catch{fail('Expected JSON must be bounded valid JSON.');}}}
+      }
+    }
     tasks.set(item.id, item as unknown as ProjectPlan['tasks'][number]);
   }
   for (const task of tasks.values()) if (task.dependencies.some(dep => !tasks.has(dep) || dep === task.id)) fail('Missing or self-referencing task dependency.');
@@ -117,6 +127,10 @@ export function analyzePlan(value: unknown): PlanAnalysis {
   for (const task of tasks.values()) {
     const deps = ancestors(task.id);
     for (const input of [...task.inputs, ...agents.get(task.agentId)!.inputs]) if (input.kind === 'artifact' && (!producers.has(input.value) || !deps.has(producers.get(input.value)!))) fail('Artifact inputs require a producing dependency; summaries alone are not evidence.');
+    for(const input of [...task.inputs,...agents.get(task.agentId)!.inputs])if(input.kind==='artifact'){
+      const source=tasks.get(producers.get(input.value)!)!.outputs.find(o=>o.id===input.value)!;
+      if(source.path&&!permits(agents.get(task.agentId)!.allowedPaths,source.path,'read'))fail('Artifact input exceeds the consuming agent read scope.');
+    }
   }
   for (const item of plan.agents) if (item.inputs.some(input => input.kind === 'artifact' && (!producers.has(input.value) || !plan.tasks.some(task => task.agentId === item.id)))) fail('Agent artifact inputs require a declared producer and an assigned consuming task.');
   let comparisons = 0;

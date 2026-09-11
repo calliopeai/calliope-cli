@@ -23,7 +23,8 @@ beforeEach(()=>{
   metadata={id:'toy',context_length:900,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}};
   respond=async()=>completion();vi.stubGlobal('fetch',vi.fn(async(input,init)=>{
     const req=new Request(input,init);if(new URL(req.url).pathname==='/v1/models')return json({data:[metadata]});
-    expect(req.url).toBe('https://execution.invalid/v1/chat/completions');const body=await req.json();requests.push(body);return respond(body,req.signal);
+    // Observe the SDK's actual transport signal, not a cloned Request's derived signal.
+    expect(req.url).toBe('https://execution.invalid/v1/chat/completions');const body=await req.json();requests.push(body);return respond(body,init?.signal??req.signal);
   }));
 });
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
