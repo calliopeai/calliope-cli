@@ -57,3 +57,5 @@ provider backends, and a small, tested command surface.
 
 - Issues: https://github.com/calliopeai/calliope-cli/issues
 - Discussions: https://github.com/calliopeai/calliope-cli/discussions
+
+- [Mixed-model teams and workflow HUD](mixed-model-teams.md) — independent planner, reviewer and worker choices with bounded task attempts.

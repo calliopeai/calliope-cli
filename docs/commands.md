@@ -262,3 +262,11 @@ acceptance against unchanged evidence. `/agents stop|retry <agent> --run <id>`
 controls that agent subtree. Headless equivalents support `--json`;
 `--allow-mutations` explicitly authorizes scoped worker writes permitted by policy.
 See [contracts](orchestration.md) and [execution and recovery](coordinator-execution.md).
+
+### Mixed-model orchestration
+
+`/orchestrate <goal>` accepts `--planner-provider`, `--planner-model`,
+`--worker-provider`, `--worker-model`, `--reviewer-provider`, `--reviewer-model`
+and `--attempts 1..4`. All model IDs come from discovery. `/agents hud
+agents|workflows|off` controls compact live progress. See
+[mixed-model teams](mixed-model-teams.md) for approval, retry and budget semantics.

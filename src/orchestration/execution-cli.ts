@@ -69,6 +69,7 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
     const view=await inspectExecution(cwd,runId,options);if(!view.execution)return null;
     if(namespace==='run'&&action==='cancel'){await changePreparedRun(cwd,runId,'cancelled',options);return report({runId,status:'cancellation-requested',execution:view.store.read(),owner:view.store.owner()});}
     const context=view.store.context(view.execution),analysis=analyzePlan(context.plan);
+    options.onProgress?.({context,execution:view.execution});
     return report({runId,status:view.execution.state.status,interrupted:view.execution.state.status==='running'&&!view.owner?.alive,approval:view.view.run.approval,owner:view.owner,execution:view.execution,...(namespace==='agents'?{agents:context.plan.agents,depths:analysis.depths}:namespace==='tasks'?{tasks:context.plan.tasks,stages:analysis.stages,conflicts:analysis.conflicts}:{})});
   }catch(error){
     const cancelled=options.signal?.aborted||isCancellation(error),denied=error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied';

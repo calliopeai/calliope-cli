@@ -72,6 +72,8 @@ with inherited authority, bounded scheduling, verified artifacts and explicit re
 graph without resetting its original scope, budget or clock.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
 then requires hash-bound human approval within one persistent allowance and clock.
+[Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker
+choices and bounded attempts, with a compact HUD driven by recorded execution state.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.

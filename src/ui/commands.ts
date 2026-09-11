@@ -92,6 +92,9 @@ export const COMMAND_NAMES = [
 // ============================================================================
 
 export interface CommandContext {
+  onWorkflowProgress?: (progress:import('../orchestration/progress.js').CoordinatorProgress)=>void;
+  workflowHudMode?: import('./workflow-progress.js').WorkflowHudMode;
+  setWorkflowHudMode?: (mode:import('./workflow-progress.js').WorkflowHudMode)=>void;
   toolOutputs?: () => import('../sessions/index.js').CapturedToolOutput[];
   showToolOutput?: (output: import('../sessions/index.js').CapturedToolOutput) => void;
   approvals?: import('../approvals/index.js').ApprovalStore;
@@ -234,6 +237,7 @@ Conversation
   /replay [revision]          Read recorded conversation without executing tools
   /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
   /orchestrate <goal>        Plan, review and run within one goal budget
+  /orchestrate <goal> --worker-provider NAME --worker-model ID --reviewer-provider NAME --reviewer-model ID --attempts 1..4
   /orchestrate status|proposal|replay|resume|cancel <id>  Inspect or control a goal
   /orchestrate approve <id> <hash>  Review and approve the exact proposal
   /orchestrate revise <id> <plan>   Correct a proposal before execution
@@ -243,6 +247,7 @@ Conversation
   /run execute|resume <id>     Start or resume bounded workers
   /run retry|accept <id> <task> Retry work or accept recorded evidence
   /run status|approve|cancel <id>  Inspect or review a prepared run
+  /agents hud agents|workflows|off  Choose compact live progress
   /agents [tree] [run-id]      Inspect declared agents
   /agents stop|retry <agent> --run <id>  Control a bounded agent
   /agents spawn <children.json> --run <id>  Review and execute bounded children
@@ -290,14 +295,15 @@ File references: @filename, ./path, /absolute/path`;
     case '/orchestrate': {
       const { runGoalCommand } = await import('../goals/index.js');
       const { parseOrchestrationArgs } = await import('../orchestration/index.js');
-      await runGoalCommand(parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', ...(ctx.provider?{preference:{provider:ctx.provider,...(ctx.model?{model:ctx.model}:{})}}:{}), approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write:text=>ctx.addMessage('system',text.trimEnd()) });
+      await runGoalCommand(parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { onProgress:ctx.onWorkflowProgress, cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', ...(ctx.provider?{preference:{provider:ctx.provider,...(ctx.model?{model:ctx.model}:{})}}:{}), approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write:text=>ctx.addMessage('system',text.trimEnd()) });
       break;
     }
     case '/run':
     case '/agents':
     case '/tasks': {
       const { runOrchestrationCommand, parseOrchestrationArgs } = await import('../orchestration/index.js');
-      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write: text => ctx.addMessage('system', text.trimEnd()) });
+      if(command==='/agents'&&parts[1]==='hud'){const mode=parts[2]??'agents';if(parts.length>3||!['agents','workflows','off'].includes(mode)){ctx.addMessage('error','Usage: /agents hud agents|workflows|off');return;}ctx.setWorkflowHudMode?.(mode as import('./workflow-progress.js').WorkflowHudMode);ctx.addMessage('system',`Workflow HUD: ${mode}.`);return;}
+      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { onProgress:ctx.onWorkflowProgress, cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write: text => ctx.addMessage('system', text.trimEnd()) });
       break;
     }
 

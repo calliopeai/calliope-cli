@@ -5,6 +5,7 @@ import {analyzePlan,bindPlan,array,shape,integer,text,strings,pathName,uuid,hex,
 import {OrchestrationError} from '../orchestration/types.js';
 import type {GoalRunLink} from '../orchestration/types.js';
 import type {GoalManifest,GoalProposal,GoalAllocation,GoalLimits,PlanningSpend,ProposalSource} from './types.js';
+import {validateGoalTeam} from './team.js';
 
 export const GOAL_TOOLS=['think','read_file','list_files','write_file','edit_file'];
 export const MAX_GOAL_EVENTS=10000,MAX_GOAL_BYTES=16*1024*1024,MAX_GOAL_EVENT_BYTES=16384;
@@ -17,8 +18,9 @@ export function validateGoalLimits(value:unknown):GoalLimits {
   integer(value.maxAgents,1,256);integer(value.maxTasks,1,1024);integer(value.maxDepth,0,8);integer(value.maxConcurrent,1,16);return value as unknown as GoalLimits;
 }
 export function validateGoalManifest(value:unknown):GoalManifest {
-  shape(value,['version','id','createdAt','deadline','project','runsRoot','goal','preference','workspace','limits','hash']);
-  if(value.version!==1||!uuid(value.id)||!iso(value.createdAt))fail('Invalid goal identity or version.');text(value.goal);validateGoalLimits(value.limits);
+  shape(value,['version','id','createdAt','deadline','project','runsRoot','goal','preference','workspace','limits','hash'],['team']);
+  if((value.version!==1&&value.version!==2)||!uuid(value.id)||!iso(value.createdAt))fail('Invalid goal identity or version.');text(value.goal);validateGoalLimits(value.limits);
+  if(value.version===2){const team=validateGoalTeam(value.team),limits=value.limits as unknown as GoalLimits;if(team.reviewer&&(limits.maxAgents<2||limits.maxTasks<2||limits.maxDepth<1||limits.planningTokens<2))fail('A plan reviewer requires two agents, two tasks, depth one and two planning tokens.');}else if(value.team!==undefined)fail('Version 1 goals cannot contain team configuration.');
   integer(value.deadline,Date.parse(value.createdAt)+1,Date.parse(value.createdAt)+86400000);if(value.deadline!==Date.parse(value.createdAt)+(value.limits as unknown as GoalLimits).timeBudgetMs)fail('Goal deadline differs from its original allowance.');
   shape(value.project,['root','key']);text(value.project.root,4096);if(!isAbsolute(value.project.root)||!hex(value.project.key))fail('Invalid goal project identity.');
   text(value.runsRoot,4096);if(!isAbsolute(value.runsRoot))fail('Goal runs require an absolute private store.');
@@ -51,6 +53,7 @@ export function validateGoalProposal(value:unknown,manifest:GoalManifest,spend?:
   const source=validateProposalSource(value.source);if(value.inferred!==(source.kind==='agent'))fail('Proposal inference marker differs from its source.');
   const analysis=analyzePlan(value.plan),p=analysis.plan,l=manifest.limits;if(value.planHash!==analysis.hash)fail('Proposal plan hash is invalid.');
   if(p.limits.tokenBudget>l.tokenBudget-(spend?.tokens??0)||Math.floor(p.limits.costBudgetUsd*1e9)>l.costBudgetNanos-(spend?.costNanos??0)||p.limits.timeBudgetMs>l.timeBudgetMs||p.limits.maxAgents>l.maxAgents||p.limits.maxTasks>l.maxTasks||p.limits.maxDepth>l.maxDepth||p.limits.maxConcurrent>l.maxConcurrent)fail('Proposed plan exceeds the remaining goal allowance.');
+  if(manifest.team?.maxAttempts!==undefined&&p.agents.some(agent=>agent.escalationPolicy.maxRetries>=manifest.team!.maxAttempts!))fail('Proposal exceeds the goal task attempt limit.');
   if(p.workspace.allowedTools.some(t=>!manifest.workspace.allowedTools.includes(t))||p.workspace.allowedPaths.some(g=>!permits(manifest.workspace.allowedPaths,g.path,g.access)))fail('Proposed workspace exceeds the reviewed goal scope.');
   verifyHash(value);if(Buffer.byteLength(JSON.stringify(value))>MAX_PLAN_BYTES+8192)fail('Proposal exceeds its byte limit.');return value as unknown as GoalProposal;
 }

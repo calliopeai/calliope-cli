@@ -23,6 +23,7 @@ import { ErrorBoundary } from './error-boundary.js';
 import { spawnPendingRestart } from './self-restart.js';
 import { useChatController } from './state/use-chat-controller.js';
 import { TranscriptRegion } from './regions/transcript-region.js';
+import { WorkflowRegion } from './regions/workflow-region.js';
 import { StatusRegion } from './regions/status-region.js';
 import { InputRegion } from './regions/input-region.js';
 import { ModalHost } from './regions/modal-host.js';
@@ -55,6 +56,7 @@ export function TerminalChat({ controllerRef, initialPreference }: { controllerR
       <Box flexDirection="column" width={c.width}>
         <TranscriptRegion {...c.transcript} />
         <ModalHost {...c.modal} />
+        <WorkflowRegion {...c.workflow} />
         <InputRegion {...c.input} />
         <StatusRegion {...c.status} />
       </Box>
