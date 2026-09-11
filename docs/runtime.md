@@ -27,8 +27,9 @@ Unknown/plugin operations and mutating tools are never automatically retried.
 
 Scopes are bound to async turn context. Headless and ACP turns start at their
 project root with fresh grants. Terminal turns may inherit explicit scope grants
-only when their project matches the scope's original root. A resumed session in
-another project receives a fresh scope. Concurrent sessions cannot borrow grants
+only when their project matches the scope's original root. Terminal resume
+requires the saved project to match; programmatic turns in another project get
+a fresh scope. Concurrent sessions cannot borrow grants
 from each other. The terminal also creates checkpoints in the session project.
 
 A successful `ask_question` or `create_plan` pauses execution before subsequent
@@ -53,3 +54,10 @@ Tests in `tests/runtime.test.ts` exercise real file/scope checks with a determin
 provider, including concurrent sessions, budget exhaustion and cancellation.
 They establish runtime behavior; provider wire conformance is tracked separately
 in [#222](https://github.com/calliopeai/calliope-cli/issues/222).
+
+Recovery snapshots use the optional `onCheckpoint` callback before provider
+work, before dispatching tools, after each result and at turn completion.
+Callbacks are serialized across parallel tools; a failed write halts execution.
+Terminal, headless and ACP clients enable this callback and save to their own
+session IDs. See [session recovery](session-recovery.md) for the versioned schema
+and unknown tool outcomes after interruption.
