@@ -77,4 +77,4 @@ does not rerun the tool. See [streaming and output contracts](streaming.md).
 Permission policy and pre-tool hooks receive the turn cancellation signal. The
 resolver waits for their subprocess to settle after cancellation, instead of
 returning while a detached permission process remains alive. POSIX process groups
-are killed on abort; hook/policy output buffers are bounded to 64 KiB.
+are killed on abort; each captured hook/policy stream retains at most 65,536 characters.

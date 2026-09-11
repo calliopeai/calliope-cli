@@ -38,7 +38,7 @@ resolver, including policy and hooks. Approval and cancellation use
 confirmation requirements remain enforced. No operation grants tool permission.
 Cancellation reaches the permission subprocess: its POSIX process group is
 killed, and the resolver waits for settlement before preparation returns. Hook
-and policy output buffers are capped at 64 KiB. This controls trusted permission
+and policy output buffers retain at most 65,536 characters per stream. This controls trusted permission
 programs; process groups are not a sandbox for programs that deliberately escape
 them. Cancellation is covered by real-process tests on macOS/Linux.
 
