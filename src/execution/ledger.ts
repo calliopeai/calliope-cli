@@ -5,7 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { canonicalJson, canonicalPath, digest } from '../approvals/index.js';
 import { cancellableDelay, throwIfCancelled } from '../cancellation.js';
 import { accountLineage, checkExecutionIdentity, hex, identifier, integer, invalid, manifestHash, shape, uuid, validateExecutionManifest } from './authority.js';
-import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, type RequestSettlement, type ReservationEvent, type ReservationProjection } from './types.js';
+import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, type RequestSettlement, type ReservationEvent, type ReservationProjection,type ChildGrant } from './types.js';
+import {validateChildGrant,applyChildGrant,assertChildCapacity,effectiveExecutionManifest} from './child-grants.js';
+import {recoverDeadWriterLock} from './writer-recovery.js';
 
 export const MAX_RESERVATION_EVENTS = 10000, MAX_RESERVATION_BYTES = 16 * 1024 * 1024;
 const unavailable = () => new ExecutionLimitError('unavailable','Execution budget history is unavailable or damaged; preserve it and restore a verified backup. No request was authorized.');
@@ -28,15 +30,16 @@ function settlement(value: unknown): asserts value is RequestSettlement {
   if (value.usage !== undefined) { shape(value.usage,['inputTokens','outputTokens']); integer(value.usage.inputTokens,0,100000000); integer(value.usage.outputTokens,0,100000000); }
 }
 function validateEvent(value: unknown): asserts value is ReservationEvent {
-  shape(value,['version','id','at','previous','change','hash']); if (value.version !== 1 || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
-  shape(value.change,['type'],['reservation','settlement']);
+  shape(value,['version','id','at','previous','change','hash']); if (![1,2].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
+  shape(value.change,['type'],['reservation','settlement','grant']);if(value.version!==(value.change.type==='child_grant'?2:1))invalid();
   if (value.change.type === 'reserve') { shape(value.change,['type','reservation']); reservation(value.change.reservation); }
-  else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); } else invalid();
+  else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); }
+  else if(value.change.type==='child_grant'){shape(value.change,['type','grant']);validateChildGrant(value.change.grant);}else invalid();
   const {hash,...body} = value; if (hash !== digest(canonicalJson(body))) throw unavailable();
 }
 /** Pure replay includes unresolved reservations in every ancestor's spend. */
 export function replayReservations(input: ExecutionManifest, events: ReservationEvent[]): ReservationProjection {
-  const manifest = validateExecutionManifest(input), initial = manifestHash(manifest);
+  const base = validateExecutionManifest(input), initial = manifestHash(base);let manifest=base;
   if (!Array.isArray(events) || events.length > MAX_RESERVATION_EVENTS) throw unavailable();
   const state: ReservationProjection = {version:1,runId:manifest.runId,manifestHash:initial,revision:initial,spent:{tokens:0,costNanos:0},accounts:{},requests:{},exceeded:false};
   for (const account of manifest.accounts) Object.defineProperty(state.accounts,account.id,{value:{tokens:0,costNanos:0},enumerable:true});
@@ -48,13 +51,16 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
   };
   for (const event of events) {
     validateEvent(event); if (ids.has(event.id) || event.previous !== state.revision || event.at < at) throw unavailable(); ids.add(event.id); at = event.at;
-    if (event.change.type === 'reserve') {
+    if(event.change.type==='child_grant'){
+      manifest=applyChildGrant(base,manifest,state,{grant:event.change.grant,eventId:event.id,eventHash:event.hash,at:event.at});
+    }else if (event.change.type === 'reserve') {
       const next = event.change.reservation, lineage = accountLineage(manifest,next.agentId), tokens = next.inputTokens + next.outputTokens;
       if (state.exceeded || Object.hasOwn(state.requests,next.id) || event.at >= manifest.deadline || lineage.some(a => event.at >= a.deadline)) throw new ExecutionLimitError('deadline','Execution cannot admit this request after a deadline or budget violation.');
       if (state.spent.tokens + tokens > manifest.tokenBudget || state.spent.costNanos + next.costNanos > manifest.costBudgetNanos ||
         next.limits?.tokens!==undefined && state.spent.tokens+tokens>next.limits.tokens || next.limits?.costNanos!==undefined && state.spent.costNanos+next.costNanos>next.limits.costNanos ||
         lineage.some(a => state.accounts[a.id]!.tokens + tokens > a.tokenBudget || state.accounts[a.id]!.costNanos + next.costNanos > a.costBudgetNanos))
         throw new ExecutionLimitError('budget','Request reservation exceeds the available agent, ancestor or run budget.');
+      if(state.childGrants?.length)assertChildCapacity(manifest,state,next.agentId,tokens,next.costNanos);
       apply(next.agentId,tokens,next.costNanos); state.requests[next.id] = {reservation:structuredClone(next),state:'pending'};
     } else {
       const result = event.change.settlement, entry = state.requests[result.requestId];
@@ -122,29 +128,34 @@ export class ReservationLedger {
   async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal):Promise<ReservationProjection> {
     reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal);
   }
+  async grantChildren(cwd:string,expectedManifest:string,grant:ChildGrant,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
+    validateChildGrant(grant);return this.append(cwd,expectedManifest,{type:'child_grant',grant:structuredClone(grant)},signal,beforeCommit);
+  }
   /** Settlement is allowed after cancellation/deadline so known spend can still be recorded. */
   async settle(cwd:string,expectedManifest:string,value:RequestSettlement):Promise<ReservationProjection> {
     settlement(value);return this.append(cwd,expectedManifest,{type:'settle',settlement:structuredClone(value)});
   }
-  private async append(cwd:string,expectedManifest:string,change:ReservationEvent['change'],signal?:AbortSignal):Promise<ReservationProjection> {
+  private async append(cwd:string,expectedManifest:string,change:ReservationEvent['change'],signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     throwIfCancelled(signal);const before=directory(this.root),file=join(this.root,'history.json'),lock=join(this.root,'writer.lock');let fd:number|undefined;
     for(let attempt=0;attempt<=50;attempt++){
       throwIfCancelled(signal);sameDirectory(this.root,before);
-      try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();if(attempt===50)throw new ExecutionLimitError('locked','Budget writer is busy; no request was authorized.');await cancellableDelay(10,signal);}
+      try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();recoverDeadWriterLock(lock);if(attempt===50)throw new ExecutionLimitError('locked','Budget writer is busy; no request was authorized.');await cancellableDelay(10,signal);}
     }
     const identity=fs.fstatSync(fd!);let temp:string|undefined;
     try{
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
       const raw=read(file),journal=decode(raw),current=replayReservations(journal.manifest,journal.events);checkExecutionIdentity(journal.manifest,cwd);
       if(current.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; request denied.');
+      if(change.type==='child_grant'){const prior=current.childGrants?.find(r=>r.grant.id===change.grant.id);if(prior){if(canonicalJson(prior.grant)!==canonicalJson(change.grant))throw new ExecutionLimitError('conflict','Child grant identity already belongs to another proposal.');beforeCommit?.();throwIfCancelled(signal);return current;}}
       // Leave enough room to settle every pending reservation.
       const pending=Object.values(current.requests).filter(r=>r.state==='pending').length;
-      if(journal.events.length+(change.type==='reserve'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
-      const body={version:1 as const,id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
+      if(journal.events.length+(change.type!=='settle'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
+      const body={version:change.type==='child_grant'?2 as const:1 as const,id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
       const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=replayReservations(journal.manifest,events),output=encode(journal.manifest,events);
       temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd);
-      if(change.type==='reserve'&&this.now()>=Math.min(journal.manifest.deadline,...accountLineage(journal.manifest,change.reservation.agentId).map(a=>a.deadline)))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation commit.');
-      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
+      const effective=effectiveExecutionManifest(journal.manifest,next);
+      if(change.type==='reserve'&&this.now()>=Math.min(effective.deadline,...accountLineage(effective,change.reservation.agentId).map(a=>a.deadline))||change.type==='child_grant'&&change.grant.accounts.some(a=>this.now()>=a.deadline))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation or grant commit.');
+      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
     }finally{
       fs.closeSync(fd!);try{sameDirectory(this.root,before);if(temp)fs.unlinkSync(temp);const current=fs.lstatSync(lock);if(current.ino===identity.ino&&current.dev===identity.dev)fs.unlinkSync(lock);}catch{/* Preserve foreign directories and locks. */}
     }

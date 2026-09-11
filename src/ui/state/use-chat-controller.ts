@@ -365,7 +365,12 @@ export function useChatController(initial?: ModelPreference): ChatController {
       || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry'
       || parts[0]!.toLowerCase()==='/orchestrate'&&!['list','status','proposal','replay','cancel'].includes(parts[1]??'');
     try {
-      if (controlled) {
+      const orchestration=parts[0]!.toLowerCase()==='/agents'?await import('../../orchestration/index.js'):undefined;
+      if(orchestration?.isSpawnArgs(orchestration.parseOrchestrationArgs(cmd.slice(parts[0]!.length)))){
+        setIsProcessing(true);
+        try{await turnController.current.join(signal=>handleCommand(cmd,{...buildCommandContext(),isProcessing:false,signal}));}
+        finally{if(!turnController.current.busy)setIsProcessing(false);}
+      } else if (controlled) {
         if (turnController.current.busy) { addMessage('error', 'Wait for the active operation or cancel it before starting another operation or changing settings.'); return; }
         setIsProcessing(true);
         try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), isProcessing: false, signal })); }

@@ -27,6 +27,9 @@ export interface OrchestrationReport {
   data?: unknown; error?: { code: string; message: string };
 }
 export type OrchestrationNamespace = 'run' | 'agents' | 'tasks';
+export function isSpawnArgs(args:string[]):boolean {
+  try{return parseArgs({args,strict:false,allowPositionals:true,options:{run:{type:'string'},approve:{type:'string'},resume:{type:'string'},'max-output-tokens':{type:'string'}}}).positionals[0]==='spawn';}catch{return false;}
+}
 export async function orchestrationCommand(namespace: OrchestrationNamespace, args: string[], options: RunActionOptions & {cwd?: string} = {}): Promise<{report:OrchestrationReport;exitCode:number}> {
   let action = namespace as string;
   const response = (data: unknown) => ({exitCode:0,report:{version:1 as const,type:'orchestration' as const,action,localOnly:true as const,execution:'not-started' as const,data}});
@@ -90,6 +93,7 @@ export function formatOrchestration(report: OrchestrationReport): string {
   return display.length > 32000 ? display.slice(0,32000)+'\n[Display limited to 32,000 characters; use --json for the complete report.]' : display;
 }
 export async function runOrchestrationCommand(namespace: OrchestrationNamespace,args:string[],options:ExecutionCommandOptions = {}): Promise<number> {
+  if(namespace==='agents'&&isSpawnArgs(args))return(await import('../spawning/index.js')).spawnCommand(args,options);
   const executed=await executionCommand(namespace,args,options);if(executed!==null)return executed;
   const result = await orchestrationCommand(namespace,args,options);
   const delimiter = args.indexOf('--'), json = args.slice(0, delimiter < 0 ? args.length : delimiter).includes('--json');

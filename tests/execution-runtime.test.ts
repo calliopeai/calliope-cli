@@ -61,10 +61,15 @@ it('allows an explicitly approved scoped mutation and rejects undeclared tool sc
   const approve=vi.fn(async()=> 'allow' as const);const result=await runTurn(options({tools:getTools,approve}));expect(result.reason).toBe('completed');expect(approve).toHaveBeenCalledTimes(1);expect(fs.readFileSync(join(project,'a/new.txt'),'utf8')).toBe('approved');
 });
 it('propagates cancellation and deadline expiry to HTTP while retaining pending spend',async()=>{
-  manifest.deadline=manifest.createdAt+500;for(const a of manifest.accounts)a.deadline=manifest.deadline;ledger.create(manifest);
+  // Advance the original clock only after HTTP dispatch; host load must not turn
+  // this transport-cancellation test into an admission-before-deadline race.
+  vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout']});
+  try {
+  manifest.createdAt=Date.now();manifest.deadline=manifest.createdAt+500;for(const a of manifest.accounts)a.deadline=manifest.deadline;ledger.create(manifest);
   let started!:()=>void;const ready=new Promise<void>(resolve=>{started=resolve;});let transportSignal:AbortSignal;
   respond=async(_request,signal)=>{transportSignal=signal;started();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
-  const running=runTurn(options());await ready;const result=await running;expect(result.reason).toBe('cancelled');expect(transportSignal!.aborted).toBe(true);expect(requests).toHaveLength(1);expect(ledger.read(project).projection.spent.tokens).toBe(1000);
+  const running=runTurn(options());expect(await Promise.race([ready.then(()=> 'dispatched'),running.then(result=>result.reason)])).toBe('dispatched');await vi.advanceTimersByTimeAsync(501);const result=await running;expect(result.reason).toBe('cancelled');expect(transportSignal!.aborted).toBe(true);expect(requests).toHaveLength(1);expect(ledger.read(project).projection.spent.tokens).toBe(1000);
+  }finally{vi.useRealTimers();}
 });
 it.each(['ordinary','child'] as const)('shares project reservations between an active agent and a competing %s run',async kind=>{
   config.set('budget',{maxCostPerProject:0.0011});ledger.create(manifest);let started!:()=>void,release!:()=>void;

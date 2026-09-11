@@ -63,6 +63,9 @@ export function checkExecutionIdentity(manifest: ExecutionManifest, cwd: string)
   const current = projectIdentity(cwd);
   if (current.project !== manifest.project.root || current.projectKey !== manifest.project.key) throw new ExecutionLimitError('authority','Execution belongs to a different or replaced project.');
 }
+export function assertExecutionStoreOutsideProject(project:string,path:string):void {
+  const canonical=canonicalPath(path),rel=relative(project,canonical);if(!(rel==='..'||rel.startsWith('../')||isAbsolute(rel))||canonical!==path)throw new ExecutionLimitError('authority','Execution authority must stay outside worker project scope without aliases.');
+}
 /** Shell, network and extensible tools need an enclosing sandbox with these exact grants. */
 export function executionToolDenial(manifest: ExecutionManifest, agentId: string, call: ToolCall, cwd: string, now = Date.now()): string | undefined {
   checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;

@@ -11,6 +11,7 @@ import type {RunActionOptions} from './actions.js';
 import type {CollectedArtifact,TaskOutput,TaskStatus} from './coordinator-types.js';
 
 const hashBytes=(value:Buffer)=>createHash('sha256').update(value).digest('hex');
+const contextForTask=(store:ExecutionStore,taskId:string)=>store.manifest.plan.tasks.some(t=>t.id===taskId)?store.manifest:store.context();
 export function workerSummary(value:string):string {return approvalDisplayText(value).slice(0,8192).trim()||'The worker returned no summary.';}
 /** Worker prose is a claim; it never supplies authoritative hashes, test passes or event IDs. */
 export function workerReport(content:string,task:ProjectTask):{summary:string;outputs:Map<string,string>;risks:string[]} {
@@ -26,7 +27,7 @@ export function workerReport(content:string,task:ProjectTask):{summary:string;ou
   return{summary,outputs,risks};
 }
 export async function readCollectedArtifact(store:ExecutionStore,artifact:CollectedArtifact,options:RunActionOptions={}):Promise<Buffer> {
-  validateCollectedArtifact(artifact,store.manifest);
+  validateCollectedArtifact(artifact,contextForTask(store,artifact.taskId));
   throwIfCancelled(options.signal);const file=artifact.location==='project'?resolve(store.manifest.project.root,artifact.path):join(store.root,'artifacts',artifact.path);
   if(canonicalPath(file)!==file)throw new OrchestrationError('conflict','Artifact path changed or became an alias.');
   if(artifact.location==='project')await authorizeSessionAction(store.manifest.project.root,'read_file',{path:file,operation:'orchestration-verification',runId:store.manifest.id,artifactId:artifact.id},options);
@@ -34,7 +35,7 @@ export async function readCollectedArtifact(store:ExecutionStore,artifact:Collec
 }
 /** Recheck already-authorized content synchronously at the journal commit boundary. */
 export function checkArtifactSnapshot(store:ExecutionStore,artifact:CollectedArtifact):Buffer {
-  validateCollectedArtifact(artifact,store.manifest);
+  validateCollectedArtifact(artifact,contextForTask(store,artifact.taskId));
   const file=artifact.location==='project'?resolve(store.manifest.project.root,artifact.path):join(store.root,'artifacts',artifact.path),bytes=readArtifactBytes(file,1024*1024,artifact.location==='run');
   if(hashBytes(bytes)!==artifact.sha256||bytes.length!==artifact.bytes)throw new OrchestrationError('conflict','Artifact changed after collection; recorded output cannot be used.');return bytes;
 }
@@ -55,7 +56,7 @@ export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,co
     return{id:check.id,artifactId:check.artifactId,kind:check.kind,criteria:check.criteria,passed,observedHash:artifact?.sha256??null};
   });
   const state=store.read().state.tasks[task.id]!,output:TaskOutput={version:1,taskId:task.id,agentId:task.agentId,status:'partial',summary:claim.summary,changedFiles:[...state.changedFiles],artifacts,testEvidence:checks.filter(c=>c.passed).map(c=>c.id),unresolvedRisks:risks.slice(0,100),recommendedNextAction:'Review the remaining acceptance criteria.',checks};
-  const complete=mechanicallyVerified(output,store.manifest),failed=artifacts.length!==task.outputs.length||checks.some(c=>!c.passed);
+  const complete=mechanicallyVerified(output,contextForTask(store,task.id)),failed=artifacts.length!==task.outputs.length||checks.some(c=>!c.passed);
   if(complete){output.status='success';output.recommendedNextAction='Continue with dependency-ready work.';}
   else if(failed){output.status='failed';output.recommendedNextAction='Inspect failed or missing evidence before retrying.';}
   else output.unresolvedRisks=[...risks.slice(0,99),'Natural-language acceptance criteria still require human review.'];

@@ -10,6 +10,7 @@ import {OrchestrationError} from './types.js';
 import {RunStore} from './store.js';
 import type {ExecutionInspection} from './coordinator-types.js';
 import type {OrchestrationNamespace} from './cli.js';
+import {analyzePlan} from './validation.js';
 
 export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run retry|accept <run-id> <task-id> | agents stop|retry <agent-id> --run <run-id>';
 export type ExecutionCommandOptions=CoordinatorOptions&{cwd?:string;write?:(text:string)=>void};
@@ -57,7 +58,7 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
     if(v['allow-mutations']||v['max-output-tokens'])throw new OrchestrationError('invalid',EXECUTION_USAGE);
     if(namespace==='run'&&action==='list'&&p.length<=1&&!v.run&&!v.tree&&!v.graph){
       const runs=await(options.store??new RunStore()).list(cwd,options.signal),rows=[];let any=false;
-      for(const run of runs.runs){const info=await inspectExecution(cwd,run.id,options);any ||= !!info.execution;const tasks=Object.values(info.execution?.state.tasks??{});rows.push({runId:run.id,status:info.execution?.state.status??run.status,completed:tasks.filter(t=>t.status==='completed').length,total:info.view.manifest.plan.tasks.length});}
+      for(const run of runs.runs){const info=await inspectExecution(cwd,run.id,options);any ||= !!info.execution;const tasks=Object.values(info.execution?.state.tasks??{});rows.push({runId:run.id,status:info.execution?.state.status??run.status,completed:tasks.filter(t=>t.status==='completed').length,total:info.execution?tasks.length:info.view.manifest.plan.tasks.length});}
       if(any)return report({runs:rows,unavailable:runs.unavailable});return null;
     }
     let runId:string|undefined;
@@ -67,7 +68,8 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
     if(!runId)return null;
     const view=await inspectExecution(cwd,runId,options);if(!view.execution)return null;
     if(namespace==='run'&&action==='cancel'){await changePreparedRun(cwd,runId,'cancelled',options);return report({runId,status:'cancellation-requested',execution:view.store.read(),owner:view.store.owner()});}
-    return report({runId,status:view.execution.state.status,interrupted:view.execution.state.status==='running'&&!view.owner?.alive,approval:view.view.run.approval,owner:view.owner,execution:view.execution,...(namespace==='agents'?{agents:view.view.manifest.plan.agents,depths:view.view.analysis.depths}:namespace==='tasks'?{tasks:view.view.manifest.plan.tasks,stages:view.view.analysis.stages,conflicts:view.view.analysis.conflicts}:{})});
+    const context=view.store.context(view.execution),analysis=analyzePlan(context.plan);
+    return report({runId,status:view.execution.state.status,interrupted:view.execution.state.status==='running'&&!view.owner?.alive,approval:view.view.run.approval,owner:view.owner,execution:view.execution,...(namespace==='agents'?{agents:context.plan.agents,depths:analysis.depths}:namespace==='tasks'?{tasks:context.plan.tasks,stages:analysis.stages,conflicts:analysis.conflicts}:{})});
   }catch(error){
     const cancelled=options.signal?.aborted||isCancellation(error),denied=error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied';
     const code=cancelled?130:denied?3:error instanceof OrchestrationError&&error.code==='invalid'?2:1,message=cancelled?'Coordinator operation cancelled; inspect the recorded run before resuming.':error instanceof Error?approvalDisplayText(error.message):'Execution operation failed.';

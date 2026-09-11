@@ -245,6 +245,8 @@ Conversation
   /run status|approve|cancel <id>  Inspect or review a prepared run
   /agents [tree] [run-id]      Inspect declared agents
   /agents stop|retry <agent> --run <id>  Control a bounded agent
+  /agents spawn <children.json> --run <id>  Review and execute bounded children
+  /agents spawn --resume <hash> --run <id>  Recover an approved child admission
   /tasks [graph] [run-id]      Inspect task dependencies
   /tools [list|last|output-id] Inspect retained tool output; expand/collapse and page
   /export [file.json|file.md]  Save private history JSON or readable markdown

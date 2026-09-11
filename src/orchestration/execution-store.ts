@@ -4,11 +4,12 @@ import {randomUUID} from 'node:crypto';
 import {canonicalJson,canonicalPath,digest,projectIdentity} from '../approvals/index.js';
 import {throwIfCancelled,cancellableDelay} from '../cancellation.js';
 import {ExecutionLimitError} from '../execution/types.js';
+import {recoverDeadWriterLock} from '../execution/writer-recovery.js';
 import {OrchestrationError,type RunManifest} from './types.js';
 import {validateRunManifest} from './store.js';
 import {hex,integer,iso,shape,uuid} from './validation.js';
 import {journalHash,replayExecution,validateExecutionHeader,MAX_EXECUTION_BYTES,MAX_EXECUTION_EVENTS,MAX_EXECUTION_EVENT_BYTES} from './execution-journal.js';
-import type {ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionInspection,ExecutionJournal,ExecutionLease} from './coordinator-types.js';
+import type {ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionInspection,ExecutionJournal,ExecutionLease,RunPlanContext} from './coordinator-types.js';
 
 const unavailable=()=>new OrchestrationError('unavailable','Execution records are damaged or unavailable. Preserve the run and restore verified evidence; no new work is authorized.');
 export function privateDirectory(path:string):fs.Stats {
@@ -54,6 +55,8 @@ export class ExecutionStore {
     const header=validateExecutionHeader(value.header,this.manifest),events=value.events as ExecutionEvent[];
     if(value.hash!==journalHash(header,events))throw unavailable();return{header,events,state:replayExecution(header,this.manifest,events)};
   }
+  /** Derived execution graph; the original manifest remains immutable. */
+  context(view=this.read()):RunPlanContext{return{id:this.manifest.id,project:this.manifest.project,plan:view.state.graph?.plan??this.manifest.plan};}
   owner():{id:string;pid:number;alive:boolean}|null {
     this.identity();const file=join(this.root,'owner.json');if(!exists(file))return null;const value=parsed(file,4096);shape(value,['version','id','pid','createdAt']);if(value.version!==1||!uuid(value.id)||!iso(value.createdAt))throw unavailable();integer(value.pid,1,2147483647);
     let alive=true;try{process.kill(value.pid,0);}catch(error){if((error as NodeJS.ErrnoException).code==='ESRCH')alive=false;else if((error as NodeJS.ErrnoException).code!=='EPERM')throw unavailable();}
@@ -61,7 +64,7 @@ export class ExecutionStore {
   }
   acquire():ExecutionLease {
     const election=join(this.root,'owner.lock');this.identity();let lock:number;
-    try{lock=fs.openSync(election,'wx',0o600);}catch{throw new OrchestrationError('locked','Coordinator ownership is being changed. Preserve stale locks until their owner is confirmed stopped.');}
+    try{lock=fs.openSync(election,'wx',0o600);}catch{if(!recoverDeadWriterLock(election))throw new OrchestrationError('locked','Coordinator ownership is being changed. Preserve stale locks until their owner is confirmed stopped.');try{lock=fs.openSync(election,'wx',0o600);}catch{throw new OrchestrationError('locked','Another coordinator is changing ownership.');}}
     const lockIdentity=fs.fstatSync(lock);
     try{fs.writeFileSync(lock,String(process.pid));return this.acquireExclusive();}
     finally{fs.closeSync(lock);const stat=fs.lstatSync(election);if(stat.dev===lockIdentity.dev&&stat.ino===lockIdentity.ino)fs.unlinkSync(election);}
@@ -80,22 +83,26 @@ export class ExecutionStore {
   }
   /** A control decision applies all selected resets or none; individual immutable events remain replayable. */
   async appendBatch(changes:{change:ExecutionChange;eventId?:string}[],signal?:AbortSignal,beforeCommit?:()=>void):Promise<ExecutionEvent[]> {
-    if(!changes.length||changes.length>1280)throw new OrchestrationError('limit','Invalid execution event batch size.');
+    if(!changes.length||changes.length>1280)throw new OrchestrationError('limit','Invalid execution event batch size.');return this.transaction(async()=>changes,signal,beforeCommit);
+  }
+  /** Hold graph admission/finish serialization while committing a bounded external budget grant. */
+  async transaction(prepare:(prior:ExecutionInspection)=>Promise<{change:ExecutionChange;eventId?:string}[]>,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ExecutionEvent[]> {
     const before=this.identity(),lock=join(this.root,'writer.lock');let fd:number|undefined;
-    for(let n=0;n<=50;n++){throwIfCancelled(signal);try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();if(n===50)throw new OrchestrationError('locked','Execution journal has another writer.');await cancellableDelay(10,signal);}}
+    for(let n=0;n<=50;n++){throwIfCancelled(signal);try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();recoverDeadWriterLock(lock);if(n===50)throw new OrchestrationError('locked','Execution journal has another writer.');await cancellableDelay(10,signal);}}
     const lockIdentity=fs.fstatSync(fd!),file=join(this.root,'history.json'),temp=join(this.root,randomUUID()+'.tmp');
     try {
       fs.writeFileSync(fd!,String(process.pid));const raw=readArtifactBytes(file,MAX_EXECUTION_BYTES,true),prior=this.read();
       if(prior.events.length>=MAX_EXECUTION_EVENTS)throw new OrchestrationError('limit','Execution event retention reached; preserve the run.');
+      const changes=await prepare(prior);throwIfCancelled(signal);if(changes.length>1280)throw new OrchestrationError('limit','Invalid execution event batch size.');if(!changes.length)return[];
       const at=[new Date().toISOString(),prior.events.at(-1)?.at??prior.header.createdAt].sort().at(-1)!;
       const events=[...prior.events],added:ExecutionEvent[]=[];
-      for(const entry of changes){const body={version:1 as const,id:entry.eventId??randomUUID(),runId:this.manifest.id,sequence:events.length+1,at,previous:events.at(-1)?.hash??prior.state.revision,change:structuredClone(entry.change)},event={...body,hash:digest(canonicalJson(body))};events.push(event);added.push(event);}
+      for(const entry of changes){const body={version:entry.change.type==='graph_admitted'?2 as const:1 as const,id:entry.eventId??randomUUID(),runId:this.manifest.id,sequence:events.length+1,at,previous:events.at(-1)?.hash??prior.state.revision,change:structuredClone(entry.change)},event={...body,hash:digest(canonicalJson(body))};events.push(event);added.push(event);}
       replayExecution(prior.header,this.manifest,events);const next=JSON.stringify({version:1,header:prior.header,events,hash:journalHash(prior.header,events)});
       const settlement=changes.every(({change:c})=>['task_finished','agent_finished','escalated','finished'].includes(c.type)||c.type==='tool'&&c.stage==='finished'),reserve=4*this.manifest.plan.limits.maxConcurrent+1;
       if(!settlement&&(events.length+reserve>MAX_EXECUTION_EVENTS||Buffer.byteLength(next)+reserve*MAX_EXECUTION_EVENT_BYTES>MAX_EXECUTION_BYTES))throw new OrchestrationError('limit','Execution retention leaves room only for active task outcomes; preserve this run.');
       if(Buffer.byteLength(next)>MAX_EXECUTION_BYTES)throw new OrchestrationError('limit','Execution history exceeded its byte limit; preserve the run.');
       writeNew(temp,next);throwIfCancelled(signal);const after=this.identity();if(before.dev!==after.dev||before.ino!==after.ino||!readArtifactBytes(file,MAX_EXECUTION_BYTES,true).equals(raw))throw new OrchestrationError('conflict','Execution history changed before commit.');
-      beforeCommit?.();fs.renameSync(temp,file);syncDir(this.root);for(const event of added)this.onEvent?.(event);return added;
+      beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);syncDir(this.root);for(const event of added)this.onEvent?.(event);return added;
     }finally{fs.closeSync(fd!);try{const after=this.identity();if(before.dev===after.dev&&before.ino===after.ino){fs.rmSync(temp,{force:true});const current=fs.lstatSync(lock);if(current.ino===lockIdentity.ino&&current.dev===lockIdentity.dev)fs.unlinkSync(lock);}}catch{/* Preserve foreign state. */}}
   }
   writeArtifact(eventId:string,content:string,signal?:AbortSignal):string {
