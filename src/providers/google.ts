@@ -6,7 +6,7 @@ import { GoogleGenAI } from '@google/genai';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
-import { normalizeFinishReason, getTextContent, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, getTextContent, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 
 /**
  * Chat with Google Gemini
@@ -168,7 +168,7 @@ async function chatGoogleLegacy(
         // Capture usage metadata from chunks
         if (chunk.usageMetadata) {
           inputTokens = chunk.usageMetadata.promptTokenCount || 0;
-          outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+          outputTokens = (chunk.usageMetadata.candidatesTokenCount || 0) + (chunk.usageMetadata.thoughtsTokenCount || 0);
         }
       }
 
@@ -233,13 +233,14 @@ async function chatGoogleGenAI(
   model: string,
   onToken?: StreamCallback,
   signal?: AbortSignal,
+  limits?: AdapterLimits,
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
   if (messages.length === 0) throw new Error('No messages provided');
 
   const baseUrl = config.getBaseUrl('google')?.replace(/\/v1beta\/?$/, '');
-  const ai = new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) });
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { ...(baseUrl ? { baseUrl } : {}), ...(limits?.bounded ? { retryOptions: { attempts: 1 } } : {}) } });
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => {
     if (m.role === 'tool') {
@@ -262,13 +263,14 @@ async function chatGoogleGenAI(
     description: t.description,
     parameters: { type: 'OBJECT', properties: Object.fromEntries(Object.entries(t.parameters.properties).map(([k, p]) => [k, { ...p, type: (p.type || 'string').toUpperCase() }])), required: t.parameters.required || [] },
   })) }] : undefined;
-  const request = { model, contents, config: { systemInstruction: systemInstruction || undefined, tools: declarations } } as any;
+  const request = { model, contents, config: { systemInstruction: systemInstruction || undefined, tools: declarations, ...(signal ? { abortSignal: signal } : {}), ...(limits?.maxOutputTokens !== undefined ? { maxOutputTokens: limitOutputTokens(limits.maxOutputTokens,limits.maxOutputTokens) } : {}) } } as any;
   throwIfCancelled(signal);
 
   let content = '';
   const toolCalls: ToolCall[] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let usageSeen = false;
   let finishReason: LLMResponse['finishReason'] = 'stop';
   const consume = (chunk: any) => {
     const candidates = chunk.candidates || [];
@@ -280,8 +282,9 @@ async function chatGoogleGenAI(
       }
     }
     if (chunk.usageMetadata) {
+      usageSeen = typeof chunk.usageMetadata.promptTokenCount === 'number' && typeof chunk.usageMetadata.candidatesTokenCount === 'number';
       inputTokens = chunk.usageMetadata.promptTokenCount || 0;
-      outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+      outputTokens = (chunk.usageMetadata.candidatesTokenCount || 0) + (chunk.usageMetadata.thoughtsTokenCount || 0);
     }
   };
   try {
@@ -300,7 +303,7 @@ async function chatGoogleGenAI(
     content,
     toolCalls: toolCalls.length ? toolCalls : undefined,
     finishReason: normalizeFinishReason(finishReason, toolCalls.length > 0),
-    usage: (inputTokens || outputTokens) ? { inputTokens, outputTokens } : undefined,
+    usage: (limits?.bounded ? usageSeen : (inputTokens || outputTokens)) ? { inputTokens, outputTokens } : undefined,
   };
 }
 
@@ -308,10 +311,10 @@ async function chatGoogleGenAI(
  * Google entry point. Vitest sets VITEST while exercising the legacy fixture
  * contract; production always uses the maintained @google/genai SDK.
  */
-export async function chatGoogle(messages: Message[], tools: Tool[], model: string, onToken?: StreamCallback, signal?: AbortSignal): Promise<LLMResponse> {
+export async function chatGoogle(messages: Message[], tools: Tool[], model: string, onToken?: StreamCallback, signal?: AbortSignal, limits?: AdapterLimits): Promise<LLMResponse> {
   if (process.env.VITEST) {
     const candidate = new GoogleGenAI({ apiKey: '' }) as any;
-    if (typeof candidate.getGenerativeModel === 'function') return chatGoogleLegacy(messages, tools, model, onToken, signal);
+    if (!limits?.bounded && limits?.maxOutputTokens === undefined && typeof candidate.getGenerativeModel === 'function') return chatGoogleLegacy(messages, tools, model, onToken, signal);
   }
-  return chatGoogleGenAI(messages, tools, model, onToken, signal);
+  return chatGoogleGenAI(messages, tools, model, onToken, signal, limits);
 }

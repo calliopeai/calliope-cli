@@ -4,8 +4,10 @@ Calliope can validate a bounded project plan, record an inactive run, and inspec
 its hierarchy, dependencies and journal after restart. This is the first
 orchestration layer. It does not yet invoke a coordinator model, execute child
 agents, verify their artifacts, or satisfy the orchestration execution release
-gate. Goal decomposition, scheduling, shared request reservations, isolated
-mutations, cancellation trees and execution recovery remain required in #254.
+gate. The [agent runtime boundary](agent-runtime.md) supplies inherited authority,
+file operations and shared request reservations as a library. Goal decomposition,
+scheduling, isolated shell/network mutations, cancellation trees and execution
+recovery remain required in #254.
 
 ## Commands
 
@@ -75,8 +77,8 @@ Child tools and path grants must fit within their parent's authority. Child
 budgets and delegation/retry limits cannot exceed the parent's ceilings.
 Token and dollar budgets cover an agent and its descendants; the sum reserved
 for direct children must fit the parent envelope. Time budgets are wall-clock
-ceilings, not estimates of the time required. Their enforcement at provider/tool
-admission belongs to the future executor; preparation spends none of them.
+ceilings, not estimates of the time required. The agent runtime enforces them
+at provider/tool admission; preparing an inactive run spends none of them.
 
 Each task has an assigned agent, objective, inputs, outputs, dependencies and
 acceptance criteria. Inputs declare `id`, `kind` (`text`, `file`, `artifact`) and

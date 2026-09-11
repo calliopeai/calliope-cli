@@ -11,8 +11,11 @@ streaming notifications, editor file delegates and permission prompts.
 message reference, confirmation policy and optional `AbortSignal`. Callbacks
 adapt presentation; they do not bypass the canonical permission resolver. All
 provider calls made during a turn, including repair and compression, count
-against the same budget. The cap is checked before requests and tools; a response
-can exceed the cap because its final usage is known only after it arrives.
+against the same budget. Ordinary per-run counters are checked before requests
+and tools. Project-capped turns and bounded agent contexts additionally reserve
+each attempt before HTTP; missing usage remains charged. See
+[agent runtime authority](agent-runtime.md) for admission, persistence and the
+provider pricing assumptions behind those bounds.
 
 See [Routing](routing.md) for live eligibility, preference preservation,
 protocol history, price evidence and versioned decision events.

@@ -11,7 +11,7 @@ import OpenAI from 'openai';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
-import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
+import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 
 // ============================================================================
 // Shared OpenAI Format Converters (also used by compat provider)
@@ -339,17 +339,18 @@ async function chatOpenAIResponses(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limits?: AdapterLimits
 ): Promise<LLMResponse> {
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai') });
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const responsesInput = toResponsesInput(messages);
   const responsesTools = toResponsesTools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools);
+  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('openai', model, messages, tools), limits?.maxOutputTokens);
   debugLog(`OpenAI Responses API request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
@@ -359,6 +360,7 @@ async function chatOpenAIResponses(
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
     let inputTokens = 0;
     let outputTokens = 0;
+    let usageSeen = false;
 
     try {
       // Note: OpenAI SDK types don't fully match Responses API yet
@@ -395,6 +397,7 @@ async function chatOpenAIResponses(
         } else if (isCompletedEvent(typedEvent)) {
           const response = typedEvent.response;
           if (response?.usage) {
+            usageSeen = typeof response.usage.input_tokens === 'number' && typeof response.usage.output_tokens === 'number';
             inputTokens = response.usage.input_tokens || 0;
             outputTokens = response.usage.output_tokens || 0;
           }
@@ -406,7 +409,7 @@ async function chatOpenAIResponses(
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
-        usage: { inputTokens, outputTokens },
+        usage: limits?.bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
       };
     } catch (streamError) {
       throwIfCancelled(signal);
@@ -468,22 +471,23 @@ export async function chatOpenAI(
   tools: Tool[],
   model: string,
   onToken?: StreamCallback,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limits?: AdapterLimits
 ): Promise<LLMResponse> {
   // Route to Responses API for models that require it (o3, o4-mini, etc.)
   if (requiresResponsesAPI(model)) {
-    return chatOpenAIResponses(messages, tools, model, onToken, signal);
+    return chatOpenAIResponses(messages, tools, model, onToken, signal, limits);
   }
 
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai') });
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools);
+  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('openai', model, messages, tools), limits?.maxOutputTokens);
   debugLog(`OpenAI request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
@@ -499,7 +503,7 @@ export async function chatOpenAI(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        max_tokens: dynamicMaxTokens,
+        ...(limits?.bounded ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens }),
         stream: true,
         stream_options: { include_usage: true },
       }, signal ? { signal } : undefined);
@@ -575,7 +579,7 @@ export async function chatOpenAI(
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    max_tokens: dynamicMaxTokens,
+    ...(limits?.bounded ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens }),
   }, signal ? { signal } : undefined);
 
   if (!response.choices || response.choices.length === 0) {

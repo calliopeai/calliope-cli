@@ -15,7 +15,7 @@
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
-import { normalizeFinishReason, debugLog, type StreamCallback, type ChatOptions } from './types.js';
+import { normalizeFinishReason, debugLog, limitOutputTokens, type StreamCallback, type ChatOptions } from './types.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 
 // ============================================================================
@@ -233,9 +233,11 @@ export async function chatOllama(
   onToken?: StreamCallback,
   options?: ChatOptions
 ): Promise<LLMResponse> {
+  if (options?.maxOutputTokens !== undefined) limitOutputTokens(options.maxOutputTokens, options.maxOutputTokens);
+  if (options?.bounded && options.maxOutputTokens === undefined) throw new Error('Bounded Ollama calls require an output limit.');
   const baseUrl = getBaseUrl();
   const skipCount = toolUnsupportedModels.get(model) ?? 0;
-  const skipTools = skipCount > 0;
+  const skipTools = !options?.bounded && skipCount > 0;
   if (skipTools) {
     // Decrement counter — eventually we'll retry with tools
     toolUnsupportedModels.set(model, skipCount - 1);
@@ -250,9 +252,10 @@ export async function chatOllama(
   debugLog(`ollama native request: model=${model}, tools=${ollamaTools.length}, stream=${!!onToken}, format=${!!options?.format}`);
 
   try {
-    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format, options?.signal);
+    return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format, options?.signal, options);
   } catch (error) {
     throwIfCancelled(options?.signal);
+    if (options?.bounded) throw error;
     const errMsg = error instanceof Error ? error.message : String(error);
 
     // Model not found — try fallback
@@ -279,7 +282,8 @@ async function doChat(
   tools: OllamaTool[],
   onToken?: StreamCallback,
   format?: unknown,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  limits?: ChatOptions
 ): Promise<LLMResponse> {
   throwIfCancelled(signal);
   const requestBody: OllamaChatRequest = {
@@ -288,6 +292,7 @@ async function doChat(
     tools: tools.length > 0 ? tools : undefined,
     stream: !!onToken,
     ...(format !== undefined ? { format } : {}),
+    ...(limits?.maxOutputTokens !== undefined ? { options: { num_predict: limits.maxOutputTokens } } : {}),
   };
 
   let response = await fetch(`${baseUrl}/api/chat`, {
@@ -300,7 +305,7 @@ async function doChat(
   // Grammar-constrained `format` is best-effort: if this Ollama build rejects
   // the schema (older versions, or a server that doesn't implement it), degrade
   // silently and retry the same request without it rather than failing the call.
-  if (!response.ok && format !== undefined) {
+  if (!limits?.bounded && !response.ok && format !== undefined) {
     const peek = await response.clone().text().catch(() => '');
     if (response.status === 400 || /format/i.test(peek)) {
       debugLog(`ollama: format param rejected (${response.status}), retrying without it`);
@@ -320,7 +325,7 @@ async function doChat(
   }
 
   if (onToken) {
-    return streamResponse(response, onToken);
+    return streamResponse(response, onToken, limits?.bounded);
   }
 
   const data = await response.json() as OllamaChatResponse;
@@ -347,7 +352,7 @@ async function doChat(
     content: responseContent,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason: normalizeFinishReason(data.done_reason, toolCalls.length > 0),
-    usage: {
+    usage: limits?.bounded && (typeof data.prompt_eval_count !== 'number' || typeof data.eval_count !== 'number') ? undefined : {
       inputTokens: data.prompt_eval_count || 0,
       outputTokens: data.eval_count || 0,
     },
@@ -356,7 +361,8 @@ async function doChat(
 
 async function streamResponse(
   response: Response,
-  onToken: StreamCallback
+  onToken: StreamCallback,
+  bounded = false
 ): Promise<LLMResponse> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body from Ollama');
@@ -368,7 +374,7 @@ async function streamResponse(
   let completionTokens = 0;
   let finishReason: LLMResponse['finishReason'] = 'stop';
   let pending = '';
-  let receivedDone = false;
+  let receivedDone = false, usageSeen = false;
 
   try {
     while (true) {
@@ -399,6 +405,7 @@ async function streamResponse(
 
         if (chunk.done) {
           receivedDone = true;
+          usageSeen = typeof chunk.prompt_eval_count === 'number' && typeof chunk.eval_count === 'number';
           finishReason = normalizeFinishReason(chunk.done_reason);
           if (chunk.prompt_eval_count) promptTokens = chunk.prompt_eval_count;
           if (chunk.eval_count) completionTokens = chunk.eval_count;
@@ -427,7 +434,7 @@ async function streamResponse(
     content,
     toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
     finishReason: normalizeFinishReason(finishReason, allToolCalls.length > 0),
-    usage: {
+    usage: bounded && !usageSeen ? undefined : {
       inputTokens: promptTokens,
       outputTokens: completionTokens,
     },

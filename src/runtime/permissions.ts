@@ -10,7 +10,7 @@ import { cancellable, isCancellation, throwIfCancelled } from '../cancellation.j
 import { permissionReason, type PermissionDecision, type PermissionLayer } from './types.js';
 
 const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
-export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import', 'orchestration_prepare', 'orchestration_approve', 'orchestration_cancel']);
+export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import', 'orchestration_prepare', 'orchestration_approve', 'orchestration_cancel', 'orchestration_budget']);
 
 export interface PermissionContext {
   cwd: string;
@@ -20,6 +20,8 @@ export interface PermissionContext {
   sessionId?: string;
   approvals?: ApprovalStore;
   signal?: AbortSignal;
+  /** A coordinator's immutable authority can only narrow project policy. */
+  authority?: (call:ToolCall,cwd:string)=>string|undefined;
   approve?: (decision: PermissionDecision) => Promise<ApprovalChoice>;
   audit?: (event: PolicyEventPayload) => void;
 }
@@ -38,6 +40,8 @@ export async function resolvePermission(call: ToolCall, context: PermissionConte
     }
     let policyAllowed = false, policyReason = '';
     const gates = async (): Promise<PermissionDecision | undefined> => {
+      const authority = context.authority?.(call,context.cwd);
+      if (authority) return record('deny','scope',authority);
       if (context.mode === 'plan' && !PLAN_TOOLS.has(call.name)) return record('deny', 'mode', 'Plan mode: Tool not executed. Describe what this would do.');
       if (context.sessionId !== initialSessionId) return record('deny', 'confirmation', 'Session changed during approval; retry in the active session.');
       const boundary = checkToolBoundary(call, context.cwd);

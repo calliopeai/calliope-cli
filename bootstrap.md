@@ -67,6 +67,9 @@ append-only client failures, parallel progress and bounded private inspection.
 [Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
 validated dependency plans and an immutable local run journal; child execution
 is tracked separately and is not yet available.
+[Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
+scopes, deadlines and persistent request reservations across agent ancestors
+and the project. This library does not enable child scheduling or execution commands.
 
 ```
 src/

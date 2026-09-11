@@ -39,11 +39,24 @@ export type StreamCallback = (token: string) => void;
  */
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
+export interface AdapterLimits { maxOutputTokens?: number; bounded?: boolean }
+export interface ProviderAttemptBudget {
+  reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number}): Promise<string>;
+  settle(id: string, outcome: 'success' | 'error' | 'cancelled', usage?: LLMResponse['usage']): Promise<void>;
+}
+/** An explicit caller limit never expands the adapter's own context/output bound. */
+export function limitOutputTokens(dynamic: number, maximum?: number): number {
+  if (maximum === undefined) return dynamic;
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > 100000000) throw new Error('maxOutputTokens must be an integer between 1 and 100000000');
+  return Math.min(dynamic, maximum);
+}
+
 /**
  * Per-call options: cancellation across all providers, plus Ollama's optional
  * grammar-constrained `format` schema for tool-call repair (ignored elsewhere).
  */
-export interface ChatOptions {
+export interface ChatOptions extends AdapterLimits {
+  attemptBudget?: ProviderAttemptBudget;
   /** Required to retry after visible partial output; append-only clients omit it. */
   onStreamReset?: () => void;
   onStreamEvent?: (event: import('./stream-attempt.js').StreamAttemptEvent) => void;
