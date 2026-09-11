@@ -18,8 +18,10 @@ it('requires evidence for new providers and excludes retired AI21', () => {
 });
 
 it('counts unique historical captures without treating missing access or untested semantics as passing', () => {
-  const report = createReadiness([...captures, ...captures], { deepseek: 'missing', anthropic: 'missing' });
-  expect(report.capturedWireCombinations).toBe(captures.length);
+  // Control the missing-evidence case even when the real corpus gains DeepSeek captures.
+  const evidence = captures.filter(capture => capture.backend !== 'deepseek');
+  const report = createReadiness([...evidence, ...evidence], { deepseek: 'missing', anthropic: 'missing' });
+  expect(report.capturedWireCombinations).toBe(evidence.length);
   expect(report.adapters.find(a => a.id === 'deepseek')!.checks['text-json']).toBe('unavailable');
   const anthropic = report.adapters.find(a => a.id === 'anthropic')!;
   expect(anthropic.credentials).toBe('missing');

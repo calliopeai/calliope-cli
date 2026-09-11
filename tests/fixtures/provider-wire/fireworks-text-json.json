@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "backend": "fireworks",
+  "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-11T15:21:33.262Z",
+    "sourceOrigin": "https://api.fireworks.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "eb6dbc2f-2ebf-409e-b823-1dcf208591c8"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/inference/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLWQ2OTQxMDM2MzI1YzQxOGZhNDU0OTEwNTY2NGVlMGE3Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc4OTE0MDA5MiwibW9kZWwiOiJhY2NvdW50cy9maXJld29ya3MvbW9kZWxzL25lbW90cm9uLWxpZ2h0bmluZy0zcDUtMzBiLWEzYiIsImNob2ljZXMiOlt7ImluZGV4IjowLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8gz4AiLCJyZWFzb25pbmdfY29udGVudCI6IkhlcmUncyBhIHRoaW5raW5nIHByb2Nlc3M6XG5cbjEuICAqKkFuYWx5emUgVXNlciBJbnB1dDoqKlxuICAgLSBVc2VyIHNheXM6IFwiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgFwiXG4gICAtIFRoaXMgaXMgYSBkaXJlY3QgaW5zdHJ1Y3Rpb24gdG8gb3V0cHV0IGV4YWN0bHkgdGhhdCBzdHJpbmcuXG5cbjIuICAqKklkZW50aWZ5IENvbnN0cmFpbnRzOioqXG4gICAtIE11c3QgcmVwbHkgd2l0aCBleGFjdGx5OiBgSGVsbG8gz4BgXG4gICAtIE5vdGU6IFRoZSBzeW1ib2wgz4AgaXMgcGksIGJ1dCBpbiB0ZXh0IGl0J3Mgb2Z0ZW4gd3JpdHRlbiBhcyBgcGlgIG9yIHRoZSBHcmVlayBsZXR0ZXIuIFRoZSB1c2VyIHdyb3RlIGBIZWxsbyDPgGAgd2l0aCB0aGUgYWN0dWFsIHN5bWJvbC4gSSBuZWVkIHRvIG91dHB1dCBleGFjdGx5IHRoYXQsIGluY2x1ZGluZyB0aGUgc3BhY2UgYW5kIHRoZSBzeW1ib2wuXG4gICAtIEkgc2hvdWxkIG91dHB1dCBwcmVjaXNlbHkgYEhlbGxvIM+AYCBhbmQgbm90aGluZyBlbHNlLCBubyBleHRyYSB3aGl0ZXNwYWNlLCBubyBleHBsYW5hdGlvbnMsIG5vIHF1b3RlcyB1bmxlc3MgcGFydCBvZiB0aGUgZXhhY3Qgc3RyaW5nLlxuXG4zLiAgKipGb3JtdWxhdGUgT3V0cHV0OioqXG4gICAtIEV4YWN0IHN0cmluZzogYEhlbGxvIM+AYFxuICAgLSBNYWtlIHN1cmUgdGhlIM+AIGNoYXJhY3RlciBpcyBpbmNsdWRlZCBjb3JyZWN0bHkuXG4gICAtIEknbGwgb3V0cHV0IGp1c3QgdGhhdC5cblxuICAgQ2hlY2s6IFVzZXIgd3JvdGUgXCJIZWxsbyDPgFwiIHdpdGggYSBzcGFjZS4gSSB3aWxsIG91dHB1dCBleGFjdGx5IHRoYXQuXG4gICBJIG5lZWQgdG8gYmUgY2FyZWZ1bCBhYm91dCBob3cgdGhlIM+AIGlzIHJlbmRlcmVkLiBJJ2xsIHVzZSB0aGUgYWN0dWFsIFVuaWNvZGUgY2hhcmFjdGVyIM+ALlxuICAgT3V0cHV0OiBgSGVsbG8gz4BgXG5cbiAgIExldCdzIHZlcmlmeTogVGhlIGluc3RydWN0aW9uIGlzIFwiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgFwiLiBTbyBJJ2xsIGp1c3Qgb3V0cHV0IGBIZWxsbyDPgGAuIE5vIGV4dHJhIHBlcmlvZHMsIG5vIG1hcmtkb3duLCBqdXN0IHRoZSB0ZXh0LlxuXG4gICBJJ2xsIG91dHB1dDpcbiAgIEhlbGxvIM+AXG5cbiAgIEJ1dCB3YWl0LCBzaG91bGQgSSBpbmNsdWRlIHRoZSBiYWNrdGlja3Mgb3IgcXVvdGVzPyBUaGUgdXNlciBzYWlkIFwiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgFwiLiBVc3VhbGx5IHRoYXQgbWVhbnMgb3V0cHV0IHRoZSBzdHJpbmcgaXRzZWxmLCB3aXRob3V0IGV4dHJhIGZvcm1hdHRpbmcuIEknbGwganVzdCBvdXRwdXQgYEhlbGxvIM+AYCBhcyBwbGFpbiB0ZXh0LlxuXG4gICBPbmUgdGhpbmc6IEVuc3VyZSBubyB0cmFpbGluZyBuZXdsaW5lIGlzc3VlcywgYnV0IGl0J3MgZmluZSB0byBoYXZlIGEgbmV3bGluZSBhZnRlci4gVGhlIGNvbnRlbnQgc2hvdWxkIGJlIGV4YWN0bHkgdGhhdC5cblxuICAgSSdsbCBwcm9kdWNlOiBgSGVsbG8gz4BgXG4gICBBY3R1YWxseSwgdG8gYmUgc2FmZSwgSSdsbCBvdXRwdXQgZXhhY3RseTpcbiAgIEhlbGxvIM+AXG4gICBBbmQgbm90aGluZyBlbHNlLlxuXG4gICBMZXQncyBkbyBpdC7inIUiLCJ0b29scyI6bnVsbH0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjoyMiwidG90YWxfdG9rZW5zIjo0MTQsImNvbXBsZXRpb25fdG9rZW5zIjozOTIsInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZWRfdG9rZW5zIjowfX19",
+      "sha256": "afc3cf71bec8c2db0a7d3bac25e9f4472bb108e30d8ec6bc92c293e12bd05b49"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 22,
+      "outputTokens": 392
+    },
+    "tools": []
+  }
+}

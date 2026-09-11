@@ -25,10 +25,13 @@ provider billing; absent usage cannot support complete token/cost totals.
 
 ## Real-wire release evidence
 
-**36 of 72 required combinations have real captures**, collected on September 11,
-2026 UTC. Nine adapter paths passed text and tool probes in JSON and streaming
-mode. The [live test report](provider-live-testing.md) records models, local server
-versions, gateway routing, access failures and spend. Synthetic HTTP shapes remain
+**48 of 72 required combinations have real captures**, collected on September 11,
+2026 UTC. Eleven adapter paths passed text and tool probes in JSON and streaming
+mode, with partial captures for three additional paths. The
+[follow-up report](provider-live-followup.md) records newly working credentials,
+the explicit xAI deferral, provider failures and retained budget reservations.
+The [original live test report](provider-live-testing.md) records earlier models,
+local server versions and gateway routing. Synthetic HTTP shapes remain
 useful regressions, but cannot establish what every deployed provider sends.
 `tests/fixtures/provider-wire/` stores only reviewed captures with origin metadata,
 model, timestamp, SDK versions, response bytes and checksums. Generated call IDs are
@@ -71,8 +74,9 @@ fabricated provenance claim. A failed or noncompliant probe is not release evide
 The remaining combinations and additional semantic captures remain tracked in
 [#222](https://github.com/calliopeai/calliope-cli/issues/222) and
 [#262](https://github.com/calliopeai/calliope-cli/issues/262). The gate remains closed
-for OpenAI Chat/Responses, Google, OpenRouter, Groq, Fireworks, DeepSeek, xAI and
-Cerebras. AI21 is retired and explicitly excluded from active coverage. Gateway
+for OpenAI Chat/Responses, Groq, Fireworks, DeepSeek, xAI and Cerebras. The user
+deferred xAI live testing; its four missing cases stay visible and are not counted
+as passing. AI21 is retired and explicitly excluded from active coverage. Gateway
 captures count only for the adapter actually invoked.
 
 Run `npm run providers:readiness -- --json` for a versioned offline inventory,
