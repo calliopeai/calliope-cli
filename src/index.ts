@@ -43,3 +43,6 @@ export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfi
 export { runHeadless } from './headless.js';
 export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode } from './headless.js';
 
+
+// Shared runtime for terminal, editor and programmatic clients.
+export * from './runtime/index.js';

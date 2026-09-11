@@ -117,11 +117,14 @@ Conversation to summarize:`;
  * Summarize messages using an LLM call.
  * Returns the summary text, or null if LLM call fails.
  */
+export type CompressionRequest = (messages: LLMMessage[], model?: string) => Promise<import('./types.js').LLMResponse>;
+
 export async function llmSummarize(
   messages: LLMMessage[],
   provider: LLMProvider,
   model?: string,
   signal?: AbortSignal,
+  request?: CompressionRequest,
 ): Promise<string | null> {
   try {
     // Build conversation text for the summarizer
@@ -138,13 +141,14 @@ export async function llmSummarize(
       { role: 'user', content: `${COMPRESSION_PROMPT}\n\n${conversationText}` },
     ];
 
-    const response = await chat(provider, summaryMessages, emptyTools, model, undefined, undefined, { signal });
+    const response = request ? await request(summaryMessages, model) : await chat(provider, summaryMessages, emptyTools, model, undefined, undefined, { signal });
     if (response.content && response.content.length > 20) {
       return response.content;
     }
     return null;
-  } catch {
+  } catch (error) {
     throwIfCancelled(signal);
+    if (error instanceof Error && error.name === 'RuntimeBudgetExceeded') throw error;
     return null;
   }
 }
@@ -173,6 +177,7 @@ export async function autoCompress(
   provider: LLMProvider,
   model?: string,
   signal?: AbortSignal,
+  request?: CompressionRequest,
 ): Promise<CompressionResult> {
   // Use the exact same token estimation method as the UI to avoid threshold mismatches
   const currentTokens = estimateTotalTokens(messages);
@@ -222,7 +227,7 @@ export async function autoCompress(
   let method: 'llm' | 'heuristic' = 'heuristic';
 
   if (config.useLlm && !status.llmTemporarilyDisabled) {
-    summary = await llmSummarize(toSummarize, provider, config.compressionModel || model, signal);
+    summary = await llmSummarize(toSummarize, provider, config.compressionModel || model, signal, request);
     if (summary) {
       method = 'llm';
       resetAutoCompressorState();

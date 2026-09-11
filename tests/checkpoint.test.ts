@@ -154,6 +154,14 @@ function mockSuccessfulCheckpoint(hash: string, capture?: string[][]) {
 }
 
 describe('createCheckpoint', () => {
+  it('checks and checkpoints the explicit session project rather than process cwd', () => {
+    mockSuccessfulCheckpoint('abc1234');
+    expect(shouldCheckpoint('write_file', { path: 'a.txt' }, '/resumed-project')).toBe(true);
+    expect(createCheckpoint('write_file', { path: 'a.txt' }, '/resumed-project')).toBe('abc1234');
+    const discovery = mockExecFileSync.mock.calls.filter(call => (call[1] as string[])[0] === 'rev-parse' && !(call[1] as string[]).includes('--short'));
+    for (const call of discovery) expect(call[2]).toMatchObject({ cwd: '/resumed-project' });
+  });
+
   it('should return null when not in a git repo', () => {
     mockExecFileSync.mockImplementation(() => { throw new Error('not a git repo'); });
     expect(createCheckpoint('write_file', { path: 'test.txt' })).toBeNull();

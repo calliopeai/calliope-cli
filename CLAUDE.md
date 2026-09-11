@@ -22,7 +22,8 @@ Multi-model AI agent CLI (`@calliopelabs/cli` v3.1.0). TypeScript + React/Ink, E
 src/
 ├── bin.ts              # Entry point
 ├── providers/          # 13 backends, live model discovery
-├── ui/                 # Ink UI, agent loop, 22 commands
+├── runtime/            # shared turn engine and permissions
+├── ui/                 # Ink UI and terminal adapter
 ├── tools.ts            # Tool definitions & registry
 ├── config.ts           # Configuration (conf library, 16 keys)
 ├── types.ts            # Core type definitions
@@ -47,7 +48,7 @@ track live status in the roadmap epic (#195) and milestones.
 ## Testing
 
 - Framework: Vitest
-- ~3,500 tests across 94 test files (`tests/*.test.ts`); 90% line-coverage floor via `npm run test:coverage`
+- Behavioral and transport tests (`tests/*.test.ts`); 90% line-coverage floor via `npm run test:coverage`
 - Run: `npx vitest run`
 - Watch: `npx vitest --watch`
 - Every fix gets a regression test; cover happy path and error/denied path

@@ -1,83 +1,30 @@
-/**
- * UI Module - Agent Runner
- *
- * Core agent execution loop, tool handling, and message validation.
- * Extracted from TerminalChat using an AgentContext state bag.
- */
-
-import { resolvePermission } from '../runtime/index.js';
-import { cancellable, cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
+/** Terminal presentation adapter for the shared turn runtime. */
 import type React from 'react';
+import { runTurn } from '../runtime/index.js';
+import { cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
-import { chat } from '../providers/index.js';
-import { estimateContextUsage, needsSummarization } from '../providers/types.js';
-import { executeTool, getTools } from '../tools.js';
-import { DEFAULT_MODELS, RISK_CONFIG, calculateCost } from '../types.js';
-import { getModelContextLimit } from '../model-detection.js';
+import { estimateContextUsage } from '../providers/types.js';
+import { getTools } from '../tools.js';
+import { RISK_CONFIG, calculateCost } from '../types.js';
 import { assessToolRisk } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
-import * as hooks from '../hooks.js';
 import * as router from '../router.js';
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
-import { autoCompress } from '../auto-compressor.js';
 import { createStreamFlusher } from '../streaming.js';
-import { executeParallel, getParallelizationStats } from '../parallel-tools.js';
 import { checkAndWarnContextLimit } from './context.js';
 import { CircuitBreaker } from '../circuit-breaker.js';
-import type { IterationData, BreakerCheckResult } from '../circuit-breaker.js';
-import { smartRoute, getDefaultSmartRoutingConfig } from '../router.js';
 import type { SmartRoutingConfig } from '../router.js';
-import type { Message as LLMMessage, LLMProvider, Mode, MessageContent, ToolCall, LLMResponse } from '../types.js';
-import {
-  isLocalBackend,
-  detectMalformedToolCall,
-  buildRepairMessage,
-  buildToolCallEnvelopeSchema,
-  extractRepairedToolCall,
-  getLocalModelProfile,
-} from '../local-model.js';
-import type { UIMessage, SessionStats, ThinkingState, ActivityState } from './types.js';
+import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../types.js';
+import type { SessionStats, ThinkingState, ActivityState } from './types.js';
 import type { Session } from '../storage.js';
 import { IterationLedger } from '../iteration-ledger.js';
 import { shouldCheckpoint, createCheckpoint } from '../checkpoint.js';
 import { startPreventSleep, stopPreventSleep } from '../prevent-sleep.js';
-import {
-  resolveIterationLimit,
-  formatIterationProgress,
-  isFiniteIterationLimit,
-} from '../iteration-limit.js';
-import { RunLog, type PolicyEventPayload } from '../runlog.js';
-import {
-  getBudgetCaps, evaluateBudget, hasBudgetCaps,
-  recordProjectSpend, loadProjectSpend, formatBudgetHalt,
-  type BudgetVerdict,
-} from '../budget.js';
-
-// ============================================================================
-// Tool Result Truncation
-// ============================================================================
-
-/**
- * Truncate tool result content to fit within available context.
- * For small models (< 16K), aggressively cap tool output to prevent context overflow.
- */
-function truncateToolResult(content: string, modelLimit: number): string {
-  // Scale max tool result size based on model context
-  // Small models: 25% of context, large models: up to 50K chars
-  const maxChars = modelLimit < 8000 ? Math.floor(modelLimit * 0.6)   // ~2.4K chars for 4K model
-    : modelLimit < 16000 ? Math.floor(modelLimit * 0.8)               // ~12K chars for 16K model
-    : modelLimit < 32000 ? 20000
-    : 50000;
-
-  if (content.length <= maxChars) return content;
-
-  const half = Math.floor(maxChars / 2);
-  const trimmed = content.slice(0, half) + `\n\n... [truncated ${content.length - maxChars} chars] ...\n\n` + content.slice(-half);
-  return trimmed;
-}
+import { resolveIterationLimit, formatIterationProgress, isFiniteIterationLimit } from '../iteration-limit.js';
+import { formatBudgetHalt } from '../budget.js';
 
 function summarizeMessageContent(content: MessageContent): string {
   if (typeof content === 'string') {
@@ -190,127 +137,8 @@ export function validateAndRepairMessagesImpl(ctx: AgentContext): boolean {
   return repaired;
 }
 
-// ============================================================================
-// Local-model tool-call repair (features 2 & 3)
-// ============================================================================
-
-/**
- * When a LOCAL backend returns a malformed tool call, spend ONE corrective
- * round-trip trying to fix it before the error surfaces naturally through
- * executeTool. At most one call is repaired per response (cost control on
- * self-hosted hardware); each call id gets at most one repair (`repairedCallIds`).
- *
- * On Ollama we grammar-constrain the repair reply with the tool-call envelope
- * schema (the `format` param) — but only here, never on normal prose turns.
- *
- * Cloud backends and well-formed responses pass straight through unchanged.
- */
-async function maybeRepairLocalToolCalls(
-  ctx: AgentContext,
-  baseMessages: LLMMessage[],
-  response: LLMResponse,
-  effectiveModel: string | undefined,
-  repairedCallIds: Set<string>,
-): Promise<LLMResponse> {
-  if (!response.toolCalls?.length) return response;
-  const provider = ctx.actualProvider as LLMProvider;
-  if (!isLocalBackend(provider)) return response;
-
-  const tools = getTools();
-  let target: { call: ToolCall; reason: string } | undefined;
-  for (const call of response.toolCalls) {
-    if (repairedCallIds.has(call.id)) continue;
-    const fault = detectMalformedToolCall(call, tools);
-    if (fault) {
-      target = { call, reason: fault.reason };
-      break;
-    }
-  }
-  if (!target) return response;
-
-  const { call, reason } = target;
-  repairedCallIds.add(call.id); // one repair per tool call, whatever the outcome
-  ctx.debugLog('repair', 'malformed local tool call', call.name, reason);
-  ctx.addMessage('system', `🔧 Malformed tool call from local model (${reason}); attempting one repair…`);
-
-  // Grammar-constrain the reply when the backend supports JSON-schema format.
-  let format: unknown;
-  try {
-    const profile = await cancellable(getLocalModelProfile(provider, effectiveModel || ctx.actualModel), ctx.signal);
-    if (profile.supportsJsonSchemaFormat) {
-      format = buildToolCallEnvelopeSchema(tools.map(t => t.name));
-    }
-  } catch {
-    // No format constraint — the corrective message alone still helps.
-  }
-
-  const repairMessages: LLMMessage[] = [
-    ...baseMessages,
-    { role: 'assistant', content: typeof response.content === 'string' ? response.content : '', toolCalls: response.toolCalls },
-    { role: 'user', content: buildRepairMessage(call, { reason }) },
-  ];
-
-  let repaired: LLMResponse;
-  try {
-    repaired = await chat(ctx.provider, repairMessages, tools, effectiveModel, undefined, undefined, { format, signal: ctx.signal });
-  } catch (err) {
-    throwIfCancelled(ctx.signal);
-    ctx.ledger?.recordAction('repair', { tool: call.name }, 'error', reason);
-    ctx.debugLog('repair', 'repair round-trip threw', err instanceof Error ? err.message : String(err));
-    return response; // let the original error surface through executeTool
-  }
-
-  const corrected = extractRepairedToolCall(
-    typeof repaired.content === 'string' ? repaired.content : '',
-    repaired.toolCalls,
-    call.id,
-  );
-  if (!corrected) {
-    ctx.ledger?.recordAction('repair', { tool: call.name }, 'error', reason);
-    ctx.addMessage('system', '🔧 Repair produced no usable tool call; surfacing the original error.');
-    return response;
-  }
-
-  const stillBad = detectMalformedToolCall(corrected, tools);
-  ctx.ledger?.recordAction('repair', { tool: call.name, to: corrected.name }, stillBad ? 'error' : 'ok', stillBad?.reason);
-  ctx.addMessage('system', stillBad
-    ? '🔧 Repair did not resolve the malformed call; surfacing the error.'
-    : `🔧 Repaired tool call → ${corrected.name}`);
-
-  return { ...response, toolCalls: response.toolCalls.map(tc => (tc.id === call.id ? corrected : tc)) };
-}
-
-// ============================================================================
-// Provider warnings
-// ============================================================================
-
-// Provider warnings already surfaced this process, keyed by sessionId::warning,
-// so a repeated model substitution across turns/iterations isn't shown twice
-// (#217). Non-fatal notices must be surfaced, never swallowed.
 const surfacedWarnings = new Set<string>();
 
-function surfaceResponseWarnings(ctx: AgentContext, response: LLMResponse): void {
-  if (!response.warnings?.length) return;
-  const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
-  for (const warning of response.warnings) {
-    const key = `${sessionId}::${warning}`;
-    if (surfacedWarnings.has(key)) continue;
-    surfacedWarnings.add(key);
-    ctx.addMessage('system', warning);
-  }
-}
-
-// ============================================================================
-// Run Agent
-// ============================================================================
-
-/**
- * Run agent with user prompt. Core execution loop that handles LLM calls,
- * tool execution (parallel + sequential), auto-compaction, and queued messages.
- */
-// #231: remember the previous turn's mode so the first work-mode turn after
-// a plan-mode turn can carry an explicit execution directive. Module scope is
-// intentional — mode itself outlives session resets.
 let previousTurnMode: string | null = null;
 
 /** Test seam: clear the plan-to-work transition tracking. */
@@ -333,7 +161,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   let effectiveModel = ctx.model;
   let effectiveProvider = ctx.provider;
   if (ctx.smartRouteActive && ctx.smartRoutingConfig?.enabled && typeof content === 'string') {
-    const decision = smartRoute(content, ctx.smartRoutingConfig, {
+    const decision = router.smartRoute(content, ctx.smartRoutingConfig, {
       messageCount: ctx.stats.messageCount,
       hasCode: content.includes('```') || /\.(ts|js|py|go|rs|java)/.test(content),
     });
@@ -354,7 +182,6 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   }
 
   const maxIterations = resolveIterationLimit(config.get('maxIterations'));
-  let completedNaturally = false;
   const hasParentRun = Boolean(
     ctx.ledger?.getActiveRun('loop') ||
     ctx.ledger?.getActiveRun('workflow') ||
@@ -369,809 +196,230 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   let runStatus: 'completed' | 'cancelled' | 'failed' | 'interrupted' | 'stopped' | undefined;
   let runErrorSummary: string | undefined;
 
-  // Local-backend behaviours (features 2 & 4): whether to append anchor hashes
-  // to read_file output, and which tool-call ids have already spent their one
-  // repair round-trip.
-  const localBackend = isLocalBackend(ctx.actualProvider as LLMProvider);
-  const executeOptions = { signal: ctx.signal, appendAnchorHash: localBackend, auditPermission: (event: PolicyEventPayload) => runlog.policyEvent(event) };
-  const repairedCallIds = new Set<string>();
-
-  // Governance (#189): audit run log, budget caps, policy hook. The run log is a
-  // per-session append-only JSONL trace; each agent turn is one run within it.
   const sessionId = ctx.sessionRef.current?.id ?? 'session_adhoc';
   const projectDir = ctx.sessionRef.current?.projectPath ?? process.cwd();
-  const runlog = RunLog.open(sessionId);
-  const budgetCaps = getBudgetCaps();
-  // Only maintain the cross-run project ledger when a project cap is active.
-  const trackProjectBudget = typeof budgetCaps.maxCostPerProject === 'number';
-  const runStartedAt = Date.now();
-  let runInputTokens = 0;
-  let runOutputTokens = 0;
-  let runCostUsd = 0;
-  let runToolCalls = 0;
-  let runEnded = false;
-  let runExitReason: string | undefined;
-  let budgetVerdict: BudgetVerdict | undefined;
-
-  runlog.runStart({
-    session: sessionId,
-    cwd: projectDir,
-    provider: effectiveProvider,
-    model: effectiveModel || ctx.actualModel,
-    config: config.getConfig() as unknown as Record<string, unknown>,
-  });
-  runlog.userPrompt(summarizeMessageContent(content));
-
-  // #231: a terse reply right after leaving plan mode is an approval, not a
-  // conversation — bind it to execution explicitly or weak models answer
-  // "done" without doing anything.
+  const provider = effectiveProvider === 'auto' ? ctx.actualProvider as LLMProvider : effectiveProvider;
+  const model = effectiveModel || ctx.actualModel;
   const justLeftPlanMode = previousTurnMode === 'plan' && ctx.mode !== 'plan';
   previousTurnMode = ctx.mode;
-
-  const finalizeRun = (exitReason: string): void => {
-    if (runEnded) return;
-    runEnded = true;
-    runlog.runEnd({
-      totals: {
-        inputTokens: runInputTokens,
-        outputTokens: runOutputTokens,
-        cost: runCostUsd,
-        toolCalls: runToolCalls,
-        durationMs: Date.now() - runStartedAt,
-      },
-      exitReason,
-    });
-    void runlog.flush();
+  let flusher: ReturnType<typeof createStreamFlusher> | undefined;
+  let iteration = 0;
+  let streamStarted = false;
+  let errorShown = false;
+  let finalResponse = false;
+  const blocked = new Set<string>();
+  const failed = ctx.ledger?.getFailedApproachesMessage();
+  if (failed) ctx.llmMessages.current.push({ role: 'user', content: failed });
+  const clearDisplay = () => {
+    flusher?.destroy();
+    ctx.setThinkingState(null);
+    ctx.setActivityState(null);
+    ctx.setStreamingResponse('');
   };
-
   try {
-    // Check context limit and warn if approaching capacity
-    // Uses model's actual context length from API when available
-    let currentContextTokens = ctx.estimateContextTokens();
-    const modelLimit = getModelContextLimit(ctx.actualProvider as LLMProvider, effectiveModel || ctx.actualModel);
-    let contextPercentage = (currentContextTokens / modelLimit) * 100;
-
-    // Adaptive preserveRecent: small models keep fewer messages to leave room for output
-    const preserveRecent = modelLimit < 8000 ? 2 : modelLimit < 16000 ? 4 : modelLimit < 32000 ? 6 : modelLimit < 64000 ? 10 : 15;
-
-    // Auto-compact using the new auto-compressor
-    const autoCompressResult = await autoCompress(ctx.llmMessages.current, modelLimit, ctx.provider, effectiveModel, ctx.signal);
-    if (autoCompressResult.compressed) {
-      ctx.llmMessages.current = autoCompressResult.messages;
-      currentContextTokens = ctx.estimateContextTokens();
-      contextPercentage = (currentContextTokens / modelLimit) * 100;
-      ctx.setContextTokens(currentContextTokens);
-      ctx.addMessage('system', `🔄 Auto-compressed ${autoCompressResult.summarizedCount} messages using ${autoCompressResult.method} (${Math.round(autoCompressResult.originalTokens/1000)}K → ${Math.round(autoCompressResult.compressedTokens/1000)}K tokens)`);
-    } else if (contextPercentage > 65) {
-      ctx.addMessage('system', `⚠️  Context at ${Math.round(contextPercentage)}% capacity (${Math.round(currentContextTokens/1000)}K/${Math.round(modelLimit/1000)}K tokens)
-     Consider: /compact | /clear | shorter messages`);
-    }
-
-    // Inject failed approaches into context so the agent avoids repeating mistakes
-    if (ctx.ledger) {
-      const failedMsg = ctx.ledger.getFailedApproachesMessage();
-      if (failedMsg) {
-        ctx.llmMessages.current.push({ role: 'user', content: failedMsg });
-      }
-    }
-
-    for (let i = 0; i < maxIterations; i++) {
-      throwIfCancelled(ctx.signal);
-      // Start ledger tracking for this iteration
-      if (ctx.ledger) {
-        ctx.ledger.startIteration(ctx.ledger.getNextIterationNumber());
-      }
-
-      // Safety check at start of each iteration - context may have grown from tool results
-      if (i > 0) {
-        const iterContextTokens = ctx.estimateContextTokens();
-        const iterAutoCompressResult = await autoCompress(ctx.llmMessages.current, modelLimit, ctx.provider, effectiveModel, ctx.signal);
-        if (iterAutoCompressResult.compressed) {
-          ctx.llmMessages.current = iterAutoCompressResult.messages;
-          ctx.setContextTokens(ctx.estimateContextTokens());
-          ctx.addMessage('system', `🔄 Auto-compressed ${iterAutoCompressResult.summarizedCount} messages during iteration ${i + 1} (${iterAutoCompressResult.method})`);
+    const result = await runTurn({
+      client: 'terminal', sessionId, cwd: projectDir, provider, model,
+      prompt: summarizeMessageContent(content), messages: ctx.llmMessages,
+      signal: ctx.signal, mode: ctx.mode, maxIterations,
+      inheritScope: true, parallel: true, continueOnLength: true, tools: getTools,
+      confirmation: ctx.confirmMode ? 'risk' : 'none',
+      prepare: async (request, index) => {
+        iteration = index;
+        finalResponse = false;
+        ctx.ledger?.startIteration(ctx.ledger.getNextIterationNumber());
+        flusher?.destroy();
+        flusher = createStreamFlusher(delta => ctx.setStreamingResponse(prev => prev + delta));
+        streamStarted = false;
+        ctx.setStreamingResponse('');
+        ctx.setThinkingState({ status: index === 1 ? 'Analyzing request...' : 'Processing response...',
+          detail: `Iteration ${formatIterationProgress(index, maxIterations)}`, iteration: index,
+          maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined });
+        ctx.setActivityState({ action: index === 1 ? 'Analyzing request' : 'Processing', target: `iteration ${index}`, startTime: Date.now() });
+        ctx.llmMessages.current = summarization.validateMessageHistory(ctx.llmMessages.current);
+        const context = estimateContextUsage(request.provider, request.model, ctx.llmMessages.current, request.tools);
+        if (context.needsSummarization) {
+          const compact = summarization.summarizeConversation(ctx.llmMessages.current, { maxTokens: Math.floor(context.limit * 0.6) });
+          if (compact.summarizedCount > 0) ctx.llmMessages.current = compact.messages;
         }
-      }
-
-      // Frame-bounded streaming: coalesce provider tokens so setStreamingResponse
-      // fires at most ~30fps instead of once per token (which re-rendered the
-      // transcript region on every token). The flusher is per-iteration; its
-      // pending timer is drained by flush() on success and cleared by destroy()
-      // on the error/cancel path below.
-      const streamFlusher = createStreamFlusher((delta) => {
-        ctx.setStreamingResponse(prev => prev + delta);
-      });
-
-      try {
-        // Update thinking state for LLM call
-        ctx.setThinkingState({
-          status: i === 0 ? 'Analyzing request...' : 'Processing response...',
-          detail: `Iteration ${formatIterationProgress(i + 1, maxIterations)}`,
-          iteration: i + 1,
-          maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-        });
-        ctx.setActivityState({
-          action: i === 0 ? 'Analyzing request' : 'Processing',
-          target: `iteration ${i + 1}`,
-          startTime: Date.now(),
-        });
-
-        // Streaming callback for final response. Clear the thinking indicator on
-        // the first token, then hand the token to the frame-bounded flusher.
-        let streamStarted = false;
-        const onToken = (token: string) => {
-          if (!streamStarted) {
-            ctx.setThinkingState(null); // Clear thinking when streaming starts
-            streamStarted = true;
-          }
-          streamFlusher.push(token);
-        };
-
-        // Retry callback for error recovery
-        const onRetry = (attempt: number, error: Error, delayMs: number) => {
-          ctx.setThinkingState({
-            status: `Retrying... (attempt ${attempt + 1})`,
-            detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`,
-            iteration: i + 1,
-            maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-          });
-        };
-
-        ctx.debugLog('chat', 'WAITING for LLM response', `iteration=${i + 1}`);
-        // Validate message history to prevent orphaned tool_result errors
-        let validatedMessages = summarization.validateMessageHistory(ctx.llmMessages.current);
-        if (validatedMessages.length !== ctx.llmMessages.current.length) {
-          ctx.debugLog('chat', 'CLEANED orphaned tool results', `removed=${ctx.llmMessages.current.length - validatedMessages.length}`);
-          ctx.llmMessages.current = validatedMessages;
-        }
-
-        // Plan mode: tell the model it is planning and that plans need receipts.
-        // Injected per-request (not persisted) so mode switches take effect
-        // immediately and history stays clean.
-        if (ctx.mode === 'plan') {
-          validatedMessages = [
-            ...validatedMessages,
-            {
-              role: 'system' as const,
-              content: 'You are in PLAN mode: no mutating tools will execute. '
-                + 'Read-only tools (read_file, list_files, think, create_plan, ask_question) ARE available — use them. '
-                + 'Before proposing any plan, read the files you intend to change and cite file:line for every claim. '
-                + 'State explicitly what you verified versus what you assume. '
-                + 'A plan produced without reading anything will be marked unverified.',
-            },
-          ];
-        }
-
-        if (justLeftPlanMode && i === 0) {
-          validatedMessages = [
-            ...validatedMessages,
-            {
-              role: 'system' as const,
-              content: 'The user has just switched from plan mode to work mode and replied. '
-                + 'Treat their message as approval to execute the plan discussed above. '
-                + 'Carry it out now using tools, step by step. '
-                + 'Never state that work is done unless you performed it with tool calls in this turn.',
-            },
-          ];
-        }
-
-        // Pre-request summarization check - summarize BEFORE sending if context is too large
-        const tools = getTools();
-        const contextCheck = estimateContextUsage(ctx.provider, effectiveModel || DEFAULT_MODELS[ctx.provider], validatedMessages, tools);
-        ctx.debugLog('chat', 'CONTEXT CHECK', `estimated=${contextCheck.estimated}, limit=${contextCheck.limit}, percent=${contextCheck.percent}%`);
-        if (contextCheck.needsSummarization) {
-          ctx.debugLog('chat', 'PRE-REQUEST SUMMARIZING', `estimated=${contextCheck.estimated} >= 80% of ${contextCheck.limit}`);
-          const result = summarization.summarizeConversation(validatedMessages, { maxTokens: Math.floor(contextCheck.limit * 0.6) });
-          if (result.summarizedCount > 0) {
-            ctx.llmMessages.current = result.messages;
-            validatedMessages = result.messages;
-            ctx.debugLog('chat', 'PRE-SUMMARIZED', `removed=${result.summarizedCount} messages, reduced from ${result.originalTokens} to ${result.reducedTokens}`);
-          }
-        }
-
-        let response = await chat(ctx.provider, validatedMessages, tools, effectiveModel, onToken, onRetry, { signal: ctx.signal });
-        throwIfCancelled(ctx.signal);
-        streamFlusher.flush(); // drain any batched tail before we swap to history
-        ctx.debugLog('chat', 'GOT response', `toolCalls=${response.toolCalls?.length ?? 0}`);
-
-        // Local backends: give a malformed tool call ONE corrective round-trip
-        // before it surfaces as an execution error (features 2 & 3). No-op for
-        // cloud providers and well-formed responses.
-        response = await maybeRepairLocalToolCalls(ctx, validatedMessages, response, effectiveModel, repairedCallIds);
-        throwIfCancelled(ctx.signal);
-
-        // Surface provider warnings (e.g. Ollama model substitution) once per
-        // unique message per session — never swallow them (#217).
-        surfaceResponseWarnings(ctx, response);
-
-        // Update token stats and cost
-        if (response.usage) {
-          const usageCost = calculateCost(ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens, response.usage.outputTokens);
-          ctx.setStats(s => ({
-            ...s,
-            inputTokens: s.inputTokens + response.usage!.inputTokens,
-            outputTokens: s.outputTokens + response.usage!.outputTokens,
-            cost: s.cost + usageCost,
-          }));
-          // Record in iteration ledger
-          ctx.ledger?.recordTokens(response.usage.inputTokens, response.usage.outputTokens, usageCost);
-          // Persist cost to storage
-          storage.recordCost(usageCost, ctx.actualProvider, ctx.sessionRef.current?.id);
-
-          // Auto-summarize if context is getting too full (85% threshold)
-          if (needsSummarization(ctx.provider, ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens)) {
-            ctx.debugLog('chat', 'AUTO-SUMMARIZING', `inputTokens=${response.usage.inputTokens}`);
-            const postCompactLimit = Math.floor(getModelContextLimit(ctx.provider, ctx.model || DEFAULT_MODELS[ctx.provider]) * 0.6);
-            const result = summarization.summarizeConversation(ctx.llmMessages.current, { maxTokens: postCompactLimit });
-            if (result.summarizedCount > 0) {
-              ctx.llmMessages.current = result.messages;
-              ctx.debugLog('chat', 'SUMMARIZED', `removed=${result.summarizedCount} messages`);
-            }
-          }
-        }
-
-        // Governance: accrue run spend, audit the assistant turn, evaluate budget.
-        {
-          const turnCost = response.usage
-            ? calculateCost(ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens, response.usage.outputTokens)
-            : 0;
-          if (response.usage) {
-            runInputTokens += response.usage.inputTokens;
-            runOutputTokens += response.usage.outputTokens;
-            runCostUsd += turnCost;
-            if (trackProjectBudget) recordProjectSpend(projectDir, turnCost);
-          }
-          runlog.assistantMessage({
-            content: response.content,
-            tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 },
-            cost: turnCost,
-          });
-          if (hasBudgetCaps(budgetCaps)) {
-            const verdict = evaluateBudget(budgetCaps, {
-              runCostUsd,
-              runTokens: runInputTokens + runOutputTokens,
-              projectCostUsd: loadProjectSpend(projectDir).spentUsd,
-            });
-            if (verdict.exceeded) budgetVerdict = verdict;
-          }
-        }
-
-        // Circuit breaker check after each iteration
+        // Mode directives are transient; compaction never writes them into history.
+        let messages = [...ctx.llmMessages.current];
+        if (ctx.mode === 'plan') messages.push({ role: 'system', content:
+          'You are in PLAN mode: no mutating tools will execute. '
+          + 'Read-only tools (read_file, list_files, think, create_plan, ask_question) ARE available — use them. '
+          + 'Before proposing any plan, read the files you intend to change and cite file:line for every claim. '
+          + 'State explicitly what you verified versus what you assume. '
+          + 'A plan produced without reading anything will be marked unverified.' });
+        if (justLeftPlanMode && index === 1) messages.push({ role: 'system', content:
+          'The user has just switched from plan mode to work mode and replied. '
+          + 'Treat their message as approval to execute the plan discussed above. '
+          + 'Carry it out now using tools, step by step. '
+          + 'Never state that work is done unless you performed it with tool calls in this turn.' });
+        return { ...request, messages };
+      },
+      onCompression: result => {
+        ctx.setContextTokens(ctx.estimateContextTokens());
+        ctx.addMessage('system', `🔄 Auto-compressed ${result.summarizedCount} messages using ${result.method} (${Math.round(result.originalTokens / 1000)}K → ${Math.round(result.compressedTokens / 1000)}K tokens)`);
+      },
+      onToken: token => {
+        if (!streamStarted) { ctx.setThinkingState(null); streamStarted = true; }
+        flusher?.push(token);
+      },
+      onRetry: (attempt, error, delayMs) => ctx.setThinkingState({ status: `Retrying... (attempt ${attempt + 1})`,
+        detail: `${error.message.substring(0, 40)}... Waiting ${Math.round(delayMs / 1000)}s`, iteration,
+        maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined }),
+      onUsage: (response, request, cost) => {
+        if (!response.usage) return;
+        const { inputTokens, outputTokens } = response.usage;
+        ctx.setStats(s => ({ ...s, inputTokens: s.inputTokens + inputTokens, outputTokens: s.outputTokens + outputTokens, cost: s.cost + cost }));
+        ctx.ledger?.recordTokens(inputTokens, outputTokens, cost);
+        storage.recordCost(cost, request.provider, ctx.sessionRef.current?.id);
+      },
+      onWarning: warning => {
+        const key = `${sessionId}::${warning}`;
+        if (!surfacedWarnings.has(key)) { surfacedWarnings.add(key); ctx.addMessage('system', warning); }
+      },
+      onResponse: (response, index) => {
+        flusher?.flush();
         if (ctx.circuitBreaker) {
-          const iterData: IterationData = {
-            iteration: i + 1,
-            inputTokens: response.usage?.inputTokens,
+          const breaker = ctx.circuitBreaker.check({ iteration: index, inputTokens: response.usage?.inputTokens,
             outputTokens: response.usage?.outputTokens,
-            cost: response.usage ? calculateCost(ctx.model || DEFAULT_MODELS[ctx.provider], response.usage.inputTokens, response.usage.outputTokens) : undefined,
-            toolCalls: response.toolCalls?.map(tc => ({ name: tc.name, arguments: tc.arguments as Record<string, unknown> })),
-            content: response.content,
-            timestamp: new Date(),
-          };
-          const breakerResult = ctx.circuitBreaker.check(iterData);
+            cost: response.usage ? calculateCost(model, response.usage.inputTokens, response.usage.outputTokens) : undefined,
+            toolCalls: response.toolCalls?.map(call => ({ name: call.name, arguments: call.arguments })),
+            content: response.content, timestamp: new Date() });
           ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
-          if (breakerResult.tripped) {
-            ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue, /breaker status for details.`);
-            runStatus = 'stopped';
-            runErrorSummary = breakerResult.message;
-            completedNaturally = true;
-            break;
+          if (breaker.tripped) {
+            ctx.addMessage('system', `⚠️ Circuit breaker tripped: ${breaker.breaker}\n${breaker.message}\n\nUse /breaker resume to continue, /breaker status for details.`);
+            runErrorSummary = breaker.message;
+            return 'stop';
           }
         }
-
-        // Handle tool calls with parallel execution support
-        if (response.toolCalls?.length) {
-          ctx.llmMessages.current.push({
-            role: 'assistant',
-            content: response.content,
-            toolCalls: response.toolCalls,
-          });
-
-          // Mirror any text the assistant produced alongside the tool calls
-          if (fleetActive() && response.content) {
-            fleetMirrorAssistant(response.content);
-          }
-
-          // ============================================================
-          // Phase 1: Pre-check all tools, categorize into blocked vs executable
-          // ============================================================
-          interface ToolPreCheck {
-            toolCall: ToolCall;
-            args: Record<string, unknown>;
-            preview: string;
-            risk: ReturnType<typeof assessToolRisk>;
-            riskDisplay: string;
-            blocked: boolean;
-            blockReason?: string;
-            blockContent?: string;
-          }
-
-          const preChecks: ToolPreCheck[] = [];
-          const executableTools: ToolCall[] = [];
-
-          for (const toolCall of response.toolCalls) {
-            throwIfCancelled(ctx.signal);
-            const args = toolCall.arguments as Record<string, unknown>;
-            runlog.toolCall({ id: toolCall.id, name: toolCall.name, args });
-            runToolCalls++;
-            const toolPreview = String(args.command || args.path || '...');
-            const risk = assessToolRisk(toolCall);
-            const riskConfig = RISK_CONFIG[risk.level];
-            const riskDisplay = risk.level !== 'none' ? ` [${riskConfig.bar}]` : '';
-
-            const preCheck: ToolPreCheck = {
-              toolCall,
-              args,
-              preview: toolPreview,
-              risk,
-              riskDisplay,
-              blocked: false,
-            };
-
-            const decision = await resolvePermission(toolCall, {
-              cwd: projectDir, mode: ctx.mode,
-              confirmation: ctx.confirmMode ? 'risk' : 'none', signal: ctx.signal,
-              audit: event => runlog.policyEvent(event),
-            });
-            if (decision.decision !== 'allow') {
-              preCheck.blocked = true;
-              preCheck.blockReason = decision.reason;
-              preCheck.blockContent = decision.reason;
-              ctx.addMessage('tool', `${toolCall.name}: ${toolPreview}${riskDisplay}\n${decision.reason}`);
-            } else {
-              executableTools.push(toolCall);
-              ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-            }
-
-            preChecks.push(preCheck);
-
-            // Record blocked tools in ledger and add to LLM messages
-            if (preCheck.blocked) {
-              ctx.ledger?.recordAction(toolCall.name, args, 'blocked', preCheck.blockReason);
-              runlog.toolResult({ id: toolCall.id, result: preCheck.blockContent!, isError: true, durationMs: 0 });
-              ctx.llmMessages.current.push({
-                role: 'tool',
-                content: preCheck.blockContent!,
-                toolCallId: toolCall.id,
-              });
-            }
-          }
-
-          // ============================================================
-          // Phase 2: Execute tools (parallel when beneficial)
-          // ============================================================
-          if (executableTools.length > 0) {
-            const parallelStats = getParallelizationStats(executableTools);
-            const useParallel = parallelStats.maxParallel > 1 && executableTools.length > 1;
-
-            if (useParallel) {
-              // Show parallelization info
-              ctx.setThinkingState({
-                status: `Executing ${executableTools.length} tools in parallel...`,
-                detail: `${parallelStats.stages} stages, up to ${parallelStats.maxParallel}x speedup`,
-                iteration: i + 1,
-                maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-              });
-              ctx.setActivityState({
-                action: `Executing ${executableTools.length} tools`,
-                target: 'in parallel',
-                startTime: Date.now(),
-              });
-
-              // Execute in parallel using dependency-aware staging
-              ctx.debugLog('tools', 'PARALLEL exec start', `count=${executableTools.length}`);
-              const results = await executeParallel(
-                executableTools,
-                async (call) => {
-                  const result = await executeTool(call, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, undefined, executeOptions);
-                  throwIfCancelled(ctx.signal);
-                  return { result: result.result, isError: result.isError };
-                },
-                (completed, total, current) => {
-                  const args = current.arguments as Record<string, unknown>;
-                  const target = (args.path as string) || (args.command as string)?.substring(0, 30) || current.name;
-                  ctx.setActivityState({
-                    action: `Running ${current.name}`,
-                    target: target,
-                    startTime: Date.now(),
-                  });
-                  ctx.setThinkingState({
-                    status: `Executing tools... (${completed + 1}/${total})`,
-                    detail: current.name,
-                    iteration: i + 1,
-                    maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-                  });
-                }
-              );
-
-              throwIfCancelled(ctx.signal);
-              ctx.debugLog('tools', 'PARALLEL exec done', `results=${results.length}`);
-              // Process results sequentially for UI and LLM messages
-              for (const result of results) {
-                const toolCall = result.toolCall;
-                const args = toolCall.arguments as Record<string, unknown>;
-                // A tool-level failure (result.isError) or a thrown exception (result.error)
-                // both count as a failure — mirror the sequential branch.
-                const failed = result.isError || !!result.error;
-                const failureText = result.error || result.result;
-
-                // Record in iteration ledger
-                ctx.ledger?.recordAction(
-                  toolCall.name,
-                  args,
-                  failed ? 'error' : 'ok',
-                  failed ? failureText : undefined,
-                );
-                // Audit the tool result (parallel exec has no per-call duration).
-                runlog.toolResult({ id: toolCall.id, result: failed ? failureText : result.result, isError: failed, durationMs: 0 });
-
-                // Execute post-tool hooks
-                hooks.executeHooks('post-tool', {
-                  tool: toolCall.name,
-                  toolArgs: args,
-                  toolResult: result.result,
-                }).catch((err) => {
-                  ctx.debugLog('hooks', `post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
-                });
-
-                // Display result
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  ctx.addMessage('tool', thought);
-                } else if (result.error) {
-                  ctx.addMessage('tool', `Error: ${result.error}`, true);
-                } else {
-                  const preview = result.result.split('\n').slice(0, 3).join('\n');
-                  ctx.addMessage('tool', preview + (result.result.split('\n').length > 3 ? '\n...' : ''), failed);
-                }
-
-                ctx.llmMessages.current.push({
-                  role: 'tool',
-                  content: truncateToolResult(result.error ? `Error: ${result.error}` : result.result, modelLimit),
-                  toolCallId: toolCall.id,
-                });
-              }
-            } else {
-              // Sequential execution (single tool or dependencies prevent parallelization)
-              ctx.debugLog('tools', 'SEQUENTIAL exec start', `count=${executableTools.length}`);
-              for (const toolCall of executableTools) {
-                const args = toolCall.arguments as Record<string, unknown>;
-                const toolPreview = String(args.command || args.path || args.content?.toString().substring(0, 30) || '...');
-
-                // Set activity state for streaming indicator
-                const actionMap: Record<string, string> = {
-                  read_file: 'Reading',
-                  write_file: 'Writing',
-                  edit_file: 'Editing',
-                  bash: 'Running',
-                  search: 'Searching',
-                  glob: 'Finding',
-                  think: 'Thinking',
-                };
-                const action = actionMap[toolCall.name] || `Executing ${toolCall.name}`;
-                const target = toolCall.name === 'bash'
-                  ? (args.command as string)?.substring(0, 40) + ((args.command as string)?.length > 40 ? '...' : '')
-                  : toolCall.name === 'think'
-                  ? undefined
-                  : (args.path as string) || (args.pattern as string);
-                ctx.setActivityState({ action, target, startTime: Date.now() });
-
-                // Special handling for think tool UI
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  ctx.setThinkingState({
-                    status: 'Reasoning...',
-                    detail: thought.substring(0, 60) + (thought.length > 60 ? '...' : ''),
-                    thinking: thought,
-                    iteration: i + 1,
-                    maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-                  });
-                } else {
-                  ctx.setThinkingState({
-                    status: `Executing ${toolCall.name}...`,
-                    detail: toolPreview.substring(0, 60),
-                    thinking: undefined,
-                    iteration: i + 1,
-                    maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined,
-                  });
-                }
-
-                ctx.debugLog('tools', 'EXEC', toolCall.name, toolPreview.substring(0, 30));
-                // Auto-checkpoint before destructive operations
-                if (shouldCheckpoint(toolCall.name, args)) {
-                  const hash = createCheckpoint(toolCall.name, args);
-                  if (hash) {
-                    ctx.debugLog('checkpoint', `checkpoint ${hash} before ${toolCall.name}`);
-                  }
-                }
-                // Stream shell output in real-time (#15)
-                const shellStreamCallback = toolCall.name === 'shell' ? (chunk: string) => {
-                  ctx.setActivityState({
-                    action: 'Running shell',
-                    target: (args.command as string)?.substring(0, 40),
-                    startTime: Date.now(),
-                    detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60),
-                  });
-                } : undefined;
-                const seqStart = Date.now();
-                const result = await executeTool(toolCall, ctx.sessionRef.current?.projectPath ?? process.cwd(), 60000, shellStreamCallback, executeOptions);
-                throwIfCancelled(ctx.signal);
-                ctx.debugLog('tools', 'DONE', toolCall.name);
-
-                // Record in iteration ledger
-                ctx.ledger?.recordAction(
-                  toolCall.name,
-                  args,
-                  result.isError ? 'error' : 'ok',
-                  result.isError ? result.result : undefined,
-                );
-                // Audit the tool result.
-                runlog.toolResult({ id: toolCall.id, result: result.result, isError: result.isError || false, durationMs: Date.now() - seqStart });
-
-                // Execute post-tool hooks
-                hooks.executeHooks('post-tool', {
-                  tool: toolCall.name,
-                  toolArgs: args,
-                  toolResult: result.result,
-                }).catch((err) => {
-                  ctx.debugLog('hooks', `post-tool hook failed for ${toolCall.name}:`, err instanceof Error ? err.message : err);
-                });
-
-                // Display result - use displayResult for UI, full result for LLM (#25)
-                if (toolCall.name === 'think') {
-                  const thought = String(args.thought || '');
-                  ctx.addMessage('tool', thought);
-                } else if (toolCall.name === 'ask_question') {
-                  // Display question prominently (#42)
-                  const question = String(args.question || '');
-                  const options = Array.isArray(args.options) ? args.options as string[] : undefined;
-                  const contextNote = typeof args.context === 'string' ? args.context : undefined;
-                  let questionMsg = `❓ ${question}`;
-                  if (contextNote) questionMsg += `\n   ${contextNote}`;
-                  if (options) questionMsg += '\n' + options.map((o: string, i: number) => `   ${i + 1}. ${o}`).join('\n');
-                  ctx.addMessage('assistant', questionMsg);
-                  // Tell the LLM that we're waiting for user input
-                  ctx.llmMessages.current.push({
-                    role: 'tool',
-                    content: '[Waiting for user response. The user will reply with their answer.]',
-                    toolCallId: toolCall.id,
-                  });
-                  // Break out of tool loop - let user respond naturally
-                  completedNaturally = true;
-                } else if (toolCall.name === 'create_plan') {
-                  // Display plan as a checklist for user approval (#19)
-                  const planTitle = String(args.title || 'Plan');
-                  const planSteps = Array.isArray(args.steps) ? args.steps as string[] : [];
-                  const planReasoning = typeof args.reasoning === 'string' ? args.reasoning : undefined;
-                  let planMsg = `📋 Plan: ${planTitle}\n`;
-                  if (planReasoning) planMsg += `\n   ${planReasoning}\n`;
-                  planMsg += '\n' + planSteps.map((s: string, idx: number) => `   ${idx + 1}. [ ] ${s}`).join('\n');
-                  planMsg += '\n\n   Switch to work mode (Shift+Tab) and reply to execute, or give feedback to revise.';
-                  ctx.addMessage('assistant', planMsg);
-                  // Tell the LLM to wait for user approval
-                  ctx.llmMessages.current.push({
-                    role: 'tool',
-                    content: '[Plan displayed to user. Waiting for approval. The user will reply to approve and execute the plan (they may switch to work mode first), or provide feedback to revise it. Do NOT proceed with execution until the user approves.]',
-                    toolCallId: toolCall.id,
-                  });
-                  // Break out of tool loop - wait for user approval
-                  completedNaturally = true;
-                } else {
-                  const display = result.displayResult || result.result;
-                  const preview = display.split('\n').slice(0, 5).join('\n');
-                  ctx.addMessage('tool', preview + (display.split('\n').length > 5 ? '\n...' : ''), result.isError);
-                }
-
-                if (toolCall.name !== 'ask_question') {
-                  ctx.llmMessages.current.push({
-                    role: 'tool',
-                    content: truncateToolResult(result.result, modelLimit),
-                    toolCallId: toolCall.id,
-                  });
-                }
-              }
-            }
-          }
-          ctx.ledger?.endIteration();
-          // Budget halt: the current tool result is finished; stop before the next
-          // provider call. Record a budget_event and summarize spend vs cap.
-          if (budgetVerdict?.exceeded) {
-            const summary = formatBudgetHalt(budgetVerdict);
-            runlog.budgetEvent({
-              scope: budgetVerdict.scope ?? 'run',
-              kind: budgetVerdict.kind ?? 'cost',
-              spent: budgetVerdict.spent ?? 0,
-              cap: budgetVerdict.cap ?? 0,
-              message: budgetVerdict.message ?? summary,
-            });
-            ctx.addMessage('system', `‖ ${summary}`);
-            runStatus = 'stopped';
-            runErrorSummary = summary;
-            runExitReason = 'budget';
-            completedNaturally = true;
-            break;
-          }
-          if (completedNaturally) break; // ask_question pauses for user input (#42)
-          continue;
-        }
-
-
-        // Final response - move streaming content to message history
+        if (fleetActive() && response.content) fleetMirrorAssistant(response.content);
+        if (response.toolCalls?.length) return;
+        finalResponse = true;
         ctx.setThinkingState(null);
-        ctx.llmMessages.current.push({ role: 'assistant', content: response.content });
         ctx.addMessage('assistant', response.content);
-
-        // Mirror assistant message to the fleet channel
-        if (fleetActive()) {
-          fleetMirrorAssistant(response.content);
-        }
-
         ctx.setStreamingResponse('');
         ctx.setContextTokens(ctx.estimateContextTokens());
-        checkAndWarnContextLimit(ctx.actualProvider as LLMProvider, ctx.actualModel, ctx.estimateContextTokens(), ctx.addMessage);
-
-        // Auto-continue if response was truncated due to length
-        if (response.finishReason === 'length') {
-          ctx.addMessage('system', '(auto-continuing...)');
-          ctx.llmMessages.current.push({ role: 'user', content: 'Please continue where you left off.' });
-          continue; // Loop again to get continuation
+        checkAndWarnContextLimit(provider, model, ctx.estimateContextTokens(), ctx.addMessage);
+        if (response.finishReason === 'length') ctx.addMessage('system', '(auto-continuing...)');
+        else storage.saveMessageHistory(ctx.llmMessages.current);
+        return undefined;
+      },
+      onRepair: event => {
+        if (event.status === 'started') {
+          ctx.addMessage('system', `🔧 Malformed tool call from local model (${event.reason}); attempting one repair…`);
+        } else {
+          ctx.ledger?.recordAction('repair', { tool: event.call.name, ...(event.corrected ? { to: event.corrected.name } : {}) }, event.status, event.status === 'ok' ? undefined : event.reason);
+          ctx.addMessage('system', event.status === 'ok' ? `🔧 Repaired tool call → ${event.corrected!.name}`
+            : event.corrected ? '🔧 Repair did not resolve the malformed call; surfacing the error.' : '🔧 Repair produced no usable tool call; surfacing the original error.');
         }
-        completedNaturally = true;
-        runStatus = 'completed';
-        // The answer is already shown; if this final turn crossed a budget cap,
-        // still record it so the audit trail reflects why spend stopped here.
-        if (budgetVerdict?.exceeded) {
-          const summary = formatBudgetHalt(budgetVerdict);
-          runlog.budgetEvent({
-            scope: budgetVerdict.scope ?? 'run',
-            kind: budgetVerdict.kind ?? 'cost',
-            spent: budgetVerdict.spent ?? 0,
-            cap: budgetVerdict.cap ?? 0,
-            message: budgetVerdict.message ?? summary,
-          });
-          ctx.addMessage('system', `‖ ${summary}`);
-          runExitReason = 'budget';
+      },
+      onPermission: (call, decision) => {
+        const risk = assessToolRisk(call);
+        const display = risk.level !== 'none' ? ` [${RISK_CONFIG[risk.level].bar}]` : '';
+        const preview = String(call.arguments.command || call.arguments.path || '...');
+        if (decision.decision !== 'allow') {
+          blocked.add(call.id);
+          ctx.addMessage('tool', `${call.name}: ${preview}${display}\n${decision.reason}`);
+          ctx.ledger?.recordAction(call.name, call.arguments, 'blocked', decision.reason);
+        } else ctx.addMessage('tool', `⚡ ${call.name}: ${preview}${display}`);
+      },
+      beforeTool: call => {
+        const args = call.arguments;
+        const thought = call.name === 'think' ? String(args.thought || '') : undefined;
+        ctx.setActivityState({ action: `Executing ${call.name}`, target: String(args.path || args.command || '').substring(0, 40), startTime: Date.now() });
+        ctx.setThinkingState({ status: thought ? 'Reasoning...' : `Executing ${call.name}...`, thinking: thought,
+          detail: (thought || String(args.path || args.command || '...')).substring(0, 60), iteration,
+          maxIterations: isFiniteIterationLimit(maxIterations) ? maxIterations : undefined });
+        if (shouldCheckpoint(call.name, args, projectDir)) createCheckpoint(call.name, args, projectDir);
+      },
+      onToolOutput: (call, chunk) => {
+        if (call.name === 'shell') ctx.setActivityState({ action: 'Running shell', target: String(call.arguments.command || '').substring(0, 40),
+          startTime: Date.now(), detail: chunk.trimEnd().split('\n').pop()?.substring(0, 60) });
+      },
+      onToolResult: (call, result) => {
+        if (blocked.has(call.id)) return;
+        const args = call.arguments;
+        ctx.ledger?.recordAction(call.name, args, result.isError ? 'error' : 'ok', result.isError ? result.result : undefined);
+        if (call.name === 'think' && !result.isError) ctx.addMessage('tool', String(args.thought || ''));
+        else if (call.name === 'ask_question' && !result.isError) {
+          let question = `❓ ${String(args.question || '')}`;
+          if (typeof args.context === 'string') question += `\n   ${args.context}`;
+          if (Array.isArray(args.options)) question += '\n' + args.options.map((o, i) => `   ${i + 1}. ${o}`).join('\n');
+          ctx.addMessage('assistant', question);
+        } else if (call.name === 'create_plan' && !result.isError) {
+          let plan = `📋 Plan: ${String(args.title || 'Plan')}\n`;
+          if (typeof args.reasoning === 'string') plan += `\n   ${args.reasoning}\n`;
+          if (Array.isArray(args.steps)) plan += '\n' + args.steps.map((step, i) => `   ${i + 1}. [ ] ${step}`).join('\n');
+          ctx.addMessage('assistant', plan + '\n\n   Switch to work mode (Shift+Tab) and reply to execute, or give feedback to revise.');
+        } else {
+          const display = result.displayResult || result.result;
+          ctx.addMessage('tool', display.split('\n').slice(0, 5).join('\n') + (display.split('\n').length > 5 ? '\n...' : ''), result.isError);
         }
-
-        // End iteration ledger entry
-        ctx.ledger?.endIteration('success');
-
-        // Auto-save full message history for session persistence
-        storage.saveMessageHistory(ctx.llmMessages.current);
-
-        break;
-
-      } catch (error) {
-        streamFlusher.destroy(); // stop any pending flush timer on error/cancel
-        ctx.setThinkingState(null);
-        ctx.setActivityState(null);
-        ctx.setStreamingResponse('');
-
-        if (ctx.signal?.aborted || isCancellation(error)) {
-          ctx.ledger?.endIteration('error');
-          if (runId) ctx.ledger?.finishRun(runId, 'stopped', { errorSummary: 'Operation cancelled' });
-          ctx.validateAndRepairMessages();
-          finalizeRun('cancelled');
-          return;
-        }
-
-        // End iteration ledger entry with error
+      },
+      onIterationEnd: () => { ctx.ledger?.endIteration(finalResponse ? 'success' : undefined); },
+      onError: (error, index) => {
+        clearDisplay();
         ctx.ledger?.endIteration('error');
-
-        // Format error with provider context for better suggestions
-        const errorMsg = formatError(error, { provider: ctx.actualProvider });
-        ctx.addMessage('error', errorMsg);
-
-        // Classify error to provide additional recovery suggestions
-        const classified = classifyError(error);
-        const availableProviders = getAvailableProviders();
-        const otherProviders = availableProviders.filter(p => p !== ctx.actualProvider);
-
-        // Feed error to circuit breaker
+        const message = formatError(error, { provider });
+        ctx.addMessage('error', message);
+        errorShown = true;
+        runErrorSummary = message;
         if (ctx.circuitBreaker) {
-          const errorIterData: IterationData = {
-            iteration: i + 1,
-            error: errorMsg,
-            timestamp: new Date(),
-          };
-          const breakerResult = ctx.circuitBreaker.check(errorIterData);
+          const breaker = ctx.circuitBreaker.check({ iteration: index, error: message, timestamp: new Date() });
           ctx.setBreakerHealth?.(ctx.circuitBreaker.getHealth());
-          if (breakerResult.tripped) {
-            ctx.addMessage('system', `\u26a0\ufe0f Circuit breaker tripped: ${breakerResult.breaker}\n${breakerResult.message}\n\nUse /breaker resume to continue.`);
-            runStatus = 'stopped';
-            runErrorSummary = breakerResult.message;
-            completedNaturally = true;
-            break;
+          if (breaker.tripped) {
+            ctx.addMessage('system', `⚠️ Circuit breaker tripped: ${breaker.breaker}\n${breaker.message}\n\nUse /breaker resume to continue.`);
+            return 'stop';
           }
         }
-
-        // Retryable errors continue the loop (circuit breaker handles safety)
-        const isRetryable = classified.category === 'rate_limit' || classified.category === 'server' || classified.category === 'timeout' || classified.category === 'network';
-
-        // Suggest alternatives based on error type
-        if (classified.category === 'rate_limit' || classified.category === 'server') {
-          if (otherProviders.length > 0) {
-            ctx.addMessage('system', `\u{1f4a1} Try switching providers: /provider ${otherProviders[0]} or /model to see alternatives`);
-          }
-        } else if (classified.category === 'timeout' || classified.category === 'network') {
-          ctx.addMessage('system', `\u{1f4a1} Network issue detected. Check connection and try again, or use /provider to switch.`);
-        } else if (classified.category === 'auth') {
-          ctx.addMessage('system', `\u{1f4a1} Run 'calliope --setup' to reconfigure API keys.`);
-        }
-
-        if (isRetryable && ctx.circuitBreaker) {
-          // Retryable errors: continue the loop, circuit breaker will catch repeated failures
+        const { category } = classifyError(error);
+        const others = getAvailableProviders().filter(p => p !== provider);
+        if (['rate_limit', 'server'].includes(category) && others.length) ctx.addMessage('system', `💡 Try switching providers: /provider ${others[0]} or /model to see alternatives`);
+        else if (['timeout', 'network'].includes(category)) ctx.addMessage('system', '💡 Network issue detected. Check connection and try again, or use /provider to switch.');
+        else if (category === 'auth') ctx.addMessage('system', "💡 Run 'calliope --setup' to reconfigure API keys.");
+        if (ctx.circuitBreaker && ['rate_limit', 'server', 'timeout', 'network'].includes(category)) {
           ctx.addMessage('system', `Retrying... (circuit breaker will pause after ${ctx.circuitBreaker.getConfig().breakers['repeated-failure'].maxConsecutiveErrors} consecutive failures)`);
-          await cancellableDelay(2000, ctx.signal); // Brief delay before retry
-          continue;
+          return 'retry';
         }
-
-        // Non-retryable errors (auth, etc.) still kill the session
-        completedNaturally = true;
-        runStatus = 'failed';
-        runErrorSummary = errorMsg;
-
-        // On error, clear queued messages to prevent infinite retry loop
-        const currentQueuedOnError = ctx.queuedMessagesRef.current;
-        if (currentQueuedOnError.length > 0) {
-          ctx.addMessage('system', `\u26a0\ufe0f Cleared ${currentQueuedOnError.length} queued message(s) due to error. Use /clear to reset conversation.`);
-          ctx.setQueuedMessages([]);
-        }
-        if (runId && runStatus) {
-          ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
-        }
-        finalizeRun(runExitReason ?? runStatus ?? 'error');
-        return; // Exit early on error - don't process queued messages
-      }
-    }
-
-    // Only show warning if we actually hit the iteration limit (not errors or natural completion)
-    if (!completedNaturally && isFiniteIterationLimit(maxIterations)) {
+        return undefined;
+      },
+    });
+    runStatus = ['completed', 'waiting_for_user'].includes(result.reason) ? 'completed' : 'stopped';
+    if (result.reason === 'cancelled') {
+      runErrorSummary = 'Operation cancelled';
+      ctx.ledger?.endIteration('error');
+      ctx.validateAndRepairMessages();
+    } else if (result.reason === 'iteration_limit') {
+      runErrorSummary = `Reached ${maxIterations} iterations limit`;
       ctx.addMessage('system', `⚠️ Reached ${maxIterations} iterations limit. Task may be incomplete. Adjust with /set maxIterations <number>.`);
-      if (!runStatus) {
-        runStatus = 'stopped';
-        runErrorSummary = `Reached ${maxIterations} iterations limit`;
-      }
+    } else if (result.reason === 'budget' && result.budget) {
+      runErrorSummary = formatBudgetHalt(result.budget);
+      ctx.addMessage('system', `‖ ${runErrorSummary}`);
     }
-
-    if (runId) {
-      ctx.ledger?.finishRun(runId, runStatus || 'completed', { errorSummary: runErrorSummary });
-    }
-    finalizeRun(runExitReason ?? runStatus ?? 'completed');
-
-    // Update context tokens after agent run
+    if (runId) ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
     ctx.setContextTokens(ctx.estimateContextTokens());
-
-    // Process any queued messages (human-in-the-loop feedback)
-    // CRITICAL: Use ref to get current value, not stale closure
-    // #224: a plan produced with zero tool calls carries no evidence — say so.
-    if (ctx.mode === 'plan' && runToolCalls === 0) {
-      ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
-    }
-
-    const currentQueued = ctx.queuedMessagesRef.current;
-    ctx.debugLog('runAgent', 'EXIT loop', `queued=${currentQueued.length}`);
-    if (currentQueued.length > 0) {
-      const queued = [...currentQueued];
-      ctx.setQueuedMessages([]); // Clear the queue
-      ctx.queuedMessagesRef.current = []; // Also clear ref immediately
-
-      // Combine queued messages into a single follow-up
-      const followUp = queued.length === 1
-        ? queued[0]!
-        : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
-
+    if (ctx.mode === 'plan' && result.totals.toolCalls === 0 && result.reason !== 'cancelled') ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
+    // An incomplete or failed turn must not spend more by draining queued work.
+    if (!['completed', 'waiting_for_user'].includes(result.reason)) return;
+    const queued = [...ctx.queuedMessagesRef.current];
+    if (queued.length) {
+      ctx.setQueuedMessages([]);
+      ctx.queuedMessagesRef.current = [];
+      const followUp = queued.length === 1 ? queued[0]! : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
       ctx.addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
-
       await cancellableDelay(100, ctx.signal);
       await runAgentImpl(ctx, followUp);
     }
-    ctx.debugLog('runAgent', 'RETURN');
-  } finally {
-    if (ctx.signal?.aborted) {
-      if (runId) ctx.ledger?.finishRun(runId, 'stopped', { errorSummary: 'Operation cancelled' });
-      finalizeRun('cancelled');
+  } catch (error) {
+    const cancelled = ctx.signal?.aborted || isCancellation(error);
+    if (!cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
+    if (runId) ctx.ledger?.finishRun(runId, cancelled ? 'stopped' : 'failed', { errorSummary: cancelled ? 'Operation cancelled' : String(error) });
+    if (!cancelled) {
+      ctx.setQueuedMessages([]);
+      ctx.queuedMessagesRef.current = [];
     }
-  }
+  } finally { clearDisplay(); }
 }
 
 // ============================================================================

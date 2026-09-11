@@ -62,7 +62,7 @@ import { runHeadless } from '../src/headless.js';
 // ---------------------------------------------------------------------------
 
 /** A chat response that contains a single tool call */
-function toolCallResponse(name = 'test_tool', id = 'tc_1') {
+function toolCallResponse(name = 'read_file', id = 'tc_1') {
   return {
     content: '',
     toolCalls: [{ id, name, arguments: {} }],
@@ -92,6 +92,22 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('headless retry budget', () => {
+  it('returns exit 4 and a reason for incomplete turns', async () => {
+    mockChat.mockResolvedValue({ content: 'partial', finishReason: 'length' });
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(await runHeadless({ prompt: 'work', outputMode: 'json' })).toBe(4);
+      const events = stdout.mock.calls.map(call => JSON.parse(String(call[0])));
+      expect(events.at(-1)).toMatchObject({ type: 'done', data: { reason: 'length' } });
+    } finally { stdout.mockRestore(); }
+  });
+  it('does not retry an unknown operation that may have side effects', async () => {
+    mockChat.mockResolvedValueOnce(toolCallResponse('plugin_mutation')).mockResolvedValueOnce(textResponse());
+    mockExecuteTool.mockResolvedValue({ result: 'network timeout', isError: true });
+    expect(await runHeadless({ prompt: 'work', maxRetries: 3, outputMode: 'text' })).toBe(0);
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+  });
+
   it('succeeds on first try — no retries attempted', async () => {
     // chat: first call returns a tool call, second returns final text
     mockChat

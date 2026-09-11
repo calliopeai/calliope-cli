@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Share one turn runtime across terminal, headless and ACP: isolated scopes, paired tool results, cancellation cleanup, local repair, and budgeted compression/repair calls. Headless incomplete turns now exit 4; terminal checkpoints follow the session project.
+
+
 ### Added
 
 - A canonical permission resolver across terminal, headless and ACP, with

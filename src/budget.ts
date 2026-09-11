@@ -11,8 +11,9 @@
  * `~/.calliope-cli/projects/<hash>/budget.json`, keyed by a hash of the resolved
  * project path so it never lands inside the user's repo.
  *
- * When a cap is exceeded the agent loop finishes the current tool result, emits a
- * `budget_event` to the run log, and halts cleanly (headless exit code 3).
+ * When a cap is exceeded the runtime stops before the next request or tool, emits
+ * a `budget_event`, and halts cleanly (headless exit code 3). Usage from model
+ * repair and compression counts toward the same cap.
  */
 
 import * as fs from 'fs';

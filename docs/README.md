@@ -13,6 +13,7 @@ provider backends, and a small, tested command surface.
 - [Repository instructions](./instructions.md) — scoped AGENTS.md, trust, provenance and reload
 - [Next-version roadmap](https://github.com/calliopeai/calliope-cli/issues/254) — priorities, milestones and release gates
 - [Features](./features.md) — the full v3 feature set (and what was removed)
+- [Shared runtime](./runtime.md) — client adapters, cancellation, budgets and exit semantics
 - [Permissions](./permissions.md) — one resolver, explicit client defaults and audited reasons
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)
