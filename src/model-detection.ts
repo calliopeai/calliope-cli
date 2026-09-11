@@ -12,12 +12,17 @@ import type { LLMProvider } from './types.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { cancellable, throwIfCancelled } from './cancellation.js';
 import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
+import { createHash } from 'node:crypto';
+import { ModelDiscoveryError, compatibleMetadata, anthropicMetadata, capability, positiveLimit, price, stringList, validateModels, type ModelInfo, type ModelCapabilities } from './models/index.js';
+export type { ModelInfo, ModelCapabilities } from './models/index.js';
 
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
 
 export interface ModelFetchOptions {
   quiet?: boolean;
   signal?: AbortSignal;
+  /** Reuse only fresh, endpoint-matching live evidence. Doctor leaves this unset. */
+  cache?: 'live';
   /** Rethrow the underlying error instead of returning []. Use for interactive
    *  flows (like /model) where the user should see the real reason. */
   throwOnError?: boolean;
@@ -32,6 +37,29 @@ function fetchModelMetadata(input: Parameters<typeof fetch>[0], init?: Parameter
 }
 function discoveryTransportOptions() {
   return discoveryContext.getStore()?.signal ? { fetch: fetchModelMetadata, maxRetries: 0 } : {};
+}
+
+/** Follow provider cursors only on the original endpoint, with fixed page/item caps. */
+async function modelPages<T>(endpoint: string, kind: 'anthropic' | 'google', headers?: Record<string, string>): Promise<T[]> {
+  const models: T[] = [], seen = new Set<string>();
+  let cursor = '';
+  for (let page = 0; page < 20; page++) {
+    const url = new URL(endpoint);
+    if (cursor) url.searchParams.set(kind === 'anthropic' ? 'after_id' : 'pageToken', cursor);
+    const response = await fetchModelMetadata(url.toString(), headers ? { headers } : undefined);
+    if (!response.ok) throw new Error(`Model discovery HTTP ${response.status}`);
+    const data = await response.json() as Record<string, unknown>;
+    const items = data[kind === 'anthropic' ? 'data' : 'models'];
+    if (!Array.isArray(items) || models.length + items.length > 10000) throw new ModelDiscoveryError('Invalid model discovery page');
+    models.push(...items as T[]);
+    if (kind === 'anthropic' && data.has_more !== undefined && typeof data.has_more !== 'boolean') throw new ModelDiscoveryError('Invalid discovery pagination');
+    if (kind === 'anthropic' && data.has_more && (typeof data.last_id !== 'string' || !data.last_id)) throw new ModelDiscoveryError('Missing discovery cursor');
+    const next = kind === 'anthropic' ? (data.has_more ? data.last_id : undefined) : data.nextPageToken;
+    if (next === undefined || next === null || next === '') return models;
+    if (typeof next !== 'string' || next.length > 4096 || seen.has(next)) throw new ModelDiscoveryError('Invalid model discovery cursor');
+    seen.add(next); cursor = next;
+  }
+  throw new ModelDiscoveryError('Model discovery page budget exceeded');
 }
 
 /** Scope transport cancellation to this discovery call, including concurrent probes. */
@@ -157,19 +185,47 @@ function isCompatibleModel(modelId: string, provider: string): boolean {
 }
 
 // Model cache to avoid repeated API calls
-const modelCache = new Map<LLMProvider, { models: ModelInfo[]; timestamp: number }>();
+const modelCache = new Map<LLMProvider, { models: ModelInfo[]; timestamp: number; target: string }>();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const previousDiscovery = new Map<LLMProvider, { models: ModelInfo[]; target: string }>();
 
-export interface ModelInfo {
-  id: string;
-  name?: string;
-  description?: string;
-  contextLength?: number;
-  maxOutputTokens?: number;
-  pricing?: {
-    input?: number;
-    output?: number;
-  };
+/** Stale negative capability evidence still blocks an unverified fallback. */
+export function getPreviousDiscoveredModels(provider: LLMProvider): ModelInfo[] | undefined {
+  const previous = previousDiscovery.get(provider);
+  return previous?.target === modelCacheTarget(provider) ? structuredClone(previous.models) : undefined;
+}
+
+function modelCacheTarget(provider: LLMProvider): string {
+  const profile = provider === 'bedrock' ? config.getProviderCred(provider) : { profile: undefined, region: undefined };
+  return createHash('sha256').update(JSON.stringify([provider, config.getBaseUrl(provider), config.getApiKey(provider), profile.profile, profile.region])).digest('hex');
+}
+export function getDiscoveredModels(provider: LLMProvider): ModelInfo[] | undefined {
+  const cached = modelCache.get(provider);
+  if (!cached || cached.target !== modelCacheTarget(provider) || Date.now() - cached.timestamp >= CACHE_DURATION || cached.models.some(model => model.evidence?.source !== 'live')) return undefined;
+  return structuredClone(cached.models);
+}
+
+/** Anthropic explicitly supports resolving aliases through Models.retrieve. */
+export async function resolveModelAlias(provider: LLMProvider, alias: string, signal?: AbortSignal): Promise<ModelInfo | undefined> {
+  if (provider !== 'anthropic') return undefined;
+  throwIfCancelled(signal);
+  const key = config.getApiKey(provider);
+  if (!key) return undefined;
+  const target = modelCacheTarget(provider);
+  const response = await cancellable(fetch(`${(config.getBaseUrl('anthropic') || 'https://api.anthropic.com').replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/models/${encodeURIComponent(alias)}`, {
+    headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' }, signal,
+  }), signal);
+  if (!response.ok) return undefined;
+  const body = await cancellable(response.json(), signal) as { id: string; display_name?: string };
+  const model: ModelInfo = { id: body.id, name: body.display_name, aliases: [alias], ...anthropicMetadata(body), evidence: { source: 'live', at: new Date().toISOString() } };
+  validateModels([model]); throwIfCancelled(signal);
+  const cached = modelCache.get(provider);
+  if (cached?.target === target && modelCacheTarget(provider) === target) {
+    model.aliases = [...new Set([...(cached.models.find(item => item.id === model.id)?.aliases ?? []), alias])];
+    cached.models = [...cached.models.filter(item => item.id !== model.id), model];
+    previousDiscovery.set(provider, { models: structuredClone(cached.models), target });
+  }
+  return model;
 }
 
 /**
@@ -225,8 +281,8 @@ function formatModelChoice(model: ModelInfo): string {
   }
   
   if (model.pricing) {
-    const inputPrice = model.pricing.input ? `$${model.pricing.input.toFixed(2)}/1M` : '';
-    const outputPrice = model.pricing.output ? `$${model.pricing.output.toFixed(2)}/1M` : '';
+    const inputPrice = model.pricing.input !== undefined ? `$${model.pricing.input.toFixed(2)}/1M` : '';
+    const outputPrice = model.pricing.output !== undefined ? `$${model.pricing.output.toFixed(2)}/1M` : '';
     if (inputPrice || outputPrice) {
       display += ` - ${inputPrice}${inputPrice && outputPrice ? '/' : ''}${outputPrice}`;
     }
@@ -254,10 +310,12 @@ function formatContextLength(tokens: number): string {
 async function loadAvailableModels(provider: LLMProvider, options: ModelFetchOptions): Promise<ModelInfo[]> {
   // Check cache first
   const cached = modelCache.get(provider);
+  const target = modelCacheTarget(provider);
   // Strict callers require current wire evidence; a cached emergency fallback
   // must never masquerade as successful live discovery.
-  if (!options.throwOnError && cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-    return cached.models;
+  if (cached?.target === target && Date.now() - cached.timestamp < CACHE_DURATION &&
+      (!options.throwOnError || (options.cache === 'live' && cached.models.every(model => model.evidence?.source === 'live')))) {
+    return structuredClone(cached.models);
   }
 
   let models: ModelInfo[] = [];
@@ -311,7 +369,13 @@ async function loadAvailableModels(provider: LLMProvider, options: ModelFetchOpt
 
     throwIfCancelled(options.signal);
     // Cache the results
-    modelCache.set(provider, { models, timestamp: Date.now() });
+    const timestamp = Date.now();
+    models = validateModels(models).map(model => ({ ...model, evidence: model.evidence ?? { source: 'live', at: new Date(timestamp).toISOString() } }));
+    // Endpoint/credential changes during discovery cannot populate a new target's cache.
+    if (modelCacheTarget(provider) === target) {
+      modelCache.set(provider, { models: structuredClone(models), timestamp, target });
+      if (models.every(model => model.evidence?.source === 'live')) previousDiscovery.set(provider, { models: structuredClone(models), target });
+    }
   } catch (error) {
     logModelDetectionWarning(`Failed to fetch models for ${provider}:`, error, options);
     if (options.throwOnError) throw error;
@@ -328,28 +392,16 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
   try {
-    const response = await fetchModelMetadata('https://api.anthropic.com/v1/models', {
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      }
-    });
+    const models = await modelPages<{ id: string; display_name?: string; max_input_tokens?: number; max_tokens?: number; capabilities?: { image_input?: unknown; thinking?: unknown; structured_outputs?: unknown } }>(
+      `${(config.getBaseUrl('anthropic') || 'https://api.anthropic.com').replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/models`, 'anthropic', { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
 
-    if (!response.ok) {
-      throw new Error(`Anthropic API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { data: Array<{ id: string; display_name?: string; created_at?: string }> };
-
-    return data.data
+    return models
       .filter(model => model.id.startsWith('claude'))
       .map(model => ({
         id: model.id,
         name: model.display_name || formatModelName(model.id),
         description: getAnthropicModelDescription(model.id),
-        // The /v1/models list endpoint does not return the context window;
-        // derive it per model family rather than hardcoding a single value.
-        contextLength: getModelContextLimit('anthropic', model.id),
+        ...anthropicMetadata(model),
       }))
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
@@ -361,7 +413,7 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
       { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Most capable model', contextLength: 1000000 },
       { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Balanced intelligence and speed', contextLength: 1000000 },
       { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fast and affordable', contextLength: 200000 },
-    ];
+    ].map(model => ({ ...model, evidence: { source: 'emergency' as const, at: new Date().toISOString() } }));
   }
 }
 
@@ -391,15 +443,10 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
 
   try {
     // Use REST API directly for model listing
-    const response = await fetchModelMetadata(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+    const models = await modelPages<{ name: string; displayName?: string; description?: string; inputTokenLimit?: number; outputTokenLimit?: number; supportedGenerationMethods?: string[]; thinking?: boolean }>(
+      `${(config.getBaseUrl('google') || 'https://generativelanguage.googleapis.com').replace(/\/v1beta\/?$/, '').replace(/\/$/, '')}/v1beta/models?key=${encodeURIComponent(apiKey)}`, 'google');
 
-    if (!response.ok) {
-      throw new Error(`Google API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { models: Array<{ name: string; displayName?: string; description?: string; inputTokenLimit?: number }> };
-
-    return data.models
+    return models
       .filter(model => {
         const modelId = model.name.replace('models/', '');
         return model.name.includes('gemini') && isCompatibleModel(modelId, 'google');
@@ -408,7 +455,9 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
         id: model.name.replace('models/', ''),
         name: model.displayName || model.name.replace('models/', ''),
         description: model.description || 'Google Gemini model',
-        contextLength: model.inputTokenLimit || 1048576,
+        contextLength: positiveLimit(model.inputTokenLimit),
+        maxOutputTokens: positiveLimit(model.outputTokenLimit),
+        capabilities: { chat: stringList(model.supportedGenerationMethods)?.includes('generateContent'), thinking: capability(model.thinking) },
       }))
       .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
   } catch (error) {
@@ -421,7 +470,7 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
       { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', description: 'Multimodal', contextLength: 1048576 },
       { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro', description: 'Complex reasoning', contextLength: 2097152 },
       { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', description: 'Fast and versatile', contextLength: 1048576 },
-    ];
+    ].map(model => ({ ...model, evidence: { source: 'emergency' as const, at: new Date().toISOString() } }));
   }
 }
 
@@ -432,7 +481,7 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey, ...discoveryTransportOptions() });
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...discoveryTransportOptions() });
   const response = await client.models.list();
 
   // Filter for chat-compatible models (GPT and reasoning models)
@@ -450,6 +499,7 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
       id: model.id,
       name: model.id,
       description: getOpenAIModelDescription(model.id),
+      ...compatibleMetadata(model),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -481,6 +531,8 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
       context_length?: number;
       architecture?: { modality?: string; input_modalities?: string[]; output_modalities?: string[] };
       pricing?: { prompt?: string; completion?: string };
+      supported_parameters?: string[];
+      top_provider?: { max_completion_tokens?: number };
     }>
   };
 
@@ -512,10 +564,13 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
       id: model.id,
       name: model.name,
       description: model.description,
-      contextLength: model.context_length,
+      contextLength: positiveLimit(model.context_length),
+      maxOutputTokens: positiveLimit(model.top_provider?.max_completion_tokens),
+      capabilities: { chat: true, tools: model.supported_parameters ? model.supported_parameters.includes('tools') : undefined,
+        vision: model.architecture?.input_modalities ? model.architecture.input_modalities.includes('image') : undefined },
       pricing: {
-        input: parseFloat(model.pricing?.prompt || '0') * 1000000, // Convert to per 1M tokens
-        output: parseFloat(model.pricing?.completion || '0') * 1000000
+        input: price(model.pricing?.prompt, 1000000), // Convert per-token prices to per 1M tokens.
+        output: price(model.pricing?.completion, 1000000)
       }
     }));
 }
@@ -553,10 +608,11 @@ async function getTogetherModels(): Promise<ModelInfo[]> {
       id: model.id,
       name: model.display_name || model.id,
       description: getTogetherModelDescription(model.id),
-      contextLength: model.context_length,
+      ...compatibleMetadata(model),
+      contextLength: positiveLimit(model.context_length),
       pricing: model.pricing ? {
-        input: model.pricing.input,
-        output: model.pricing.output,
+        input: price(model.pricing.input),
+        output: price(model.pricing.output),
       } : undefined,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -582,6 +638,7 @@ async function getGroqModels(): Promise<ModelInfo[]> {
       id: model.id,
       name: model.id,
       description: 'High-speed inference model',
+      ...compatibleMetadata(model),
     }));
 }
 
@@ -605,6 +662,7 @@ async function getMistralModels(): Promise<ModelInfo[]> {
       id: model.id,
       name: model.id,
       description: getMistralModelDescription(model.id),
+      ...compatibleMetadata(model),
     }));
 }
 
@@ -631,6 +689,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
     const results: ModelInfo[] = [];
     for (const model of models) {
       let contextLength: number | undefined;
+      let capabilities: ModelCapabilities | undefined;
       try {
         const showResp = await fetchModelMetadata(`${baseUrl}/api/show`, {
           method: 'POST',
@@ -641,21 +700,24 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
           const showData = await showResp.json() as {
             model_info?: Record<string, unknown>;
             parameters?: string;
+            capabilities?: string[];
           };
+          const supported = stringList(showData.capabilities);
+          if (supported) capabilities = { chat: supported.includes('completion'), tools: supported.includes('tools'), vision: supported.includes('vision'), thinking: supported.includes('thinking') };
           // Check model_info for context length keys
           if (showData.model_info) {
             const ctxKey = Object.keys(showData.model_info).find(k =>
               k.includes('context_length') || k.includes('context_window')
             );
             if (ctxKey && typeof showData.model_info[ctxKey] === 'number') {
-              contextLength = showData.model_info[ctxKey] as number;
+              contextLength = positiveLimit(showData.model_info[ctxKey]);
             }
           }
           // Also check Modelfile parameters for num_ctx override
           if (showData.parameters) {
             const numCtxMatch = showData.parameters.match(/num_ctx\s+(\d+)/);
             if (numCtxMatch) {
-              contextLength = parseInt(numCtxMatch[1]!, 10);
+              contextLength = positiveLimit(parseInt(numCtxMatch[1]!, 10));
             }
           }
         }
@@ -665,6 +727,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
 
       results.push({
         id: model.name,
+        capabilities,
         name: model.name,
         description: `Size: ${formatSize(model.size)}${model.details?.parameter_size ? ` (${model.details.parameter_size})` : ''}`,
         contextLength,
@@ -673,6 +736,7 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
 
     return results;
   } catch (error) {
+    if (error instanceof ModelDiscoveryError || error instanceof SyntaxError || error instanceof TypeError) throw error;
     throw new Error(`Failed to connect to Ollama at ${baseUrl}. Is Ollama running? Try: ollama serve`);
   }
 }
@@ -727,8 +791,10 @@ async function getLiteLLMModels(): Promise<ModelInfo[]> {
         id: model.id,
         name: model.id,
         description: 'Proxied via LiteLLM',
+        ...compatibleMetadata(model),
       }));
   } catch (error) {
+    if (error instanceof ModelDiscoveryError || error instanceof SyntaxError || error instanceof TypeError) throw error;
     throw new Error(`Failed to connect to LiteLLM at ${baseUrl}`);
   }
 }
@@ -756,7 +822,7 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
           id: model.id,
           name: model.id,
           description: getBedrockModelDescription(model.id),
-          contextLength: getBedrockContextLength(model.id),
+          ...compatibleMetadata(model),
         }));
     }
     throw new Error(`Bedrock gateway ${baseUrl} returned ${response.status}. Check BEDROCK_BASE_URL / BEDROCK_API_KEY.`);
@@ -959,90 +1025,59 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
       providerName?: string;
       inputModalities?: string[];
       outputModalities?: string[];
+      responseStreamingSupported?: boolean;
     }>;
   };
 
-  const foundationModels: ModelInfo[] = (foundationData.modelSummaries || [])
+  if (!Array.isArray(foundationData.modelSummaries)) throw new ModelDiscoveryError('Invalid Bedrock foundation discovery');
+  const foundationModels: ModelInfo[] = foundationData.modelSummaries
     .filter(m => m.inputModalities?.includes('TEXT') && m.outputModalities?.includes('TEXT'))
-    .filter(m => bedrockSupportsConverseTools(m.modelId))
     .map(m => ({
       id: m.modelId,
       name: m.modelName || m.modelId,
       description: `${m.providerName || 'Unknown'} — ${getBedrockModelDescription(m.modelId)}`,
-      contextLength: getBedrockContextLength(m.modelId),
+      capabilities: { streaming: capability(m.responseStreamingSupported), vision: stringList(m.inputModalities)?.includes('IMAGE') },
     }));
 
   // 2. ListInferenceProfiles — cross-region profile IDs (e.g. us.anthropic.claude-sonnet-4-5-*).
   // Many modern models are ONLY reachable via these, not direct foundation-model IDs.
   // Failures here are non-fatal (older accounts / regions may not support it).
-  let profileModels: ModelInfo[] = [];
-  try {
-    const profileResp = await signedGet('/inference-profiles', '');
-    if (profileResp.ok) {
-      const profileData = await profileResp.json() as {
-        inferenceProfileSummaries?: Array<{
-          inferenceProfileId: string;
-          inferenceProfileName?: string;
-          status?: string;
-          type?: string;
-        }>;
+  const profileModels: ModelInfo[] = [], coveredBaseIds = new Set<string>();
+  const seen = new Set<string>();
+  let nextToken = '';
+  for (let page = 0; page < 20; page++) {
+    const profileResp = await signedGet('/inference-profiles', nextToken ? `nextToken=${encodeURIComponent(nextToken)}` : '');
+    if (!profileResp.ok) break; // Profiles are optional; foundation evidence remains usable.
+    const data = await profileResp.json() as {
+      inferenceProfileSummaries?: { inferenceProfileId: string; inferenceProfileName?: string; status?: string; models?: { modelArn: string }[] }[];
+      nextToken?: unknown;
+    };
+    if (!Array.isArray(data.inferenceProfileSummaries) || profileModels.length + data.inferenceProfileSummaries.length > 10000) throw new ModelDiscoveryError('Invalid Bedrock profile discovery');
+    for (const profile of data.inferenceProfileSummaries) {
+      if (profile.status === 'INACTIVE') continue;
+      const baseIds = profile.models?.map(model => model.modelArn.split(':foundation-model/')[1]).filter((id): id is string => !!id) ?? [];
+      const bases = baseIds.map(id => foundationModels.find(model => model.id === id));
+      // Only profile-provided ARNs establish a relationship to foundation models.
+      // Inherit a capability only when every regional model reports the same value.
+      const shared = (key: keyof ModelCapabilities): boolean | undefined => {
+        const values = bases.map(model => model?.capabilities?.[key]);
+        return values.length && values.every(value => value === values[0]) ? values[0] : undefined;
       };
-      profileModels = (profileData.inferenceProfileSummaries || [])
-        .filter(p => p.status !== 'INACTIVE')
-        .filter(p => bedrockSupportsConverseTools(p.inferenceProfileId))
-        .map(p => ({
-          id: p.inferenceProfileId,
-          name: p.inferenceProfileName || p.inferenceProfileId,
-          description: `Inference profile — ${getBedrockModelDescription(p.inferenceProfileId)}`,
-          contextLength: getBedrockContextLength(p.inferenceProfileId),
-        }));
+      for (const id of baseIds) coveredBaseIds.add(id);
+      profileModels.push({ id: profile.inferenceProfileId, name: profile.inferenceProfileName || profile.inferenceProfileId,
+        description: 'Bedrock inference profile', capabilities: { streaming: shared('streaming'), vision: shared('vision') } });
     }
-  } catch {
-    // Non-fatal — foundation models alone is still useful.
+    if (data.nextToken === undefined || data.nextToken === '') break;
+    if (typeof data.nextToken !== 'string' || data.nextToken.length > 2048 || seen.has(data.nextToken)) throw new ModelDiscoveryError('Invalid Bedrock discovery cursor');
+    seen.add(data.nextToken); nextToken = data.nextToken;
+    if (page === 19) throw new ModelDiscoveryError('Bedrock discovery page budget exceeded');
   }
-
-  // Merge. For every inference profile, strip the region prefix (e.g. `us.`,
-  // `eu.`, `apac.`, `jp.`) to get the base foundation-model ID it wraps, and
-  // drop that base from the foundation list — because newer Claude 4.x / Haiku
-  // 4.5 models can ONLY be invoked via their inference profile on on-demand
-  // throughput. Showing both would let users pick the invokable-broken raw ID.
-  const coveredBaseIds = new Set<string>();
-  for (const p of profileModels) {
-    const base = p.id.replace(/^[a-z]{2,5}\./, '');
-    if (base !== p.id) coveredBaseIds.add(base);
-  }
-  const filteredFoundation = foundationModels.filter(m => !coveredBaseIds.has(m.id));
+  const filteredFoundation = foundationModels.filter(model => !coveredBaseIds.has(model.id));
 
   const merged = new Map<string, ModelInfo>();
   for (const m of filteredFoundation) merged.set(m.id, m);
   for (const m of profileModels) merged.set(m.id, m);
   return Array.from(merged.values()).sort((a, b) => a.id.localeCompare(b.id));
-}
-
-/**
- * Bedrock Converse API tool-calling support. Maintained as a local allowlist
- * because AWS doesn't expose per-model tool capability via the list APIs.
- * See: https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference-supported-models-features.html
- * Matches both raw foundation model IDs (e.g. anthropic.claude-3-5-sonnet-*)
- * and cross-region inference profile IDs (e.g. us.anthropic.claude-sonnet-4-5-*).
- */
-function bedrockSupportsConverseTools(modelId: string): boolean {
-  const id = modelId.toLowerCase();
-  // Anthropic Claude 3, 3.5, 3.7, 4, 4.5 (all support tools). Excludes Claude 2.x / Instant.
-  if (/anthropic\.claude-(3|opus-4|sonnet-4|haiku-4|3-5|3-7)/.test(id)) return true;
-  // Amazon Nova (Pro / Lite / Micro support Converse tools; Nova Canvas/Reel are image models — excluded)
-  if (/amazon\.nova-(pro|lite|micro|premier)/.test(id)) return true;
-  // Cohere Command R / R+ support tools (older Command models do not)
-  if (/cohere\.command-r/.test(id)) return true;
-  // Mistral Large (2402, 2407), Pixtral Large, Mistral Small, Nemo
-  if (/mistral\.(mistral-large|pixtral|mistral-small|mistral-nemo)/.test(id)) return true;
-  // Meta Llama 3.1+ supports tools via Converse (3.0 and earlier do not)
-  if (/meta\.llama(3-1|3-2|3-3|4)/.test(id)) return true;
-  // AI21 Jamba 1.5 supports tools
-  if (/ai21\.jamba-1-5/.test(id)) return true;
-  // DeepSeek R1 supports tools
-  if (/deepseek\.r1/.test(id)) return true;
-  return false;
 }
 
 function getBedrockModelDescription(modelId: string): string {
@@ -1054,16 +1089,6 @@ function getBedrockModelDescription(modelId: string): string {
   if (modelId.includes('mistral')) return 'Mistral model on Bedrock';
   if (modelId.includes('cohere')) return 'Cohere model on Bedrock';
   return 'AWS Bedrock model';
-}
-
-function getBedrockContextLength(modelId: string): number {
-  if (modelId.includes('claude')) return 200000;
-  if (modelId.includes('llama3-1') || modelId.includes('llama3.1')) return 128000;
-  if (modelId.includes('mistral-large')) return 128000;
-  if (modelId.includes('command-r')) return 128000;
-  if (modelId.includes('titan-text-premier')) return 32000;
-  if (modelId.includes('titan-text-express')) return 8192;
-  return 32000;
 }
 
 /**
@@ -1083,8 +1108,9 @@ async function getOpenAICompatModels(): Promise<ModelInfo[]> {
   }
 
   const data = await response.json() as { data?: Array<{ id: string }> };
-  const models = data.data ?? [];
-  return models.map(m => ({ id: m.id, name: m.id, description: 'OpenAI-compatible server' }));
+  if (!Array.isArray(data.data)) throw new ModelDiscoveryError('Invalid model discovery response');
+  const models = data.data;
+  return models.map(m => ({ id: m.id, name: m.id, description: 'OpenAI-compatible server', ...compatibleMetadata(m) }));
 }
 
 /**
@@ -1105,6 +1131,7 @@ async function getOpenAICompatibleModels(provider: LLMProvider): Promise<ModelIn
     .map(model => ({
       id: model.id,
       name: model.id,
+      ...compatibleMetadata(model),
     }));
 }
 
@@ -1152,8 +1179,10 @@ function formatSize(bytes: number): string {
 export function clearModelCache(provider?: LLMProvider): void {
   if (provider) {
     modelCache.delete(provider);
+    previousDiscovery.delete(provider);
   } else {
     modelCache.clear();
+    previousDiscovery.clear();
   }
 }
 
@@ -1175,15 +1204,16 @@ export async function preWarmModelCache(): Promise<void> {
  */
 export function getModelInfo(provider: LLMProvider, modelId: string): ModelInfo | undefined {
   const cached = modelCache.get(provider);
-  if (!cached) return undefined;
+  if (!cached || cached.target !== modelCacheTarget(provider) || Date.now() - cached.timestamp >= CACHE_DURATION) return undefined;
   // Exact match first.
-  const exact = cached.models.find(m => m.id === modelId);
-  if (exact) return exact;
+  const exact = cached.models.find(m => m.id === modelId || m.aliases?.includes(modelId));
+  if (exact) return structuredClone(exact);
+  if (cached.models.every(model => model.evidence?.source === 'live')) return undefined;
   // Otherwise only accept an UNAMBIGUOUS prefix relationship. Loose substring
   // matching wrongly resolved e.g. `gpt-4` -> `gpt-4o` or `claude-opus-4` ->
   // `claude-opus-4-8`, returning a different model's context/pricing.
   const related = cached.models.filter(m => m.id.startsWith(modelId) || modelId.startsWith(m.id));
-  return related.length === 1 ? related[0] : undefined;
+  return related.length === 1 ? structuredClone(related[0]) : undefined;
 }
 
 /**

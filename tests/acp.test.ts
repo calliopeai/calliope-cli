@@ -277,7 +277,7 @@ describe('session/new + session/prompt', () => {
       const up = u.update as { sessionUpdate: string; status?: string };
       return up.status ? `${up.sessionUpdate}:${up.status}` : up.sessionUpdate;
     });
-    expect(seq).toEqual([
+    expect(seq.filter(event => event !== 'agent_thought_chunk')).toEqual([
       'tool_call:pending',
       'tool_call_update:in_progress',
       'tool_call_update:completed',
@@ -633,3 +633,8 @@ describe('ACP cancellation lifecycle', () => {
     expect(messages.filter(m => m.role === 'tool' && m.toolCallId === 'write')).toHaveLength(1);
   });
 });
+
+vi.mock('../src/routing/index.js', async importActual => ({
+  ...await importActual<typeof import('../src/routing/index.js')>(),
+  selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
+}));

@@ -24,6 +24,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { createHash } from 'crypto';
 import * as config from './config.js';
+import type { RoutingDecision } from './routing/types.js';
 
 // ============================================================================
 // Schema
@@ -40,6 +41,7 @@ export type RunLogEventType =
   | 'tool_result'
   | 'budget_event'
   | 'policy_event'
+  | 'routing_decision'
   | 'run_end';
 
 /** The stable, on-disk shape of a run-log line. */
@@ -69,6 +71,8 @@ export interface AssistantMessagePayload {
   content: string;
   tokens: { input: number; output: number };
   cost: number;
+  /** Missing discovery prices use the documented emergency estimate. */
+  costSource?: 'discovery' | 'fallback';
 }
 
 export interface ToolCallPayload {
@@ -405,13 +409,15 @@ export class RunLog {
   /** Build the next line, advance the chain synchronously, enqueue the write. */
   private append(type: RunLogEventType, payload: Record<string, unknown>): void {
     if (!this.enabled) return;
-    const body: Record<string, unknown> = {
+    // Hash exactly the JSON value written to disk. Optional undefined fields
+    // disappear during serialization and otherwise break verification on replay.
+    const body: Record<string, unknown> = JSON.parse(JSON.stringify({
       v: RUNLOG_SCHEMA_VERSION,
       seq: this.seq,
       ts: new Date().toISOString(),
       type,
       ...payload,
-    };
+    }));
     const hash = hashBody(this.prevHash, body);
     const line: RunLogLine = { ...(body as object), prev_hash: this.prevHash, hash } as RunLogLine;
     this.prevHash = hash;
@@ -438,6 +444,10 @@ export class RunLog {
 
   assistantMessage(payload: AssistantMessagePayload): void {
     this.append('assistant_message', { ...payload });
+  }
+
+  routingDecision(decision: RoutingDecision): void {
+    this.append('routing_decision', { decision: redactSecrets(decision) });
   }
 
   toolCall(payload: ToolCallPayload): void {

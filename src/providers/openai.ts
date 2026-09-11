@@ -344,7 +344,7 @@ async function chatOpenAIResponses(
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai') });
   const responsesInput = toResponsesInput(messages);
   const responsesTools = toResponsesTools(tools);
 
@@ -479,7 +479,7 @@ export async function chatOpenAI(
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey });
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai') });
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 

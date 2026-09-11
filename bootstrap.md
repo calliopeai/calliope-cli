@@ -50,7 +50,8 @@ React/Ink, ESM. 3.2.0 in preparation; latest published release is 3.1.0. Node �
 Modules live in subdirectories; import via each package's index.
 `runtime.runTurn` owns model/tool execution for terminal, headless and ACP clients.
 Clients adapt presentation and approval; new execution gates belong in the runtime.
-See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics.
+See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics,
+and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.
 
 ```
 src/
@@ -63,7 +64,7 @@ src/
 ├── tools.ts          # tool definitions, registry, execution (shell/file/web/etc.)
 ├── config.ts         # conf store, schema, pre-migration
 ├── types.ts          # core types, DEFAULT_MODELS, pricing
-├── model-detection.ts / model-router.ts / smart-router.ts   # model discovery + routing
+├── models/ / model-detection.ts / routing/ # live metadata + shared routing
 ├── sandbox.ts / sandbox-native.ts / risk.ts / trust.ts / scope.ts  # security boundary
 ├── storage.ts / memory.ts / checkpoint.ts / branching.ts    # persistence + session state
 ├── auto-compressor.ts / summarization.ts                    # context management

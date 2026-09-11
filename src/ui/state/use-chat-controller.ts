@@ -9,7 +9,7 @@
  */
 
 import { TurnController } from '../../turn-controller.js';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from 'ink';
 import * as config from '../../config.js';
 import { selectProvider, ProviderUnavailableError } from '../../providers/index.js';
@@ -18,6 +18,7 @@ import { getSystemPromptForProvider } from '../../local-model.js';
 import type { Message as LLMMessage, LLMProvider, Mode, MessageContent } from '../../types.js';
 import { getModelContextLimit } from '../../model-detection.js';
 import type { ModelInfo } from '../../model-detection.js';
+import type { RoutingDecision } from '../../routing/index.js';
 import { detectComplexity } from '../../risk.js';
 import * as storage from '../../storage.js';
 import { parseFileReferences, processFilesForMessage, formatFileInfo } from '../../files.js';
@@ -99,6 +100,7 @@ export function useChatController(): ChatController {
   const { provider, model, mode, confirmMode, autoRoute, smartRouteActive, breakerHealth,
     setProvider, setModel, setMode, setBreakerHealth } = modelState;
   const { queuedMessages, setQueuedMessages, queuedMessagesRef, editingQueueIndex, setEditingQueueIndex } = queue;
+  const [lastRoute, setLastRoute] = useState<RoutingDecision>();
   const { loopActive, loopCancelledRef, setLoopActive } = loop;
 
   // -- Long-lived refs ------------------------------------------------------
@@ -116,6 +118,7 @@ export function useChatController(): ChatController {
   const circuitBreakerRef = useRef<CircuitBreaker>(makeCircuitBreaker());
   const smartRoutingConfigRef = useRef<SmartRoutingConfig>({
     ...getDefaultSmartRoutingConfig(),
+    ...config.get('routing'),
     enabled: config.get('routing')?.enabled ?? false,
     costSensitivity: config.get('routing')?.costSensitivity ?? 0.3,
   });
@@ -136,7 +139,9 @@ export function useChatController(): ChatController {
     providerErrorMessage = err instanceof Error ? err.message : String(err);
     actualProvider = err instanceof ProviderUnavailableError ? err.provider : 'auto';
   }
-  const actualModel = model || DEFAULT_MODELS[actualProvider];
+  const matchingRoute = lastRoute?.selected && lastRoute.requested.provider === provider && lastRoute.requested.model === (model ?? null) ? lastRoute.selected : undefined;
+  if (matchingRoute) actualProvider = matchingRoute.provider;
+  const actualModel = matchingRoute?.model || model || DEFAULT_MODELS[actualProvider];
   const isModalActive = modal.modalMode !== 'none';
   const contextPercentage = Math.round((stats.contextTokens / getModelContextLimit(actualProvider, actualModel)) * 100);
   const resolvedBreakerHealth = config.get('circuitBreakersEnabled') !== false ? breakerHealth : undefined;
@@ -210,6 +215,7 @@ export function useChatController(): ChatController {
     circuitBreaker: circuitBreakerRef.current || undefined,
     smartRouteActive,
     smartRoutingConfig: smartRoutingConfigRef.current,
+    onRoute: setLastRoute,
     setBreakerHealth,
 
     setStats: stats.setStats,

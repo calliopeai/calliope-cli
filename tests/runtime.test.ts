@@ -18,6 +18,7 @@ import * as compressor from '../src/auto-compressor.js';
 import * as config from '../src/config.js';
 import { RunLog } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
+import { clearModelCache } from '../src/model-detection.js';
 
 let root: string;
 const text = (content = 'done', tokens = 3): LLMResponse => ({ content, finishReason: 'stop', usage: { inputTokens: tokens, outputTokens: 1 } });
@@ -30,6 +31,8 @@ function options(extra: Partial<TurnOptions> = {}): TurnOptions {
 }
 beforeEach(async () => {
   vi.restoreAllMocks();
+  clearModelCache();
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 404 }));
   chatMock.mockReset(); executeMock.mockReset();
   root = mkdtempSync(join(tmpdir(), 'calliope-runtime-'));
   writeFileSync(join(root, 'ok.txt'), 'hello');
@@ -208,7 +211,8 @@ describe('shared turn runtime', () => {
   });
   it('surfaces a repeated provider warning once per turn', async () => {
     chatMock.mockResolvedValueOnce({ ...response(tool()), warnings: ['substituted model'] }).mockResolvedValueOnce({ ...text(), warnings: ['substituted model'] });
-    const warning = vi.fn(); await runTurn(options({ onWarning: warning })); expect(warning).toHaveBeenCalledExactlyOnceWith('substituted model');
+    const warning = vi.fn(), route = vi.fn(); await runTurn(options({ onWarning: warning, onRoute: route })); expect(warning).toHaveBeenCalledExactlyOnceWith('substituted model');
+    expect(route).toHaveBeenCalled();
   });
   it('pairs interrupted calls before subsequent conversation messages', () => {
     const messages: Message[] = [{ role: 'assistant', content: '', toolCalls: [tool()] }, { role: 'user', content: 'next' }];

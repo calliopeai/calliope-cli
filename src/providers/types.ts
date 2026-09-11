@@ -46,7 +46,9 @@ export type RetryCallback = (attempt: number, error: Error, delayMs: number) => 
 export interface ChatOptions {
   signal?: AbortSignal;
   format?: unknown;
-  onHealthWarning?: (message: string) => void;
+  onHealthWarning?: (message: string, denied?: boolean) => void;
+  /** Runtime route origin; automatic continuations cannot force a quarantined target. */
+  selectionMode?: 'auto' | 'explicit';
 }
 
 /**

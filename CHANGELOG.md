@@ -12,6 +12,8 @@
 
 ### Added
 
+- Shared routing from live model metadata, with explicit preference preservation, capability checks, health/cost/latency scoring, protocol-history pins, and versioned routing events across terminal, headless and ACP (#266).
+
 - Local provider health records, `/doctor` and `calliope doctor --json`, cancellable discovery probes, diagnostic import/export, and repeated-failure quarantine with explicit-provider recovery (#264). See `docs/provider-health.md` for schemas and metric limits.
 
 - Offline conformance contracts using real SDK parsers across all provider adapters, plus reviewed-wire capture/replay tooling and a required prepublish evidence gate (#222).
@@ -28,6 +30,8 @@
   and `/memory reload` expose and refresh repository context.
 
 ### Fixed
+
+- Preserve audit hash integrity when optional event fields are omitted by JSON serialization. Use discovered prices for turn accounting and adapt built-in prompts after routing without dropping project instructions (#266).
 
 - Use Hugging Face's current router endpoint for discovery and inference; preserve provider quota errors in live capture tooling instead of masking them with rejected SDK retries (#222).
 

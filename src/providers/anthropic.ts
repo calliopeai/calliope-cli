@@ -59,7 +59,7 @@ export async function chatAnthropic(
   const apiKey = config.getApiKey('anthropic');
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, baseURL: config.getBaseUrl('anthropic')?.replace(/\/v1\/?$/, '') });
 
   // Extract system message
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');

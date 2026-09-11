@@ -239,7 +239,8 @@ async function chatGoogleGenAI(
   if (!apiKey) throw new Error('Google API key not configured');
   if (messages.length === 0) throw new Error('No messages provided');
 
-  const ai = new GoogleGenAI({ apiKey });
+  const baseUrl = config.getBaseUrl('google')?.replace(/\/v1beta\/?$/, '');
+  const ai = new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) });
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => {
     if (m.role === 'tool') {
