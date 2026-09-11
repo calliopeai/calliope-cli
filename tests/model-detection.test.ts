@@ -22,7 +22,7 @@ vi.mock('../src/config.js', () => ({
 
 // Mock SDK constructors to prevent real network calls
 vi.mock('@anthropic-ai/sdk', () => ({ default: vi.fn() }));
-vi.mock('@google/generative-ai', () => ({ GoogleGenerativeAI: vi.fn() }));
+vi.mock('@google/genai', () => ({ GoogleGenAI: vi.fn() }));
 vi.mock('openai', () => {
   const MockOpenAI = vi.fn().mockImplementation(function (this: any) {
     this.models = { list: vi.fn().mockResolvedValue({ data: [] }) };

@@ -2,7 +2,6 @@
  * Google Gemini Provider
  */
 
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { GoogleGenAI } from '@google/genai';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
@@ -22,7 +21,7 @@ async function chatGoogleLegacy(
   const apiKey = config.getApiKey('google');
   if (!apiKey) throw new Error('Google API key not configured');
 
-  const genAI = new GoogleGenerativeAI(apiKey);
+  const genAI = new GoogleGenAI(apiKey as any) as any;
 
   // Convert a tool property type to Gemini schema type
   function convertPropertyType(prop: any): any {

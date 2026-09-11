@@ -37,9 +37,9 @@ let capturedSendMessageArgs: unknown[] = [];
 let capturedToolDeclarations: unknown[] = [];
 let mockSendMessageResponse: Record<string, unknown> = {};
 
-vi.mock('@google/generative-ai', () => {
+vi.mock('@google/genai', () => {
   return {
-    GoogleGenerativeAI: class MockGoogleGenerativeAI {
+    GoogleGenAI: class MockGoogleGenAI {
       constructor(_apiKey: string) {}
       getGenerativeModel(opts: Record<string, unknown>) {
         // Capture tool declarations

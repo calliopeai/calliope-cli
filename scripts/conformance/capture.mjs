@@ -29,7 +29,7 @@ const recorder = createRecorder(originalFetch, backend, maxOutput, signal);
 globalThis.fetch = recorder.fetch;
 try {
   const result = await invoke(adapters, backend, values.model, probeMessages(values.scenario), values.scenario === 'tool' ? [TOOL] : [], values.stream ? () => {} : undefined, signal, { maxOutputTokens: maxOutput });
-  const sdkVersions = Object.fromEntries(['openai', '@anthropic-ai/sdk', '@google/generative-ai'].map(name => [name, JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url), 'utf8')).version]));
+  const sdkVersions = Object.fromEntries(['openai', '@anthropic-ai/sdk', '@google/genai'].map(name => [name, JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url), 'utf8')).version]));
   const capture = validateCapture({ version: 1, backend: backend.id, model: values.model, scenario: values.scenario, stream: values.stream,
     provenance: { kind: 'captured', capturedAt: new Date().toISOString(), sourceOrigin: recorder.sourceOrigin(), sdkVersions }, exchanges: recorder.exchanges, expected: normalize(result) });
   const output = resolve(values.output); mkdirSync(dirname(output), { recursive: true });
