@@ -18,7 +18,7 @@ import { SLASH_COMMANDS } from '../src/ui/completions.js';
 const EXPECTED_COMMANDS = [
   '/help', '/status', '/doctor', '/clear', '/exit', '/quit',
   '/model', '/provider', '/mode', '/defaults', '/once',
-  '/undo', '/export', '/resume', '/new', '/sessions', '/compact',
+  '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',
@@ -30,7 +30,7 @@ const EXPECTED_COMMANDS = [
 const EXPECTED_COMPLETION_ROOTS = [
   '/help', '/status', '/doctor', '/clear', '/exit',
   '/model', '/provider', '/mode', '/defaults', '/once',
-  '/undo', '/export', '/resume', '/new', '/sessions', '/compact',
+  '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
   '/mcp', '/skills',
   '/config', '/setup', '/cost', '/loop', '/debug',

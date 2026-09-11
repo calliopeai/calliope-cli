@@ -44,6 +44,7 @@ export interface Session {
   messageCount: number;
   provider: string;
   model: string;
+  lineage?: { version: 1; toolStateHash: string; kind: 'manual' | 'safety' | 'import'; name?: string; sessionId: string; revision: string; stateHash: string; at: string };
 }
 
 export interface ChatMessage {
@@ -423,12 +424,12 @@ export function getOrCreateSession(projectPath: string): Session {
 }
 
 /** A new terminal owns a unique session, including on the same day/project. */
-export function createSession(projectPath: string, options: { activate?: boolean; prefix?: 'session' | 'acp' } = {}): Session {
+export function createSession(projectPath: string, options: { activate?: boolean; prefix?: 'session' | 'acp'; lineage?: Session['lineage'] } = {}): Session {
   initStorage();
   const now = new Date().toISOString();
   const session: Session = { id: createSessionId().replace(/^session_/, `${options.prefix ?? 'session'}_`), projectPath: path.resolve(projectPath),
     projectName: path.basename(projectPath) || 'unnamed', createdAt: now, lastAccessedAt: now,
-    messageCount: 0, provider: '', model: '' };
+    messageCount: 0, provider: '', model: '', ...(options.lineage ? { lineage: options.lineage } : {}) };
   const dir = path.join(paths.sessions, `${getTodayString()}_${session.projectName}_${randomUUID()}`);
   fs.mkdirSync(dir, { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'plans'), { mode: 0o700 });
@@ -452,13 +453,19 @@ export function saveSessionConversation(sessionId: string, messages: Message[], 
   const dir = getSessionDirById(sessionId);
   if (!dir) throw new SessionRecoveryError('invalid', 'session not found; start /new before continuing.');
   const snapshot = writeConversation(dir, sessionId, messages, { ...options, cap: Math.min(getMaxPersistedMessages(), 10000) });
-  // The snapshot is authoritative even if this listing-only metadata update fails.
+  updateSessionSummary(sessionId, snapshot);
+  return snapshot;
+}
+
+/** Listing metadata may lag a committed snapshot after a crash; it is never authoritative. */
+export function updateSessionSummary(sessionId: string, snapshot: ConversationSnapshot): void {
+  const dir = getSessionDirById(sessionId);
+  if (!dir || snapshot.sessionId !== sessionId) return;
   const session = readSessionFromDir(dir);
   if (session) {
     session.messageCount = snapshot.messages.length; session.lastAccessedAt = snapshot.updatedAt;
     try { writeJSON(path.join(dir, 'session.json'), session); } catch { /* Snapshot is durable. */ }
   }
-  return snapshot;
 }
 
 /**
@@ -479,6 +486,12 @@ function readSessionFromDir(sessionDir: string): Session | null {
   const sessionFile = path.join(sessionDir, 'session.json');
   let value: Session | null;
   try { value = JSON.parse(readPrivateSessionFile(sessionFile, 65536) ?? 'null'); } catch { return null; }
+  const lineage = value?.lineage;
+  if (lineage !== undefined && (!lineage || typeof lineage !== 'object' || Array.isArray(lineage) || lineage.version !== 1 ||
+    !['manual', 'safety', 'import'].includes(lineage.kind) || typeof lineage.sessionId !== 'string' ||
+    !/^[a-zA-Z0-9_-]{1,200}$/.test(lineage.sessionId) || typeof lineage.revision !== 'string' || !/^[a-f0-9-]{36}$/.test(lineage.revision) ||
+    typeof lineage.stateHash !== 'string' || !/^[a-f0-9]{64}$/.test(lineage.stateHash) || typeof lineage.toolStateHash !== 'string' || !/^[a-f0-9]{64}$/.test(lineage.toolStateHash) ||
+    !Number.isFinite(Date.parse(lineage.at)) || lineage.name !== undefined && (typeof lineage.name !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(lineage.name)))) return null;
   return value && typeof value.id === 'string' && typeof value.projectPath === 'string' && !/[\x00-\x1f\x7f]/.test(value.projectPath) && path.isAbsolute(value.projectPath)
     && typeof value.projectName === 'string' && Number.isFinite(Date.parse(value.createdAt))
     && Number.isFinite(Date.parse(value.lastAccessedAt)) ? value : null;

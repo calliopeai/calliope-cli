@@ -25,7 +25,7 @@ const BASE_SLASH_COMMANDS = [
   '/doctor', '/doctor providers', '/doctor provider',
   '/mode', '/mode plan', '/mode work',
   '/undo',
-  '/export',
+  '/export', '/import', '/branch', '/checkout', '/diff', '/replay',
   '/resume',
   '/new',
   '/sessions',
@@ -49,7 +49,7 @@ export const SLASH_COMMANDS: string[] = config.get('fleet')?.enabled === true
   : BASE_SLASH_COMMANDS;
 
 // Commands that take a path argument (for file tab completion)
-export const PATH_COMMANDS = ['/export', '/restore'];
+export const PATH_COMMANDS = ['/export', '/import', '/restore'];
 
 // ============================================================================
 // Path Completion
@@ -141,7 +141,7 @@ export function getSmartCommandSuggestions(ctx: CommandSuggestionContext): strin
   const allCommands = [
     '/help', '/status', '/clear', '/exit',
     '/model', '/provider', '/mode',
-    '/undo', '/export', '/resume', '/compact',
+    '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
     '/scope', '/memory', '/trust', '/restore',
     '/mcp', '/skills',
     '/config', '/setup', '/cost', '/loop', '/debug',

@@ -199,6 +199,11 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   try {
     const result = await runTurn({
       onCheckpoint: ctx.onCheckpoint,
+      onSafetyBranch: ctx.onCheckpoint ? async () => {
+        const { branchSession } = await import('../session-management/index.js');
+        const branch = await branchSession(sessionId, { kind: 'safety', signal: ctx.signal, mode: ctx.mode });
+        ctx.addMessage('system', `Recovery conversation branch: ${branch.session.id}. Use /checkout to recover its conversation and tool state.`);
+      } : undefined,
       client: 'terminal', sessionId, cwd: projectDir, provider: ctx.provider, model: ctx.model,
       preferenceSources: ctx.preferenceSources,
       routing: { ...ctx.smartRoutingConfig, ...config.get('routing') },

@@ -132,6 +132,20 @@ function stderrText(): string {
 // ---------------------------------------------------------------------------
 
 describe('headless budget halt', () => {
+  it('emits a stable status event for a durable safety branch before an allowed write', async () => {
+    mockChat.mockResolvedValueOnce({ ...toolResponse(), toolCalls: [{ id: 'write', name: 'write_file', arguments: { path: 'toy.txt', content: 'toy' } }] })
+      .mockResolvedValueOnce(finalResponse());
+    mockExecuteTool.mockResolvedValue({ toolCallId: 'write', result: 'ok', isError: false });
+    expect(await runHeadless({ prompt: 'go', provider: 'anthropic', outputMode: 'json', cwd: CWD })).toBe(0);
+    const output = vi.mocked(process.stdout.write).mock.calls.map(call => String(call[0])).join('').trim().split('\n').map(line => JSON.parse(line));
+    const branchEvent = output.find(event => event.type === 'status' && event.data.message.startsWith('Recovery conversation branch:'));
+    expect(branchEvent).toMatchObject({ type: 'status', timestamp: expect.any(String), data: { sessionId: expect.any(String) } });
+    const { getSessionById, readSessionConversation } = await import('../src/storage.js');
+    expect(getSessionById(branchEvent.data.sessionId)?.lineage?.kind).toBe('safety');
+    expect(readSessionConversation(branchEvent.data.sessionId).messages.at(-1)?.toolCalls?.[0]?.id).toBe('write');
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+    expect(onlyRunLog().some(event => event.type === 'policy_event' && event.tool === 'session_branch' && String(event.reason).includes(branchEvent.data.sessionId))).toBe(true);
+  });
   it('exits 3 when the run cost cap is exceeded', async () => {
     budgetCaps = { maxCostPerRun: 0.00001 };
     // claude-sonnet-4-6 = $3/M input; 10k input ≈ $0.00003 > cap.

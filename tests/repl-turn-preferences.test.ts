@@ -175,6 +175,44 @@ it('starts unique sessions, lists them and resumes a validated snapshot after re
   expect(requests.at(-1)!.messages.filter(message => message.role === 'user').map(message => message.content)).toEqual(['Fresh task']);
 });
 
+it('branches, switches, compares, replays and transfers recorded conversations without extra inference', async () => {
+  await mount(); await controller.input.onSubmitMessage('Original conversation');
+  const original = storage.getCurrentSession()!;
+  await vi.waitFor(() => expect(controller.input.isProcessing).toBe(false));
+  await controller.input.onSubmitMessage('/branch experiment');
+  const branch = storage.getCurrentSession()!; expect(branch.id).not.toBe(original.id);
+  expect(branch.lineage?.name).toBe('experiment');
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.type === 'user' && message.content === 'Original conversation')).toBe(true));
+  await controller.input.onSubmitMessage('Branch conversation');
+  await vi.waitFor(() => expect(controller.input.isProcessing).toBe(false));
+  await controller.input.onSubmitMessage(`/diff ${original.id}`);
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('2 added'))).toBe(true));
+  await controller.input.onSubmitMessage('/replay');
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content.includes('events verified'))).toBe(true));
+  await controller.input.onSubmitMessage('/export history.json');
+  await controller.input.onSubmitMessage('/export readable.md');
+  await controller.input.onSubmitMessage('/import history.json');
+  expect(storage.getCurrentSession()?.id).toBe(branch.id);
+  await vi.waitFor(() => expect(controller.transcript.messages.filter(message => message.type === 'error').map(message => message.content)).toEqual([]));
+  const imported = storage.listSessions(10000).find(item => item.lineage?.kind === 'import' && item.lineage.sessionId === branch.id)!;
+  expect(storage.readSessionConversation(imported.id).messages.filter(message => message.role === 'user')).toHaveLength(2);
+  await controller.input.onSubmitMessage(`/checkout ${original.id}`);
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content === 'Original conversation')).toBe(true));
+  expect(controller.transcript.messages.some(message => message.content === 'Branch conversation')).toBe(false);
+  await controller.input.onSubmitMessage('/checkout experiment');
+  await vi.waitFor(() => expect(controller.transcript.messages.some(message => message.content === 'Branch conversation')).toBe(true));
+  expect(requests).toHaveLength(2);
+});
+
+it('refuses branch, transfer and checkout commands during an active turn', async () => {
+  holdFirst = true; await mount(); const session = storage.getCurrentSession()!;
+  const pending = controller.input.onSubmitMessage('Wait'); await vi.waitFor(() => expect(requests).toHaveLength(1));
+  for (const command of ['/branch unsafe', `/checkout ${session.id}`, '/export active.json', '/import missing.json']) await controller.input.onSubmitMessage(command);
+  expect(storage.getCurrentSession()?.id).toBe(session.id);
+  expect(storage.listSessions(10000).some(item => item.lineage?.sessionId === session.id)).toBe(false);
+  controller.input.onEscape(); await pending;
+});
+
 it('refuses damaged or cross-project resumes without losing current state', async () => {
   await mount(); await controller.input.onSubmitMessage('Keep current task');
   const active = storage.getCurrentSession()!;

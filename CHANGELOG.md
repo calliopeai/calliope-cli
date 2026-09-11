@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add bounded immutable conversation history, manual and automatic safety branches, checkout/diff/replay, private import/export, and a versioned `calliope session ... --json` contract. Session switches restore the visible transcript; transfers preserve provider metadata and current tool state without replaying tools or importing policy grants (#272).
+
 - Add private, versioned recovery snapshots across terminal, headless and ACP turns; pin session tools and saves to their runtime, reject stale writers, and add `/new` and `/sessions` with validated resume (#270).
 
 - Add 33 reviewed live captures, including Fable 5/5.1 and Astra via OpenRouter and native Bedrock, bringing the corpus to 56/72 combinations; add persistent per-run probe caps beneath the cumulative budget and record bounded model-smoke results, provider failures and the xAI deferral (#262).

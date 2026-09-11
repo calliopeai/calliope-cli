@@ -326,6 +326,11 @@ class CalliopeAgent implements Agent {
       for (const warning of session.preference.warnings) await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[Warning: ${warning}]\n` } });
       const result = await runTurn({
         client: 'acp',
+        onSafetyBranch: async () => {
+          const { branchSession } = await import('./session-management/index.js');
+          const branch = await branchSession(session.id, { kind: 'safety', signal: session.controller?.signal, runlog: session.runlog });
+          await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `Recovery conversation branch: ${branch.session.id}\n` } });
+        },
         onCheckpoint: (history, status) => {
           const saved = saveSessionConversation(session.id, history, { expectedRevision: session.revision, status });
           session.revision = saved.revision;

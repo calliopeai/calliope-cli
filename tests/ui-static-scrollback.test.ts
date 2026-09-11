@@ -162,6 +162,20 @@ describe('useTranscriptState clearCount (#185)', () => {
     return h(React.Fragment, null);
   }
 
+  it('remounts after equal-length and longer session replacements while preserving append behavior', async () => {
+    const apiRef: { current: TranscriptStateHook | null } = { current: null };
+    const { unmount } = render(h(Harness, { apiRef })); await tick();
+    apiRef.current!.setMessages([sys('a', 'old')]); await tick();
+    expect(apiRef.current!.clearCount).toBe(0);
+    apiRef.current!.setMessages([sys('b', 'restored')]); await tick();
+    expect(apiRef.current!.clearCount).toBe(1);
+    apiRef.current!.setMessages([sys('c', 'another'), sys('d', 'longer')]); await tick();
+    expect(apiRef.current!.clearCount).toBe(2);
+    apiRef.current!.addMessage('assistant', 'appended'); await tick();
+    expect(apiRef.current!.clearCount).toBe(2);
+    unmount();
+  });
+
   it('bumps clearCount when the list shrinks (clear/reset/undo), never on append', async () => {
     const apiRef: { current: TranscriptStateHook | null } = { current: null };
     const { unmount } = render(h(Harness, { apiRef }));

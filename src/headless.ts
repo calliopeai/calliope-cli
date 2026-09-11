@@ -192,6 +192,11 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   try {
     const result = await runTurn({
       client: 'headless',
+      onSafetyBranch: async () => {
+        const { branchSession } = await import('./session-management/index.js');
+        const branch = await branchSession(sessionId, { kind: 'safety', signal, runlog });
+        emit({ type: 'status', timestamp: now(), data: { message: `Recovery conversation branch: ${branch.session.id}`, sessionId: branch.session.id } }, outputMode);
+      },
       onCheckpoint: (history, status) => {
         const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
         revision = saved.revision;

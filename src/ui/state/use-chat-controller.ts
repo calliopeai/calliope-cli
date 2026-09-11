@@ -353,12 +353,12 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
-    const controlled = ['/provider', '/model', '/defaults', '/new', '/resume'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
+    const controlled = ['/provider', '/model', '/defaults', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
     try {
       if (controlled) {
         if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before changing provider or session settings.'); return; }
         setIsProcessing(true);
-        try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), signal })); }
+        try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), isProcessing: false, signal })); }
         finally { setIsProcessing(false); }
       } else await handleCommand(cmd, buildCommandContext());
     } catch (error) {
