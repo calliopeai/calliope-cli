@@ -168,6 +168,12 @@ it('honors stored provider model preferences and disabling optimization preserve
   expect(route.reason).toContain('optimization disabled');
 });
 
+it('treats an empty provider pool as no automatic targets while preserving explicit choices', async () => {
+  expect((await selectRoute({ provider: 'auto', preferences: { providerPool: [] } })).status).toBe('unavailable');
+  expect(fetch).not.toHaveBeenCalled();
+  expect((await selectRoute({ provider: 'deepseek', model: 'deepseek-live', preferences: { providerPool: [] } })).selected?.model).toBe('deepseek-live');
+});
+
 it('refuses metadata if configuration changes while discovery is in flight', async () => {
   vi.stubGlobal('fetch', vi.fn(async () => {
     config.setProviderCred('deepseek', { apiKey: 'different-fake' });

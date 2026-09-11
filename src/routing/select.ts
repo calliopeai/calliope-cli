@@ -79,7 +79,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   if (pin) decision.mode = 'protocol-pinned';
   const explicit = (request.origin?.provider ?? request.provider) !== 'auto';
   let providers = request.provider !== 'auto' ? [request.provider as HealthProvider] : names;
-  if (!explicit && preferences.providerPool?.length) providers = providers.filter(provider => preferences.providerPool!.includes(provider));
+  if (!explicit && preferences.providerPool !== undefined) providers = providers.filter(provider => preferences.providerPool!.includes(provider));
   if (pin) providers = providers.filter(provider => provider === pin.provider);
   // Preference defines a deterministic scan/tie order; health/cost/latency can
   // select another eligible provider only when provider selection is automatic.
