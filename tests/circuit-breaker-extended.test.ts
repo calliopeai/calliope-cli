@@ -15,7 +15,7 @@
  * - infinite-loop: maxHistory trimming
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { CircuitBreaker } from '../src/circuit-breaker.js';
 import type { IterationData, BreakerType } from '../src/circuit-breaker.js';
 
@@ -35,23 +35,20 @@ function makeIteration(
 // ===========================================================================
 
 describe('wall-clock - session duration', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1000); });
+  afterEach(() => vi.useRealTimers());
   it('should trip when session exceeds maxSessionDurationMs', () => {
-    // Set a very short session duration (1ms) so it trips immediately
+    // Advance explicitly across the 1 ms session boundary.
     const breaker = new CircuitBreaker({
       breakers: {
         'wall-clock': { maxSessionDurationMs: 1, maxIterationDurationMs: 5 * 60_000 },
       },
     });
 
-    // Ensure some time passes after construction
-    // The first check will see elapsed time > 1ms
+    vi.advanceTimersByTime(2);
     const result = breaker.check(makeIteration(1, { content: 'hello' }));
-    // May or may not trip depending on timing, but test that the check runs
-    expect(typeof result.tripped).toBe('boolean');
-    if (result.tripped) {
-      expect(result.breaker).toBe('wall-clock');
-      expect(result.message).toContain('minutes');
-    }
+    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock' });
+    expect(result.message).toContain('minutes');
   });
 
   it('should not trip on session duration when maxSessionDurationMs is 0', () => {
@@ -74,23 +71,23 @@ describe('wall-clock - session duration', () => {
 // ===========================================================================
 
 describe('wall-clock - iteration duration', () => {
+  beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(1000); });
+  afterEach(() => vi.useRealTimers());
   it('should trip when a single iteration takes too long', () => {
     const breaker = new CircuitBreaker({
       breakers: {
         // Disable session duration, enable a very tight iteration limit
-        'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1 },
+        'wall-clock': { maxSessionDurationMs: 0, maxIterationDurationMs: 1000 },
       },
     });
 
     // First check sets lastIterationStart
     breaker.check(makeIteration(1, { content: 'hello' }));
 
-    // Second check after some time should see the iteration exceeded 1ms
+    vi.advanceTimersByTime(2000);
     const result = breaker.check(makeIteration(2, { content: 'world' }));
-    if (result.tripped) {
-      expect(result.breaker).toBe('wall-clock');
-      expect(result.message).toContain('seconds');
-    }
+    expect(result).toMatchObject({ tripped: true, breaker: 'wall-clock' });
+    expect(result.message).toBe('Single iteration took 2s, exceeded limit of 1s.');
   });
 
   it('should not trip on iteration duration when limit is very generous', () => {
