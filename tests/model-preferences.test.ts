@@ -107,7 +107,7 @@ it('rejects directory replacement during asynchronous approval before writing in
   try {
     await expect(saveProjectDefaults(root, { provider: 'xai' }, { confirmation: 'mutating', approve: async () => {
       fs.renameSync(root, moved); fs.mkdirSync(root); return 'allow';
-    } })).rejects.toThrow('directory changed');
+    } })).rejects.toThrow(/changed during approval/);
     expect(fs.readdirSync(root)).toEqual([]);
     expect(fs.existsSync(join(moved, PROJECT_MODEL_DEFAULTS))).toBe(false);
   } finally { fs.rmSync(moved, { recursive: true, force: true }); }

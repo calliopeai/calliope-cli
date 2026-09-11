@@ -21,6 +21,7 @@ import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
 import { withSession, type RecoveryStatus } from '../sessions/index.js';
 import { assessToolRisk } from '../risk.js';
+import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -32,7 +33,8 @@ export interface TurnOptions {
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
   maxIterations?: number; maxRetries?: number; parallel?: boolean; continueOnLength?: boolean;
   inheritScope?: boolean; runlog?: RunLog; toolOptions?: ExecuteToolOptions;
-  confirmation: PermissionContext['confirmation']; approve?: (call: ToolCall, decision: PermissionDecision) => Promise<'allow' | 'reject' | 'cancelled'>;
+  approvals?: ApprovalStore;
+  confirmation: PermissionContext['confirmation']; approve?: (call: ToolCall, decision: PermissionDecision) => Promise<ApprovalChoice>;
   tools?: () => Tool[];
   prepare?: (request: RuntimeRequest, iteration: number) => Promise<RuntimeRequest>;
   onCompression?: (result: CompressionResult) => void;
@@ -182,7 +184,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
     runlog.toolCall({ id: call.id, name: call.name, args: call.arguments });
     totals.toolCalls++;
     await options.onToolStart?.(call, iterations);
-    const decision = await resolvePermission(call, { cwd: options.cwd, mode: options.mode, confirmation: options.confirmation, signal,
+    const decision = await resolvePermission(call, { cwd: options.cwd, mode: options.mode, confirmation: options.confirmation, signal, sessionId: options.sessionId, approvals: options.approvals,
       approve: options.approve ? pending => options.approve!(call, pending) : undefined, audit: event => runlog.policyEvent(event) });
     await options.onPermission?.(call, decision);
     throwIfCancelled(signal);

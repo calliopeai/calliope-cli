@@ -241,6 +241,31 @@ describe('initialize', () => {
 // ===========================================================================
 
 describe('session/new + session/prompt', () => {
+  it('honors allow_always only for exact operations in the same ACP session', async () => {
+    const { client, conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn);
+    client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'allow_always' } });
+    mockExecuteTool.mockResolvedValue({ toolCallId: 'write', result: 'ok', isError: false });
+    const write = { id: 'write', name: 'write_file', arguments: { path: 'approval.txt', content: 'toy' } };
+    for (let index = 0; index < 2; index++) {
+      scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
+      expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).stopReason).toBe('end_turn');
+    }
+    expect(client.permissionRequests).toHaveLength(1); expect(mockExecuteTool).toHaveBeenCalledTimes(2);
+    const other = await newSession(conn);
+    scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
+    await conn.prompt({ sessionId: other, prompt: [{ type: 'text', text: 'toy' }] });
+    expect(client.permissionRequests).toHaveLength(2);
+  });
+
+  it('rejects forged allow option IDs and does not offer reusable grants for shell code', async () => {
+    const { client, conn } = connect(); await handshake(conn); const sessionId = await newSession(conn);
+    client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'allow_forged' } });
+    scriptChat([{ toolCalls: [{ id: 'shell', name: 'shell', arguments: { command: 'echo toy' } }] }, { content: 'done' }]);
+    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] });
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(client.permissionRequests[0]!.options.some(option => option.kind === 'allow_always')).toBe(false);
+  });
   it('creates a session whose id round-trips and drives a text + tool-call turn', async () => {
     const { client, conn } = connect();
     await handshake(conn);

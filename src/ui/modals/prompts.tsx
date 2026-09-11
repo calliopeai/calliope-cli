@@ -8,7 +8,7 @@
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
 import { parseFileReferences } from '../../files.js';
-import type { ToolCall, RiskLevel } from '../../types.js';
+import type { ApprovalChoice, PendingApproval } from '../../approvals/index.js';
 import { getSessionResumeAction } from '../input-utils.js';
 
 // ============================================================================
@@ -198,38 +198,31 @@ export function SessionResumePrompt({
 // Tool Confirmation
 // ============================================================================
 
-export function ToolConfirmation({
-  toolCall,
-  riskLevel,
-  reason,
-  onConfirm,
-  onDeny
-}: {
-  toolCall: ToolCall;
-  riskLevel: RiskLevel;
-  reason: string;
-  onConfirm: () => void;
-  onDeny: () => void;
+export function ToolConfirmation({ pending, onAnswer }: {
+  pending: PendingApproval;
+  onAnswer: (choice: ApprovalChoice) => void;
 }) {
+  const { request, queued } = pending;
   useInput((input, key) => {
-    if (input === 'y' || input === 'Y') onConfirm();
-    else if (input === 'n' || input === 'N' || key.escape) onDeny();
+    if (key.escape) onAnswer('cancelled');
+    else if (input.toLowerCase() === 'y') onAnswer('allow');
+    else if (input.toLowerCase() === 's' && request.reusable) onAnswer('allow_session');
+    else if (input.toLowerCase() === 'p' && request.reusable) onAnswer('allow_project');
+    else if (input.toLowerCase() === 'n') onAnswer('reject');
   });
-
-  const args = toolCall.arguments as Record<string, unknown>;
-  const preview = String(args.command || args.path || args.operation || '...');
-  const riskColor = riskLevel === 'critical' ? 'red' : 'yellow';
-  const riskIcon = riskLevel === 'critical' ? '⚠️' : '⚡';
-
+  const riskColor = request.risk === 'critical' ? 'red' : 'yellow';
   return (
     <Box flexDirection="column" marginY={1} borderStyle="round" borderColor={riskColor} paddingX={1}>
-      <Text color={riskColor} bold>{riskIcon} {riskLevel.toUpperCase()} RISK OPERATION</Text>
+      <Text color={riskColor} bold>{request.risk.toUpperCase()} RISK — {request.tool}</Text>
+      <Text>{request.reason}</Text>
+      {request.details.map((detail, index) => <Text key={index}>{detail}</Text>)}
       <Text> </Text>
-      <Text>Tool: <Text color="cyan">{toolCall.name}</Text></Text>
-      <Text>Command: <Text dimColor>{preview.substring(0, 60)}</Text></Text>
-      <Text>Reason: <Text dimColor>{reason}</Text></Text>
-      <Text> </Text>
-      <Text>Execute this operation? <Text color="cyan">(y/N)</Text></Text>
+      <Text>[Y] Approve once  [N] Deny  [Esc] Cancel turn</Text>
+      {request.reusable ? <>
+        <Text>[S] Approve for session (24 hours)  [P] Approve for project (30 days)</Text>
+        <Text dimColor>Saved approval covers these exact arguments and policy state. Scope and policy checks still apply.</Text>
+      </> : <Text dimColor>Reusable approval is unavailable for code, shell, plugin or cross-project operations.</Text>}
+      {queued > 0 && <Text>{queued} other approval request{queued === 1 ? '' : 's'} waiting.</Text>}
     </Box>
   );
 }

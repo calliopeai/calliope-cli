@@ -64,10 +64,17 @@ your editor can prompt you. If the client can't handle a permission request, the
 non-interactive default is to **deny** the mutating tool (read-only tools still
 run).
 
-Two gates always run regardless of the permission outcome, because they are the
-hard guardrails: the **pre-tool hooks** and the external **policy hook** (the
-[Zentinelle](./governance.md) integration point). A deny from either is reported
-to the model as a failed tool call so it can adapt.
+Scope, **pre-tool hooks** and the external **policy hook** (the
+[Zentinelle](./governance.md) integration point) run before the prompt and again
+after approval. A denial prevents execution and is reported to the model.
+
+`allow` approves once. For eligible file operations, `allow_always` means the
+exact arguments and canonical path in this ACP session for at most 24 hours;
+changed arguments or policy configuration need a new approval. Shell, code and
+plugin operations offer only once/reject. Unknown option IDs are rejected.
+Session grants disappear on process restart; existing project grants may apply
+but ACP does not create project grants. See [permissions](./permissions.md) for
+scope, revocation and audit semantics.
 
 ### Client-side filesystem
 

@@ -11,7 +11,7 @@ import { getVersion } from '../../version-check.js';
 import type { ModelInfo } from '../../model-detection.js';
 import type { SessionInfo } from '../types.js';
 import {
-  ModelSelector, SessionSelector, UpgradePrompt, ComplexityWarning,
+  ModelSelector, SessionSelector, UpgradePrompt, ComplexityWarning, ToolConfirmation,
   SessionResumePrompt, KeybindingsModal, ProviderSelector, ApiKeySetup,
 } from '../modals/index.js';
 import type { ProviderEntry } from '../modals/index.js';
@@ -21,6 +21,8 @@ import type {
 import { probeRender } from './render-probe.js';
 
 export interface ModalHostProps {
+  pendingApproval?: import('../../approvals/index.js').PendingApproval | null;
+  onApprovalAnswer?: (id: string, choice: import('../../approvals/index.js').ApprovalChoice) => void;
   modalMode: ModalMode;
   // Model selector
   availableModels: ModelInfo[];
@@ -58,6 +60,10 @@ function ModalHostInner(props: ModalHostProps) {
   probeRender('modal');
 
   const { modalMode } = props;
+  if (props.pendingApproval && props.onApprovalAnswer) {
+    const pending = props.pendingApproval;
+    return <ToolConfirmation pending={pending} onAnswer={choice => props.onApprovalAnswer!(pending.id, choice)} />;
+  }
 
   if (modalMode === 'model' && props.availableModels.length > 0) {
     return (
