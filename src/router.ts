@@ -160,11 +160,6 @@ const DEFAULT_TIERS: Partial<Record<LLMProvider, RoutingConfig['tiers']>> = {
     balanced: { name: 'Llama 70B', provider: 'ollama', model: 'llama3.3', maxTokens: 8192, costPer1kInput: 0, costPer1kOutput: 0 },
     smart: { name: 'Llama 70B', provider: 'ollama', model: 'llama3.3', maxTokens: 32768, costPer1kInput: 0, costPer1kOutput: 0 },
   },
-  ai21: {
-    fast: { name: 'Jamba Mini', provider: 'ai21', model: 'jamba-1.5-mini', maxTokens: 4096, costPer1kInput: 0.0002, costPer1kOutput: 0.0004 },
-    balanced: { name: 'Jamba Large', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
-    smart: { name: 'Jamba Large', provider: 'ai21', model: 'jamba-1.5-large', maxTokens: 4096, costPer1kInput: 0.002, costPer1kOutput: 0.008 },
-  },
   huggingface: {
     fast: { name: 'Default', provider: 'huggingface', model: 'meta-llama/Llama-3.1-8B-Instruct', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },
     balanced: { name: 'Default', provider: 'huggingface', model: 'meta-llama/Llama-3.1-70B-Instruct', maxTokens: 4096, costPer1kInput: 0, costPer1kOutput: 0 },

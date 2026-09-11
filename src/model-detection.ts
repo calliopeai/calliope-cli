@@ -5,7 +5,6 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { select } from '@inquirer/prompts';
 import * as config from './config.js';
