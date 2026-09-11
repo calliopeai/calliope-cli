@@ -45,6 +45,7 @@ import {
 
 import * as config from './config.js';
 import { chat, selectProvider } from './providers/index.js';
+import { resolvePermission } from './runtime/index.js';
 import { cancellable, isCancellation, throwIfCancelled } from './cancellation.js';
 import { TOOLS, executeTool, type FsDelegate } from './tools.js';
 import { DEFAULT_MODELS, calculateCost } from './types.js';
@@ -53,9 +54,6 @@ import { getSystemPromptForProvider, isLocalBackend } from './local-model.js';
 import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import { RunLog } from './runlog.js';
-import { evaluatePolicy, isPolicyEnabled } from './policy.js';
-import { assessToolRisk } from './risk.js';
-import { checkHooksAllow } from './hooks.js';
 
 // ============================================================================
 // Diagnostics — stderr only (stdout carries the protocol).
@@ -86,24 +84,6 @@ function errMessage(err: unknown): string {
 // ============================================================================
 // Tool → permission / presentation mapping
 // ============================================================================
-
-/**
- * Tools with side effects. These always route through the permission flow (and
- * are denied under the non-interactive fallback), matching the headless runner's
- * notion of a mutating tool.
- */
-const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure']);
-
-/**
- * Whether a tool call must ask the client for permission before running.
- * Read-only tools (read_file, list_files, think, glob, grep, web_search) run
- * silently; anything that mutates state or that Calliope's risk model flags for
- * confirmation asks first.
- */
-function toolNeedsPermission(toolCall: ToolCall): boolean {
-  if (MUTATING_TOOLS.has(toolCall.name)) return true;
-  return assessToolRisk(toolCall).requiresConfirmation;
-}
 
 /** Map a Calliope tool name to the ACP tool kind (drives client icons/UX). */
 function toolKind(name: string): ToolKind {
@@ -479,6 +459,7 @@ class CalliopeAgent implements Agent {
       result = await executeTool(toolCall, session.cwd, 60000, undefined, {
         signal: session.controller?.signal,
         appendAnchorHash: session.localBackend,
+        auditPermission: event => session.runlog.policyEvent(event),
         fs: this.clientFsDelegate(session.id),
       });
     } catch (err) {
@@ -522,37 +503,14 @@ class CalliopeAgent implements Agent {
   // ---- Gates: permission, then the hard hooks -------------------------
 
   private async gateToolCall(session: AcpSession, toolCall: ToolCall): Promise<GateResult> {
-    // 1. Permission via the client (only for mutating / confirm-worthy tools).
-    if (toolNeedsPermission(toolCall)) {
-      const permission = await this.requestPermission(session, toolCall);
-      if (permission === 'cancelled') return { decision: 'cancelled' };
-      if (permission === 'reject') return { decision: 'deny', reason: '[Permission denied by user]' };
-      // 'allow' falls through to the hard gates below.
-    }
-
-    // 2. Pre-tool hooks — the hard gate, runs regardless of permission (exit-42
-    //    veto contract; see hooks.ts / docs/governance.md).
-    const hookGate = await checkHooksAllow('pre-tool', { tool: toolCall.name, toolArgs: toolCall.arguments });
-    if (!hookGate.allowed) {
-      return { decision: 'deny', reason: `[Blocked by hook: ${hookGate.reason || 'no reason given'}]` };
-    }
-
-    // 3. Policy hook — the Zentinelle integration point (fail closed).
-    if (isPolicyEnabled()) {
-      const verdict = await evaluatePolicy(toolCall);
-      session.runlog.policyEvent({
-        tool: toolCall.name,
-        decision: verdict.decision,
-        source: verdict.source,
-        reason: verdict.reason,
-        durationMs: verdict.durationMs,
-      });
-      if (verdict.decision === 'deny') {
-        return { decision: 'deny', reason: `[Policy denied: ${verdict.reason || 'no reason given'}]` };
-      }
-    }
-
-    return { decision: 'allow' };
+    const result = await resolvePermission(toolCall, {
+      cwd: session.cwd, confirmation: 'mutating', signal: session.controller?.signal,
+      approve: () => this.requestPermission(session, toolCall),
+      audit: event => session.runlog.policyEvent(event),
+    });
+    if (result.decision === 'allow') return { decision: 'allow' };
+    if (result.decision === 'cancelled') return { decision: 'cancelled' };
+    return { decision: 'deny', reason: result.reason };
   }
 
   /**

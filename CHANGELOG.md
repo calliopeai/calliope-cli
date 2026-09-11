@@ -4,6 +4,9 @@
 
 ### Added
 
+- A canonical permission resolver across terminal, headless and ACP, with
+  source-labelled decisions and tool-call IDs in the audit log (#221).
+
 - Shared cancellation signals across all provider adapters, retry waits, terminal
   turns, ACP prompts and headless execution. Headless cancellation emits a
   `cancelled` completion event and exits 130, including while waiting for stdin.
@@ -12,6 +15,9 @@
   and `/memory reload` expose and refresh repository context.
 
 ### Fixed
+
+- Headless now honors pre-tool hooks. The executor rechecks filesystem and
+  sandbox boundaries after approval; dangling symlinks fail scope validation.
 
 - Terminal direct-send waits for cancellation cleanup before replacing a turn;
   cancelled requests cannot dispatch later tools or retries. ACP cancellation

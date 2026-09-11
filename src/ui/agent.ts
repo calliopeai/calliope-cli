@@ -5,6 +5,7 @@
  * Extracted from TerminalChat using an AgentContext state bag.
  */
 
+import { resolvePermission } from '../runtime/index.js';
 import { cancellable, cancellableDelay, isCancellation, throwIfCancelled } from '../cancellation.js';
 import type React from 'react';
 import * as config from '../config.js';
@@ -13,7 +14,7 @@ import { estimateContextUsage, needsSummarization } from '../providers/types.js'
 import { executeTool, getTools } from '../tools.js';
 import { DEFAULT_MODELS, RISK_CONFIG, calculateCost } from '../types.js';
 import { getModelContextLimit } from '../model-detection.js';
-import { assessToolRisk, requiresConfirmation } from '../risk.js';
+import { assessToolRisk } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
@@ -48,13 +49,12 @@ import {
   formatIterationProgress,
   isFiniteIterationLimit,
 } from '../iteration-limit.js';
-import { RunLog } from '../runlog.js';
+import { RunLog, type PolicyEventPayload } from '../runlog.js';
 import {
   getBudgetCaps, evaluateBudget, hasBudgetCaps,
   recordProjectSpend, loadProjectSpend, formatBudgetHalt,
   type BudgetVerdict,
 } from '../budget.js';
-import { evaluatePolicy, isPolicyEnabled } from '../policy.js';
 
 // ============================================================================
 // Tool Result Truncation
@@ -373,7 +373,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   // to read_file output, and which tool-call ids have already spent their one
   // repair round-trip.
   const localBackend = isLocalBackend(ctx.actualProvider as LLMProvider);
-  const executeOptions = { signal: ctx.signal, appendAnchorHash: localBackend };
+  const executeOptions = { signal: ctx.signal, appendAnchorHash: localBackend, auditPermission: (event: PolicyEventPayload) => runlog.policyEvent(event) };
   const repairedCallIds = new Set<string>();
 
   // Governance (#189): audit run log, budget caps, policy hook. The run log is a
@@ -707,57 +707,19 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
               blocked: false,
             };
 
-            // Check blocking conditions
-            const PLAN_MODE_ALLOWED = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
-            if (ctx.mode === 'plan' && !PLAN_MODE_ALLOWED.has(toolCall.name)) {
+            const decision = await resolvePermission(toolCall, {
+              cwd: projectDir, mode: ctx.mode,
+              confirmation: ctx.confirmMode ? 'risk' : 'none', signal: ctx.signal,
+              audit: event => runlog.policyEvent(event),
+            });
+            if (decision.decision !== 'allow') {
               preCheck.blocked = true;
-              preCheck.blockReason = 'plan mode';
-              preCheck.blockContent = '[Plan mode: Tool not executed. Describe what this would do.]';
-              ctx.addMessage('tool', `📋 ${toolCall.name}: ${toolPreview}${riskDisplay} (plan mode - not executed)`);
-            } else if (ctx.confirmMode && requiresConfirmation(risk, false) && toolCall.name !== 'think') {
-              preCheck.blocked = true;
-              preCheck.blockReason = 'confirmation required';
-              preCheck.blockContent = `[Operation blocked - ${risk.level} risk: ${risk.reason}. User confirmation required.]`;
-              const riskIcon = risk.level === 'critical' ? '🛑' : '⚠️';
-              ctx.addMessage('tool', `${riskIcon} ${toolCall.name}: ${toolPreview}${riskDisplay}\n  → Requires confirmation (use /confirm off to disable)`);
+              preCheck.blockReason = decision.reason;
+              preCheck.blockContent = decision.reason;
+              ctx.addMessage('tool', `${toolCall.name}: ${toolPreview}${riskDisplay}\n${decision.reason}`);
             } else {
-              // Check pre-tool hooks
-              const preHookResult = await hooks.checkHooksAllow('pre-tool', {
-                tool: toolCall.name,
-                toolArgs: args,
-              });
-              if (!preHookResult.allowed) {
-                preCheck.blocked = true;
-                preCheck.blockReason = 'blocked by hook';
-                preCheck.blockContent = `[Blocked by hook: ${preHookResult.reason}]`;
-                ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-                ctx.addMessage('tool', `🛑 Blocked by hook: ${preHookResult.reason}`);
-              } else {
-                // Pre-tool policy gate (fail closed). Distinct from the hook above:
-                // the policy engine receives the tool-call JSON on stdin and denies
-                // via a non-zero exit code (see policy.ts / docs/governance.md).
-                const policyResult = isPolicyEnabled() ? await evaluatePolicy(toolCall) : undefined;
-                if (policyResult) {
-                  runlog.policyEvent({
-                    tool: toolCall.name,
-                    decision: policyResult.decision,
-                    source: policyResult.source,
-                    reason: policyResult.reason,
-                    durationMs: policyResult.durationMs,
-                  });
-                }
-                if (policyResult && policyResult.decision === 'deny') {
-                  preCheck.blocked = true;
-                  preCheck.blockReason = 'denied by policy';
-                  preCheck.blockContent = `[Denied by policy: ${policyResult.reason || 'no reason given'}]`;
-                  ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-                  ctx.addMessage('tool', `⛨ Denied by policy: ${policyResult.reason || 'no reason given'}`);
-                } else {
-                  // Tool can be executed
-                  executableTools.push(toolCall);
-                  ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
-                }
-              }
+              executableTools.push(toolCall);
+              ctx.addMessage('tool', `⚡ ${toolCall.name}: ${toolPreview}${riskDisplay}`);
             }
 
             preChecks.push(preCheck);

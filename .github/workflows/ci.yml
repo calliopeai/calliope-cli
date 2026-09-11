@@ -4,7 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    # Stacked foundation PRs must pass the same gates before their base merges.
+    branches: [main, 'feat/**', 'fix/**']
 
 jobs:
   build:

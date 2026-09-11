@@ -6,6 +6,7 @@
  * Designed for piping, CI, scripting, and multi-agent fleet coordination.
  */
 
+import { resolvePermission, MUTATING_TOOLS } from './runtime/index.js';
 import { cancellationError, cancellableDelay, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
 import { chat, selectProvider, ProviderUnavailableError } from './providers/index.js';
@@ -19,7 +20,6 @@ import {
   getBudgetCaps, evaluateBudget, hasBudgetCaps,
   recordProjectSpend, loadProjectSpend, formatBudgetHalt,
 } from './budget.js';
-import { evaluatePolicy, isPolicyEnabled } from './policy.js';
 import type { Message, LLMProvider, ToolCall } from './types.js';
 
 // ============================================================================
@@ -90,7 +90,6 @@ function now(): string {
  * risks compounding partial side effects (duplicate writes, repeated commands),
  * so they are never blindly retried.
  */
-const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure']);
 
 /**
  * Classify an error message as plausibly transient (worth retrying) vs.
@@ -349,28 +348,14 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
           runlog.toolCall({ id: toolCall.id, name: toolCall.name, args: toolCall.arguments as Record<string, unknown> });
           runToolCalls++;
 
-          // Pre-tool policy gate (fail closed). A deny short-circuits execution;
-          // the agent sees the denial as the tool result and can adapt.
-          if (isPolicyEnabled()) {
-            const verdict = await evaluatePolicy(toolCall);
-            runlog.policyEvent({
-              tool: toolCall.name,
-              decision: verdict.decision,
-              source: verdict.source,
-              reason: verdict.reason,
-              durationMs: verdict.durationMs,
-            });
-            if (verdict.decision === 'deny') {
-              const denyText = `[Policy denied: ${verdict.reason || 'no reason given'}]`;
-              runlog.toolResult({ id: toolCall.id, result: denyText, isError: true, durationMs: verdict.durationMs });
-              emit({
-                type: 'tool_result',
-                timestamp: now(),
-                data: { toolCallId: toolCall.id, name: toolCall.name, result: denyText, isError: true },
-              }, outputMode);
-              messages.push({ role: 'tool', content: denyText, toolCallId: toolCall.id });
-              continue;
-            }
+          const decision = await resolvePermission(toolCall, {
+            cwd, confirmation: 'none', signal, audit: event => runlog.policyEvent(event),
+          });
+          if (decision.decision !== 'allow') {
+            runlog.toolResult({ id: toolCall.id, result: decision.reason, isError: true, durationMs: decision.durationMs });
+            emit({ type: 'tool_result', timestamp: now(), data: { toolCallId: toolCall.id, name: toolCall.name, result: decision.reason, isError: true } }, outputMode);
+            messages.push({ role: 'tool', content: decision.reason, toolCallId: toolCall.id });
+            continue;
           }
 
           throwIfCancelled(signal);
@@ -378,7 +363,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
           // Only retry classified-transient errors, never re-run mutating tools
           // (avoids duplicated side effects), and back off between attempts.
           const toolStart = Date.now();
-          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal });
+          let result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal, auditPermission: event => runlog.policyEvent(event) });
           throwIfCancelled(signal);
           let attempt = 0;
           while (
@@ -389,7 +374,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
             attempt++;
             await cancellableDelay(backoffDelay(attempt), signal);
             process.stderr.write(`[retry ${attempt}/${maxRetries}] tool failed: ${result.result}\n`);
-            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal });
+            result = await executeTool(toolCall, cwd, 60000, undefined, { appendAnchorHash: localBackend, signal, auditPermission: event => runlog.policyEvent(event) });
             throwIfCancelled(signal);
           }
 

@@ -95,7 +95,8 @@ export interface BudgetEventPayload {
 
 export interface PolicyEventPayload {
   tool: string;
-  decision: 'allow' | 'deny';
+  decision: 'allow' | 'deny' | 'confirm' | 'cancelled';
+  toolCallId?: string;
   source: string;
   reason?: string;
   durationMs: number;

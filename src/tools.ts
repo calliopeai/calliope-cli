@@ -4,6 +4,7 @@
  * Tool definitions and execution for the agent.
  */
 
+import { permissionReason } from './runtime/types.js';
 import { cancellable, isCancellation, throwIfCancelled } from './cancellation.js';
 import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
 import { spawn } from 'child_process';
@@ -11,6 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { StringDecoder } from 'string_decoder';
+import type { PolicyEventPayload } from './runlog.js';
 import type { Tool, ToolCall, ToolResult } from './types.js';
 import * as sandbox from './sandbox/index.js';
 import { validatePath as scopeValidatePath, isInScope, getScopeSummary } from './scope.js';
@@ -405,9 +407,34 @@ export interface FsDelegate {
  * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
+  auditPermission?: (event: PolicyEventPayload) => void;
   signal?: AbortSignal;
   appendAnchorHash?: boolean;
   fs?: FsDelegate;
+}
+
+/** Non-mutating checks shared by permission resolution and the execution boundary. */
+export function checkToolBoundary(call: ToolCall, cwd: string): { layer: 'scope' | 'sandbox' | 'blocklist'; reason: string } | undefined {
+  const args = call.arguments;
+  if (['read_file', 'write_file', 'edit_file', 'list_files', 'glob', 'grep'].includes(call.name)) {
+    const target = typeof args.path === 'string' ? args.path : ['list_files', 'glob', 'grep'].includes(call.name) ? '.' : undefined;
+    if (target) {
+      try { validatePath(target, cwd); }
+      catch (error) { return { layer: 'scope', reason: `Error: ${error instanceof Error ? error.message : String(error)}` }; }
+    }
+  }
+  if (call.name === 'shell' && typeof args.command === 'string') {
+    const blocked = matchesBlocklist(args.command);
+    if (blocked) return { layer: 'blocklist', reason: `Command blocked: matches forbidden pattern ${blocked}` };
+    const scopeError = validateShellPaths(args.command, cwd);
+    if (scopeError) return { layer: 'scope', reason: scopeError };
+  }
+  if (['shell', 'git', 'execute_code'].includes(call.name)) {
+    const mode = sandbox.getSandboxMode();
+    if (mode === 'docker' && !sandbox.isDockerAvailable()) return { layer: 'sandbox', reason: 'Docker is not available; sandboxMode=docker requires Docker.' };
+    if (mode === 'native' && !sandbox.isNativeSandboxAvailable()) return { layer: 'sandbox', reason: 'Native sandbox required (sandboxMode=native) but not available on this platform.' };
+  }
+  return undefined;
 }
 
 /**
@@ -441,6 +468,12 @@ export async function executeTool(
     } };
   }
   const { id, name, arguments: args } = toolCall;
+  const boundary = checkToolBoundary(toolCall, cwd);
+  if (boundary) {
+    const reason = permissionReason(boundary.layer, boundary.reason);
+    options?.auditPermission?.({ tool: name, toolCallId: id, decision: 'deny', source: boundary.layer, reason, durationMs: 0 });
+    return { toolCallId: id, result: reason, isError: true };
+  }
 
   // Mirror tool call to the fleet channel
   if (fleetActive()) {
