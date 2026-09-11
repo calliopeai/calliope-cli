@@ -46,6 +46,7 @@ export type RetryCallback = (attempt: number, error: Error, delayMs: number) => 
 export interface ChatOptions {
   signal?: AbortSignal;
   format?: unknown;
+  onHealthWarning?: (message: string) => void;
 }
 
 /**

@@ -6,9 +6,10 @@ provider backends, and a small, tested command surface.
 ## Contents
 
 - [Getting started](./getting-started.md) — install, setup, first session
-- [Commands](./commands.md) — all 22 commands and their subcommands
+- [Commands](./commands.md) — slash commands and their subcommands
 - [Configuration](./configuration.md) — config keys, defaults, environment variables
 - [Provider conformance](./provider-conformance.md) — behavioral matrix, captures and release gate
+- [Provider health](./provider-health.md) — doctor diagnostics, event schema, quarantine and recovery
 - [Providers](./providers.md) — supported backends and how credentials resolve
 - [Local models](./local-models.md) — how the harness adapts to self-hosted 7-70B models
 - [Repository instructions](./instructions.md) — scoped AGENTS.md, trust, provenance and reload
@@ -29,6 +30,7 @@ provider backends, and a small, tested command surface.
 |---------|-------------|
 | `/help` | List all commands |
 | `/status` | Provider, model, token usage |
+| `/doctor` | Local provider health; `--probe` checks live discovery |
 | `/model [name]` | Browse or switch models |
 | `/provider [name]` | Switch provider |
 | `/mode [plan\|hybrid\|work]` | Switch operating mode |

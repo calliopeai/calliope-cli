@@ -60,6 +60,14 @@ export interface CalliopeConfig {
 
   // Smart Routing
   routing?: { enabled: boolean; costSensitivity: number };  // costSensitivity 0-1 (0 = best quality, 1 = cheapest)
+  providerHealth?: {
+    retentionEvents?: number;
+    retentionDays?: number;
+    failureThreshold?: number;
+    failureWindowMs?: number;
+    quarantineMs?: number;
+    probeTimeoutMs?: number;
+  };
 
   // Session Lifecycle
   sessionLogLimit: number;    // Cap retained ledger entries/runs/failures per session (0 = unlimited)
@@ -152,6 +160,14 @@ const config = new Conf<CalliopeConfig>({
     circuitBreakersEnabled: { type: 'boolean' },
     sandboxMode: { type: 'string', enum: ['auto', 'native', 'docker', 'off'] },
     routing: { type: 'object' },
+    providerHealth: { type: 'object', additionalProperties: false, properties: {
+      retentionEvents: { type: 'integer', minimum: 10, maximum: 10000 },
+      retentionDays: { type: 'integer', minimum: 1, maximum: 365 },
+      failureThreshold: { type: 'integer', minimum: 1, maximum: 100 },
+      failureWindowMs: { type: 'integer', minimum: 1000, maximum: 86400000 },
+      quarantineMs: { type: 'integer', minimum: 1000, maximum: 86400000 },
+      probeTimeoutMs: { type: 'integer', minimum: 100, maximum: 60000 },
+    } },
     sessionLogLimit: { type: 'number', minimum: 0, maximum: 100000 },
     audit: { type: 'object' },
     budget: { type: 'object' },
@@ -187,6 +203,11 @@ const PROVIDER_ENV: Record<string, { apiKey?: string; baseUrl?: string; region?:
   bedrock: { apiKey: 'BEDROCK_API_KEY', baseUrl: 'BEDROCK_BASE_URL', region: ['AWS_REGION', 'AWS_DEFAULT_REGION'], profile: 'AWS_PROFILE' },
   'openai-compat': { apiKey: 'OPENAI_COMPAT_API_KEY', baseUrl: 'OPENAI_COMPAT_BASE_URL' },
 };
+
+/** Adapter identities come from the credential registry; model IDs remain discovered. */
+export function getProviderNames(): Exclude<LLMProvider, 'auto'>[] {
+  return Object.keys(PROVIDER_ENV).filter(name => name !== 'ai21') as Exclude<LLMProvider, 'auto'>[];
+}
 
 function firstEnv(names?: string | string[]): string | undefined {
   if (!names) return undefined;
@@ -391,7 +412,7 @@ export function getBaseUrl(provider: LLMProvider): string | undefined {
   if (provider === 'litellm') return getProviderCred('litellm').baseUrl || 'http://localhost:4000';
   if (provider === 'bedrock') return getProviderCred('bedrock').baseUrl;
   if (provider === 'openai-compat') return getProviderCred('openai-compat').baseUrl;
-  return undefined;
+  return getProviderCred(provider).baseUrl;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,7 +450,7 @@ const SURVIVOR_KEYS = new Set<string>([
   'setupComplete', 'defaultProvider', 'defaultModel', 'providers', 'fleet',
   'maxIterations', 'maxIterationTime', 'autoSaveHistory', 'autoUpgrade',
   'collapseTools', 'toolDisplayLimit', 'diffStyle', 'circuitBreakersEnabled',
-  'sandboxMode', 'routing', 'sessionLogLimit',
+  'sandboxMode', 'routing', 'providerHealth', 'sessionLogLimit',
   // Governance (#189)
   'audit', 'budget', 'policy',
   // Plugin trust (#137)

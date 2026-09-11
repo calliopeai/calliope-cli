@@ -20,6 +20,7 @@ const BASE_SLASH_COMMANDS = [
   '/exit',
   '/model', '/model list',
   '/provider',
+  '/doctor', '/doctor providers', '/doctor provider',
   '/mode', '/mode plan', '/mode work',
   '/undo',
   '/export',

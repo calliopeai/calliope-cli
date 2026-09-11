@@ -18,7 +18,7 @@ with no Node.js required — see
 - **Sandbox-first execution.** Shell and code tools run inside macOS Seatbelt or Docker sandboxes (`auto`/`native`/`docker`/`off`). Blocklists are advisory; the sandbox is the boundary.
 - **Safety rails that survive long sessions.** Circuit breakers, iteration budgets, git-based checkpoints with `/restore`, and automatic context compaction.
 - **Governance built in.** Tamper-evident audit run logs (on by default), a `replay` command to inspect and verify them, budget caps that halt a run before it overspends, and a pre-tool policy hook for an external allow/deny engine. See [docs/governance.md](docs/governance.md).
-- **Small on purpose.** 22 commands. 16 config keys. 11 flags. v3 removed more code than it kept — the changelog lists everything that went and why.
+- **Focused command surface.** 23 commands, plus optional fleet mode. The [command reference](docs/commands.md) documents the available workflows and subcommands.
 - **Tested like infrastructure.** 3,500 tests, 93%+ line coverage with an enforced 90% floor.
 
 ## Quick start
