@@ -318,6 +318,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     toolOutputs: transcript.toolOutputs,
     showToolOutput: output => { modal.setToolOutput(output); modal.setModalMode('tool-output'); },
     approvals: approval.store,
+    approve: (decision,signal) => decision.request ? approval.request(decision.request,signal) : Promise.resolve('reject'),
     cancelActiveTurn: () => turnController.current.cancel(),
     provider, actualProvider, actualModel, model, mode, confirmMode,
     reloadDefaults: modelState.reload,
@@ -352,7 +353,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     runLoop,
     startFleetPolling: () => { fleetStartPolling(handleFleetInstruction); },
     openProviderPicker: () => openProviderPickerRef.current?.(),
-  }), [approval.store, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
+  }), [approval.store, approval.request, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
     modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
@@ -360,10 +361,11 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
-    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe');
+    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe')
+      || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry';
     try {
       if (controlled) {
-        if (turnController.current.busy) { addMessage('error', 'Wait for the active turn or cancel it before changing provider or session settings.'); return; }
+        if (turnController.current.busy) { addMessage('error', 'Wait for the active operation or cancel it before starting another operation or changing settings.'); return; }
         setIsProcessing(true);
         try { await turnController.current.run(signal => handleCommand(cmd, { ...buildCommandContext(), isProcessing: false, signal })); }
         finally { setIsProcessing(false); }

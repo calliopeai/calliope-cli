@@ -94,6 +94,7 @@ export interface CommandContext {
   toolOutputs?: () => import('../sessions/index.js').CapturedToolOutput[];
   showToolOutput?: (output: import('../sessions/index.js').CapturedToolOutput) => void;
   approvals?: import('../approvals/index.js').ApprovalStore;
+  approve?: (decision:import('../runtime/types.js').PermissionDecision,signal?:AbortSignal)=>Promise<import('../approvals/index.js').ApprovalChoice>;
   signal?: AbortSignal;
   conversationCursor?: React.MutableRefObject<{ sessionId: string; revision: string | null } | null>;
   clearQueued?: () => void;
@@ -233,8 +234,12 @@ Conversation
   /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
   /run <plan> --dry-run       Validate a task plan without starting agents
   /run prepare <plan>         Record an inactive orchestration run
+  /run <plan>                 Execute a reviewed task graph with tool approvals
+  /run execute|resume <id>     Start or resume bounded workers
+  /run retry|accept <id> <task> Retry work or accept recorded evidence
   /run status|approve|cancel <id>  Inspect or review a prepared run
   /agents [tree] [run-id]      Inspect declared agents
+  /agents stop|retry <agent> --run <id>  Control a bounded agent
   /tasks [graph] [run-id]      Inspect task dependencies
   /tools [list|last|output-id] Inspect retained tool output; expand/collapse and page
   /export [file.json|file.md]  Save private history JSON or readable markdown
@@ -279,7 +284,7 @@ File references: @filename, ./path, /absolute/path`;
     case '/agents':
     case '/tasks': {
       const { runOrchestrationCommand, parseOrchestrationArgs } = await import('../orchestration/index.js');
-      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', write: text => ctx.addMessage('system', text.trimEnd()) });
+      await runOrchestrationCommand(command.slice(1) as 'run' | 'agents' | 'tasks', parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { cwd: getActiveProjectDir(ctx), signal: ctx.signal, mode: ctx.mode, source: 'repl', approvals:ctx.approvals,confirmation:ctx.confirmMode?'mutating':'none',approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined,write: text => ctx.addMessage('system', text.trimEnd()) });
       break;
     }
 

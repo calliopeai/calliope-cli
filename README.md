@@ -46,6 +46,18 @@ Headless, for CI and scripts:
 calliope --headless --json "run the tests and summarize failures"
 ```
 
+Execute a reviewed project task graph with bounded agents:
+
+```bash
+calliope run plan.json --dry-run --json
+calliope run plan.json --allow-mutations --json
+```
+
+Independent tasks run concurrently with per-agent permissions and shared budgets.
+Recorded artifact checks determine completion; unverified criteria require human
+acceptance. See [coordinator execution](docs/coordinator-execution.md) for plan
+contracts, provider requirements, cancellation and recovery.
+
 ## Configuration
 
 One file, 16 keys. Credentials live in a per-provider map with environment-variable fallbacks:

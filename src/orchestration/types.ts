@@ -13,9 +13,14 @@ export interface AgentContract {
 export interface ProjectTask {
   id: string; agentId: string; objective: string; inputs: AgentInput[]; outputs: ArtifactSpec[];
   dependencies: string[]; acceptanceCriteria: string[];
+  acceptanceChecks?: AcceptanceCheck[];
+}
+export interface AcceptanceCheck {
+  id: string; artifactId: string; kind: 'exists' | 'contains' | 'sha256' | 'json';
+  criteria: string[]; expected?: string;
 }
 export interface ProjectPlan {
-  version: 1; id: string; goal: string;
+  version: 1 | 2; id: string; goal: string;
   workspace: { id: string; root: '.'; allowedTools: string[]; allowedPaths: PathGrant[] };
   limits: { maxAgents: number; maxTasks: number; maxDepth: number; maxConcurrent: number; tokenBudget: number; costBudgetUsd: number; timeBudgetMs: number };
   agents: AgentContract[]; tasks: ProjectTask[];

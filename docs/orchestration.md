@@ -1,13 +1,12 @@
 # Orchestration plans and run preparation
 
 Calliope can validate a bounded project plan, record an inactive run, and inspect
-its hierarchy, dependencies and journal after restart. This is the first
-orchestration layer. It does not yet invoke a coordinator model, execute child
-agents, verify their artifacts, or satisfy the orchestration execution release
-gate. The [agent runtime boundary](agent-runtime.md) supplies inherited authority,
-file operations and shared request reservations as a library. Goal decomposition,
-scheduling, isolated shell/network mutations, cancellation trees and execution
-recovery remain required in #254.
+its hierarchy, dependencies and journal after restart. The separate
+[coordinator execution layer](coordinator-execution.md) runs reviewed graphs,
+verifies their artifacts and supports cancellation and recovery. The
+[agent runtime boundary](agent-runtime.md) supplies inherited authority, file
+operations and shared request reservations. Goal decomposition and isolated
+shell/network execution remain required in #254.
 
 ## Commands
 
@@ -27,8 +26,8 @@ The REPL exposes `/run`, `/agents tree [run-id]` and `/tasks graph [run-id]`.
 Quoted paths work, for example `/run prepare "project plan.json"`. Status and
 hierarchy inspection without an ID select the newest valid run in the current
 project and display its ID. Approval, cancellation and replay require an explicit
-run ID. `calliope run <plan>` without an operation flag reports that execution is
-not yet available instead of claiming to run the plan.
+run ID. `calliope run <plan>` prepares, approves through policy and executes that
+plan. Use `--dry-run` or `prepare` when only inspection/preparation is intended.
 
 Dry-run validates and reads only; it writes no run or audit record, executes no
 commands, and performs no provider discovery or inference. With an executable
@@ -44,7 +43,7 @@ and policy output buffers retain at most 65,536 characters per stream. This cont
 programs; process groups are not a sandbox for programs that deliberately escape
 them. Cancellation is covered by real-process tests on macOS/Linux.
 
-JSON reports contain `version: 1`, `type: "orchestration"`, `action`,
+Inactive preparation JSON reports contain `version: 1`, `type: "orchestration"`, `action`,
 `localOnly: true`, `execution: "not-started"`, and `data` or
 `error: {code, message}`. Preparation/status return a `run` and graph summary;
 list returns `runs` and an `unavailable` directory count; agents/tasks return
@@ -69,7 +68,7 @@ paths, provider/model preference, token/dollar/time budgets, maximum child depth
 and count, acceptance criteria, and escalation policy. The schema rejects unknown
 fields and providers, missing declarations, duplicate IDs, cycles, malformed
 budgets, unsafe text and excessive nesting. Models are preferences only; live
-compatibility must be checked when execution is added. No model catalog is stored.
+compatibility is checked live at execution. No model catalog is stored.
 
 Path grants are normalized project-relative subtrees with `read` or `write`
 access; write includes read. Globs, traversal and symlink aliases are rejected.
@@ -84,15 +83,16 @@ Each task has an assigned agent, objective, inputs, outputs, dependencies and
 acceptance criteria. Inputs declare `id`, `kind` (`text`, `file`, `artifact`) and
 `value`. File inputs must exist as regular files within the agent's allowed scope.
 An artifact input names a declared output from a transitive dependency, including
-inputs shared at agent level. Every task declares at least one output artifact.
+inputs shared at agent level. Project artifact inputs also require the consuming
+agent's read authority. Every task declares at least one output artifact.
 Artifacts declare an ID, kind, description, and optional project-relative path
 (required for file artifacts). Kinds are file, patch, report, test_result,
 decision and evidence. Output paths require write authority.
 
 Dependency stages are deterministic readiness layers, not permission to run all
 members concurrently. The analysis separately reports unordered task pairs
-whose scopes overlap with at least one writer. The future scheduler must resolve
-those conflicts through ordering or isolation and enforce the concurrency cap.
+whose scopes overlap with at least one writer. The coordinator serializes those
+tasks and enforces the concurrency cap.
 
 Hard validation limits: 2 MiB per plan, 256 agents, 1,024 tasks, depth 8,
 concurrency 16, 100 inputs/outputs/criteria per declaration, 256 tools/path grants

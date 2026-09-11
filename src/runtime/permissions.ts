@@ -11,6 +11,7 @@ import { permissionReason, type PermissionDecision, type PermissionLayer } from 
 
 const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
 export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import', 'orchestration_prepare', 'orchestration_approve', 'orchestration_cancel', 'orchestration_budget']);
+for(const tool of ['orchestration_execute','orchestration_retry','orchestration_accept','orchestration_agent_stop'])MUTATING_TOOLS.add(tool);
 
 export interface PermissionContext {
   cwd: string;

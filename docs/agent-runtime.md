@@ -6,11 +6,11 @@ options)`, which requires an approved run, checks `orchestration_budget` through
 the permission resolver and rechecks approval after waiting. Preparation sends
 no provider request and grants no file permission.
 
-This is a library boundary. CLI runs remain inactive: there is no scheduler,
-artifact verification or resumable task execution. The embedding caller owns
-provider preferences, lifecycle callbacks and run cancellation. Revoking
-preparation cannot discover and signal independently embedded runtime instances;
-the coordinator must supply that connection before execution commands ship.
+This library boundary is used by the [coordinator](coordinator-execution.md) for
+reviewed task graphs, artifact verification and resumable execution. The coordinator
+supplies ownership, approval-revocation and cancellation checks. Other embedding
+callers remain responsible for those lifecycle connections; the library cannot
+discover and signal independently embedded runtime instances.
 
 ## Authority
 
