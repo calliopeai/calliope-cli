@@ -25,9 +25,9 @@ provider billing; absent usage cannot support complete token/cost totals.
 
 ## Real-wire release evidence
 
-**48 of 72 required combinations have real captures**, collected on September 11,
-2026 UTC. Eleven adapter paths passed text and tool probes in JSON and streaming
-mode, with partial captures for three additional paths. The
+**56 of 72 required combinations have real captures**, collected on September 11,
+2026 UTC. Fourteen adapter paths passed text and tool probes in JSON and streaming
+mode. Additional captures cover Claude Fable 5/5.1 and GPT-6 Astra via OpenRouter. The
 [follow-up report](provider-live-followup.md) records newly working credentials,
 the explicit xAI deferral, provider failures and retained budget reservations.
 The [original live test report](provider-live-testing.md) records earlier models,
@@ -50,7 +50,8 @@ toy probe at a time:
 npm run capture:provider -- --help
 npm run capture:provider -- --live --provider <adapter-id> --model <model-id> \
   --scenario tool --stream --output tests/fixtures/provider-wire/<name>.json \
-  --ledger /private/local/probe-budget.json --max-cost-usd 1 \
+  --ledger /private/local/probe-budget.json --max-cost-usd 500 \
+  --run-id model-smoke-20260911 --max-run-cost-usd 5 \
   --input-usd-per-million <verified-input-rate> \
   --output-usd-per-million <verified-output-rate>
 ```
@@ -63,8 +64,21 @@ cap at the supplied model rates against the ledger's total dollar limit. The
 request body is bounded to 4,000 UTF-8 bytes, leaving an allowance for protocol
 overhead. Rates must be verified for the selected model; zero rates are appropriate
 only for local or unbilled inference. Failed/unknown requests keep their reservation.
+This token reservation does not bound separate provider-internal research or
+search fees. Models with mandatory extra charges need separate fee bounds and
+billing evidence before further probes; an output-token cap alone is insufficient.
 An exclusive lock prevents concurrent overspend; a crash leaves the lock in place
 for inspection, never automatic refund. Each ledger permits at most 1,000 probes.
+
+The example uses the explicitly authorized $500 cumulative ceiling and $5 per-run
+ceiling for this testing campaign; these are not default spending allowances.
+Both limits are enforced by the same atomic reservation. Keep one ledger across
+runs and the same `--run-id` across restarts. Once a ledger has run records,
+omitting the run flags is rejected. Changing an existing run's cap is rejected;
+failed and cancelled requests still count toward both ceilings. A new run never
+resets cumulative reservations. Do not start new runs merely to bypass a run cap.
+The version-1 ledger adds `runs: [{ id, limitNanoUsd }]` and a `runId` reference
+on new reservations; historical unscoped reservations remain in the total.
 
 It reads no project context and executes no returned tools. Credentials and request
 headers are excluded from stored metadata. Review the decoded response, origin
@@ -74,7 +88,7 @@ fabricated provenance claim. A failed or noncompliant probe is not release evide
 The remaining combinations and additional semantic captures remain tracked in
 [#222](https://github.com/calliopeai/calliope-cli/issues/222) and
 [#262](https://github.com/calliopeai/calliope-cli/issues/262). The gate remains closed
-for OpenAI Chat/Responses, Groq, Fireworks, DeepSeek, xAI and Cerebras. The user
+for OpenAI Chat/Responses, xAI and Cerebras. The user
 deferred xAI live testing; its four missing cases stay visible and are not counted
 as passing. AI21 is retired and explicitly excluded from active coverage. Gateway
 captures count only for the adapter actually invoked.

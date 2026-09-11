@@ -13,11 +13,13 @@ const { values } = parseArgs({ options: {
   scenario: { type: 'string', default: 'text' }, stream: { type: 'boolean', default: false },
   output: { type: 'string' }, 'max-output-tokens': { type: 'string', default: '64' }, help: { type: 'boolean' },
   ledger: { type: 'string' }, 'max-cost-usd': { type: 'string' },
+  'run-id': { type: 'string' }, 'max-run-cost-usd': { type: 'string' },
   'input-usd-per-million': { type: 'string' }, 'output-usd-per-million': { type: 'string' },
 } });
 if (values.help || !values.live) {
   console.log('Usage: npm run capture:provider -- --live --provider <adapter-id> --model <model> --scenario text|tool [--stream] --output <capture.json>');
   console.log('Requires --ledger <path> --max-cost-usd <total> --input-usd-per-million <rate> --output-usd-per-million <rate>. Supply verified rates for the chosen model (zero only for local/unbilled inference).');
+  console.log('Use --run-id <stable-id> --max-run-cost-usd <limit> to enforce a persistent per-run ceiling within the total. Reuse the ID on restart.');
   console.log('Uses configured credentials, one HTTP request, at most 64 output tokens by default, 30s timeout. Fixed public toy prompts only; no tools execute. Failed requests retain their reservation.');
   console.log(`Adapters: ${BACKENDS.map(backend => backend.id).join(', ')}`);
   process.exit(values.help ? 0 : 2);
@@ -34,7 +36,8 @@ const originalFetch = globalThis.fetch;
 const signal = AbortSignal.timeout(30000);
 const recorder = createRecorder(originalFetch, backend, maxOutput, signal);
 const reservation = reserveProbe(resolve(values.ledger), { maxCostUsd: Number(values['max-cost-usd']),
-  inputRate: Number(values['input-usd-per-million']), outputRate: Number(values['output-usd-per-million']), maxOutputTokens: maxOutput });
+  inputRate: Number(values['input-usd-per-million']), outputRate: Number(values['output-usd-per-million']), maxOutputTokens: maxOutput,
+  runId: values['run-id'], maxRunCostUsd: values['max-run-cost-usd'] === undefined ? undefined : Number(values['max-run-cost-usd']) });
 let outcome = 'failed';
 globalThis.fetch = recorder.fetch;
 try {

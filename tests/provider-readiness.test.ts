@@ -21,7 +21,8 @@ it('counts unique historical captures without treating missing access or unteste
   // Control the missing-evidence case even when the real corpus gains DeepSeek captures.
   const evidence = captures.filter(capture => capture.backend !== 'deepseek');
   const report = createReadiness([...evidence, ...evidence], { deepseek: 'missing', anthropic: 'missing' });
-  expect(report.capturedWireCombinations).toBe(evidence.length);
+  const combinations = new Set(evidence.map(capture => `${capture.backend}:${capture.scenario}:${capture.stream}`));
+  expect(report.capturedWireCombinations).toBe(combinations.size);
   expect(report.adapters.find(a => a.id === 'deepseek')!.checks['text-json']).toBe('unavailable');
   const anthropic = report.adapters.find(a => a.id === 'anthropic')!;
   expect(anthropic.credentials).toBe('missing');
