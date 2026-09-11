@@ -16,6 +16,7 @@
 - Shared routing from live model metadata, with explicit preference preservation, capability checks, health/cost/latency scoring, protocol-history pins, and versioned routing events across terminal, headless and ACP (#266).
 
 - Local provider health records, `/doctor` and `calliope doctor --json`, cancellable discovery probes, diagnostic import/export, and repeated-failure quarantine with explicit-provider recovery (#264). See `docs/provider-health.md` for schemas and metric limits.
+- Live REPL provider/model controls with health and discovered cost/capacity, session-only switches, `/once` overrides, `/defaults` project preferences, and invocation flags shared with headless/ACP preference resolution (#268). Queued messages retain separate choices and pause on failure or cancellation. See `docs/model-preferences.md`.
 
 - Offline conformance contracts using real SDK parsers across all provider adapters, plus reviewed-wire capture/replay tooling and a required prepublish evidence gate (#222).
 - 36 live provider captures across nine adapter paths, with recorded provenance, gateway versions and a spend audit; remaining provider gaps still block publication (#222).

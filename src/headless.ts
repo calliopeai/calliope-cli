@@ -17,6 +17,7 @@ import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import { RunLog } from './runlog.js';
 import { formatBudgetHalt } from './budget.js';
+import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import type { Message, LLMProvider } from './types.js';
 
 // ============================================================================
@@ -85,11 +86,14 @@ function now(): string {
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
   const signal = options.signal;
   const outputMode = options.outputMode || 'json';
-  const provider = options.provider || (process.env.CALLIOPE_PROVIDER as LLMProvider) || config.get('defaultProvider');
-  const model = options.model || process.env.CALLIOPE_MODEL || config.get('defaultModel');
   const maxIterations = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
+  let preference: ResolvedPreference;
+  try { preference = resolvePreferences(cwd, { turn: { ...(options.provider !== undefined ? { provider: options.provider } : {}), ...(options.model !== undefined ? { model: options.model } : {}) } }); }
+  catch (error) { emit({ type: 'error', timestamp: now(), data: { message: error instanceof Error ? error.message : String(error) } }, outputMode); return 2; }
+  const { provider, model } = preference;
+  for (const warning of preference.warnings) emit({ type: 'status', timestamp: now(), data: { message: warning } }, outputMode);
 
   // Build prompt from stdin or --prompt flag
   let prompt = options.prompt || '';
@@ -184,6 +188,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     const result = await runTurn({
       client: 'headless',
       sessionId, cwd, provider, model, prompt,
+      preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {

@@ -48,6 +48,7 @@ export interface TurnOptions {
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
   onWarning?: (message: string) => void;
   routing?: RoutingPreferences;
+  preferenceSources?: RoutingDecision['preferenceSources'];
   onRoute?: (decision: RoutingDecision) => void;
 }
 
@@ -103,6 +104,7 @@ async function executeTurn(options: TurnOptions): Promise<TurnResult> {
         json: extra.format !== undefined,
         inputTokens: Math.ceil(JSON.stringify(input.messages).length / 3), outputTokens: 250 },
     });
+    if (options.preferenceSources) decision.preferenceSources = options.preferenceSources;
     runlog.routingDecision(decision);
     if (options.onRoute) options.onRoute(decision);
     else options.onWarning?.(formatRoutingDecision(decision));

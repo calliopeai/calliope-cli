@@ -52,6 +52,9 @@ Modules live in subdirectories; import via each package's index.
 Clients adapt presentation and approval; new execution gates belong in the runtime.
 See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics,
 and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.
+Provider/model controls and preference precedence are documented in
+[docs/model-preferences.md](docs/model-preferences.md). Session switches do not
+overwrite global defaults; project writes use the shared permission resolver.
 
 ```
 src/

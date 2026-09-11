@@ -51,6 +51,7 @@ vi.mock('../src/config.js', () => {
   });
   const api = {
     get,
+    getProviderNames: vi.fn(() => ['anthropic']),
     set: vi.fn(),
     getApiKey: vi.fn(() => undefined),
     getBaseUrl: vi.fn(() => undefined),

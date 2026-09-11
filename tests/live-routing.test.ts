@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import * as config from '../src/config.js';
-import { clearModelCache, getAvailableModels, getDiscoveredModels } from '../src/model-detection.js';
+import { clearModelCache, getAvailableModels, getDiscoveredModels, preWarmModelCache } from '../src/model-detection.js';
 import { HealthStore, providerTarget } from '../src/health/index.js';
 import { selectRoute } from '../src/routing/index.js';
 
@@ -113,6 +113,18 @@ it('cancels actual discovery HTTP requests before inference and reports a cancel
   expect((await pending).status).toBe('cancelled');
   expect(signal?.aborted).toBe(true);
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('cancels background model discovery without caching aborted results', async () => {
+  const signals: AbortSignal[] = [];
+  vi.stubGlobal('fetch', vi.fn((_input, init) => new Promise((_resolve, reject) => {
+    const signal = init?.signal as AbortSignal; signals.push(signal);
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  })));
+  const controller = new AbortController(), pending = preWarmModelCache(controller.signal);
+  await vi.waitFor(() => expect(signals.length).toBeGreaterThan(0)); controller.abort(); await pending;
+  expect(signals.every(signal => signal.aborted)).toBe(true);
+  expect(getDiscoveredModels('deepseek')).toBeUndefined();
 });
 
 it('rejects malformed preferences without making a request', async () => {

@@ -51,6 +51,8 @@ export interface AgentContext {
   provider: LLMProvider;
   model: string | undefined;
   onRoute?: (decision: RoutingDecision) => void;
+  preferenceSources?: RoutingDecision['preferenceSources'];
+  afterLoopTurn?: () => Promise<boolean>;
   mode: Mode;
   confirmMode: boolean;
   autoRoute: boolean;
@@ -74,14 +76,12 @@ export interface AgentContext {
   setActivityState: (v: ActivityState | null) => void;
   setContextTokens: (v: number) => void;
   setIsProcessing: (v: boolean) => void;
-  setQueuedMessages: (fn: string[] | ((prev: string[]) => string[])) => void;
   setEditingQueueIndex: (v: number | null) => void;
   setLoopIteration: (v: number) => void;
   setLoopActive: (v: boolean) => void;
 
   // Refs
   llmMessages: React.MutableRefObject<LLMMessage[]>;
-  queuedMessagesRef: React.MutableRefObject<string[]>;
   loopCancelledRef: React.MutableRefObject<boolean>;
   sessionRef: React.MutableRefObject<Session | null>;
 
@@ -147,7 +147,7 @@ export function _resetModeTracking(): void {
   previousTurnMode = null;
 }
 
-export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<void> {
+export async function runAgentImpl(ctx: AgentContext, content: MessageContent): Promise<boolean> {
   throwIfCancelled(ctx.signal);
   ctx.debugLog('runAgent', 'ENTER', typeof content === 'string' ? content.substring(0, 50) : '[complex]');
 
@@ -197,6 +197,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
   try {
     const result = await runTurn({
       client: 'terminal', sessionId, cwd: projectDir, provider: ctx.provider, model: ctx.model,
+      preferenceSources: ctx.preferenceSources,
       routing: { ...ctx.smartRoutingConfig, ...config.get('routing') },
       onRoute: decision => {
         if (decision.selected) { provider = decision.selected.provider; model = decision.selected.model; }
@@ -385,25 +386,12 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     if (runId) ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
     ctx.setContextTokens(ctx.estimateContextTokens());
     if (ctx.mode === 'plan' && result.totals.toolCalls === 0 && result.reason !== 'cancelled') ctx.addMessage('system', '⚠ Unverified plan — the agent read nothing to produce this. Ask it to verify (it can read files in plan mode), or treat claims as assumptions.');
-    // An incomplete or failed turn must not spend more by draining queued work.
-    if (!['completed', 'waiting_for_user'].includes(result.reason)) return;
-    const queued = [...ctx.queuedMessagesRef.current];
-    if (queued.length) {
-      ctx.setQueuedMessages([]);
-      ctx.queuedMessagesRef.current = [];
-      const followUp = queued.length === 1 ? queued[0]! : `[Multiple follow-up messages from user:]\n${queued.map((m, i) => `${i + 1}. ${m}`).join('\n')}`;
-      ctx.addMessage('system', `📨 Processing ${queued.length} queued message${queued.length > 1 ? 's' : ''}...`);
-      await cancellableDelay(100, ctx.signal);
-      await runAgentImpl(ctx, followUp);
-    }
+    return ['completed', 'waiting_for_user'].includes(result.reason);
   } catch (error) {
     const cancelled = ctx.signal?.aborted || isCancellation(error);
     if (!cancelled && !errorShown) ctx.addMessage('error', formatError(error, { provider }));
     if (runId) ctx.ledger?.finishRun(runId, cancelled ? 'stopped' : 'failed', { errorSummary: cancelled ? 'Operation cancelled' : String(error) });
-    if (!cancelled) {
-      ctx.setQueuedMessages([]);
-      ctx.queuedMessagesRef.current = [];
-    }
+    return false;
   } finally { clearDisplay(); }
 }
 
@@ -448,7 +436,11 @@ export async function runLoopImpl(ctx: AgentContext, prompt: string, maxIter: nu
 
       try {
         // Run the agent
-        await runAgentImpl(ctx, iterationPrompt);
+        if (!await runAgentImpl(ctx, iterationPrompt) || ctx.afterLoopTurn && !await ctx.afterLoopTurn()) {
+          loopOutcome = ctx.signal?.aborted ? 'cancelled' : 'error';
+          loopErrorSummary = 'Turn stopped; queued work and remaining loop iterations are paused';
+          break;
+        }
 
         // Check for completion promise in the last assistant message
         if (completionPromise) {

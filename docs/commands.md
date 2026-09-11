@@ -1,6 +1,6 @@
 # Commands
 
-Calliope exposes 23 slash commands, plus `/fleet` when fleet mode is enabled.
+Calliope exposes slash commands, plus `/fleet` when fleet mode is enabled.
 Type `/help` in a session to print the same list. Commands are entered at the
 prompt; arguments in `[brackets]` are optional.
 
@@ -42,20 +42,33 @@ Exit Calliope. `/quit` is an alias.
 
 ### `/model [name|list]`
 Switch model, or open the picker of live-discovered models. `/model` and
-`/model list` fetch the current provider's models; `/model <name>` switches directly.
+`/model list` fetch the current provider's models; `/model <name>` validates live
+eligibility before switching for this session. The picker shows discovered
+capacity and estimated cost, with missing values marked unknown.
 ```
 /model
 /model claude-sonnet-4-6
 ```
 
 ### `/provider [name|list]`
-Switch provider, or list configured providers. `/provider` opens the picker;
-`/provider list` prints the current and available providers; `/provider <name>` switches.
+Switch provider, or list providers with local health. `/provider` opens the picker;
+`/provider <name>` validates discovery before switching for this session. `auto`
+is supported. An incompatible choice leaves the prior selection intact.
 ```
 /provider
 /provider anthropic
 /provider list
 ```
+
+### `/defaults [save|reset]`
+Inspect the project selection and the defaults for a new session. `save` persists
+the current selection to the project; `reset` clears project overrides. Loading
+requires project trust, and writes obey policy. Global defaults are unchanged.
+
+### `/once [--provider <name>] [--model <id>] -- <prompt>`
+Override one turn, including its retries and tool continuations. Queued messages
+retain separate choices; these overrides never become saved defaults. See
+[Model preferences](model-preferences.md) for precedence, bounds and recovery.
 
 ### `/mode [plan|hybrid|work]`
 Switch operating mode. With no argument, prints the current mode. Press

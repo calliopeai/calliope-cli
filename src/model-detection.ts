@@ -1190,12 +1190,14 @@ export function clearModelCache(provider?: LLMProvider): void {
  * Pre-warm model cache for configured providers
  * Runs in background, doesn't block startup
  */
-export async function preWarmModelCache(): Promise<void> {
+export async function preWarmModelCache(parentSignal?: AbortSignal): Promise<void> {
   const configuredProviders = config.getConfiguredProviders();
+  const deadline = AbortSignal.timeout(30000);
+  const signal = parentSignal ? AbortSignal.any([parentSignal, deadline]) : deadline;
 
   // Fetch models for all configured providers in parallel
   await Promise.allSettled(
-    configuredProviders.map(provider => getAvailableModels(provider, { quiet: true }))
+    configuredProviders.map(provider => getAvailableModels(provider, { quiet: true, signal }))
   );
 }
 

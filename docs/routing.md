@@ -117,6 +117,8 @@ provider/model, hashed target, evidence source/timestamp, capabilities, limits,
 prices, estimated cost, latency, error rate, score and explanation. Missing
 scalar evidence uses `null`; unknown capability/price members are omitted.
 No prompt, tool arguments, API keys, or raw provider errors enter this record.
+Clients that resolve scoped preferences also include `preferenceSources`, naming
+the source of the provider and model choice; see [Model preferences](model-preferences.md).
 
 Run logs append `routing_decision` events and include them in read-only replay
 and JSON export. The hash covers the exact serialized JSON, including omission

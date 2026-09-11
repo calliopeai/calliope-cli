@@ -9,10 +9,10 @@
 import { useEffect } from 'react';
 import type { MutableRefObject } from 'react';
 import { render, Box } from 'ink';
-import * as config from '../config.js';
 import { selectProvider, ProviderUnavailableError } from '../providers/index.js';
 import { DEFAULT_MODELS } from '../types.js';
 import type { LLMProvider } from '../types.js';
+import { resolvePreferences, type ModelPreference } from '../preferences/index.js';
 import { getVersion } from '../version-check.js';
 import { getCurrentSkin, paletteColorize } from '../hud/api.js';
 import { renderColoredBanner, renderSplashAnimation, renderTransition, colorFg } from '../terminal-image.js';
@@ -37,8 +37,8 @@ export interface ChatHandle {
   resetSession: () => void;
 }
 
-export function TerminalChat({ controllerRef }: { controllerRef?: MutableRefObject<ChatHandle | null> }) {
-  const c = useChatController();
+export function TerminalChat({ controllerRef, initialPreference }: { controllerRef?: MutableRefObject<ChatHandle | null>; initialPreference?: ModelPreference }) {
+  const c = useChatController(initialPreference);
 
   // Mount counter for the reset-without-remount assertion (no-op in production).
   useEffect(() => { probeMount('terminal-chat'); }, []);
@@ -66,19 +66,20 @@ export function TerminalChat({ controllerRef }: { controllerRef?: MutableRefObje
 // App Wrapper & Entry Point
 // ============================================================================
 
-function App() {
+function App({ initialPreference }: { initialPreference?: ModelPreference }) {
   // The ErrorBoundary swaps in a fallback on a render crash; retrying clears its
   // error state, which remounts TerminalChat fresh — no remount key needed.
   return (
     <ErrorBoundary>
-      <TerminalChat />
+      <TerminalChat initialPreference={initialPreference} />
     </ErrorBoundary>
   );
 }
 
 // Print banner before Ink takes over (stays fixed at top)
-export async function printBanner(): Promise<void> {
-  const requested = config.get('defaultProvider');
+export async function printBanner(initial?: ModelPreference): Promise<void> {
+  const preference = resolvePreferences(process.cwd(), { session: initial });
+  const requested = preference.provider;
   // Never claim a provider that won't serve (#217). If the selected provider is
   // unconfigured, show the real selection annotated as such rather than
   // crashing the banner or pretending a working provider.
@@ -90,7 +91,7 @@ export async function printBanner(): Promise<void> {
     provider = err instanceof ProviderUnavailableError ? err.provider : requested;
     providerNote = ' (not configured — run calliope --setup)';
   }
-  const model = config.get('defaultModel') || DEFAULT_MODELS[provider];
+  const model = preference.model || DEFAULT_MODELS[provider];
   const skin = getCurrentSkin();
 
   const dim = '\x1b[2m';
@@ -149,12 +150,12 @@ export async function printBanner(): Promise<void> {
   console.log();
 }
 
-export async function startInkCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
+export async function startInkCLI(options: { skipPermissions?: boolean; initialPreference?: ModelPreference } = {}): Promise<void> {
 
   // Print banner BEFORE Ink starts - it stays fixed at the top
-  await printBanner();
+  await printBanner(options.initialPreference);
 
-  const { waitUntilExit } = render(<App />, {
+  const { waitUntilExit } = render(<App initialPreference={options.initialPreference} />, {
     patchConsole: true,  // Prevent console.log during session from mixing with Ink
   });
   await waitUntilExit();

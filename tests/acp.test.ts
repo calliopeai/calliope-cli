@@ -26,7 +26,8 @@ vi.mock('os', async () => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('../src/config.js', () => ({
+vi.mock('../src/config.js', async original => ({
+  ...await original<typeof import('../src/config.js')>(),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;
@@ -191,6 +192,22 @@ beforeEach(() => {
   mockExecuteTool.mockReset();
   mockExecuteTool.mockResolvedValue({ toolCallId: 't', result: 'ok', isError: false });
   resetRunLogs();
+});
+
+it('resolves trusted project model defaults for ACP and rejects malformed defaults before starting a session', async () => {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpHome, 'project-defaults-')));
+  const { trustProject } = await import('../src/trust.js');
+  const { saveProjectDefaults } = await import('../src/preferences/index.js');
+  try {
+    trustProject(root); await saveProjectDefaults(root, { provider: 'xai', model: 'project-model' });
+    const { conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn, root);
+    scriptChat([{ content: 'Done' }]);
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'Toy prompt' }] })).stopReason).toBe('end_turn');
+    expect(mockChat.mock.calls[0]?.[0]).toBe('xai'); expect(mockChat.mock.calls[0]?.[3]).toBe('project-model');
+    fs.writeFileSync(path.join(root, '.calliope-models.json'), '{');
+    await expect(newSession(conn, root)).rejects.toThrow();
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
 afterEach(() => {

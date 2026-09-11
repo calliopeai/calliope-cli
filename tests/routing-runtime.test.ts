@@ -1,6 +1,6 @@
 /** Real routing, runtime, permission resolver, audit store and SDK transport. */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as config from '../src/config.js';
@@ -10,6 +10,8 @@ import { RunLog, readRunLog, verifyChain, resetRunLogs } from '../src/runlog.js'
 import { renderReplay } from '../src/replay.js';
 import { runHeadless } from '../src/headless.js';
 import type { Message } from '../src/types.js';
+import { saveProjectDefaults } from '../src/preferences/index.js';
+import { trustProject } from '../src/trust.js';
 
 let root: string, requests: { model: string; messages: unknown[] }[];
 let toolSupport: boolean;
@@ -19,7 +21,7 @@ const completion = (model: string) => json({ id: 'toy-response', object: 'chat.c
   usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } });
 beforeEach(() => {
   config.resetConfig(); clearModelCache(); resetRunLogs();
-  root = mkdtempSync(join(tmpdir(), 'calliope-routing-runtime-'));
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'calliope-routing-runtime-')));
   requests = []; toolSupport = true;
   for (const provider of config.getProviderNames()) {
     const env = config.getProviderEnvVars(provider);
@@ -40,6 +42,33 @@ function options(extra: Partial<TurnOptions> = {}): TurnOptions {
     messages: { current: [{ role: 'user', content: 'Say done.' }] }, confirmation: 'none', maxIterations: 2, tools: () => [],
     runlog: RunLog.open('route-runtime', { dir: join(root, 'runs') }), ...extra };
 }
+
+it('uses project, environment and explicit invocation preferences in headless JSON without persisting overrides', async () => {
+  const chunks: string[] = [];
+  vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { chunks.push(String(chunk)); return true; });
+  trustProject(root); await saveProjectDefaults(root, { provider: 'deepseek', model: 'deepseek-live' });
+  const invoke = (provider?: 'deepseek') => runHeadless({ cwd: root, provider, prompt: 'Say done.', maxIterations: 1, outputMode: 'json' });
+  expect(await invoke()).toBe(0);
+  vi.stubEnv('CALLIOPE_PROVIDER', 'xai');
+  expect(await invoke()).toBe(0);
+  expect(await invoke('deepseek')).toBe(0);
+  expect(requests.map(request => request.model)).toEqual(['deepseek-live', 'xai-live', 'deepseek-live']);
+  const events = chunks.join('').trim().split('\n').map(line => JSON.parse(line));
+  const sources = events.filter(event => event.data.routing).map(event => event.data.routing.preferenceSources.provider);
+  expect(sources).toEqual(['project', 'project', 'environment', 'environment', 'turn', 'turn']);
+  expect(events.filter(event => event.type === 'done')).toHaveLength(3);
+  expect(config.get('defaultProvider')).toBe('auto');
+});
+
+it('reports malformed project or invocation preferences in the headless error envelope before inference', async () => {
+  const chunks: string[] = [];
+  vi.spyOn(process.stdout, 'write').mockImplementation(chunk => { chunks.push(String(chunk)); return true; });
+  expect(await runHeadless({ cwd: root, model: '', prompt: 'No inference', outputMode: 'json' })).toBe(2);
+  trustProject(root); writeFileSync(join(root, '.calliope-models.json'), '{');
+  expect(await runHeadless({ cwd: root, prompt: 'No inference', outputMode: 'json' })).toBe(2);
+  expect(chunks.map(line => JSON.parse(line)).every(event => event.type === 'error' && typeof event.data.message === 'string')).toBe(true);
+  expect(requests).toEqual([]);
+});
 
 it.each(['terminal', 'headless', 'acp', 'library'] as const)('routes %s runtime requests using live metadata and keeps original preferences in the audit trail', async client => {
   const opts = options({ client }), onRoute = vi.fn();

@@ -12,6 +12,7 @@ import type { ModelInfo } from '../../model-detection.js';
 import type { MessageContent, ToolCall } from '../../types.js';
 import type { SessionInfo } from '../types.js';
 import type { ProviderEntry } from '../modals/index.js';
+import type { Submission } from '../../preferences/index.js';
 
 export type ModalMode =
   | 'none' | 'model' | 'upgrade' | 'confirm' | 'session-resume'
@@ -19,6 +20,7 @@ export type ModalMode =
 
 export interface PendingComplexPrompt {
   prompt: MessageContent;
+  submission?: Submission;
   complexity: { isComplex: boolean; reason?: string };
 }
 

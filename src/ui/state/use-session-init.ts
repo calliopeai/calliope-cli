@@ -90,9 +90,11 @@ export function useSessionInit(deps: SessionInitDeps): void {
     });
 
     // Pre-warm model cache in background for faster model switching
-    preWarmModelCache().catch((err) => {
+    const discovery = new AbortController();
+    preWarmModelCache(discovery.signal).catch((err) => {
       debugLog('cache', 'model cache pre-warm failed:', err instanceof Error ? err.message : err);
     });
+    return () => discovery.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 }
