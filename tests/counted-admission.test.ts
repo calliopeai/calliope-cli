@@ -129,3 +129,11 @@ it('recounts and reserves every shared network retry without hidden SDK retries'
   const saved=ledger.read(project);expect(Object.values(saved.projection.requests).map(r=>r.state)).toEqual(['unknown','settled']);expect(saved.projection.spent.costNanos).toBe(2605000);
   vi.spyOn(config,'getApiKey').mockReturnValue(undefined);await expect(countAnthropicInput([],[],route.model,false)).rejects.toThrow(/key not configured/);
 });
+it.each(['agent','project'] as const)('denies revocation during durable %s admission and retains its reservation',async kind=>{
+  const {execution,ledger}=guard(),{ProjectSpendLedger}=await import('../src/execution/index.js'),reserve=ProjectSpendLedger.prototype.reserve;
+  vi.spyOn(ProjectSpendLedger.prototype,'reserve').mockImplementation(async function(this:InstanceType<typeof ProjectSpendLedger>,...args){await reserve.apply(this,args);fs.unlinkSync(file);});
+  const budget=kind==='agent'?execution.budget(route,messages,tools,false):projectAttemptBudget(project,randomUUID(),route,messages,tools,false,100);
+  await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{maxOutputTokens:100,attemptBudget:budget})).rejects.toThrow(/revoked while committing/);
+  expect(requests.map(r=>r.path)).toEqual(['/v1/messages/count_tokens']);expect(loadProjectSpend(project).spentUsd).toBe(0.002576);
+  if(kind==='agent')expect(Object.values(ledger.read(project).projection.requests)[0]!.state).toBe('pending');
+});

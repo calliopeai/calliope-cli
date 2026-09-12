@@ -57,7 +57,10 @@ export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidat
       if(billing&&(!actual.inputCount||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
       const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount);
       const id=randomUUID(),cap=getBudgetCaps().maxCostPerProject;
-      await ledger.reserve(id,runId,quote.costNanos,cap===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(cap),signal);quotes.set(id,quote);onEvent?.(id,'reserved',quote.quoteEvidence);return id;
+      await ledger.reserve(id,runId,quote.costNanos,cap===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(cap),signal);quotes.set(id,quote);onEvent?.(id,'reserved',quote.quoteEvidence);
+      throwIfCancelled(signal);
+      if(billing&&readBillingEvidence(route,project)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Counted admission was revoked while committing its reservation.');
+      return id;
     },
     settle:async(id,outcome,usage)=>{
       const quote=quotes.get(id);if(!quote)throw new ExecutionLimitError('authority','Unknown project request reservation.');

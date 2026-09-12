@@ -87,7 +87,9 @@ export class ExecutionGuard {
         try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits},signal);}
         catch(error){await projectLedger.settle(id,0);throw error;}
         onEvent?.({requestId:id,stage:'reserved',revision:state.revision,...state.spent});
-        this.assertActive(signal);return id;
+        this.assertActive(signal);
+        if(billing&&readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Counted admission was revoked while committing its reservation.');
+        return id;
       },
       settle:async(id,outcome,usage)=>{
         const valid=!usage||[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0&&n<=100000000);
