@@ -17,6 +17,7 @@ React/Ink, ESM. 3.2.0 in preparation; latest published release is 3.1.0. Node �
 | Language | TypeScript, **ESM** (`"type": "module"`, `module: NodeNext`, `strict: true`) |
 | UI | React 19 + Ink 7 (terminal UI) |
 | Entry | `src/bin.ts` → `dist/bin.js` (the `calliope` bin) |
+| Knowledge | Private versioned journal and lazy SQLite (`sql.js`) indexes |
 | Config store | `conf` (schema-validated JSON under the OS config dir) |
 | Providers | `@anthropic-ai/sdk`, `@google/genai`, `openai` (+ OpenAI-compatible endpoints) |
 | Tests | Vitest — behavioral and transport tests under `tests/`; coverage floor 90% lines (enforced by `npm run test:coverage`) |
@@ -81,6 +82,8 @@ evidence between batches and applies bounded retries, strategy changes and child
 admissions under the original authority, with explicit interrupted-call recovery.
 [Improvement cycles](docs/improvement-cycles.md) derives auditable nested experiments,
 measured outcomes and persistent proposal approval/withdrawal controls from that history.
+[Project brain and knowledge graph](docs/project-brain.md) adds private versioned knowledge,
+portable SQLite indexes, provenance, human corrections, safe transfers and source-policy checks.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.

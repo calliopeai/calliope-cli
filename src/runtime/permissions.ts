@@ -15,6 +15,8 @@ for(const tool of ['orchestration_execute','orchestration_retry','orchestration_
 for(const tool of ['orchestration_goal_plan','orchestration_goal_approve','orchestration_goal_resume','orchestration_goal_cancel','orchestration_goal_revise'])MUTATING_TOOLS.add(tool);
 for(const tool of ['orchestration_workspace','orchestration_improve','orchestration_improvement_rollback'])MUTATING_TOOLS.add(tool);
 
+for(const tool of ['brain_init','brain_write','brain_reverse','brain_reindex'])MUTATING_TOOLS.add(tool);
+
 export interface PermissionContext {
   cwd: string;
   mode?: Mode;

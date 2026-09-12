@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add a private project/global brain with a versioned journal, SQLite search and graph indexes, source provenance, human review/reversal, freshness checks, safe transfers and verified run ingestion; expose matching CLI/REPL commands and stable local JSON (#302).
+
 - Add auditable recursive improvement cycles, measured outcome feedback and HUD status; provide persistent proposal holds, exact-hash execution approval and strategy withdrawal while preserving isolated evidence, original budgets and deadlines (#301).
 
 - Compact controller reviews without dropping acceptance or authority, validate executor receipt summaries, and support explicit per-role reasoning effort gated by live native Anthropic discovery and counted-request hashes (#299).

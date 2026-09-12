@@ -69,6 +69,19 @@ Recorded artifact checks determine completion; unverified criteria require human
 acceptance. See [coordinator execution](docs/coordinator-execution.md) for plan
 contracts, provider requirements, cancellation and recovery.
 
+Record and query project knowledge locally, without model requests:
+
+```bash
+calliope brain init --allow-mutations
+calliope brain ingest docs/design.md --allow-mutations
+calliope brain search "storage decision" --json
+calliope kg graph
+```
+
+The [project brain](docs/project-brain.md) preserves source provenance, supports
+human review and reversal, tracks stale documents, and links verified run evidence.
+Use `/brain` and `/kg` for the same controls in the REPL.
+
 ## Configuration
 
 One file, 16 keys. Credentials live in a per-provider map with environment-variable fallbacks:

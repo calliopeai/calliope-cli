@@ -24,6 +24,7 @@ const BASE_SLASH_COMMANDS = [
   '/once',
   '/doctor', '/doctor providers', '/doctor provider',
   '/run', '/run prepare', '/run status', '/run approve', '/run cancel', '/run replay', '/run execute', '/run resume', '/run retry', '/run accept', '/agents', '/agents tree', '/agents hud', '/agents hud agents', '/agents hud workflows', '/agents hud off', '/agents stop', '/agents retry', '/tasks', '/tasks graph', '/tools', '/tools list', '/tools last',
+  '/brain', '/brain init', '/brain status', '/brain ingest', '/brain ingest-run', '/brain search', '/brain entity', '/brain neighbors', '/brain path', '/brain graph', '/brain decisions', '/brain risks', '/brain history', '/brain note', '/brain edit', '/brain edit-edge', '/brain link', '/brain reverse', '/brain export', '/brain import', '/brain refresh', '/brain reindex', '/kg', '/kg search', '/kg graph',
   '/improve', '/improve history', '/improve propose', '/improve run', '/improve rollback',
   '/orchestrate', '/orchestrate plan', '/orchestrate list', '/orchestrate status', '/orchestrate proposal', '/orchestrate replay', '/orchestrate approve', '/orchestrate resume', '/orchestrate cancel', '/orchestrate revise',
   '/permissions', '/permissions list', '/permissions reset', '/permissions revoke',

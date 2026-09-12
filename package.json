@@ -62,12 +62,14 @@
     "ink": "^7.1.0",
     "openai": "^6.46.0",
     "react": "^19.2.3",
+    "sql.js": "1.14.2",
     "string-width": "8.2.2",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.7",
+    "@types/sql.js": "1.4.11",
     "@vitest/coverage-v8": "^4.0.16",
     "ink-testing-library": "^4.0.0",
     "sharp": "^0.35.3",
