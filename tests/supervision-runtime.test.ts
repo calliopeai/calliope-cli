@@ -13,6 +13,7 @@ import {projectBudgetPath} from '../src/budget.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import * as commands from '../src/isolation/process.js';
 import {workflowSnapshot,workflowLines} from '../src/ui/workflow-progress.js';
+import {inspectImprovements,proposeImprovement,runImprovement,withdrawImprovement,runImprovementCommand,improvementProposalHash,projectImprovementHistory,improvementFeedback} from '../src/improvement/index.js';
 import {reviewEvidence} from '../src/supervision/index.js';
 vi.setConfig({testTimeout:20000}); // Multiple real Git worktrees and durable journals per recovery scenario.
 let root:string,project:string,runs:RunStore,requests:any[],verificationExits:number[],controllerTool:boolean,decide:(context:any,signal:AbortSignal)=>Promise<unknown>;
@@ -48,7 +49,7 @@ beforeEach(()=>{
   }));
   vi.spyOn(commands,'runIsolatedCommand').mockImplementation(async(image,command)=>{const exit=verificationExits.shift()??0;return{version:1,kind:'isolated-command',argv:command.argv,image,exitCode:exit,outcome:exit?'failed':'passed',stdout:'retained boundary test evidence',stderr:'',truncated:false,durationMs:1,container:'calliope-check-'+randomUUID(),cleanupConfirmed:true};});
 });
-afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
+afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 async function reviewed(p=plan()){fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const view=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,view.run.id,'approved',{store:runs});}
 const execute=(id:string,extra={})=>executeReviewedRun(project,id,{store:runs,approve:async()=> 'allow',...extra});
 
@@ -146,4 +147,105 @@ it('does not disclose controller evidence to a worker whose read scope excludes 
   const p=plan(),restricted=structuredClone(p.agents[1]!);restricted.id='restricted';restricted.allowedPaths=[{path:'b',access:'read'}];p.agents.push(restricted);fs.mkdirSync(join(project,'b'));
   const view=await reviewed(p),result=await execute(view.run.id),store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),event=result.execution.events.find(e=>e.change.type==='task_finished')!;
   await expect(reviewEvidence(store,[event.id],{},'restricted')).rejects.toThrow('policy');await expect(reviewEvidence(store,[event.id],{},'absent')).rejects.toThrow('policy');
+});
+
+it('proposes without applying work, then runs the exact reviewed cycle under the original clock and budget',async()=>{
+  verificationExits=[1,0];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed(),first=await execute(view.run.id);
+  expect(first.status).toBe('failed');const before=requests.length,deadline=first.execution.header.deadline;
+  decide=async context=>context.outcomes.some((o:any)=>o.status==='failed')?retry(context):keepGoing(context);
+  const proposal=await proposeImprovement(project,view.run.id,{store:runs,approve:async()=> 'allow'});
+  expect(requests.length-before).toBe(1);expect(proposal.cycle.status).toBe('proposed');expect(proposal.cycle.results).toEqual([]);
+  const waiting=await inspectImprovements(project,view.run.id,{store:runs});expect(waiting.execution!.state.tasks['inspect-a']!.attempts).toBe(1);expect(waiting.execution!.state.supervision?.phase,JSON.stringify(waiting.execution!.state.supervision)).toBe('decision');
+  expect(waiting.execution!.state.supervision!.review).toMatchObject({decisionId:proposal.cycle.id,approved:false});
+  await expect(execute(view.run.id,{resume:true})).rejects.toThrow('exact reviewed approval');
+  expect((await proposeImprovement(project,view.run.id,{store:runs})).existing).toBe(true);expect(requests.length-before).toBe(1);
+  await expect(runImprovement(project,view.run.id,proposal.cycle.id,'wrong',{store:runs})).rejects.toThrow('exact reviewed');
+  await expect(runImprovement(project,view.run.id,proposal.cycle.id,proposal.proposalHash,{store:runs,confirmation:'mutating',approve:async()=> 'reject'})).rejects.toThrow();expect(requests.length-before).toBe(1);
+  const deniedLines:string[]=[];expect(await runImprovementCommand(['run',proposal.cycle.id,'--run',view.run.id,'--approve',proposal.proposalHash,'--json'],{cwd:project,store:runs,write:l=>deniedLines.push(l)})).toBe(3);expect(JSON.parse(deniedLines.at(-1)!).error.code).toBe('policy-denied');expect(requests.length-before).toBe(1);
+  const hud:string[]=[],runLines:string[]=[];expect(await runImprovementCommand(['run',proposal.cycle.id,'--run',view.run.id,'--approve',proposal.proposalHash,'--allow-mutations','--json'],{cwd:project,store:runs,onProgress:p=>hud.push(...workflowLines([workflowSnapshot(p)],'agents')),write:l=>runLines.push(l)})).toBe(0);const result=JSON.parse(runLines.at(-1)!).data;
+  expect(result.status).toBe('completed');expect(result.execution.header.deadline).toBe(deadline);expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(2);expect(requests.length-before).toBe(4);
+  const current=await inspectImprovements(project,view.run.id,{store:runs}),cycle=current.history.cycles[0]!;
+  expect(cycle.status).toBe('verified');expect(cycle.application).not.toBeNull();expect(cycle.approval.proposal).not.toBeNull();expect(cycle.approval.approval).not.toBeNull();expect(cycle.hypothesis.state).toBe('proposed');expect(cycle.approval.production).toBe('not-approved');
+  expect(cycle.rollback.baseCommit).toMatch(/^[a-f0-9]{40}$/);expect(cycle.rollback.patches).toHaveLength(1);expect(cycle.results[0]!.artifacts.find(a=>a.kind==='patch')?.sha256).toMatch(/^[a-f0-9]{64}$/);
+  const metric=cycle.metrics.find(m=>m.name==='acceptance-check-pass-rate')!;expect(metric.comparable).toBe(true);expect(metric.after!).toBeGreaterThan(metric.before!);
+  expect(cycle.budget.deadline).toBe(deadline);expect(cycle.source.decision.id).toBe(proposal.cycle.id);expect(improvementProposalHash(cycle)).toBe(proposal.proposalHash);
+  expect(improvementFeedback(current.history).cycles[0]!.status).toBe('verified');expect(hud.some(s=>s.includes('improvement 1 verified'))).toBe(true);
+  expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);
+  const lines:string[]=[];expect(await runImprovementCommand(['history','--run',view.run.id,'--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(0);expect(JSON.parse(lines[0]!).data).toEqual(current.history);
+});
+
+it('withdraws an unexecuted proposal, retains reservations and refuses a stale approval after a permission race',async()=>{
+  verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed();await execute(view.run.id);decide=async context=>retry(context);
+  const proposal=await proposeImprovement(project,view.run.id,{store:runs,approve:async()=> 'allow'}),calls=requests.length;
+  const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project);
+  await expect(withdrawImprovement(project,view.run.id,proposal.cycle.id,{store:runs,confirmation:'mutating',approve:async()=> 'reject'})).rejects.toThrow();
+  let withdrawn=false;
+  await expect(runImprovement(project,view.run.id,proposal.cycle.id,proposal.proposalHash,{store:runs,confirmation:'mutating',approve:async()=>{if(!withdrawn){withdrawn=true;await withdrawImprovement(project,view.run.id,proposal.cycle.id,{store:runs,approve:async()=> 'allow'});}return 'allow';}})).rejects.toThrow();
+  const history=await inspectImprovements(project,view.run.id,{store:runs});expect(history.history.cycles[0]!.status).toBe('withdrawn');expect(history.execution!.state.supervision?.phase).toBe('halted');expect(requests).toHaveLength(calls);
+  expect(ledger.read(project).projection.spent).toEqual(before.projection.spent);expect(history.execution!.state.tasks['inspect-a']!.attempts).toBe(1);
+  expect((await withdrawImprovement(project,view.run.id,proposal.cycle.id,{store:runs})).alreadyWithdrawn).toBe(true);
+  expect(replayExecution(history.execution!.header,view.manifest,history.execution!.events)).toEqual(history.execution!.state);
+});
+
+it('retires an applied strategy without rewriting results, restores its predecessor and never refunds spend',async()=>{
+  const p=plan();p.agents[0]!.escalationPolicy.maxRetries=2;p.agents[1]!.escalationPolicy.maxRetries=2;p.agents[1]!.tokenBudget=40000;p.agents[1]!.costBudgetUsd=0.4;p.supervision!.maxStalledRounds=3;verificationExits=[1,1,0];
+  decide=async context=>context.outcomes.some((o:any)=>o.status==='failed')?{...retry(context),strategy:`Preserve tests and use strategy ${context.round}.`}:keepGoing(context);
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).toBe('completed');
+  const initial=await inspectImprovements(project,view.run.id,{store:runs}),[first,second]=initial.history.cycles;expect(first!.status).toBe('failed');expect(second!.previousCycleId).toBe(first!.id);expect(second!.status).toBe('verified');
+  const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),spent=ledger.read(project).projection.spent,calls=requests.length;
+  await withdrawImprovement(project,view.run.id,second!.id,{store:runs,approve:async()=> 'allow'});
+  const after=await inspectImprovements(project,view.run.id,{store:runs});expect(after.execution!.state.supervision?.strategies['inspect-a']?.decisionId).toBe(first!.id);expect(after.execution!.state.tasks).toEqual(result.execution.state.tasks);
+  expect(after.history.cycles[1]!.results).toEqual(second!.results);expect(after.history.cycles[1]!.status).toBe('withdrawn');expect(ledger.read(project).projection.spent).toEqual(spent);expect(requests).toHaveLength(calls);
+  await withdrawImprovement(project,view.run.id,first!.id,{store:runs,approve:async()=> 'allow'});expect((await inspectImprovements(project,view.run.id,{store:runs})).execution!.state.supervision?.strategies).toEqual({});
+});
+
+it('links recursive improvements to the admitting cycle without claiming comparable metrics for new tasks',async()=>{
+  const p=plan(),child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
+  verificationExits=[0,1,0];
+  decide=async context=>context.round===1?{...keepGoing(context),action:'decompose',hypothesis:'An independent child supplies more evidence.',expectedMetric:{name:'verified tasks',direction:'increase'},children:{version:1,parentId:'coordinator',agents:[child],tasks:[task]}}:context.round===2?{...retry(context),taskId:'child-task'}:keepGoing(context);
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).toBe('completed');
+  const current=await inspectImprovements(project,view.run.id,{store:runs}),[parent,nested]=current.history.cycles;
+  expect(parent!.status).toBe('failed');expect(parent!.metrics.every(m=>!m.comparable)).toBe(true);expect(nested!.parentCycleId).toBe(parent!.id);expect(nested!.status).toBe('verified');
+  expect(nested!.budget.accounts.map(a=>a.id)).toContain('coordinator');expect(nested!.budget.deadline).toBe(parent!.budget.deadline);
+  expect(projectImprovementHistory(view.manifest,result.execution,current.store.context()).cycles.map(c=>c.id)).toEqual(current.history.cycles.map(c=>c.id));
+  const before=result.execution.state.graph?.admissions;await withdrawImprovement(project,view.run.id,parent!.id,{store:runs,approve:async()=> 'allow'});
+  const withdrawn=await inspectImprovements(project,view.run.id,{store:runs});expect(withdrawn.execution!.state.graph?.admissions).toEqual(before);expect(withdrawn.execution!.state.stoppedAgents).toContain('child');
+});
+
+it('rejects changed artifact and worktree provenance during improvement inspection',async()=>{
+  verificationExits=[1,0];decide=async context=>context.outcomes.some((o:any)=>o.status==='failed')?retry(context):keepGoing(context);
+  const view=await reviewed();await execute(view.run.id);const initial=await inspectImprovements(project,view.run.id,{store:runs}),artifact=initial.history.cycles[0]!.baseline[0]!.artifacts[0]!,file=join(initial.store.root,'artifacts',artifact.path),bytes=fs.readFileSync(file);
+  fs.writeFileSync(file,'changed');await expect(inspectImprovements(project,view.run.id,{store:runs})).rejects.toThrow();fs.writeFileSync(file,bytes);
+  const base=join(initial.store.root,'workspace-base.json'),original=fs.readFileSync(base);fs.writeFileSync(base,'{"private":"malformed"}');await expect(inspectImprovements(project,view.run.id,{store:runs})).rejects.toThrow();fs.writeFileSync(base,original);
+  const controller=new AbortController();controller.abort();await expect(inspectImprovements(project,view.run.id,{store:runs,signal:controller.signal})).rejects.toMatchObject({name:'AbortError'});
+  const lines:string[]=[];expect(await runImprovementCommand(['run','--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(2);expect(JSON.parse(lines[0]!).error.code).toBe('invalid');
+});
+
+it('cancels an improvement review, blocks a concurrent proposer and retains the uncertain reservation',async()=>{
+  verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed(),first=await execute(view.run.id),calls=requests.length;
+  let ready!:()=>void;const began=new Promise<void>(resolve=>{ready=resolve;});decide=async(_context,signal)=>{ready();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
+  const controller=new AbortController(),pending=proposeImprovement(project,view.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow'});const rejection=expect(pending).rejects.toMatchObject({name:'AbortError'});await began;
+  await expect(proposeImprovement(project,view.run.id,{store:runs})).rejects.toThrow('active coordinator');controller.abort();await rejection;
+  const current=await inspectImprovements(project,view.run.id,{store:runs});expect(current.execution!.header).toEqual(first.execution.header);expect(current.execution!.state.supervision?.halt?.outcome).toBe('cancelled');expect(current.execution!.state.tasks['inspect-a']!.attempts).toBe(1);expect(requests).toHaveLength(calls+1);
+  await expect(execute(view.run.id,{resume:true})).rejects.toThrow('interrupted proposal review');expect(requests).toHaveLength(calls+1);
+  const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(Object.values(ledger.projection.requests).filter(r=>r.state==='unknown')).toHaveLength(1);
+});
+
+it('streams proposal events as JSON and allows an expired proposal to be withdrawn but never executed',async()=>{
+  verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed();await execute(view.run.id);decide=async context=>retry(context);
+  const lines:string[]=[];expect(await runImprovementCommand(['propose','--run',view.run.id,'--allow-mutations','--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(0);
+  const records=lines.map(l=>JSON.parse(l)),last=records.at(-1),{cycle,proposalHash}=last.data;expect(last).toMatchObject({version:1,type:'improvement',action:'propose',localOnly:true});
+  const events=records.filter(r=>r.type==='improvement.event');expect(events.length).toBeGreaterThan(0);expect(events.every(r=>r.version===1&&r.runId===view.run.id&&r.event.version===(r.event.change.type.startsWith('supervision_')?3:1)&&r.event.hash.length===64)).toBe(true);
+  const calls=requests.length,ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project);vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(cycle.budget.deadline+1);
+  await expect(runImprovement(project,view.run.id,cycle.id,proposalHash,{store:runs})).rejects.toThrow(/deadline|expired/i);
+  const human:string[]=[];expect(await runImprovementCommand(['history','--run',view.run.id],{cwd:project,store:runs,write:l=>human.push(l)})).toBe(0);expect(human[0]).toContain(cycle.id);
+  const rolled:string[]=[];expect(await runImprovementCommand(['rollback',cycle.id,'--run',view.run.id,'--allow-mutations','--json'],{cwd:project,store:runs,write:l=>rolled.push(l)})).toBe(0);expect(JSON.parse(rolled.at(-1)!).data.cycle.status).toBe('withdrawn');
+  expect(ledger.read(project)).toEqual(before);expect(requests).toHaveLength(calls);
+});
+
+it('rejects malformed improvement commands and redacts unexpected errors without inference',async()=>{
+  for(const args of [['unknown'],['run'],['history','extra'],['history','--approve','hash'],['run','cycle'],['rollback'],['--bogus'],['x'.repeat(4097)],['history\n']]){
+    const lines:string[]=[];expect(await runImprovementCommand([...args,'--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(2);expect(JSON.parse(lines.at(-1)!).error.code).toBe('invalid');
+  }
+  const lines:string[]=[];const signal=AbortSignal.abort();expect(await runImprovementCommand(['--json'],{cwd:project,store:runs,signal,write:l=>lines.push(l)})).toBe(130);expect(JSON.parse(lines.at(-1)!).error.code).toBe('cancelled');expect(requests).toEqual([]);
 });

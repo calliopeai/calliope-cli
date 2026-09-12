@@ -40,13 +40,16 @@ export type SupervisionChange=
   |{type:'supervision_decided';round:number;role:SupervisionRole;agentId:string;sessionId:string;decision:SupervisionDecision}
   |{type:'supervision_applied';round:number;decisionId:string;receipts:RetryReceipt[]}
   |{type:'supervision_halted';round:number;outcome:'stop'|'limit'|'failed'|'denied'|'cancelled'|'interrupted';reason:string}
-  |{type:'supervision_reset';source:'cli'|'repl'};
+  |{type:'supervision_reset';source:'cli'|'repl'}
+  |{type:'supervision_withdrawn';decisionId:string;source:'cli'|'repl'}
+  |{type:'supervision_proposed'|'supervision_approved';decisionId:string;proposalHash:string;source:'cli'|'repl'};
 
 export interface SupervisionProjection {
   version:1;rounds:number;stalledRounds:number;
   phase:'ready'|'controller'|'draft-ready'|'reviewer'|'decision'|'halted';
   evidenceIds:string[];evidenceHash:string|null;reviewedHash:string|null;
   completedTasks:number;forceReview:boolean;
+  operatorReview:boolean;review:{decisionId:string;proposalHash:string;approved:boolean;announced:boolean}|null;
   active:{agentId:string;sessionId:string;role:SupervisionRole}|null;
   draft:SupervisionDecision|null;decision:SupervisionDecision|null;decisionId:string|null;
   halt:{outcome:'stop'|'limit'|'failed'|'denied'|'cancelled'|'interrupted';reason:string}|null;

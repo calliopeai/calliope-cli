@@ -13,7 +13,7 @@ function fixture():ControllerContextInput {
 it('removes repeated transcripts while retaining exact acceptance, scopes, limits, deadlines and provenance',()=>{
   const value=fixture(),before=structuredClone(value),result=buildControllerContext(value),c=JSON.parse(result.content);
   expect(value).toEqual(before);expect(buildControllerContext(value)).toEqual(result);
-  expect(c.version).toBe(1);expect(c.kind).toBe('controller-review');expect(c.planHash).toBe(digest(canonicalJson(value.plan)));
+  expect(c.permittedEvidenceIds).toEqual([eventId]);expect(c.version).toBe(1);expect(c.kind).toBe('controller-review');expect(c.planHash).toBe(digest(canonicalJson(value.plan)));
   expect(c.plan.workspace).toEqual(value.plan.workspace);expect(c.plan.limits).toEqual(value.plan.limits);expect(c.budget).toEqual(value.budget);
   for(let i=0;i<value.plan.agents.length;i++)expect(c.plan.agents[i]).toEqual(value.plan.agents[i]);
   for(let i=0;i<value.plan.tasks.length;i++){const {inputs,...contract}=value.plan.tasks[i]!;expect(c.plan.tasks[i]).toMatchObject(contract);}

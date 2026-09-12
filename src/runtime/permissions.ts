@@ -13,7 +13,7 @@ const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file',
 export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import', 'orchestration_prepare', 'orchestration_approve', 'orchestration_cancel', 'orchestration_budget']);
 for(const tool of ['orchestration_execute','orchestration_retry','orchestration_accept','orchestration_agent_stop','orchestration_spawn'])MUTATING_TOOLS.add(tool);
 for(const tool of ['orchestration_goal_plan','orchestration_goal_approve','orchestration_goal_resume','orchestration_goal_cancel','orchestration_goal_revise'])MUTATING_TOOLS.add(tool);
-MUTATING_TOOLS.add('orchestration_workspace');
+for(const tool of ['orchestration_workspace','orchestration_improve','orchestration_improvement_rollback'])MUTATING_TOOLS.add(tool);
 
 export interface PermissionContext {
   cwd: string;

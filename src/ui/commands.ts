@@ -57,6 +57,7 @@ export const COMMAND_NAMES = [
   '/tools',
   '/run',
   '/orchestrate',
+  '/improve',
   '/agents',
   '/tasks',
   '/defaults',
@@ -236,6 +237,7 @@ Conversation
   /diff <id|name>             Compare another conversation with the current one
   /replay [revision]          Read recorded conversation without executing tools
   /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
+  /improve history|propose|run|rollback [--run <id>]  Bounded improvement cycles
   /orchestrate <goal>        Plan, review and run within one goal budget
   /orchestrate <goal> --worker-provider NAME --worker-model ID --reviewer-provider NAME --reviewer-model ID --attempts 1..4
   /orchestrate status|proposal|replay|resume|cancel <id>  Inspect or control a goal
@@ -292,6 +294,12 @@ File references: @filename, ./path, /absolute/path`;
       break;
     }
 
+    case '/improve': {
+      const { runImprovementCommand } = await import('../improvement/index.js');
+      const { parseOrchestrationArgs } = await import('../orchestration/index.js');
+      await runImprovementCommand(parseOrchestrationArgs(cmd.slice(parts[0]!.length)), { onProgress:ctx.onWorkflowProgress, cwd:getActiveProjectDir(ctx), signal:ctx.signal, mode:ctx.mode, source:'repl', approvals:ctx.approvals, confirmation:ctx.confirmMode?'mutating':'none', approve:ctx.approve?(decision,signal)=>ctx.approve!(decision,signal??ctx.signal):undefined, write:text=>ctx.addMessage('system',text.trimEnd()) });
+      break;
+    }
     case '/orchestrate': {
       const { runGoalCommand } = await import('../goals/index.js');
       const { parseOrchestrationArgs } = await import('../orchestration/index.js');

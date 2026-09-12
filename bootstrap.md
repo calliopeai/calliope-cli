@@ -79,6 +79,8 @@ choices and bounded attempts, with a compact HUD driven by recorded execution st
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
 evidence between batches and applies bounded retries, strategy changes and child
 admissions under the original authority, with explicit interrupted-call recovery.
+[Improvement cycles](docs/improvement-cycles.md) derives auditable nested experiments,
+measured outcomes and persistent proposal approval/withdrawal controls from that history.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.

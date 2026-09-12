@@ -19,7 +19,7 @@ export interface TaskOutput {
 export type ExecutionChange=
   |import('../supervision/types.js').SupervisionChange
   |{type:'graph_admitted';admission:SpawnAdmission}
-  |{type:'started';ownerId:string}
+  |{type:'started';ownerId:string;proposalOnly?:true}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string}
   |{type:'agent_started';agentId:string;taskId:string}
   |{type:'agent_finished';agentId:string;taskId:string;status:Exclude<TaskStatus,'pending'|'running'>}

@@ -1,8 +1,8 @@
-import type {ProjectPlan} from './types.js';
+import type {ProjectPlan,RunManifest} from './types.js';
 import type {LLMProvider} from '../types.js';
 import type {RunPlanContext,ExecutionInspection} from './coordinator-types.js';
 
-export interface CoordinatorProgress {context:RunPlanContext;execution:ExecutionInspection}
+export interface CoordinatorProgress {context:RunPlanContext;execution:ExecutionInspection;manifest?:RunManifest}
 
 export function agentPreference(plan:ProjectPlan,agentId:string):{provider?:LLMProvider;model?:string} {
   let agent=plan.agents.find(a=>a.id===agentId),model:string|undefined;

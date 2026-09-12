@@ -80,3 +80,44 @@ it('bounds evidence excerpts, detects changed snapshots and refuses non-outcome 
   await expect(reviewEvidence(f.store,[f.store.read().events[0]!.id],{})).rejects.toThrow('outcomes');
   const artifact=f.store.read().state.artifacts['report-a']!;fs.writeFileSync(join(f.store.root,'artifacts',artifact.path),'changed');await expect(reviewEvidence(f.store,[event.id],{})).rejects.toThrow('changed');
 });
+
+it('projects a cycle through proposal, restart, running, partial and cancellation without erasing baseline evidence',async()=>{
+  const {projectImprovementHistory}=await import('../src/improvement/index.js'),f=await fixture();await f.finish('failed');await f.start();const decision=await f.decide('retry');
+  const history=()=>projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()),first=history();expect(first.cycles[0]).toMatchObject({id:decision.id,status:'proposed',approval:{execution:'pending'},baseline:[{status:'failed',attempt:1}]});
+  await f.apply();expect(history().cycles[0]!.status).toBe('running');await f.store.append({type:'finished',ownerId:f.ownerId,status:'partial'});expect(history().cycles[0]!.status).toBe('partial');
+  const ownerId=randomUUID();await f.store.append({type:'started',ownerId});await f.store.append({type:'finished',ownerId,status:'cancelled'});expect(history().cycles[0]!.status).toBe('cancelled');
+  expect(history().cycles[0]!.baseline).toEqual(first.cycles[0]!.baseline);expect(history().cycles[0]!.metrics.every(m=>!m.comparable)).toBe(true);
+  expect(new ExecutionStore(join(f.runs.root,f.view.run.id),f.view.manifest).read()).toEqual(f.store.read());expect(fetch).not.toHaveBeenCalled();
+});
+
+it('allows only explicit inactive final-decision withdrawals and rejects forged or repeated events',async()=>{
+  const f=await fixture(true);await f.finish('failed');await f.start();const draft=await f.decide('retry');
+  await expect(f.store.append({type:'supervision_withdrawn',decisionId:draft.id,source:'cli'})).rejects.toThrow('Stop active');
+  await f.start(1,'reviewer');const final=await f.decide('retry','reviewer');await f.store.append({type:'finished',ownerId:f.ownerId,status:'partial'});
+  const {projectImprovementHistory}=await import('../src/improvement/index.js');expect(projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()).cycles.map(c=>c.id)).toEqual([final.id]);
+  for(const change of [{type:'supervision_withdrawn',decisionId:final.id,source:'automatic'},{type:'supervision_withdrawn',decisionId:'invalid',source:'cli'},{type:'supervision_withdrawn',decisionId:final.id,source:'cli',budget:1}])await expect(f.store.append(change as ExecutionChange)).rejects.toThrow();
+  await expect(f.store.append({type:'supervision_withdrawn',decisionId:draft.id,source:'cli'})).rejects.toThrow('current pending');
+  await f.store.append({type:'supervision_withdrawn',decisionId:final.id,source:'repl'});await expect(f.store.append({type:'supervision_withdrawn',decisionId:final.id,source:'cli'})).rejects.toThrow('unwithdrawn');
+  expect(projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()).cycles[0]!.status).toBe('withdrawn');
+  const saved=f.store.read();expect(replayExecution(saved.header,f.view.manifest,saved.events)).toEqual(saved.state);
+});
+
+it('persists proposal holds and requires an unexpired exact approval before application',async()=>{
+  const {supervisionProposalHash}=await import('../src/supervision/index.js'),f=await fixture();await f.finish('failed');await f.store.append({type:'started',ownerId:f.ownerId,proposalOnly:true});await f.start();const decision=await f.decide('retry'),hash=supervisionProposalHash(f.view.manifest,decision,f.store.read().header.deadline);
+  expect(f.store.read().state.supervision!.review).toMatchObject({approved:false,announced:false});await expect(f.apply()).rejects.toThrow('exact reviewed approval');
+  const hold={type:'supervision_proposed' as const,decisionId:decision.id,proposalHash:hash,source:'cli' as const};
+  await expect(f.store.append({...hold,proposalHash:'a'.repeat(64)})).rejects.toThrow('differs');
+  await f.store.append(hold);await expect(f.store.append(hold)).rejects.toThrow('already');await expect(f.apply()).rejects.toThrow('exact reviewed approval');
+  const approval={...hold,type:'supervision_approved' as const};await expect(f.store.append({...approval,proposalHash:'b'.repeat(64)})).rejects.toThrow('differs');
+  const saved=f.store.read();expect(new ExecutionStore(join(f.runs.root,f.view.run.id),f.view.manifest).read().state.supervision!.review).toMatchObject({approved:false,proposalHash:hash});
+  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(saved.header.deadline+1);await expect(f.store.append(approval)).rejects.toThrow('unexpired');vi.useRealTimers();
+  await f.store.append(approval);await expect(f.store.append(approval)).rejects.toThrow('pending');await f.apply();expect(f.store.read().state.supervision!.review).toBeNull();
+});
+
+it('retains proposed child budgets and ancestor authority before graph admission',async()=>{
+  const {projectImprovementHistory}=await import('../src/improvement/index.js'),f=await fixture();await f.finish();await f.start();
+  const p=f.view.manifest.plan,agent=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);agent.id='child';task.id='child-task';task.agentId=agent.id;for(const output of task.outputs)output.id='child-'+output.id;task.isolation!.patchArtifactId='child-patch';for(const check of task.acceptanceChecks!)check.artifactId='child-'+check.artifactId;
+  const children={version:1 as const,parentId:'coordinator',agents:[agent],tasks:[task]},decision={version:1 as const,action:'decompose' as const,reason:'Inspect a related task.',evidence:supervisionEvidence(f.store.read().events).ids,hypothesis:'A child supplies independent evidence.',expectedMetric:{name:'acceptance-check-pass-rate',direction:'increase' as const},children};
+  await f.store.append({type:'supervision_decided',round:1,role:'controller',agentId:'coordinator',sessionId:'controller-1',decision});
+  const cycle=projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()).cycles[0]!;expect(cycle.status).toBe('proposed');expect(cycle.budget.accounts.map(a=>a.id)).toEqual(['coordinator','child']);expect(cycle.budget.accounts.find(a=>a.id==='child')!.tokenBudget).toBe(agent.tokenBudget);expect(f.store.read().state.graph?.admissions).toBeUndefined();
+});

@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "kind": "improvement-cycle-validation",
+  "issue": 301,
+  "budget": {
+    "validationCapUsd": 50,
+    "cumulativeCapUsd": 500,
+    "accounting": "Retained conservative reservations; not invoices. No failures refunded.",
+    "successfulProbeReservedNanoUsd": 521424000,
+    "allThreeNativeProbesReservedNanoUsd": 1075304000,
+    "maxOutputTokensPerPaidRequest": 512
+  },
+  "native": {
+    "runId": "271c56ba-bf65-42cc-a3c3-7ecdfe090de9",
+    "startedAt": "2026-09-12T22:54:42.240Z",
+    "finishedAt": "2026-09-12T22:55:14.927Z",
+    "status": "completed",
+    "exitCode": 0,
+    "rounds": 2,
+    "hudUpdates": 392,
+    "sourceUnchanged": true,
+    "experiment": "Synthetic local first-worker responses produce a real Docker failing baseline; native Fable planner/controller and native Haiku repair follow. Not an entirely real-wire workflow or spontaneous model failure.",
+    "syntheticBaselineRequests": 2,
+    "cycles": [
+      {
+        "id": "ca251321-ee6c-471b-870d-464931e4465d",
+        "status": "verified",
+        "principle": "robustness",
+        "action": "replan",
+        "baseline": [
+          {
+            "attempt": 1,
+            "status": "failed"
+          }
+        ],
+        "results": [
+          {
+            "attempt": 2,
+            "status": "completed"
+          }
+        ],
+        "metrics": [
+          {
+            "name": "acceptance-check-pass-rate",
+            "unit": "ratio",
+            "before": 0,
+            "after": 1,
+            "delta": 1,
+            "comparable": true,
+            "direction": "increase",
+            "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+          },
+          {
+            "name": "attempt-duration",
+            "unit": "ms",
+            "before": 2466,
+            "after": 11004,
+            "delta": 8538,
+            "comparable": true,
+            "direction": "decrease",
+            "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+          },
+          {
+            "name": "tool-failure-rate",
+            "unit": "ratio",
+            "before": 0.5,
+            "after": 0,
+            "delta": -0.5,
+            "comparable": true,
+            "direction": "decrease",
+            "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+          }
+        ],
+        "decisionHash": "b2b24411a094ec09002caa601b14fadd28d7fb4d093a4375a79216e891dc29b3"
+      }
+    ],
+    "models": {
+      "planner": "claude-fable-5-1",
+      "controller": "claude-fable-5-1",
+      "worker": "claude-haiku-4-5-20251001"
+    },
+    "paidRequests": 6,
+    "verification": {
+      "exitCode": 0,
+      "outcome": "passed",
+      "cleanupConfirmed": true,
+      "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0"
+    },
+    "requests": [
+      {
+        "model": "claude-fable-5-1",
+        "inputCount": 130,
+        "inputReservation": 1284,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "end_turn"
+      },
+      {
+        "model": "claude-fable-5-1",
+        "inputCount": 3666,
+        "inputReservation": 8356,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "end_turn"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "inputCount": 2953,
+        "inputReservation": 6930,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "tool_use"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "inputCount": 3385,
+        "inputReservation": 7794,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "tool_use"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "inputCount": 3762,
+        "inputReservation": 8548,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "end_turn"
+      },
+      {
+        "model": "claude-fable-5-1",
+        "inputCount": 4428,
+        "inputReservation": 9880,
+        "outputReservation": 512,
+        "httpStatus": 200,
+        "finishReason": "end_turn"
+      }
+    ]
+  },
+  "syntheticCliWithRealDocker": {
+    "runId": "9a5f2e19-c70d-45e3-bcfe-84cf5d5ce01e",
+    "status": "completed",
+    "rounds": 3,
+    "attempts": 2,
+    "requests": 7,
+    "exitCodes": [
+      1,
+      0
+    ],
+    "cleanupConfirmed": true,
+    "sourceUnchanged": true,
+    "cycleStatus": "verified",
+    "rollbackStatus": "withdrawn",
+    "persistedProposalHold": true,
+    "reservationsRetained": true,
+    "hudUpdates": 66
+  },
+  "failedNativeProbes": [
+    {
+      "runId": "e2e1f572-2316-40d0-a386-e8cf416545ca",
+      "status": "failed",
+      "reason": "Rejected additional decision fields; clarified the exact JSON field list.",
+      "paidRequests": 4,
+      "reservedNanoUsd": 265324000,
+      "automaticRetry": false
+    },
+    {
+      "runId": "22e5d48b-221c-4adf-b974-20b42e4a293d",
+      "status": "failed",
+      "reason": "Rejected an artifact-source ID outside the current outcome set; added explicit permittedEvidenceIds.",
+      "paidRequests": 5,
+      "reservedNanoUsd": 288556000,
+      "automaticRetry": false
+    }
+  ],
+  "limitations": [
+    "The successful experiment uses synthetic first-worker responses to establish a reproducible failed baseline; it is not an entirely real-wire workflow.",
+    "Task duration across synthetic and native attempts does not measure model speed improvement.",
+    "Verified acceptance does not prove the optimization hypothesis or a security/performance guarantee.",
+    "Publication remains blocked by 16 missing real-wire conformance combinations; xAI is deferred."
+  ]
+}

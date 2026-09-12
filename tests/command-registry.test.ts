@@ -16,7 +16,7 @@ import { SLASH_COMMANDS } from '../src/ui/completions.js';
 // The full set of handled labels: visible commands + the /quit alias of
 // /exit + the flag-gated /fleet (always handled here, gated only in completions).
 const EXPECTED_COMMANDS = [
-  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/run', '/agents', '/tasks', '/clear', '/exit', '/quit',
+  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/improve', '/run', '/agents', '/tasks', '/clear', '/exit', '/quit',
   '/model', '/provider', '/mode', '/defaults', '/once',
   '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',
@@ -28,7 +28,7 @@ const EXPECTED_COMMANDS = [
 // The visible commands offered as completion roots (no /quit alias, and
 // /fleet only surfaces when fleet mode is enabled).
 const EXPECTED_COMPLETION_ROOTS = [
-  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/run', '/agents', '/tasks', '/clear', '/exit',
+  '/help', '/status', '/doctor', '/permissions', '/tools', '/orchestrate', '/improve', '/run', '/agents', '/tasks', '/clear', '/exit',
   '/model', '/provider', '/mode', '/defaults', '/once',
   '/undo', '/export', '/import', '/branch', '/checkout', '/diff', '/replay', '/resume', '/new', '/sessions', '/compact',
   '/scope', '/memory', '/trust', '/restore',

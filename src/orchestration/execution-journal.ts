@@ -50,11 +50,11 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
   if(![1,2,3].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason']);const c=value.change;
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly']);const c=value.change;
   if(value.version!==(String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
   else if(c.type==='graph_admitted'){shape(c,['type','admission']);if(!header)fail('A graph admission requires its original execution header.');validateSpawnAdmission(c.admission,manifest,header,manifest.plan);}
-  else if(c.type==='started'){shape(c,['type','ownerId']);if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
+  else if(c.type==='started'){shape(c,['type','ownerId'],['proposalOnly']);if(c.proposalOnly!==undefined&&(c.proposalOnly!==true||!manifest.plan.supervision))fail('Proposal-only execution requires reviewed supervision.');if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
   else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
   else if(c.type==='agent_started'||c.type==='agent_finished'||c.type==='escalated'){
     shape(c,['type','agentId','taskId',...(c.type==='agent_finished'?['status']:c.type==='escalated'?['target']:[])]);
@@ -89,7 +89,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
   for(const event of events){
     validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
     const c=event.change,task='taskId' in c?state.tasks[c.taskId]!:undefined;
-    if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt));
+    if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
     else if(c.type==='graph_admitted'){
       if(c.admission.proposal.source.kind==='supervision')assertSupervisionProposal(c.admission.proposal,state);
       else if(state.supervision&&state.supervision.phase!=='ready')conflict('Resolve the controller review before admitting external children.');
@@ -98,6 +98,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       for(const task of p.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
       state.graph={version:1,plan:manifest.plan,hash:analysis.hash,admissions:[...(state.graph?.admissions??[]),admission]};state.version=state.supervision?3:2;
     }else if(c.type==='started'){
+      if(c.proposalOnly)state.supervision!.operatorReview=true;
       if(state.status==='completed'||Date.parse(event.at)>=header.deadline)conflict('Execution is complete or its original deadline expired.');
       if(state.supervision&&['controller','reviewer'].includes(state.supervision.phase)){state.supervision.phase='halted';state.supervision.active=null;state.supervision.halt={outcome:'interrupted',reason:'Controller call was interrupted; inspect its retained reservation and explicitly retry the controller.'};}
       for(const t of Object.values(state.tasks))if(t.status==='running')t.status='unknown';state.ownerId=c.ownerId;state.status='running';
