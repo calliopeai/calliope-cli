@@ -59,6 +59,31 @@ it('preserves unrelated fields and legacy files when saving or resetting', async
   expect(fs.readFileSync(join(root, '.calliope'), 'utf8')).toBe('provider: google\n');
 });
 
+it('starts with a project state directory and still discovers later legacy config files', () => {
+  trustProject(root);
+  const state = join(root, '.calliope'); fs.mkdirSync(state);
+  fs.writeFileSync(join(state, 'state.json'), '{"keep":true}');
+  config.set('defaultProvider', 'google');
+  expect(resolvePreferences(root, { env: {} })).toMatchObject({ provider: 'google', sources: { provider: 'global' }, warnings: [] });
+  fs.mkdirSync(join(root, '.calliope.conf'));
+  fs.writeFileSync(join(root, 'calliope.conf'), 'provider: deepseek\nmodel: legacy\n');
+  expect(readProjectDefaults(root)).toMatchObject({ legacy: true, selection: { provider: 'deepseek', model: 'legacy' } });
+  fs.writeFileSync(join(state, 'state.json'), '{"keep":"updated"}');
+  expect(resolvePreferences(root, { env: {} })).toMatchObject({ provider: 'deepseek', model: 'legacy' });
+  expect(fs.readFileSync(join(state, 'state.json'), 'utf8')).toBe('{"keep":"updated"}');
+});
+
+it('rejects an explicit defaults directory and legacy symlinks instead of silently ignoring them', () => {
+  trustProject(root);
+  fs.mkdirSync(defaults());
+  expect(() => readProjectDefaults(root)).toThrow('type limit');
+  fs.rmdirSync(defaults());
+  const target = join(root, 'target'); fs.mkdirSync(target);
+  fs.symlinkSync(target, join(root, '.calliope'));
+  expect(() => readProjectDefaults(root)).toThrow('symlink');
+  expect(fs.statSync(target).isDirectory()).toBe(true);
+});
+
 it('audits successful and denied writes without including unrelated file content', async () => {
   const log = RunLog.open('preferences', { dir: join(root, 'runs') });
   await saveProjectDefaults(root, { provider: 'xai' }, { runlog: log });
