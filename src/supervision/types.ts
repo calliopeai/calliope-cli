@@ -8,6 +8,7 @@ export interface SupervisionPolicy {
   version:1;
   controllerId:string;
   reviewerId?:string;
+  reasoningEffort?:Partial<Record<SupervisionRole,import('../models/index.js').ReasoningEffort>>;
   maxRounds:number;
   maxStalledRounds:number;
   maxOutputTokens:number;

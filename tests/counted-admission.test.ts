@@ -13,7 +13,7 @@ import {executionManifest} from './helpers/execution-manifest.js';
 import {projectBudgetPath,loadProjectSpend} from '../src/budget.js';
 import {runTurn} from '../src/runtime/index.js';
 import {RunLog} from '../src/runlog.js';
-import {clearModelCache} from '../src/model-detection.js';
+import {clearModelCache,getAvailableModels} from '../src/model-detection.js';
 import {syntheticWire,wireResponse} from './helpers/provider-wire.js';
 import type {RouteCandidate} from '../src/routing/index.js';
 import type {Message,Tool} from '../src/types.js';
@@ -136,4 +136,40 @@ it.each(['agent','project'] as const)('denies revocation during durable %s admis
   await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{maxOutputTokens:100,attemptBudget:budget})).rejects.toThrow(/revoked while committing/);
   expect(requests.map(r=>r.path)).toEqual(['/v1/messages/count_tokens']);expect(loadProjectSpend(project).spentUsd).toBe(0.002576);
   if(kind==='agent')expect(Object.values(ledger.read(project).projection.requests)[0]!.state).toBe('pending');
+});
+
+async function discoverEffort() {
+  const next=respond;
+  respond=async(path,body,signal)=>path.endsWith('/models')?json({data:[{id:route.model,max_input_tokens:1000000,max_tokens:8192,capabilities:{effort:{supported:true,low:{supported:true},high:{supported:true}}}}],has_more:false}):next(path,body,signal);
+  await getAvailableModels('anthropic',{quiet:true,throwOnError:true});requests=[];
+}
+it.each([false,true])('binds explicit effort to counted and paid native payloads, including replay (stream=%s)',async streaming=>{
+  await discoverEffort();const {execution}=guard();
+  await chat('anthropic',messages,tools,route.model,streaming?()=>{}:undefined,undefined,{reasoningEffort:'low',maxOutputTokens:100,attemptBudget:execution.budget(route,messages,tools,streaming)});
+  const {max_tokens,stream,...paid}=requests[1]!.body;expect(paid).toEqual(requests[0]!.body);expect(paid.output_config).toEqual({effort:'low'});expect(max_tokens).toBe(100);
+  const proof=await countAnthropicInput(messages,tools,route.model,false,undefined,{maxOutputTokens:100,reasoningEffort:'low'});
+  await expect(chatAnthropic(messages,tools,route.model,undefined,undefined,{bounded:true,maxOutputTokens:100,reasoningEffort:'high',inputCount:proof})).rejects.toThrow('changed');
+  expect(requests).toHaveLength(3);
+});
+it('carries effort through shared runtime routing, native counting and dispatch',async()=>{
+  await discoverEffort();const {ledger,manifest}=guard(),routes:any[]=[];
+  const result=await runTurn({cwd:project,provider:'anthropic',model:route.model,reasoningEffort:'low',sessionId:randomUUID(),prompt:'Public toy',messages:{current:[{role:'user',content:'Public toy'}]},confirmation:'none',maxIterations:1,tools:()=>[],onRoute:r=>routes.push(r),runlog:RunLog.open(randomUUID(),{enabled:false}),execution:{ledger,manifestHash:manifestHash(manifest),agentId:'a',maxOutputTokens:100}});
+  expect(result.reason).toBe('completed');expect(routes.every(r=>r.selected.reasoningEffort==='low')).toBe(true);expect(requests.at(-1)!.body.output_config.effort).toBe('low');
+});
+it('denies unsupported, stale and malformed effort before admission and fails closed if evidence is revoked during it',async()=>{
+  const {execution,ledger}=guard(),budget=execution.budget(route,messages,tools,false),opts={maxOutputTokens:100,attemptBudget:budget};
+  await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{...opts,reasoningEffort:'low'})).rejects.toThrow('Live discovery');
+  expect(requests).toHaveLength(0);expect(ledger.read(project).projection.spent.costNanos).toBe(0);
+  await discoverEffort();await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{...opts,reasoningEffort:'invented' as any})).rejects.toThrow('Live discovery');
+  config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://count.invalid/v1'});
+  await expect(chat('deepseek',messages,tools,route.model,undefined,undefined,{reasoningEffort:'low'})).rejects.toThrow('native Anthropic');
+  const reserve=budget.reserve;budget.reserve=async attempt=>{const id=await reserve(attempt);clearModelCache();return id;};
+  await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{...opts,reasoningEffort:'low'})).rejects.toThrow('Live discovery');
+  expect(requests.map(r=>r.path)).toEqual(['/v1/messages/count_tokens']);expect(ledger.read(project).projection.spent.costNanos).toBeGreaterThan(0);
+});
+it('cancels effort counting without paid dispatch or resetting the persistent budget',async()=>{
+  await discoverEffort();const {execution,ledger}=guard(),controller=new AbortController();
+  respond=async()=>{controller.abort();return json({input_tokens:7});};
+  await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{reasoningEffort:'low',maxOutputTokens:100,attemptBudget:execution.budget(route,messages,tools,false),signal:controller.signal})).rejects.toMatchObject({name:'AbortError'});
+  expect(requests).toHaveLength(1);expect(ledger.read(project).projection.spent.costNanos).toBe(0);
 });

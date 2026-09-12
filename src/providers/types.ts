@@ -39,7 +39,7 @@ export type StreamCallback = (token: string) => void;
  */
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
-export interface AdapterLimits { maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount }
+export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount }
 export interface ProviderAttemptBudget {
   inputCounting?:'anthropic-count-tokens';
   reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number; inputCount?:import('../execution/billing.js').InputCount}): Promise<string>;

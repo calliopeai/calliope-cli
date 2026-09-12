@@ -14,7 +14,7 @@ import { validateLLMResponse, type StreamCallback, type RetryCallback, type Chat
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
-import { chatAnthropic, countAnthropicInput } from './anthropic.js';
+import { chatAnthropic, countAnthropicInput, assertAnthropicEffort } from './anthropic.js';
 import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
@@ -158,10 +158,12 @@ export async function chat(
   const maxOutputTokens = options?.maxOutputTokens;
   if (maxOutputTokens !== undefined && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 100000000) || bounded && maxOutputTokens === undefined)
     throw new ExecutionLimitError('invalid','A bounded provider call requires a positive integer output limit.');
-  const limits:AdapterLimits = { maxOutputTokens, bounded };
+  const limits:AdapterLimits = { maxOutputTokens, bounded, reasoningEffort: options?.reasoningEffort };
   const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+  if (limits.reasoningEffort !== undefined && actualProvider !== 'anthropic')
+    throw new ExecutionLimitError('authority', 'Explicit reasoning effort is supported only by the native Anthropic adapter.');
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
   let quarantineHalt: string | undefined;
   try {
@@ -247,6 +249,7 @@ export async function chat(
     // Admission errors are not provider failures and must not create a network retry.
     let ticket: string | undefined;
     try {
+      if(actualProvider==='anthropic')assertAnthropicEffort(actualModel,limits.reasoningEffort);
       if(attemptBudget?.inputCounting){
         if(actualProvider!=='anthropic')throw new ExecutionLimitError('authority','Input counting is unavailable for this provider protocol.');
         limits.inputCount=await cancellable(countAnthropicInput(messages,backendTools,actualModel,!!onToken,options?.signal,limits),options?.signal);

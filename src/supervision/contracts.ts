@@ -1,3 +1,4 @@
+import {isReasoningEffort} from '../models/index.js';
 import {fail,id,integer,permits,planJson,shape,strings,text,uuid} from '../orchestration/validation.js';
 import type {ProjectPlan} from '../orchestration/types.js';
 import {extendPlan,validateSpawnInput} from '../spawning/validation.js';
@@ -8,7 +9,7 @@ const actions=['retry','replan','decompose'];
 const principles=['speed','robustness','stability','security','performance','cost'];
 
 export function validateSupervisionPolicy(value:unknown,plan:ProjectPlan):SupervisionPolicy {
-  shape(value,['version','controllerId','maxRounds','maxStalledRounds','maxOutputTokens','principle','allowedActions'],['reviewerId']);
+  shape(value,['version','controllerId','maxRounds','maxStalledRounds','maxOutputTokens','principle','allowedActions'],['reviewerId','reasoningEffort']);
   if(value.version!==1)fail('Unsupported supervision policy version.');
   id(value.controllerId);
   const controller=plan.agents.find(agent=>agent.id===value.controllerId);
@@ -25,6 +26,11 @@ export function validateSupervisionPolicy(value:unknown,plan:ProjectPlan):Superv
     const reviewer=plan.agents.find(agent=>agent.id===value.reviewerId);
     if(!reviewer||reviewer.id===controller.id)fail('The supervision reviewer needs a distinct reviewed agent account.');
     if(value.maxOutputTokens>reviewer.tokenBudget)fail('The reviewer output cap exceeds its original token allowance.');
+  }
+  if(value.reasoningEffort!==undefined){
+    shape(value.reasoningEffort,[],['controller','reviewer']);
+    if(!Object.keys(value.reasoningEffort).length||Object.values(value.reasoningEffort).some(effort=>!isReasoningEffort(effort)))fail('Unknown or empty supervision reasoning effort.');
+    if(value.reasoningEffort.reviewer!==undefined&&value.reviewerId===undefined)fail('Reviewer effort requires a reviewed reviewer account.');
   }
   for(const agentId of [value.controllerId,value.reviewerId].filter(id=>id!==undefined)){
     const agent=plan.agents.find(a=>a.id===agentId)!;

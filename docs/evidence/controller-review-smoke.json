@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "kind": "controller-review-validation",
+  "issue": 299,
+  "trigger": {
+    "sourceRunId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+    "problem": "Native Fable controller review truncated at 512 output tokens after successful isolated worker verification."
+  },
+  "hypothesis": "Removing duplicate context and explicitly choosing a discovered lower effort permits a concise decision within the same output cap.",
+  "proposedChange": "Versioned compact context, validated command summaries and reviewed per-role effort; no automatic output, permission, retry or budget expansion.",
+  "expectedMetric": {
+    "name": "valid controller decision within 512 output tokens",
+    "direction": "increase"
+  },
+  "budget": {
+    "totalCeilingUsd": 500,
+    "validationCapUsd": 50,
+    "fixtureAllowanceUsd": 2,
+    "maxOutputTokensPerRequest": 512,
+    "paidRequests": 6,
+    "reservedNanoUsd": 286908000,
+    "accounting": "Conservative retained reservations, not provider invoices."
+  },
+  "isolation": {
+    "kind": "real Git worktree and Docker verification",
+    "sourceUnchanged": true,
+    "cleanupConfirmed": true,
+    "workspaceHashesEqual": true
+  },
+  "contextReplay": {
+    "sourceCommit": "e6642b80855537fec856b6098400528a74371d61",
+    "beforeBytes": 9254,
+    "afterBytes": 6402,
+    "acceptanceChecksPreserved": true,
+    "scopeBudgetDeadlinePreserved": true
+  },
+  "live": {
+    "runId": "24e21142-d1c8-4fcf-bb07-378f039a2440",
+    "startedAt": "2026-09-12T18:53:35.437Z",
+    "finishedAt": "2026-09-12T18:54:05.012Z",
+    "status": "completed",
+    "exitCode": 0,
+    "rounds": 1,
+    "hudUpdates": 309,
+    "verificationExitCode": 0,
+    "requests": [
+      {
+        "model": "claude-fable-5-1",
+        "effort": "low",
+        "inputTokens": 130,
+        "outputTokens": 142,
+        "thinkingTokens": 0,
+        "finishReason": "end_turn"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "effort": null,
+        "inputTokens": 1496,
+        "outputTokens": 91,
+        "thinkingTokens": null,
+        "finishReason": "tool_use"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "effort": null,
+        "inputTokens": 1763,
+        "outputTokens": 69,
+        "thinkingTokens": null,
+        "finishReason": "tool_use"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "effort": null,
+        "inputTokens": 1900,
+        "outputTokens": 238,
+        "thinkingTokens": null,
+        "finishReason": "tool_use"
+      },
+      {
+        "model": "claude-haiku-4-5-20251001",
+        "effort": null,
+        "inputTokens": 2250,
+        "outputTokens": 226,
+        "thinkingTokens": null,
+        "finishReason": "end_turn"
+      },
+      {
+        "model": "claude-fable-5-1",
+        "effort": "low",
+        "inputTokens": 3537,
+        "outputTokens": 237,
+        "thinkingTokens": 128,
+        "finishReason": "end_turn"
+      }
+    ]
+  },
+  "riskAssessment": [
+    "One public toy workflow is evidence of this path, not a general quality guarantee.",
+    "Lower effort can reduce reasoning quality; it is explicit and bounded by the reviewed plan.",
+    "Omitted logs/prose remain in original artifacts; a review must stop if missing evidence is required.",
+    "Only native Anthropic currently supports this explicit effort control; other protocols fail closed."
+  ],
+  "humanApproval": {
+    "implementation": "User: do it",
+    "merge": "User: merge when green; pending current checks and review"
+  },
+  "rollbackReference": "e6642b80855537fec856b6098400528a74371d61",
+  "provenance": {
+    "prompts": "public synthetic clamp fixture only",
+    "secretsStored": false,
+    "providerResponsesStored": "numeric usage and finish metadata only"
+  },
+  "validation": {
+    "typescript": "passed",
+    "tests": {
+      "passed": 4817,
+      "skipped": 5,
+      "files": 177
+    },
+    "coverage": {
+      "coveredLines": 12097,
+      "totalLines": 12530,
+      "percent": 96.54,
+      "baselinePercent": 96.53
+    },
+    "providerConformance": {
+      "passed": 305,
+      "skipped": 1
+    },
+    "publicationGate": {
+      "passed": false,
+      "reason": "16 existing missing combinations across OpenAI Chat, OpenAI Responses, xAI (deferred), and Cerebras."
+    },
+    "build": "passed",
+    "bench": {
+      "coldStartMs": 146.84,
+      "typingP95Ms": 6.91,
+      "memoryKbPerMessage": 24.01,
+      "growthMb": 14.32,
+      "passed": true
+    },
+    "doctorJsonVersion": 1,
+    "headlessDryRunVersion": 1,
+    "secretScan": {
+      "scannedFiles": 577,
+      "actualSecretsFound": 0
+    }
+  }
+}

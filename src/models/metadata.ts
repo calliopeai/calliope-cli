@@ -10,6 +10,12 @@ export interface ModelCapabilities {
 export class ModelDiscoveryError extends Error {
   constructor(message: string) { super(message); this.name = 'ModelDiscoveryError'; }
 }
+/** API control values, never a model catalogue. Absence is unknown support. */
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type ReasoningEffort = typeof REASONING_EFFORTS[number];
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === 'string' && (REASONING_EFFORTS as readonly string[]).includes(value);
+}
 export interface ModelInfo {
   id: string;
   name?: string;
@@ -19,6 +25,7 @@ export interface ModelInfo {
   maxOutputTokens?: number;
   pricing?: { input?: number; output?: number };
   capabilities?: ModelCapabilities;
+  reasoningEfforts?: ReasoningEffort[];
   evidence?: { source: 'live' | 'emergency'; at: string };
 }
 export function positiveLimit(value: unknown): number | undefined {
@@ -40,8 +47,10 @@ function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 export function anthropicMetadata(value: unknown): Omit<ModelInfo, 'id'> {
-  const model = object(value), caps = object(model.capabilities);
+  const model = object(value), caps = object(model.capabilities), effort = object(caps.effort);
   return { contextLength: positiveLimit(model.max_input_tokens), maxOutputTokens: positiveLimit(model.max_tokens),
+    reasoningEfforts: capability(effort) === undefined ? undefined : capability(effort) === false ? []
+      : REASONING_EFFORTS.filter(level => capability(effort[level]) === true),
     capabilities: { chat: true, vision: capability(caps.image_input), thinking: capability(caps.thinking), json: capability(caps.structured_outputs) } };
 }
 
@@ -69,6 +78,7 @@ export function validateModels(models: ModelInfo[]): ModelInfo[] {
   for (const model of models) {
     if (!model || typeof model.id !== 'string' || !model.id.trim() || model.id.length > 512 || /[\x00-\x1f\x7f]/.test(model.id) || ids.has(model.id)) throw new ModelDiscoveryError('Invalid or duplicate discovered model identity');
     ids.add(model.id);
+    if (model.reasoningEfforts !== undefined && (!Array.isArray(model.reasoningEfforts) || model.reasoningEfforts.some(value => !isReasoningEffort(value)) || new Set(model.reasoningEfforts).size !== model.reasoningEfforts.length)) throw new ModelDiscoveryError('Invalid discovered reasoning effort');
     for (const limit of [model.contextLength, model.maxOutputTokens]) if (limit !== undefined && positiveLimit(limit) === undefined) throw new ModelDiscoveryError('Invalid discovered token limit');
     for (const cost of [model.pricing?.input, model.pricing?.output]) if (cost !== undefined && price(cost) === undefined) throw new ModelDiscoveryError('Invalid discovered model price');
   }
