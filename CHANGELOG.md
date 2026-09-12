@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add opt-in continuous controller/reviewer supervision for isolated version-4 plans: review immutable worker evidence, apply bounded retry/replan and child decisions, preserve original budgets and deadlines across recovery, and show controller phase/rounds in the live HUD (#293).
+
 - Add reviewed isolated worker plans: retain per-attempt Git worktrees, run bounded verification commands in required Docker containment, and collect actual diffs and content-bound test evidence without changing the source checkout (#290).
 
 - Add independent planner/controller, reviewer and worker model choices to goal planning, with persisted team settings and bounded task attempts. A second controller reviews recorded draft evidence within the original allowance; retries receive failed-check feedback. Add a compact live workflow/agent HUD and display modes without changing headless event envelopes (#288).

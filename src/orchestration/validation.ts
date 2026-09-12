@@ -4,6 +4,7 @@ import { getProviderNames } from '../config.js';
 import { canonicalJson, canonicalPath, digest, approvalDisplayText, projectIdentity } from '../approvals/index.js';
 import { OrchestrationError, type AgentContract, type AgentInput, type AgentOutput, type ArtifactSpec, type PathGrant, type PlanAnalysis, type ProjectPlan } from './types.js';
 import {validateIsolation,validateTaskIsolation} from '../isolation/contracts.js';
+import {validateSupervisionPolicy} from '../supervision/contracts.js';
 
 export const MAX_PLAN_BYTES = 2 * 1024 * 1024;
 export const MAX_AGENTS = 256, MAX_TASKS = 1024, MAX_DEPTH = 8;
@@ -65,9 +66,9 @@ function agent(v: unknown): asserts v is AgentContract {
 /** Pure validation: no model lookup, process creation, file writes or execution. */
 export function analyzePlan(value: unknown): PlanAnalysis {
   const raw = planJson(value); const v: unknown = JSON.parse(raw);
-  shape(v, ['version','id','goal','workspace','limits','agents','tasks']); if (![1,2,3].includes(v.version as number)) fail('Unsupported plan version.'); id(v.id); text(v.goal);
-  shape(v.workspace, ['id','root','allowedTools','allowedPaths',...(v.version===3?['isolation']:[])]); id(v.workspace.id); if (v.workspace.root !== '.') fail('Workspace root must be the current project (.).'); tools(v.workspace.allowedTools); paths(v.workspace.allowedPaths);
-  if(v.version===3)validateIsolation(v.workspace.isolation);
+  shape(v, ['version','id','goal','workspace','limits','agents','tasks'], ['supervision']); if (![1,2,3,4].includes(v.version as number)) fail('Unsupported plan version.'); id(v.id); text(v.goal);
+  shape(v.workspace, ['id','root','allowedTools','allowedPaths',...((v.version===3||v.version===4)?['isolation']:[])]); id(v.workspace.id); if (v.workspace.root !== '.') fail('Workspace root must be the current project (.).'); tools(v.workspace.allowedTools); paths(v.workspace.allowedPaths);
+  if((v.version===3||v.version===4))validateIsolation(v.workspace.isolation);
   shape(v.limits, ['maxAgents','maxTasks','maxDepth','maxConcurrent','tokenBudget','costBudgetUsd','timeBudgetMs']);
   integer(v.limits.maxAgents, 1, MAX_AGENTS); integer(v.limits.maxTasks, 1, MAX_TASKS); integer(v.limits.maxDepth, 0, MAX_DEPTH); integer(v.limits.maxConcurrent, 1, 16);
   integer(v.limits.tokenBudget, 1, 100000000); cost(v.limits.costBudgetUsd); integer(v.limits.timeBudgetMs, 1, 86400000);
@@ -95,24 +96,24 @@ export function analyzePlan(value: unknown): PlanAnalysis {
   }
   const tasks = new Map<string, ProjectPlan['tasks'][number]>(), producers = new Map<string, string>();
   for (const item of v.tasks) {
-    shape(item, ['id','agentId','objective','inputs','outputs','dependencies','acceptanceCriteria',...(v.version!==1?['acceptanceChecks']:[]),...(v.version===3?['isolation']:[])]); id(item.id); id(item.agentId); text(item.objective); inputs(item.inputs); strings(item.dependencies, MAX_TASKS); item.dependencies.forEach(id); strings(item.acceptanceCriteria, 100, 1); array(item.outputs, 100, 1);
+    shape(item, ['id','agentId','objective','inputs','outputs','dependencies','acceptanceCriteria',...(v.version!==1?['acceptanceChecks']:[]),...((v.version===3||v.version===4)?['isolation']:[])]); id(item.id); id(item.agentId); text(item.objective); inputs(item.inputs); strings(item.dependencies, MAX_TASKS); item.dependencies.forEach(id); strings(item.acceptanceCriteria, 100, 1); array(item.outputs, 100, 1);
     if (tasks.has(item.id) || !agents.has(item.agentId)) fail('Duplicate task ID or missing assigned agent.');
     const owner = agents.get(item.agentId)!;
     for (const output of item.outputs) { artifact(output); if (producers.has(output.id)) fail('Artifact IDs must be unique across tasks.'); producers.set(output.id, item.id); if (output.path && !permits(owner.allowedPaths, output.path, 'write')) fail('Artifact output exceeds the agent write scope.'); }
     for (const input of item.inputs) if (input.kind === 'file' && !permits(owner.allowedPaths, input.value, 'read')) fail('Task input exceeds its agent scope.');
-    if(v.version===3)validateTaskIsolation(item.isolation,item as unknown as ProjectPlan['tasks'][number],plan);
+    if((v.version===3||v.version===4))validateTaskIsolation(item.isolation,item as unknown as ProjectPlan['tasks'][number],plan);
     if(v.version!==1) {
       array(item.acceptanceChecks,200);const checks=new Set<string>();
       for(const check of item.acceptanceChecks){
         shape(check,['id','artifactId','kind','criteria'],['expected']);id(check.id);id(check.artifactId);strings(check.criteria,200,1);
-        if(checks.has(check.id)||!item.outputs.some(output=>obj(output)&&output.id===check.artifactId)||!['exists','contains','sha256','json',...(v.version===3?['command']:[])].includes(String(check.kind)))fail('Invalid acceptance check or artifact reference.');checks.add(check.id);
+        if(checks.has(check.id)||!item.outputs.some(output=>obj(output)&&output.id===check.artifactId)||!['exists','contains','sha256','json',...((v.version===3||v.version===4)?['command']:[])].includes(String(check.kind)))fail('Invalid acceptance check or artifact reference.');checks.add(check.id);
         for(const criterion of check.criteria){const match=/^(task|agent):(0|[1-9][0-9]?)$/.exec(criterion);if(!match||Number(match[2])>=(match[1]==='task'?item.acceptanceCriteria.length:owner.acceptanceCriteria.length))fail('Acceptance checks must reference declared task/agent criteria.');}
         if(check.kind==='exists'||check.kind==='command'){if(check.expected!==undefined)fail('Existence/command checks have no expected value.');if(check.kind==='command'&&!(item.isolation as ProjectPlan['tasks'][number]['isolation'])?.commands.some(c=>c.artifactId===check.artifactId))fail('Command checks require a declared executor result.');}
         else {text(check.expected);if(check.kind==='sha256'&&!hex(check.expected))fail('Expected SHA-256 is invalid.');if(check.kind==='json'){try{planJson(JSON.parse(check.expected));}catch{fail('Expected JSON must be bounded valid JSON.');}}}
       }
     }
     tasks.set(item.id, item as unknown as ProjectPlan['tasks'][number]);
-    if(v.version===3){const task=item as unknown as ProjectPlan['tasks'][number];for(const command of task.isolation!.commands)if(!task.acceptanceChecks!.some(c=>c.kind==='command'&&c.artifactId===command.artifactId))fail('Every verification command requires an explicit command acceptance check.');}
+    if((v.version===3||v.version===4)){const task=item as unknown as ProjectPlan['tasks'][number];for(const command of task.isolation!.commands)if(!task.acceptanceChecks!.some(c=>c.kind==='command'&&c.artifactId===command.artifactId))fail('Every verification command requires an explicit command acceptance check.');}
   }
   for (const task of tasks.values()) if (task.dependencies.some(dep => !tasks.has(dep) || dep === task.id)) fail('Missing or self-referencing task dependency.');
   const remaining = new Set(tasks.keys()), completed = new Set<string>(), stages: string[][] = [];
@@ -137,6 +138,7 @@ export function analyzePlan(value: unknown): PlanAnalysis {
     }
   }
   for (const item of plan.agents) if (item.inputs.some(input => input.kind === 'artifact' && (!producers.has(input.value) || !plan.tasks.some(task => task.agentId === item.id)))) fail('Agent artifact inputs require a declared producer and an assigned consuming task.');
+  if(v.version===4)validateSupervisionPolicy(v.supervision,plan);else if(v.supervision!==undefined)fail('Supervision requires plan version 4.');
   let comparisons = 0;
   const conflicts: PlanAnalysis['conflicts'] = [], sorted = [...tasks.values()].sort((a,b) => a.id.localeCompare(b.id));
   for (let i = 0; i < sorted.length; i++) for (let j = i + 1; j < sorted.length; j++) {

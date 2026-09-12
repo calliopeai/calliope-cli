@@ -17,6 +17,7 @@ export interface TaskOutput {
   unresolvedRisks:string[];recommendedNextAction:string;checks:CheckEvidence[];
 }
 export type ExecutionChange=
+  |import('../supervision/types.js').SupervisionChange
   |{type:'graph_admitted';admission:SpawnAdmission}
   |{type:'started';ownerId:string}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string}
@@ -32,14 +33,15 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
   artifactIds:string[];changedFiles:string[];mutations:boolean;
 }
 export interface ExecutionProjection {
-  version:1|2;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  version:1|2|3;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  supervision?:import('../supervision/types.js').SupervisionProjection;
   tasks:Record<string,TaskState>;artifacts:Record<string,CollectedArtifact>;stoppedAgents:string[];
 }
 export interface ExecutionHeader {

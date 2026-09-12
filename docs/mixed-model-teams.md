@@ -77,11 +77,12 @@ automatically replayed. Dependency outputs awaiting semantic review may be used
 as proposed evidence, but do not make the workflow complete. Checks prove only
 their declared predicates; model claims do not establish completion.
 
-This slice executes the reviewed graph and its approved descendants. A model
-does not repeatedly rewrite the graph or spawn new workers without approval.
-Use `/agents spawn` for bounded, hash-approved expansion and `/tasks graph` to
-inspect dependencies. Fully automated graph replanning and continuing dual-model
-oversight after execution remain separate work under #254.
+These rules remain the default for existing plans. Reviewed version 4 plans can
+enable [continuous supervision](continuous-supervision.md), including a separate
+reviewer, isolated retries, task strategy changes and bounded child admission.
+The operator approves that policy as part of the plan; project permission checks
+still apply to every mutation. Use `/agents spawn` for manual hash-approved
+expansion and `/tasks graph` to inspect dependencies.
 
 ## Compact HUD
 

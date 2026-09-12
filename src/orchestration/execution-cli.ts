@@ -12,7 +12,7 @@ import type {ExecutionInspection} from './coordinator-types.js';
 import type {OrchestrationNamespace} from './cli.js';
 import {analyzePlan} from './validation.js';
 
-export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run retry|accept <run-id> <task-id> | agents stop|retry <agent-id> --run <run-id>';
+export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
 export type ExecutionCommandOptions=CoordinatorOptions&{cwd?:string;write?:(text:string)=>void};
 export function formatExecutionData(action:string,value:unknown):string {
   const data=value as {runId?:string;status?:string;interrupted?:boolean;execution?:ExecutionInspection;agents?:{id:string;parentId:string|null;role:string}[];runs?:{runId:string;status:string;completed:number;total:number}[]};
@@ -21,6 +21,7 @@ export function formatExecutionData(action:string,value:unknown):string {
   if(data.runs)for(const run of data.runs)lines.push(`${run.runId} · ${run.status} · ${run.completed}/${run.total} verified tasks`);
   const state=data.execution?.state;
   if(state){
+    if(state.supervision){const s=state.supervision;lines.push(`Controller ${s.phase} · round ${s.rounds} · ${s.stalledRounds} stalled`);if(s.halt)lines.push(`Controller stopped: ${s.halt.reason}`,`Recovery: calliope run retry-controller ${state.runId}, then calliope run resume ${state.runId}`);}
     if(data.agents){const tree=(parent:string|null,depth:number)=>{for(const agent of data.agents!.filter(a=>a.parentId===parent)){const tasks=Object.values(state.tasks).filter(t=>t.agentId===agent.id);lines.push(`${'   '.repeat(depth)}${parent?'└─ ':''}${agent.id} · ${agent.role}${state.stoppedAgents.includes(agent.id)?' · stopped':''}${tasks.length?' · '+tasks.map(t=>t.status+(t.escalation?' (escalated to '+t.escalation+')':'')).join(', '):''}`);tree(agent.id,depth+1);}};tree(null,0);}
     for(const task of Object.values(state.tasks)){lines.push(`${task.id} · ${task.status} · ${task.attempts} attempt(s)`);if(task.output){lines.push(`  ${task.output.summary}`,`  ${task.output.testEvidence.length} passing acceptance checks`);for(const risk of task.output.unresolvedRisks)lines.push(`  Review: ${risk}`);for(const artifact of task.output.artifacts)lines.push(`  Artifact ${artifact.id}: ${artifact.location}:${artifact.path} · SHA-256 ${artifact.sha256}`);}}
     if(action==='replay')for(const event of data.execution!.events)lines.push(`${event.sequence}. ${event.at} ${event.change.type} · ${event.id}`);
@@ -33,8 +34,8 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
   let parsed:ReturnType<typeof parseArgs>;
   try{parsed=parseArgs({args,allowPositionals:true,options:{json:{type:'boolean'},'allow-mutations':{type:'boolean'},'max-output-tokens':{type:'string'},run:{type:'string'},tree:{type:'boolean'},graph:{type:'boolean'},'dry-run':{type:'boolean'}}});}catch{return null;}
   const {positionals:p,values:v}=parsed,action=p[0]??'list',cwd=options.cwd??process.cwd();
-  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
-  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept']].includes(action)&&p.length===1&&!v['dry-run'];
+  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept','retry-controller'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
+  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept','retry-controller']].includes(action)&&p.length===1&&!v['dry-run'];
   if(v['dry-run'])return null;
   const write=options.write??(text=>{process.stdout.write(text);});
   const emit=(value:unknown,text:string)=>write(json?JSON.stringify(value)+'\n':approvalDisplayText(text)+'\n');
@@ -47,6 +48,12 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
       const raw=v['max-output-tokens'];if(raw!==undefined&&(!/^\d+$/.test(String(raw))||!Number.isSafeInteger(Number(raw))||Number(raw)<1||Number(raw)>100000000))throw new OrchestrationError('invalid',EXECUTION_USAGE);
       const opts={...options,...(v['allow-mutations']?{approve:async()=> 'allow' as const}:{}),...(raw?{maxOutputTokens:Number(raw)}:{})};
       if(controls){if(p.length!==2||!v.run)throw new OrchestrationError('invalid',EXECUTION_USAGE);const state=await controlExecution(cwd,String(v.run),action==='stop'?'agent-stop':'agent-retry',p[1]!,opts);return report({runId:String(v.run),status:state.state.status,execution:state});}
+      if(action==='retry-controller'){
+        if(p.length!==2)throw new OrchestrationError('invalid',EXECUTION_USAGE);
+        const current=await inspectExecution(cwd,p[1]!,opts),id=current.view.manifest.plan.supervision?.controllerId;
+        if(!id)throw new OrchestrationError('invalid','This run has no reviewed controller policy.');
+        const state=await controlExecution(cwd,p[1]!,'controller-retry',id,opts);return report({runId:p[1],status:state.state.status,execution:state});
+      }
       if(action==='retry'||action==='accept'||taskApproval){if(p.length!==3)throw new OrchestrationError('invalid',EXECUTION_USAGE);const state=await controlExecution(cwd,p[1]!,action==='retry'?'retry':'accept',p[2]!,opts);return report({runId:p[1],status:state.state.status,execution:state});}
       let runId:string;
       if(candidate){const prepared=await prepareRun(cwd,action,opts);emit({version:2,type:'orchestration.execution',action:'prepared',data:{runId:prepared.run.id,planHash:prepared.run.planHash}},`Prepared run ${prepared.run.id}.`);runId=prepared.run.id;await changePreparedRun(cwd,runId,'approved',opts);}

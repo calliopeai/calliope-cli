@@ -20,6 +20,7 @@ import {inspectSpawnAuthority} from './authority.js';
 import {SpawnProposalStore} from './store.js';
 import {makeSpawnProposal,validateSpawnInput,validateSpawnProposal,proposalGrant,MAX_SPAWN_BYTES} from './validation.js';
 import type {SpawnProposal,SpawnAdmission} from './types.js';
+import {assertSupervisionProposal} from '../supervision/journal.js';
 const bytesHash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
 export interface SpawnActionOptions extends RunActionOptions {approve?:CoordinatorOptions['approve']}
 function boundedOptions(options:SpawnActionOptions,signal:AbortSignal):SpawnActionOptions {
@@ -61,7 +62,7 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
   if(existing){if(canonicalJson(existing.proposal)!==canonicalJson(proposal))throw new OrchestrationError('conflict','Child proposal differs from its admitted graph.');return{admission:existing,execution:before,alreadyAdmitted:true};}
   validateSpawnProposal(proposal,current.store.manifest,before.header,current.store.context(before).plan);
   await authorizeSessionAction(cwd,'orchestration_spawn',{path:cwd,operation:`Admit ${proposal.agents.length} children and ${proposal.tasks.length} tasks under ${proposal.parentId}, proposal ${proposal.hash}, original deadline ${new Date(before.header.deadline).toISOString()}.`,runId,parentId:proposal.parentId,proposalHash:proposal.hash,graphHash:proposal.graphHash,source:proposal.source,agents:proposal.agents,tasks:proposal.tasks,recovery},{...options,confirmation:options.source==='repl'?'mutating':options.confirmation});
-  const checkSource=()=>{if(!recovery){const file=resolve(current.store.manifest.project.root,proposal.source.path);if(bytesHash(readArtifactBytes(file,MAX_SPAWN_BYTES))!==proposal.source.sha256)throw new OrchestrationError('conflict','Child proposal source changed after review.');}};
+  const checkSource=()=>{if(proposal.source.kind==='supervision')assertSupervisionProposal(proposal,current.store.read().state);else if(!recovery){const file=resolve(current.store.manifest.project.root,proposal.source.path);if(bytesHash(readArtifactBytes(file,MAX_SPAWN_BYTES))!==proposal.source.sha256)throw new OrchestrationError('conflict','Child proposal source changed after review.');}};
   let admission:SpawnAdmission|undefined,alreadyAdmitted=false;
   await current.store.transaction(async prior=>{
     current.assertActive(prior);const authority=inspectSpawnAuthority(current.store,current.ledger,prior);
@@ -71,7 +72,7 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
     bindPlan(analyzePlan({...authority.context.plan,agents:[...authority.context.plan.agents,...proposal.agents],tasks:[...authority.context.plan.tasks,...proposal.tasks]}),current.store.manifest.project.root);
     if(prior.state.status==='completed'||agentStopped(prior.state,authority.context,proposal.parentId)||Object.values(prior.state.tasks).some(task=>task.agentId===proposal.parentId&&task.escalation))throw new OrchestrationError('conflict','Parent is completed, stopped or escalated; no child admission is available.');
     const grant=proposalGrant(proposal,prior.header);if(grant.accounts.some(a=>Date.now()>=a.deadline))throw new ExecutionLimitError('deadline','Original child deadline expired.');
-    const reserve=4*authority.context.plan.limits.maxConcurrent+2;
+    const reserve=4*authority.context.plan.limits.maxConcurrent+(authority.context.plan.supervision?4:2);
     if(prior.events.length+reserve>MAX_EXECUTION_EVENTS||Buffer.byteLength(JSON.stringify({header:prior.header,events:prior.events}))+reserve*MAX_EXECUTION_EVENT_BYTES>MAX_EXECUTION_BYTES)throw new OrchestrationError('limit','Execution retention cannot admit more children.');
     current.proposals.save(proposal);
     const state=await current.ledger.grantChildren(cwd,manifestHash(authority.budget.manifest),grant,options.signal,()=>{current.assertActive(prior);checkSource();});
