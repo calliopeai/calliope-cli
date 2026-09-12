@@ -5,5 +5,6 @@ export * from './guard.js';
 export * from './files.js';
 export * from './project-spend.js';
 export * from './quote.js';
+export * from './billing.js';
 export * from './child-grants.js';
 export * from './writer-recovery.js';

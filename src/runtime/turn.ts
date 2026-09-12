@@ -174,7 +174,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     const abortRequest=()=>requestController?.abort(signal?.reason);
     const requestSignal=requestController?.signal??signal;
     const attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
-      ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage}),durationMs:0})):undefined);
+      ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0})):undefined);
     signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
     const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
     let response:LLMResponse;

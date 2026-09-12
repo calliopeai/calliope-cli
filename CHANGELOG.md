@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add opt-in native Anthropic counted-request admission with expiring local billing evidence, exact request hashes, conservative estimate headroom and retained reservation provenance; preserve discovery exclusions, inherited caps and overrun stops (#297).
+
 - Add opt-in continuous controller/reviewer supervision for isolated version-4 plans: review immutable worker evidence, apply bounded retry/replan and child decisions, preserve original budgets and deadlines across recovery, and show controller phase/rounds in the live HUD (#293).
 
 - Add reviewed isolated worker plans: retain per-attempt Git worktrees, run bounded verification commands in required Docker containment, and collect actual diffs and content-bound test evidence without changing the source checkout (#290).

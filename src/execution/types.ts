@@ -17,6 +17,7 @@ export interface RequestReservation {
   inputTokens: number; outputTokens: number; costNanos: number;
   inputPrice: number; outputPrice: number;
   limits?: {tokens?:number;costNanos?:number};
+  quoteEvidence?:import('./billing.js').QuoteEvidence;
 }
 export interface RequestSettlement {
   requestId: string; outcome: 'success' | 'error' | 'cancelled' | 'invalid-usage';

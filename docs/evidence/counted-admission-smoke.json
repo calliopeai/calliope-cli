@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "at": "2026-09-12T14:22:09.097Z",
+  "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+  "transport": "Native Anthropic Messages API",
+  "status": "incomplete",
+  "planner": {
+    "model": "claude-fable-5-1",
+    "status": "completed"
+  },
+  "worker": {
+    "model": "claude-haiku-4-5-20251001",
+    "status": "completed"
+  },
+  "verification": {
+    "baselineFailed": true,
+    "command": [
+      "node",
+      "--test",
+      "tests/clamp.test.mjs"
+    ],
+    "exitCode": 0,
+    "cleanupConfirmed": true,
+    "sourceUnchanged": true,
+    "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0"
+  },
+  "supervision": {
+    "rounds": 1,
+    "status": "halted",
+    "reason": "Final review exhausted its 512 output tokens, including 447 thinking tokens; no completion decision was accepted."
+  },
+  "hud": {
+    "rendered": true,
+    "updates": 333
+  },
+  "budget": {
+    "runId": "provider-followup-2026-09-11-02",
+    "capNanoUsd": 500000000,
+    "previousReservedNanoUsd": 75600000,
+    "newReservedNanoUsd": 332288000,
+    "totalReservedNanoUsd": 407888000,
+    "remainingNanoUsd": 92112000,
+    "policy": "Reservations retained; these figures are not billed spend."
+  },
+  "calls": [
+    {
+      "reservationId": "914fa998-5a82-42a9-b5b5-40f20f4f0c0e",
+      "phase": "planner",
+      "model": "claude-fable-5-1",
+      "inputCount": 130,
+      "reservedInput": 1284,
+      "reservedOutput": 512,
+      "httpStatus": 200,
+      "finishReason": "end_turn",
+      "inputTokens": 130,
+      "outputTokens": 143,
+      "thinkingTokens": 0,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "serviceTier": "standard"
+    },
+    {
+      "reservationId": "4e700f44-917c-4577-a537-31bcffb51f44",
+      "phase": "workflow",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 1493,
+      "reservedInput": 4010,
+      "reservedOutput": 512,
+      "httpStatus": 200,
+      "finishReason": "tool_use",
+      "inputTokens": 1493,
+      "outputTokens": 91,
+      "thinkingTokens": null,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "serviceTier": "standard"
+    },
+    {
+      "reservationId": "c70ff1d9-9ad0-446d-a977-454557d3befc",
+      "phase": "workflow",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 1760,
+      "reservedInput": 4544,
+      "reservedOutput": 512,
+      "httpStatus": 200,
+      "finishReason": "tool_use",
+      "inputTokens": 1760,
+      "outputTokens": 401,
+      "thinkingTokens": null,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "serviceTier": "standard"
+    },
+    {
+      "reservationId": "5b8f4513-cf9c-4bdd-9a16-573775da1520",
+      "phase": "workflow",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 2273,
+      "reservedInput": 5570,
+      "reservedOutput": 512,
+      "httpStatus": 200,
+      "finishReason": "end_turn",
+      "inputTokens": 2273,
+      "outputTokens": 219,
+      "thinkingTokens": null,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "serviceTier": "standard"
+    },
+    {
+      "reservationId": "de55a45b-12c6-407f-9e1f-d43dcd8797c9",
+      "phase": "workflow",
+      "model": "claude-fable-5-1",
+      "inputCount": 4975,
+      "reservedInput": 10974,
+      "reservedOutput": 512,
+      "httpStatus": 200,
+      "finishReason": "max_tokens",
+      "inputTokens": 4975,
+      "outputTokens": 512,
+      "thinkingTokens": 447,
+      "cacheCreationTokens": 0,
+      "cacheReadTokens": 0,
+      "serviceTier": "standard"
+    }
+  ]
+}

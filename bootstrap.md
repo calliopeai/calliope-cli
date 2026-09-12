@@ -82,6 +82,8 @@ admissions under the original authority, with explicit interrupted-call recovery
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.
+[Counted admission](docs/counted-admission.md) describes opt-in native token counting,
+expiring operator-reviewed billing evidence and auditable estimate headroom.
 
 ```
 src/
