@@ -42,6 +42,10 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
     entities = new Map<string, EntityInput>(),
     edges: EdgeInput[] = [],
     sources = new Map<string, SourceInput>();
+  // Task resets remove prior artifacts from the active projection, not from history.
+  const artifacts = execution.events.flatMap(({ change }) =>
+    change.type === 'artifact' ? [change.artifact] : [],
+  );
   let total = 0;
   const key = (kind: string, id: string) =>
       'run:' + digest(runId + ':' + execution.state.revision + ':' + kind + ':' + id),
@@ -144,7 +148,7 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
     link(id, key('agent', task.agentId), 'assigned_to', p);
     for (const dependency of task.dependencies) link(id, key('task', dependency), 'depends_on', p);
   }
-  for (const artifact of Object.values(execution.state.artifacts)) {
+  for (const artifact of artifacts) {
     throwIfCancelled(options.signal);
     total += artifact.bytes;
     if (total > 64 * 1024 * 1024)
@@ -170,8 +174,6 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
       const c = entry.change;
       for (const check of c.output.checks) {
         const artifact = c.output.artifacts.find((a) => a.id === check.artifactId);
-        if (artifact)
-          await readCollectedArtifact(current.store, artifact, { ...options, store: options.runs });
         const path = context.plan.tasks
             .find((t) => t.id === c.taskId)!
             .outputs.find((o) => o.id === check.artifactId)?.path,
@@ -274,8 +276,7 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
         'conflict',
         'Run changed during brain review; ingest its current snapshot.',
       );
-    for (const artifact of Object.values(execution.state.artifacts))
-      checkArtifactSnapshot(current.store, artifact);
+    for (const artifact of artifacts) checkArtifactSnapshot(current.store, artifact);
   };
   return {
     ...(await commitBrain(

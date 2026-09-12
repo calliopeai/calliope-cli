@@ -240,3 +240,58 @@ it.each(['replan', 'decompose'] as const)(
     });
   },
 );
+
+it('retains and verifies artifacts from failed attempts after the active task projection is reset', async () => {
+  const plan = verifiedPlan();
+  delete plan.tasks[0]!.outputs[0]!.path;
+  const r = await coordinatorRun(root, plan),
+    ownerId = randomUUID(),
+    task = plan.tasks[0]!;
+  await r.store.append({ type: 'started', ownerId });
+  for (const [index, content] of ['Failed sample', 'public toy'].entries()) {
+    if (index) await r.store.append({ type: 'task_reset', taskId: task.id, source: 'automatic' });
+    await r.store.append({
+      type: 'task_started',
+      taskId: task.id,
+      attempt: index + 1,
+      sessionId: 'attempt-' + index,
+    });
+    const collected = await collectTaskOutput(
+      r.store,
+      task,
+      JSON.stringify({
+        version: 1,
+        summary: 'A worker claim',
+        outputs: [{ id: task.outputs[0]!.id, content }],
+      }),
+    );
+    await r.store.append({
+      type: 'task_finished',
+      taskId: task.id,
+      status: collected.status,
+      output: collected.output,
+    });
+  }
+  await r.store.append({ type: 'finished', ownerId, status: 'partial' });
+  expect(Object.values(r.store.read().state.artifacts)).toHaveLength(1);
+  const options = { base: join(root, 'brain'), runs: r.runs, confirmation: 'none' as const };
+  await initBrain(r.project, options);
+  const result = await ingestBrainRun(r.project, r.view.run.id, options),
+    entities = Object.values(result.state.entities);
+  expect(entities.filter((e) => e.kind === 'artifact')).toHaveLength(2);
+  expect(
+    entities.filter((e) => e.kind === 'test_evidence').map((e) => e.attributes.passed),
+  ).toEqual([false, true]);
+  const edges = Object.values(result.state.edges).filter((e) => e.type === 'checks');
+  expect(edges).toHaveLength(2);
+  expect(edges.every((e) => result.state.entities[e.to]?.kind === 'artifact')).toBe(true);
+  const old = r.store.read().events.find((e) => e.change.type === 'artifact')!;
+  if (old.change.type !== 'artifact') throw new Error('Missing fixture artifact');
+  fs.writeFileSync(
+    join(r.store.root, 'artifacts', old.change.artifact.path),
+    'Tampered old evidence',
+  );
+  await expect(ingestBrainRun(r.project, r.view.run.id, options)).rejects.toThrow(
+    'changed after collection',
+  );
+});

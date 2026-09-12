@@ -158,7 +158,8 @@ and run metadata are not advertised as fresh filesystem documents.
 
 `ingest-run` validates run history and artifact hashes before recording a stable
 snapshot. It links agents, tasks, dependencies, artifacts, executor checks and
-final controller/reviewer improvement cycles. Worker prose is not imported as
+final controller/reviewer improvement cycles, including retained artifacts from
+failed attempts that were reset out of the active task projection. Worker prose is not imported as
 proof of test success. Active coordinators and changing artifacts are rejected;
 brain ingestion never runs an agent, changes an approval, or resets a reservation.
 Different execution revisions create separately identifiable run snapshots.
@@ -219,3 +220,7 @@ choose documents appropriate for this knowledge scope.
 Tests cover actual SQLite, provenance, exact reversal, stale sources, changed
 policy, cancellation, concurrent writers, restart, malformed imports, transfers,
 run checks, JSON contracts and REPL wiring. Local operations spend no model tokens.
+
+A [local workflow smoke receipt](evidence/project-brain-smoke.json) records a real
+Docker failure/repair cycle and its brain projection. Its model transport is
+synthetic; it does not substitute for provider captures.
