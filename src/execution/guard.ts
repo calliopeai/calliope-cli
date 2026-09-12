@@ -12,6 +12,7 @@ import {getBudgetCaps,projectBudgetPath} from '../budget.js';
 import {ProjectSpendLedger} from './project-spend.js';
 import {providerQuote,costCapNanos} from './quote.js';
 import {effectiveExecutionManifest} from './child-grants.js';
+import {readBillingEvidence} from './billing.js';
 
 export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
@@ -68,13 +69,17 @@ export class ExecutionGuard {
   }
   budget(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,signal?:AbortSignal,onEvent?:(event:{requestId:string;stage:string;revision:string;tokens:number;costNanos:number})=>void):ProviderAttemptBudget {
     this.assertActive(signal);
-    const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens);
+    route=structuredClone(route);const billing=readBillingEvidence(route,this.manifest.project.root);
+    const base=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing);
     const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
+      ...(billing?{inputCounting:'anthropic-count-tokens' as const}:{}),
       reserve:async actual=>{
         this.assertActive(signal);
-        if(actual.provider!==quote.provider||actual.model!==quote.model||actual.target!==quote.target||actual.maxOutputTokens!==quote.outputTokens)
+        if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)
           throw new ExecutionLimitError('authority','Provider attempt does not match its discovered budget quote.');
+        if(billing&&(!actual.inputCount||readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
+        const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount);
         const id=randomUUID(),caps=getBudgetCaps();
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
@@ -87,6 +92,7 @@ export class ExecutionGuard {
       settle:async(id,outcome,usage)=>{
         const valid=!usage||[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0&&n<=100000000);
         const state=await this.ledger.settle(this.cwd,this.expectedHash,{requestId:id,outcome:valid?outcome:'invalid-usage',...(usage&&valid?{usage}: {})});
+        const quote=state.requests[id]!.reservation;
         await projectLedger.settle(id,outcome==='success'&&valid&&usage?requestCostNanos(usage.inputTokens,usage.outputTokens,quote.inputPrice,quote.outputPrice):null,state.exceeded);
         onEvent?.({requestId:id,stage:state.requests[id]!.state,revision:state.revision,...state.spent});
         if(state.exceeded)throw new ExecutionLimitError('budget','Provider reported usage beyond the reserved bound; execution stopped.');

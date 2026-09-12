@@ -3,6 +3,9 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
+import {createHash} from 'node:crypto';
+import {ExecutionLimitError} from '../execution/types.js';
+import {validateInputCount,type InputCount} from '../execution/billing.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
@@ -46,22 +49,7 @@ function supportsAdaptiveThinking(model: string): boolean {
     || m.includes('claude-mythos-5');
 }
 
-/**
- * Chat with Anthropic Claude
- */
-export async function chatAnthropic(
-  messages: Message[],
-  tools: Tool[],
-  model: string,
-  onToken?: StreamCallback,
-  signal?: AbortSignal,
-  limits?: AdapterLimits
-): Promise<LLMResponse> {
-  const apiKey = config.getApiKey('anthropic');
-  if (!apiKey) throw new Error('Anthropic API key not configured');
-
-  const client = new Anthropic({ apiKey, baseURL: config.getBaseUrl('anthropic')?.replace(/\/v1\/?$/, ''), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
-
+function prepareAnthropicRequest(messages:Message[],tools:Tool[],model:string,streaming:boolean,limits?:AdapterLimits):Anthropic.MessageCreateParamsNonStreaming {
   // Extract system message
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const chatMessages = messages.filter(m => m.role !== 'system');
@@ -128,6 +116,48 @@ export async function chatAnthropic(
   const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('anthropic', model, messages, tools), limits?.maxOutputTokens);
   debugLog(`Anthropic request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
+  return {model,max_tokens:streaming?dynamicMaxTokens:Math.min(dynamicMaxTokens,8192),system:systemInstruction,messages:anthropicMessages,
+    tools:anthropicTools.length?anthropicTools:undefined,...(thinking?{thinking}:{})};
+}
+function requestHash(request:Anthropic.MessageCreateParamsNonStreaming,streaming:boolean):string {
+  return createHash('sha256').update(JSON.stringify({request,streaming})).digest('hex');
+}
+/** Free preflight on the exact selected model; never reuse a different model's tokenizer. */
+export async function countAnthropicInput(messages:Message[],tools:Tool[],model:string,streaming:boolean,signal?:AbortSignal,limits?:AdapterLimits):Promise<InputCount> {
+  throwIfCancelled(signal);
+  const apiKey=config.getApiKey('anthropic');if(!apiKey)throw new Error('Anthropic API key not configured');
+  const request=prepareAnthropicRequest(messages,tools,model,streaming,limits);
+  const hash=requestHash(request,streaming),{max_tokens:_,...input}=request;
+  const client=new Anthropic({apiKey,baseURL:config.getBaseUrl('anthropic')?.replace(/\/v1\/?$/,''),maxRetries:0,timeout:15000});
+  const result=await client.messages.countTokens(input,{signal});
+  throwIfCancelled(signal);
+  return validateInputCount({version:1,method:'anthropic-count-tokens',requestHash:hash,inputTokens:result.input_tokens,at:Date.now()});
+}
+
+/**
+ * Chat with Anthropic Claude
+ */
+export async function chatAnthropic(
+  messages: Message[],
+  tools: Tool[],
+  model: string,
+  onToken?: StreamCallback,
+  signal?: AbortSignal,
+  limits?: AdapterLimits
+): Promise<LLMResponse> {
+  const apiKey = config.getApiKey('anthropic');
+  if (!apiKey) throw new Error('Anthropic API key not configured');
+
+  const client = new Anthropic({ apiKey, baseURL: config.getBaseUrl('anthropic')?.replace(/\/v1\/?$/, ''), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
+
+  const request=prepareAnthropicRequest(messages,tools,model,!!onToken,limits);
+  if(limits?.inputCount){
+    const count=validateInputCount(limits.inputCount);
+    if(count.requestHash!==requestHash(request,!!onToken)||count.at>Date.now()+1000||Date.now()-count.at>60000)
+      throw new ExecutionLimitError('authority','Anthropic request changed after token counting.');
+  }
+  throwIfCancelled(signal);
+
   // Use streaming if callback provided - handles both text and tool calls
   if (onToken) {
     let content = '';
@@ -141,14 +171,7 @@ export async function chatAnthropic(
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
     try {
-      const stream = await client.messages.stream({
-        model,
-        max_tokens: dynamicMaxTokens,
-        system: systemInstruction,
-        messages: anthropicMessages,
-        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-        ...(thinking ? { thinking } : {}),
-      }, signal ? { signal } : undefined);
+      const stream = await client.messages.stream(request, signal ? { signal } : undefined);
 
       for await (const event of stream) {
         if (event.type === 'content_block_start') {
@@ -221,19 +244,7 @@ export async function chatAnthropic(
     }
   }
 
-  // Non-streaming request. The SDK rejects create() when max_tokens is large
-  // enough to risk the 10-minute request timeout — and output caps are now
-  // model-aware (up to 64K-128K, #144). Cap the non-streaming path at a safe
-  // ceiling; the interactive streaming path above keeps the full model output.
-  const NONSTREAM_MAX_TOKENS = 8192;
-  const response = await client.messages.create({
-    model,
-    max_tokens: Math.min(dynamicMaxTokens, NONSTREAM_MAX_TOKENS),
-    system: systemInstruction,
-    messages: anthropicMessages,
-    tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-    ...(thinking ? { thinking } : {}),
-  }, signal ? { signal } : undefined);
+  const response = await client.messages.create(request, signal ? { signal } : undefined);
 
   // Parse response
   let content = '';

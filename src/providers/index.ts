@@ -10,11 +10,11 @@ import { ExecutionLimitError } from '../execution/types.js';
 import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
-import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions } from './types.js';
+import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions, type AdapterLimits } from './types.js';
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
-import { chatAnthropic } from './anthropic.js';
+import { chatAnthropic, countAnthropicInput } from './anthropic.js';
 import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
@@ -158,7 +158,7 @@ export async function chat(
   const maxOutputTokens = options?.maxOutputTokens;
   if (maxOutputTokens !== undefined && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 100000000) || bounded && maxOutputTokens === undefined)
     throw new ExecutionLimitError('invalid','A bounded provider call requires a positive integer output limit.');
-  const limits = { maxOutputTokens, bounded };
+  const limits:AdapterLimits = { maxOutputTokens, bounded };
   const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
@@ -246,7 +246,14 @@ export async function chat(
     const target = attemptBudget ? providerTarget(actualProvider as HealthProvider).key : undefined;
     // Admission errors are not provider failures and must not create a network retry.
     let ticket: string | undefined;
-    try { ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!}) : undefined; }
+    try {
+      if(attemptBudget?.inputCounting){
+        if(actualProvider!=='anthropic')throw new ExecutionLimitError('authority','Input counting is unavailable for this provider protocol.');
+        limits.inputCount=await cancellable(countAnthropicInput(messages,backendTools,actualModel,!!onToken,options?.signal,limits),options?.signal);
+        if(providerTarget(actualProvider as HealthProvider).key!==target)throw new ExecutionLimitError('authority','Provider endpoint changed during token counting.');
+      }
+      ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!,...(limits.inputCount?{inputCount:limits.inputCount}:{})}) : undefined;
+    }
     catch (error) {
       throwIfCancelled(options?.signal);
       if (error instanceof ExecutionLimitError) throw error;

@@ -7,6 +7,7 @@ import { cancellableDelay, throwIfCancelled } from '../cancellation.js';
 import { accountLineage, checkExecutionIdentity, hex, identifier, integer, invalid, manifestHash, shape, uuid, validateExecutionManifest } from './authority.js';
 import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, type RequestSettlement, type ReservationEvent, type ReservationProjection,type ChildGrant } from './types.js';
 import {validateChildGrant,applyChildGrant,assertChildCapacity,effectiveExecutionManifest} from './child-grants.js';
+import {validateQuoteEvidence} from './billing.js';
 import {recoverDeadWriterLock} from './writer-recovery.js';
 
 export const MAX_RESERVATION_EVENTS = 10000, MAX_RESERVATION_BYTES = 16 * 1024 * 1024;
@@ -18,11 +19,15 @@ export function requestCostNanos(input: number, output: number, inputPrice: numb
   const nanos = input * Math.ceil(inputPrice * 1000) + output * Math.ceil(outputPrice * 1000); integer(nanos); return nanos;
 }
 function reservation(value: unknown): asserts value is RequestReservation {
-  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits']);
+  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits','quoteEvidence']);
   if (!uuid(value.id) || !hex(value.target)) invalid(); identifier(value.agentId);
   if (typeof value.provider !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value.provider) || typeof value.model !== 'string' || !value.model || value.model.length > 256 || /[\x00-\x1f\x7f]/.test(value.model)) invalid();
   integer(value.inputTokens,1,100000000); integer(value.outputTokens,1,100000000); integer(value.costNanos);
   if (value.costNanos !== requestCostNanos(value.inputTokens,value.outputTokens,value.inputPrice as number,value.outputPrice as number)) invalid();
+  if(value.quoteEvidence!==undefined){
+    const proof=validateQuoteEvidence(value.quoteEvidence),p=proof.profile;
+    if(value.provider!==p.provider||value.model!==p.model||value.target!==p.target||value.inputTokens<proof.count.inputTokens||value.inputTokens>proof.count.inputTokens*2+1024||Number(value.inputPrice)<p.prices.input||Number(value.outputPrice)<p.prices.output)invalid();
+  }
   if(value.limits!==undefined){shape(value.limits,[],['tokens','costNanos']);for(const cap of Object.values(value.limits))integer(cap);}
 }
 function settlement(value: unknown): asserts value is RequestSettlement {
