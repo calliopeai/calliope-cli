@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add auditable recursive improvement cycles, measured outcome feedback and HUD status; provide persistent proposal holds, exact-hash execution approval and strategy withdrawal while preserving isolated evidence, original budgets and deadlines (#301).
+
 - Compact controller reviews without dropping acceptance or authority, validate executor receipt summaries, and support explicit per-role reasoning effort gated by live native Anthropic discovery and counted-request hashes (#299).
 
 - Add opt-in native Anthropic counted-request admission with expiring local billing evidence, exact request hashes, conservative estimate headroom and retained reservation provenance; preserve discovery exclusions, inherited caps and overrun stops (#297).

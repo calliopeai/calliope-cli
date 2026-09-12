@@ -29,6 +29,8 @@ import {taskWorktree,verifyInWorktree} from '../isolation/index.js';
 import {needsSupervision,supervise,reviewEvidence} from '../supervision/index.js';
 
 export interface CoordinatorOptions extends RunActionOptions {
+  /** Restrict this invocation to a bounded review; never start workers or apply its decision. */
+  proposalOnly?:boolean;expectedDecisionId?:string;expectedProposalHash?:string;
   resume?:boolean;maxOutputTokens?:number;approvals?:ApprovalStore;
   approve?:(decision:PermissionDecision,signal?:AbortSignal)=>Promise<ApprovalChoice>;
   onEvent?:(event:ExecutionEvent)=>void;
@@ -67,12 +69,12 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   await authorizeSessionAction(cwd,'orchestration_execute',{path:cwd,runId,planHash:view.manifest.planHash,revision:view.run.revision,resume:!!options.resume},options);
   const rootAuthority=await prepareAgentExecution(cwd,runId,view.analysis.coordinatorId,outputCap,{...options,store:runs});
   let eventCursor=0;
-  const notifyEvents=(events:ExecutionEvent[])=>{for(const event of events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution});}};
+  const notifyEvents=(events:ExecutionEvent[])=>{for(const event of events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution,manifest:view.manifest});}};
   const budget=rootAuthority.ledger.read(cwd).manifest,store=new ExecutionStore(join(runs.root,runId),view.manifest,event=>{if(event.sequence>eventCursor+1)notifyEvents(store.read().events);else notifyEvents([event]);});
   if(store.exists()&&!options.resume)throw new OrchestrationError('conflict','Run already has execution history; inspect it and resume explicitly.');
   store.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(budget.createdAt).toISOString(),deadline:budget.deadline},options.signal);
   eventCursor=store.read().events.length;
-  if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution});}
+  if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution,manifest:view.manifest});}
   const lease=store.acquire(),controller=new AbortController(),children=new Map<string,AbortController>(),active=new Map<string,Promise<void>>();let stopReason:'cancelled'|'denied'|'failed'|undefined;
   const stop=(reason:'cancelled'|'denied'|'failed')=>{stopReason??=reason;controller.abort();};
   const abort=()=>stop('cancelled');options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
@@ -127,7 +129,14 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
     }finally{clearTimeout(taskTimer);controller.signal.removeEventListener('abort',parentAbort);children.delete(task.id);await taskLog?.flush();}
   };
   try {
-    assertRun();await store.append({type:'started',ownerId:lease.id},controller.signal);
+    assertRun();
+    if(options.proposalOnly&&!view.manifest.plan.supervision)throw new OrchestrationError('invalid','Improvement proposals require reviewed supervision.');
+    if(options.expectedDecisionId&&store.read().state.supervision?.decisionId!==options.expectedDecisionId)throw new OrchestrationError('conflict','The reviewed improvement decision changed before execution.');
+    const held=store.read().state.supervision?.review;
+    if(!options.proposalOnly&&store.read().state.supervision?.operatorReview&&!held)throw new OrchestrationError('policy-denied','The interrupted proposal review must be resumed with improve propose.');
+    if(!options.proposalOnly&&held&&!held.approved&&(options.expectedDecisionId!==held.decisionId||options.expectedProposalHash!==held.proposalHash))throw new OrchestrationError('policy-denied','The proposed improvement requires its exact reviewed approval; use improve run.');
+    await store.append({type:'started',ownerId:lease.id,...(options.proposalOnly?{proposalOnly:true as const}:{})},controller.signal);
+    if(!options.proposalOnly&&held&&!held.approved)await store.append({type:'supervision_approved',decisionId:held.decisionId,proposalHash:held.proposalHash,source:options.source==='repl'?'repl':'cli'},controller.signal,undefined,assertRun);
     while(true){
       observe();let inspected=store.read(),state=inspected.state;const context=store.context(inspected),analysis=analyzePlan(context.plan),graphHash=state.graph?.hash??view.manifest.planHash;
       if(!controller.signal.aborted&&state.supervision)for(const task of context.plan.tasks){
@@ -136,7 +145,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         await store.append({type:'escalated',agentId:agent.id,taskId:task.id,target:agent.escalationPolicy.onFailure},controller.signal);state=store.read().state;
         if(agent.escalationPolicy.onFailure==='stop'){stop(t.status==='denied'?'denied':'failed');break;}
       }
-      if(!controller.signal.aborted&&state.supervision&&needsSupervision(store)){
+      if(!controller.signal.aborted&&state.supervision&&needsSupervision(store)&&!(options.proposalOnly&&state.supervision.phase==='decision'&&(state.supervision.review?.announced||!state.supervision.decision||!('hypothesis' in state.supervision.decision)))){
         if(active.size){await Promise.race([...active.values(),cancellableDelay(100)]);continue;}
         await supervise(store,rootAuthority,{...options,store:runs,signal:controller.signal},assertRun);continue;
       }
@@ -154,7 +163,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
             if(agent.escalationPolicy.onFailure==='stop'){stop(t.status==='denied'?'denied':'failed');break;}
           }
         }
-        for(const task of state.supervision?.phase==='halted'?[]:context.plan.tasks){
+        for(const task of state.supervision?.phase==='halted'||options.proposalOnly?[]:context.plan.tasks){
           if(controller.signal.aborted||active.size>=context.plan.limits.maxConcurrent)break;
           if(state.tasks[task.id]!.status!=='pending'||active.has(task.id)||agentStopped(state,context,task.agentId)||task.dependencies.some(d=>!['completed','review_required'].includes(state.tasks[d]!.status))||[...active.keys()].some(id=>analysis.conflicts.some(c=>c.tasks.includes(id)&&c.tasks.includes(task.id))))continue;
           const pending=work(task).catch(error=>{if(!isCancellation(error))stop(error instanceof ExecutionLimitError||error instanceof SessionPolicyError?'denied':'failed');}).finally(()=>active.delete(task.id));active.set(task.id,pending);
@@ -165,7 +174,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const finished=await store.transaction(async current=>{
         if(current.state.revision!==candidate.state.revision)return[];
         const tasks=Object.values(current.state.tasks),pending=inspectSpawnAuthority(store,rootAuthority.ledger,current).pending;
-        const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(tasks.every(t=>t.status==='completed')&&!pending.length&&current.state.supervision?.phase!=='halted'?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
+        const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&current.state.supervision?.phase==='decision'?'partial':tasks.every(t=>t.status==='completed')&&!pending.length&&current.state.supervision?.phase!=='halted'?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
         return[{change:{type:'finished',ownerId:lease.id,status}}];
       },undefined,lease.check);
       if(finished.length)break;

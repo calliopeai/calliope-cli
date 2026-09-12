@@ -1,3 +1,4 @@
+import {projectImprovementHistory} from '../improvement/projection.js';
 import {agentPreference,type CoordinatorProgress} from '../orchestration/progress.js';
 import {approvalDisplayText} from '../approvals/request.js';
 
@@ -6,9 +7,18 @@ export interface WorkflowRow {id:string;label:string;active:boolean}
 export interface WorkflowSnapshot {
   id:string;revision:string;status:string;summary:string;agents:WorkflowRow[];
 }
+const cycleHudCache=new Map<string,{revision:string;label:string}>();
+function cycleHud(progress:CoordinatorProgress):string {
+  if(!progress.manifest||!progress.context.plan.supervision)return '';
+  const prior=cycleHudCache.get(progress.context.id);if(prior?.revision===progress.execution.state.revision)return prior.label;
+  const cycles=projectImprovementHistory(progress.manifest,progress.execution,progress.context).cycles,last=cycles.at(-1),check=last?.metrics.find(m=>m.name==='acceptance-check-pass-rate'&&m.comparable);
+  const label=last?` · improvement ${cycles.length} ${last.status}${check?' · checks '+Math.round(check.before!*100)+'→'+Math.round(check.after!*100)+'%':''}`:'';
+  cycleHudCache.delete(progress.context.id);cycleHudCache.set(progress.context.id,{revision:progress.execution.state.revision,label});if(cycleHudCache.size>3)cycleHudCache.delete(cycleHudCache.keys().next().value!);return label;
+}
 const clean=(text:string)=>approvalDisplayText(text).replace(/[\r\n\t]/g,' ');
 /** Presentation only: completion and attempts come from the verified execution projection. */
-export function workflowSnapshot({context,execution}:CoordinatorProgress):WorkflowSnapshot {
+export function workflowSnapshot(progress:CoordinatorProgress):WorkflowSnapshot {
+  const {context,execution}=progress;
   const plan=context.plan,state=execution.state,tasks=Object.values(state.tasks);
   const complete=tasks.filter(task=>task.status==='completed').length,review=tasks.filter(task=>task.status==='review_required').length;
   const agents=plan.agents.map(agent=>{
@@ -20,7 +30,7 @@ export function workflowSnapshot({context,execution}:CoordinatorProgress):Workfl
     return{id:agent.id,active:supervising||current?.status==='running',label:clean(`${agent.id} · ${agent.role} · ${status} · choice ${preference.provider??'auto'}:${preference.model??'auto'}${attempt} · ${assigned.filter(task=>task.status==='completed').length}/${assigned.length} done`)};
   });
   const s=state.supervision,supervision=s?` · ${plan.supervision!.principle} · controller ${s.phase} ${s.rounds}/${plan.supervision!.maxRounds}${s.halt?' · '+s.halt.reason:''}`:'';
-  return{id:context.id,revision:state.revision,status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${supervision} · limit $${plan.limits.costBudgetUsd} · ${plan.goal}`),agents};
+  return{id:context.id,revision:state.revision,status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${supervision}${cycleHud(progress)} · limit $${plan.limits.costBudgetUsd} · ${plan.goal}`),agents};
 }
 export function retainWorkflows(previous:WorkflowSnapshot[],next:WorkflowSnapshot):WorkflowSnapshot[] {
   if(previous.find(value=>value.id===next.id)?.revision===next.revision)return previous;

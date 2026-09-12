@@ -1,3 +1,5 @@
+import {supervisionProposalHash} from './approval.js';
+import {projectImprovementHistory,improvementFeedback} from '../improvement/index.js';
 import {randomUUID} from 'node:crypto';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {runTurn} from '../runtime/index.js';
@@ -46,7 +48,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     check();
     await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash},controller.signal,undefined,check);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
-    const {content,metrics}=buildControllerContext({role,round,plan,tasks:store.read().state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
+    const {content,metrics}=buildControllerContext({role,round,plan,improvements:improvementFeedback(projectImprovementHistory(store.manifest,store.read(),context)),tasks:store.read().state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
     const reasoningEffort=policy.reasoningEffort?.[role];
     log.policyEvent({tool:'controller',source:'controller-context',decision:'allow',reason:JSON.stringify({...metrics,role,round,reasoningEffort}),durationMs:0});
     const messages:{current:Message[]}={current:[{role:'system',content:controllerInstructions(policy)},{role:'user',content}]};
@@ -94,7 +96,12 @@ export async function supervise(store:ExecutionStore,authority:AgentExecution,op
       await controllerTurn(store,authority,'controller',options,assertRun);s=store.read().state.supervision!;
     }
     if(s.phase==='draft-ready')await controllerTurn(store,authority,'reviewer',options,assertRun);
-    if(store.read().state.supervision!.phase==='decision')await applyDecision(store,authority,options,assertRun);
+    const current=store.read(),pending=current.state.supervision!;
+    if(options.proposalOnly&&pending.phase==='decision'&&pending.decision&&'hypothesis' in pending.decision&&!pending.review?.announced){
+      const event=current.events.find(e=>e.id===pending.decisionId)!;
+      await store.append({type:'supervision_proposed',decisionId:event.id,proposalHash:supervisionProposalHash(store.manifest,event,current.header.deadline),source:options.source==='repl'?'repl':'cli'},options.signal,undefined,assertRun);
+    }
+    if(!options.proposalOnly&&pending.phase==='decision')await applyDecision(store,authority,options,assertRun);
   }catch(error){
     const cancelled=options.signal?.aborted||isCancellation(error),denied=error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied';
     const s=store.read().state.supervision!;

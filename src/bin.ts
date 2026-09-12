@@ -174,6 +174,12 @@ async function main(): Promise<void> {
     process.exit(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  if (args[0] === 'improve') {
+    headlessCancellation = new AbortController();
+    const { runImprovementCommand } = await import('./improvement/index.js');
+    process.exit(await runImprovementCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   if (args[0] === 'orchestrate') {
     headlessCancellation = new AbortController();
     const { runGoalCommand } = await import('./goals/index.js');
@@ -379,6 +385,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 ${bold('USAGE')}
   calliope [options] [prompt]
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
+  calliope improve history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
   calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
   calliope orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] [--json]
   calliope orchestrate status|proposal|replay|resume|cancel <goal-id> [--json]
