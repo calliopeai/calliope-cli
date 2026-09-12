@@ -16,13 +16,13 @@ export async function inspectExecution(cwd:string,runId:string,options:RunAction
   const runs=options.store??new RunStore(),view=await runs.read(runId,cwd,options.signal),store=new ExecutionStore(join(runs.root,runId),view.manifest);
   return{view,store,execution:store.exists()?store.read():null,owner:store.exists()?store.owner():null};
 }
-export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry',target:string,options:RunActionOptions&Pick<CoordinatorOptions,'onProgress'>={}) {
+export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry'|'controller-retry',target:string,options:RunActionOptions&Pick<CoordinatorOptions,'onProgress'>={}) {
   const initial=await inspectExecution(cwd,runId,options);if(!initial.execution)throw new OrchestrationError('unavailable','Run has no execution history.');
   const {view,store}=initial,agentAction=action.startsWith('agent-'),context=store.context(initial.execution);
   const finish=()=>{const execution=store.read();options.onProgress?.({context:store.context(execution),execution});return execution;};
   const goalAuthority=view.manifest.version===2&&action!=='agent-stop'?(await import('../goals/index.js')).goalRunAuthority(view.manifest,(options.store??new RunStore()).root):undefined;
   const assertAuthority=()=>{store.assertApproval(initial.execution!.header);goalAuthority?.assertActive();const authority=inspectSpawnAuthority(store,new ReservationLedger(join(store.root,'..','budget')));if(action==='accept'&&authority.pending.length)throw new OrchestrationError('conflict','Recover pending child admission before accepting the run.');};
-  if(agentAction?!context.plan.agents.some(a=>a.id===target):!context.plan.tasks.some(t=>t.id===target))throw new OrchestrationError('invalid','Unknown execution task or agent.');
+  if(action==='controller-retry'?context.plan.supervision?.controllerId!==target:agentAction?!context.plan.agents.some(a=>a.id===target):!context.plan.tasks.some(t=>t.id===target))throw new OrchestrationError('invalid','Unknown execution task or agent.');
   if(action==='accept'){
     const task=initial.execution.state.tasks[target]!;if(task.status!=='review_required'||!task.output)throw new OrchestrationError('conflict','Task is not awaiting acceptance.');
     for(const artifact of task.output.artifacts)await readCollectedArtifact(store,artifact,options);
@@ -35,7 +35,9 @@ export async function controlExecution(cwd:string,runId:string,action:'retry'|'a
   try {
     const current=store.read();assertAuthority();
     if(current.state.revision!==initial.execution.state.revision||current.state.ownerId)throw new OrchestrationError('conflict','Execution changed or needs orphan recovery; inspect and resume before applying this decision.');
-    if(action==='accept'){
+    if(action==='controller-retry'){
+      await store.append({type:'supervision_reset',source:options.source==='repl'?'repl':'cli'},options.signal,undefined,()=>{lease.check();assertAuthority();});
+    }else if(action==='accept'){
       const output=current.state.tasks[target]!.output!;for(const artifact of output.artifacts)await readCollectedArtifact(store,artifact,options);
       await store.appendBatch([{change:{type:'task_accepted',taskId:target,artifactsHash:artifactSetHash(output.artifacts)}}],options.signal,()=>{lease.check();assertAuthority();if(store.read().state.revision!==current.state.revision)throw new OrchestrationError('conflict','Execution changed during acceptance.');for(const artifact of output.artifacts)checkArtifactSnapshot(store,artifact);});
     }else if(action==='retry'){await store.append({type:'task_reset',taskId:target,source:'manual'},options.signal,undefined,()=>{lease.check();store.assertApproval(current.header);goalAuthority?.assertActive();});}

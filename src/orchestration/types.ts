@@ -21,7 +21,8 @@ export interface AcceptanceCheck {
   criteria: string[]; expected?: string;
 }
 export interface ProjectPlan {
-  version: 1 | 2 | 3; id: string; goal: string;
+  version: 1 | 2 | 3 | 4; id: string; goal: string;
+  supervision?: import('../supervision/types.js').SupervisionPolicy;
   workspace: { id: string; root: '.'; allowedTools: string[]; allowedPaths: PathGrant[]; isolation?: import('../isolation/contracts.js').WorktreeIsolation };
   limits: { maxAgents: number; maxTasks: number; maxDepth: number; maxConcurrent: number; tokenBudget: number; costBudgetUsd: number; timeBudgetMs: number };
   agents: AgentContract[]; tasks: ProjectTask[];

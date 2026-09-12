@@ -76,6 +76,9 @@ worktrees, reviewed Docker verification commands and immutable process/diff evid
 then requires hash-bound human approval within one persistent allowance and clock.
 [Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker
 choices and bounded attempts, with a compact HUD driven by recorded execution state.
+[Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
+evidence between batches and applies bounded retries, strategy changes and child
+admissions under the original authority, with explicit interrupted-call recovery.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.

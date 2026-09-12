@@ -10,6 +10,7 @@ import {executeReviewedRun,prepareRun,changePreparedRun,prepareAgentExecution,co
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import {projectBudgetPath} from '../src/budget.js';
 import {inspectSpawn,admitSpawn,executeSpawn,spawnCommand,type SpawnInput} from '../src/spawning/index.js';
+vi.setConfig({testTimeout:20000}); // Durable multi-agent runs include fsync and instrumented SDK calls; deadline tests retain their own explicit clocks.
 let root:string,project:string,runs:RunStore,requests:any[],respond:(task:any,body:any,signal:AbortSignal)=>Promise<Response>;
 const json=(v:unknown)=>new Response(JSON.stringify(v),{headers:{'content-type':'application/json'}});
 function reply(task:any,body:any) {
@@ -125,6 +126,19 @@ it('enforces child deadlines and leaves their unknown requests charged',async()=
   const p=plan();p.agents[1]!.timeBudgetMs=300;p.agents[2]!.timeBudgetMs=300;const view=await reviewed(p);
   respond=async(_task,_body,signal)=>new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
   const result=await executeReviewedRun(project,view.run.id,{store:runs});expect(result).toMatchObject({status:'denied',exitCode:3});expect(requests.length).toBeLessThanOrEqual(2);expect(result.execution.state.tasks.verify!.attempts).toBe(0);
+});
+it('reports deadline denial when child admission expires before its start event',async()=>{
+  const p=plan();p.agents[1]!.timeBudgetMs=300;p.agents[2]!.timeBudgetMs=300;const view=await reviewed(p);
+  vi.useFakeTimers({toFake:['Date']});
+  try {
+    const result=await executeReviewedRun(project,view.run.id,{store:runs,onEvent:event=>{
+      if(event.change.type==='started')vi.setSystemTime(Date.now()+1000);
+    }});
+    expect(result).toMatchObject({status:'denied',exitCode:3});
+    expect(requests).toHaveLength(0);
+    expect(result.execution.events.some(event=>event.change.type==='task_started')).toBe(false);
+    expect(result.execution.state.ownerId).toBeNull();
+  }finally{vi.useRealTimers();}
 });
 it('dismisses a stopped child approval without approving its write or stopping its sibling',async()=>{
   const view=await reviewed();let ready!:()=>void,approvalSignal:AbortSignal|undefined;const began=new Promise<void>(resolve=>{ready=resolve;});

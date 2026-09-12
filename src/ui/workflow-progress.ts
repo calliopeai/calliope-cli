@@ -14,11 +14,13 @@ export function workflowSnapshot({context,execution}:CoordinatorProgress):Workfl
   const agents=plan.agents.map(agent=>{
     const assigned=tasks.filter(task=>task.agentId===agent.id),current=assigned.find(task=>task.status==='running')??assigned.find(task=>['failed','denied','unknown','cancelled'].includes(task.status))??assigned.find(task=>task.status==='review_required')??assigned.find(task=>task.status==='pending')??assigned.at(-1);
     let ancestor=agent,stopped=false;for(let n=0;n<plan.agents.length;n++){if(state.stoppedAgents.includes(ancestor.id)){stopped=true;break;}const parent=plan.agents.find(a=>a.id===ancestor.parentId);if(!parent)break;ancestor=parent;}
-    const preference=agentPreference(plan,agent.id),status=stopped?'stopped':current?.escalation?'escalated':current?.status??'coordinating';
+    const supervising=state.supervision?.active?.agentId===agent.id;
+    const preference=agentPreference(plan,agent.id),status=stopped?'stopped':supervising?`reviewing round ${state.supervision!.rounds}`:current?.escalation?'escalated':current?.status??'coordinating';
     const attempt=current?` · ${current.id} ${current.attempts}/${agent.escalationPolicy.maxRetries+1}`:'';
-    return{id:agent.id,active:current?.status==='running',label:clean(`${agent.id} · ${agent.role} · ${status} · choice ${preference.provider??'auto'}:${preference.model??'auto'}${attempt} · ${assigned.filter(task=>task.status==='completed').length}/${assigned.length} done`)};
+    return{id:agent.id,active:supervising||current?.status==='running',label:clean(`${agent.id} · ${agent.role} · ${status} · choice ${preference.provider??'auto'}:${preference.model??'auto'}${attempt} · ${assigned.filter(task=>task.status==='completed').length}/${assigned.length} done`)};
   });
-  return{id:context.id,revision:state.revision,status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''} · limit $${plan.limits.costBudgetUsd} · ${plan.goal}`),agents};
+  const s=state.supervision,supervision=s?` · ${plan.supervision!.principle} · controller ${s.phase} ${s.rounds}/${plan.supervision!.maxRounds}${s.halt?' · '+s.halt.reason:''}`:'';
+  return{id:context.id,revision:state.revision,status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${supervision} · limit $${plan.limits.costBudgetUsd} · ${plan.goal}`),agents};
 }
 export function retainWorkflows(previous:WorkflowSnapshot[],next:WorkflowSnapshot):WorkflowSnapshot[] {
   if(previous.find(value=>value.id===next.id)?.revision===next.revision)return previous;

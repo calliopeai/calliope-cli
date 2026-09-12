@@ -30,7 +30,8 @@ export function proposalGrant(proposal:SpawnProposal,header:ExecutionHeader):Chi
 export function validateSpawnProposal(value:unknown,manifest:RunManifest,header:ExecutionHeader,base:ProjectPlan):SpawnProposal {
   shape(value,['version','parentId','agents','tasks','runId','runManifestHash','approvalRevision','graphHash','planHash','source','hash']);
   if(value.runId!==manifest.id||value.runManifestHash!==manifest.hash||value.approvalRevision!==header.approvalRevision||!hex(value.graphHash)||!hex(value.planHash)||!hex(value.hash))fail('Child proposal belongs to another run, approval or graph.');
-  shape(value.source,['path','sha256']);pathName(value.source.path);if(!hex(value.source.sha256))fail('Child proposal source needs its byte hash.');
+  shape(value.source,['path','sha256'],['kind','eventId']);pathName(value.source.path);
+  if(value.source.kind!==undefined||value.source.eventId!==undefined){if(value.source.kind!=='supervision'||!uuid(value.source.eventId)||value.source.path!==`supervision/${value.source.eventId}.json`)fail('Invalid controller proposal source.');}if(!hex(value.source.sha256))fail('Child proposal source needs its byte hash.');
   const {hash,...body}=value;if(hash!==digest(canonicalJson(body)))fail('Child proposal hash is invalid.');
   const proposal=value as unknown as SpawnProposal,input={version:proposal.version,parentId:proposal.parentId,agents:proposal.agents,tasks:proposal.tasks},next=extendPlan(base,input);
   if(analyzePlan(base).hash!==proposal.graphHash||analyzePlan(next).hash!==proposal.planHash)fail('Child proposal graph revision changed.');
