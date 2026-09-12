@@ -20,8 +20,8 @@ function location(cwd: string) {
   if (!fs.statSync(root).isDirectory()) throw new Error('Project directory is not a directory');
   return { root, file: join(root, PROJECT_MODEL_DEFAULTS) };
 }
-function present(file: string): boolean {
-  try { fs.lstatSync(file); return true; }
+function present(file: string, ignoreDirectories = false): boolean {
+  try { const stat = fs.lstatSync(file); return !ignoreDirectories || !stat.isDirectory(); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
 }
 function read(file: string): string | undefined {
@@ -45,7 +45,8 @@ function parse(text: string): ProjectModelDefaults {
 }
 export function readProjectDefaults(cwd: string): { root: string; file: string; selection?: ModelPreference; warning?: string; legacy?: boolean } {
   const { root, file } = location(cwd);
-  const legacyFile = ['.calliope', '.calliope.conf', 'calliope.conf'].map(name => join(root, name)).find(present);
+  // .calliope/ may hold project state; only file candidates are legacy defaults.
+  const legacyFile = ['.calliope', '.calliope.conf', 'calliope.conf'].map(name => join(root, name)).find(path => present(path, true));
   if (!present(file) && !legacyFile) return { root, file };
   if (!checkTrust(root).trusted) return { root, file, warning: 'Project model defaults were ignored because this project is not trusted. Use /trust add to opt in.' };
   try {
