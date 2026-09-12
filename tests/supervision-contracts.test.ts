@@ -58,3 +58,10 @@ it('keeps child proposals as bounded data for the existing admission boundary',(
   for(const changed of [{version:2},{parentId:'absent'},{agents:[]},{tasks:[]},{permissions:'all'}])expect(()=>validateSupervisionDecision({...common,action:'decompose',children:{...children,...changed}},policy,plan,evidence)).toThrow();
   expect(()=>validateSupervisionDecision({...common,action:'decompose',children:{...children,agents:[{...agent,tokenBudget:100000000}]}},policy,plan,evidence)).toThrow();
 });
+
+it('binds independent role effort to reviewed accounts without guessing provider support',()=>{
+  const {plan,policy}=fixture();plan.agents[1]!.allowedPaths=[{path:'.',access:'read'}];
+  for(const level of ['low','medium','high','xhigh','max'])expect(validateSupervisionPolicy({...policy,reasoningEffort:{controller:level}},plan).reasoningEffort?.controller).toBe(level);
+  expect(validateSupervisionPolicy({...policy,reviewerId:plan.agents[1]!.id,reasoningEffort:{controller:'low',reviewer:'high'}},plan).reasoningEffort).toEqual({controller:'low',reviewer:'high'});
+  for(const reasoningEffort of [{},{controller:'automatic'},{controller:0},{reviewer:'low'},{worker:'low'},null,'low'])expect(()=>validateSupervisionPolicy({...policy,reasoningEffort},plan)).toThrow();
+});

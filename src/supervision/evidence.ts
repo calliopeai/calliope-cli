@@ -6,11 +6,12 @@ import {readCollectedArtifact} from '../orchestration/verification.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import {permits} from '../orchestration/validation.js';
 import {SessionPolicyError} from '../session-management/index.js';
+import {compactCommandReceipt} from './receipts.js';
 import {assertSupervisedRetry} from './journal.js';
 import type {RetryReceipt} from './types.js';
 
 /** Immutable result references remain complete; artifact excerpts have explicit bounds. */
-export async function reviewEvidence(store:ExecutionStore,ids:string[],options:RunActionOptions,readerId?:string) {
+export async function reviewEvidence(store:ExecutionStore,ids:string[],options:RunActionOptions,readerId?:string,compact=false) {
   const view=store.read(),plan=store.context(view).plan,reader=readerId?plan.agents.find(a=>a.id===readerId):undefined,outcomes=[];let remaining=32768;
   if(readerId&&!reader)throw new SessionPolicyError();
   for(const id of ids){
@@ -22,8 +23,12 @@ export async function reviewEvidence(store:ExecutionStore,ids:string[],options:R
     for(const artifact of output?.artifacts??[]){
       const sourcePath=plan.tasks.find(t=>t.id===artifact.taskId)!.outputs.find(o=>o.id===artifact.id)!.path;
       if(reader&&sourcePath&&!permits(reader.allowedPaths,sourcePath,'read'))throw new SessionPolicyError();
-      const bytes=await readCollectedArtifact(store,artifact,options),length=Math.min(4096,remaining,bytes.length);remaining-=length;
-      artifacts.push({id:artifact.id,kind:artifact.kind,sha256:artifact.sha256,source:artifact.source,bytes:bytes.length,excerpt:bytes.subarray(0,length).toString('utf8'),truncated:length<bytes.length});
+      const bytes=await readCollectedArtifact(store,artifact,options),command=compact?plan.tasks.find(t=>t.id===artifact.taskId)?.isolation?.commands.find(c=>c.artifactId===artifact.id):undefined;
+      const receipt=command?compactCommandReceipt(bytes,command,plan.workspace.isolation!.image):undefined;
+      const length=Math.min(compact?512:4096,remaining,bytes.length);
+      if(receipt&&Buffer.byteLength(receipt)>remaining)throw new OrchestrationError('limit','Controller receipt summaries exceed the evidence limit.');
+      remaining-=receipt?Buffer.byteLength(receipt):length;
+      artifacts.push({id:artifact.id,kind:artifact.kind,sha256:artifact.sha256,source:artifact.source,bytes:bytes.length,excerpt:receipt??bytes.subarray(0,length).toString('utf8'),truncated:receipt!==undefined||length<bytes.length,...(receipt?{derived:'executor-command-summary-v1' as const}:{})});
     }
     outcomes.push({eventId:id,taskId:change.taskId,status:change.type==='task_finished'?change.status:'completed',summary:output?.summary,checks:output?.checks,risks:output?.unresolvedRisks,artifacts});
   }

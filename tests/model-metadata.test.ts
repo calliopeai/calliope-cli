@@ -158,3 +158,17 @@ it('validates identities and finite numeric metadata while keeping absent capabi
   expect(compatibleMetadata({ capabilities: { function_calling: { supported: false }, streaming: true } }).capabilities).toMatchObject({ tools: false, streaming: true });
   expect(price('0')).toBe(0); expect(price(-1)).toBeUndefined(); expect(price(Number.MAX_VALUE, 1000000)).toBeUndefined();
 });
+
+it('discovers individual reasoning effort values and never infers support from a model name',async()=>{
+  expect(anthropicMetadata({capabilities:{effort:{supported:true,low:{supported:true},medium:{supported:false},high:null,max:{supported:'yes'}}}}).reasoningEfforts).toEqual(['low']);
+  expect(anthropicMetadata({capabilities:{effort:{supported:false,low:{supported:true}}}}).reasoningEfforts).toEqual([]);
+  expect(anthropicMetadata({id:'claude-fable-5-1'}).reasoningEfforts).toBeUndefined();
+  for(const levels of [['low','low'],['invented'],'low',null])expect(()=>validateModels([{id:'toy',reasoningEfforts:levels as any}])).toThrow();
+  vi.mocked(fetch).mockResolvedValue(json({data:[{id:'claude-any-name',capabilities:{effort:{supported:true,low:{supported:true}}}}],has_more:false}));
+  const selected=await selectRoute({provider:'anthropic',model:'claude-any-name',requirements:{reasoningEffort:'low'}});
+  expect(selected.selected,JSON.stringify(selected)).toMatchObject({reasoningEffort:'low'});expect(selected.reason).toContain('live reasoning effort low');
+  expect((await selectRoute({provider:'anthropic',model:'claude-any-name',requirements:{reasoningEffort:'high'}})).selected).toBeNull();
+  expect((await selectRoute({provider:'deepseek',model:'claude-any-name',requirements:{reasoningEffort:'low'}})).selected).toBeNull();
+  clearModelCache();vi.mocked(fetch).mockResolvedValue(json({},503));
+  expect((await selectRoute({provider:'anthropic',model:'claude-any-name',requirements:{reasoningEffort:'low'}})).selected).toBeNull();
+});

@@ -4,6 +4,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import {createHash} from 'node:crypto';
+import {getDiscoveredModels} from '../model-detection.js';
+import {isReasoningEffort} from '../models/index.js';
 import {ExecutionLimitError} from '../execution/types.js';
 import {validateInputCount,type InputCount} from '../execution/billing.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
@@ -49,7 +51,17 @@ function supportsAdaptiveThinking(model: string): boolean {
     || m.includes('claude-mythos-5');
 }
 
+/** Rechecked before admission and after its asynchronous reservation boundary. */
+export function assertAnthropicEffort(model:string,effort:AdapterLimits['reasoningEffort']):void {
+  if (effort !== undefined) {
+    const discovered = getDiscoveredModels('anthropic')?.find(m => m.id === model || m.aliases?.includes(model));
+    if (!isReasoningEffort(effort) || !discovered?.reasoningEfforts?.includes(effort))
+      throw new ExecutionLimitError('authority', 'Live discovery does not confirm the requested reasoning effort; refresh models or remove the explicit effort setting.');
+  }
+}
+
 function prepareAnthropicRequest(messages:Message[],tools:Tool[],model:string,streaming:boolean,limits?:AdapterLimits):Anthropic.MessageCreateParamsNonStreaming {
+  assertAnthropicEffort(model,limits?.reasoningEffort);
   // Extract system message
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const chatMessages = messages.filter(m => m.role !== 'system');
@@ -117,7 +129,8 @@ function prepareAnthropicRequest(messages:Message[],tools:Tool[],model:string,st
   debugLog(`Anthropic request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   return {model,max_tokens:streaming?dynamicMaxTokens:Math.min(dynamicMaxTokens,8192),system:systemInstruction,messages:anthropicMessages,
-    tools:anthropicTools.length?anthropicTools:undefined,...(thinking?{thinking}:{})};
+    tools:anthropicTools.length?anthropicTools:undefined,...(thinking?{thinking}:{}),
+    ...(limits?.reasoningEffort !== undefined ? {output_config:{effort:limits.reasoningEffort}} : {})};
 }
 function requestHash(request:Anthropic.MessageCreateParamsNonStreaming,streaming:boolean):string {
   return createHash('sha256').update(JSON.stringify({request,streaming})).digest('hex');

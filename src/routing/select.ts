@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import * as config from '../config.js';
 import { getAvailableModels, getDiscoveredModels, getPreviousDiscoveredModels, resolveModelAlias } from '../model-detection.js';
 import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
-import { capability, ModelDiscoveryError, type ModelInfo, type ModelCapabilities } from '../models/index.js';
+import { capability, isReasoningEffort, ModelDiscoveryError, type ModelInfo, type ModelCapabilities } from '../models/index.js';
 import type { Message } from '../types.js';
 import type { RouteCandidate, RoutingDecision, RoutingRequest, RoutingRequirements, RoutingPreferences } from './types.js';
 
@@ -13,6 +13,7 @@ function mismatch(model: ModelInfo, needs: RoutingRequirements): string | undefi
   for (const key of ['chat', 'tools', 'streaming', 'vision', 'thinking', 'json'] as const) {
     if ((key === 'chat' || needs[key]) && model.capabilities?.[key] === false) return `discovery-rejects-${key}`;
   }
+  if (needs.reasoningEffort !== undefined && !model.reasoningEfforts?.includes(needs.reasoningEffort)) return 'discovery-does-not-confirm-reasoning-effort';
   if (needs.minOutputTokens !== undefined && model.maxOutputTokens !== undefined && needs.minOutputTokens > model.maxOutputTokens) return 'discovery-rejects-output-budget';
   return undefined;
 }
@@ -66,7 +67,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   const needs = request.requirements ?? {};
   if (typeof needs !== 'object' || Array.isArray(needs) || ['chat', 'tools', 'streaming', 'vision', 'thinking', 'json'].some(key => {
     const value = needs[key as keyof RoutingRequirements]; return value !== undefined && typeof value !== 'boolean';
-  }) || [needs.inputTokens, needs.outputTokens, needs.minOutputTokens].some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) {
+  }) || (needs.reasoningEffort !== undefined && !isReasoningEffort(needs.reasoningEffort)) || [needs.inputTokens, needs.outputTokens, needs.minOutputTokens].some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0))) {
     decision.reason = 'Invalid routing requirements or token estimate.'; return decision;
   }
   const pin = historyPin(request.messages ?? []);
@@ -138,6 +139,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
     if (target.key !== providerTarget(provider).key || (evidence === 'live' && !getDiscoveredModels(provider))) {
       exclude(provider, 'configuration-changed-during-discovery'); continue;
     }
+    if (needs.reasoningEffort !== undefined && provider !== 'anthropic') { exclude(provider, 'reasoning-effort-protocol-unsupported'); continue; }
     for (const model of models) {
       if (preferredModel && model.id !== preferredModel && !model.aliases?.includes(preferredModel)) continue;
       const rejected = mismatch(model, needs);
@@ -154,9 +156,10 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
       const score = (support * 0.4 + healthScore * 0.4 + latencyScore * 0.2) * (1 - costWeight) + costScore * costWeight;
       candidates.push({ provider, model: preferredModel ?? model.id, target: target.key, evidence,
         discoveredAt: model.evidence?.at ?? null, capabilities: model.capabilities ?? {}, contextLength: model.contextLength ?? null,
+        ...(needs.reasoningEffort !== undefined ? { reasoningEffort: needs.reasoningEffort } : {}),
         maxOutputTokens: model.maxOutputTokens ?? null, price: model.pricing ?? null, estimatedCost,
         latencyMs: health?.latencyMs ?? null, errorRate: health?.errorRate ?? null, score,
-        reason: `capability ${support.toFixed(2)}, health ${healthScore.toFixed(2)}, latency ${latencyScore.toFixed(2)}, cost ${estimatedCost === null ? 'unknown' : estimatedCost.toFixed(6) + ' USD estimated'}${health?.quarantine.active ? '; explicit quarantine recovery' : ''}` });
+        reason: `${needs.reasoningEffort !== undefined ? 'live reasoning effort ' + needs.reasoningEffort + '; ' : ''}capability ${support.toFixed(2)}, health ${healthScore.toFixed(2)}, latency ${latencyScore.toFixed(2)}, cost ${estimatedCost === null ? 'unknown' : estimatedCost.toFixed(6) + ' USD estimated'}${health?.quarantine.active ? '; explicit quarantine recovery' : ''}` });
     }
     if (preferredModel && !models.some(model => model.id === preferredModel || model.aliases?.includes(preferredModel))) exclude(provider, 'model-not-in-live-discovery', preferredModel);
   }

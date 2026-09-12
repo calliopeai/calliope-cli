@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Compact controller reviews without dropping acceptance or authority, validate executor receipt summaries, and support explicit per-role reasoning effort gated by live native Anthropic discovery and counted-request hashes (#299).
+
 - Add opt-in native Anthropic counted-request admission with expiring local billing evidence, exact request hashes, conservative estimate headroom and retained reservation provenance; preserve discovery exclusions, inherited caps and overrun stops (#297).
 
 - Add opt-in continuous controller/reviewer supervision for isolated version-4 plans: review immutable worker evidence, apply bounded retry/replan and child decisions, preserve original budgets and deadlines across recovery, and show controller phase/rounds in the live HUD (#293).

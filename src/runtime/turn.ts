@@ -33,6 +33,7 @@ export interface TurnTotals { inputTokens: number; outputTokens: number; cost: n
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict }
 export interface TurnOptions {
   execution?: AgentExecution;
+  reasoningEffort?: ChatOptions['reasoningEffort'];
   client?: 'terminal' | 'headless' | 'acp' | 'library';
   sessionId: string; cwd: string; provider: LLMProvider; model?: string; prompt: string;
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
@@ -137,7 +138,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     const decision = await selectRoute({ provider: initial ? options.provider : input.provider, model: initial ? options.model : input.model,
       ...(initial ? {} : { origin }), messages: input.messages, preferences: options.routing, signal,
-      requirements: { tools: input.tools.length > 0, streaming: stream && !!options.onToken,
+      requirements: { reasoningEffort: options.reasoningEffort, tools: input.tools.length > 0, streaming: stream && !!options.onToken,
         vision: input.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')),
         json: extra.format !== undefined,
         inputTokens: Math.ceil(JSON.stringify(input.messages).length / 3), outputTokens: 250 },
@@ -180,6 +181,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     let response:LLMResponse;
     try {response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
+      reasoningEffort: options.reasoningEffort,
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
       onStreamReset: stream ? options.onStreamReset : undefined,
       onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },

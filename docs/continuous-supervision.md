@@ -129,3 +129,47 @@ Cancellation propagates to the active review call and retains its reservation.
 This loop improves the strategy for the current reviewed run. Production-code
 promotion, merge, publish, deployment, external communication and independent
 self-improvement proposals remain subject to explicit human approval.
+
+### Small controller reviews
+
+The version 1 controller context is a deterministic derived view: full acceptance
+criteria, tool/path scopes, limits, retry authority, original deadlines and check
+hashes remain present. It replaces duplicate task outputs with event/hash
+references, omits text inputs and worker prose over 512 bytes with explicit
+byte/hash references, and bounds artifact excerpts to 512 bytes. Original plans,
+outputs and artifacts remain intact. Controller command summaries validate the
+executor-owned receipt against the reviewed argv/image and retain exit status,
+cleanup and before/after workspace hashes; raw logs remain in the artifact.
+Worker retry feedback still reads the original evidence. A controller must stop
+if omitted evidence is needed to decide safely. The 1 MiB context and 32 KiB
+evidence limits still apply; the formatter never drops acceptance or authority
+to make a large graph fit. A `controller-context` policy event records context
+version, size, hash, plan hash, role, round and chosen effort.
+
+`continue` and `stop` are always available. `allowedActions` adds optional retry,
+replan and decomposition permissions; it does not disable those two safe decisions.
+Only permitted optional action shapes appear in the controller instructions.
+
+A reviewed supervision policy can explicitly choose reasoning effort by role:
+
+```json
+"reasoningEffort": { "controller": "low", "reviewer": "high" }
+```
+
+A reviewer effort requires a separate reviewed reviewer account. This setting is
+optional and hash-bound to the approved plan; existing defaults remain intact.
+For now the explicit control is supported by native Anthropic only. Routing must
+have fresh positive discovery evidence for that exact model and effort level;
+missing, stale, unsupported or incompatible evidence stops before inference.
+The adapter rechecks support after asynchronous admission. Counted admission
+includes the same `output_config.effort` in free counting, request hashing and
+paid dispatch, including retries. Effort changes invalidate a previous count.
+Routing records explain the selected effort. Other adapters reject this explicit
+setting rather than ignoring it.
+
+Effort is a behavioral preference, not a token limit: lower effort may reduce
+reasoning quality. Keep `maxOutputTokens` and all run/agent budgets explicit;
+truncated decisions remain failed reviews requiring explicit recovery. API
+contracts: [effort](https://platform.claude.com/docs/en/build-with-claude/effort),
+[live model capabilities](https://platform.claude.com/docs/en/api/typescript/models),
+and [token counting](https://platform.claude.com/docs/en/api/http/messages/count_tokens).

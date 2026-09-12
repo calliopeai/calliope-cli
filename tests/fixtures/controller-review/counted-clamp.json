@@ -1,0 +1,394 @@
+{
+  "version": 1,
+  "provenance": {
+    "kind": "public-toy-native-run",
+    "sourceRunId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+    "sourceCommit": "e6642b80855537fec856b6098400528a74371d61",
+    "privatePrompts": false,
+    "credentials": false
+  },
+  "context": {
+    "kind": "controller-review",
+    "role": "controller",
+    "round": 1,
+    "principle": "robustness",
+    "policy": {
+      "allowedActions": [
+        "replan"
+      ],
+      "controllerId": "controller",
+      "maxOutputTokens": 512,
+      "maxRounds": 2,
+      "maxStalledRounds": 1,
+      "principle": "robustness",
+      "version": 1
+    },
+    "plan": {
+      "agents": [
+        {
+          "acceptanceCriteria": [
+            "Original regression tests pass."
+          ],
+          "allowedPaths": [
+            {
+              "access": "write",
+              "path": "src"
+            },
+            {
+              "access": "read",
+              "path": "tests"
+            }
+          ],
+          "allowedTools": [
+            "write_file",
+            "read_file",
+            "shell"
+          ],
+          "costBudgetUsd": 0.37312,
+          "escalationPolicy": {
+            "maxRetries": 1,
+            "onFailure": "human"
+          },
+          "id": "controller",
+          "inputs": [],
+          "maxChildCount": 1,
+          "maxChildDepth": 1,
+          "objective": "Fix the public clamp fixture.",
+          "parentId": null,
+          "preference": {
+            "model": "claude-fable-5-1",
+            "provider": "anthropic"
+          },
+          "role": "Fable controller",
+          "timeBudgetMs": 180000,
+          "tokenBudget": 40000
+        },
+        {
+          "acceptanceCriteria": [
+            "Original regression tests pass."
+          ],
+          "allowedPaths": [
+            {
+              "access": "write",
+              "path": "src"
+            },
+            {
+              "access": "read",
+              "path": "tests"
+            }
+          ],
+          "allowedTools": [
+            "write_file",
+            "read_file",
+            "shell"
+          ],
+          "costBudgetUsd": 0.1,
+          "escalationPolicy": {
+            "maxRetries": 1,
+            "onFailure": "parent"
+          },
+          "id": "worker",
+          "inputs": [],
+          "maxChildCount": 0,
+          "maxChildDepth": 0,
+          "objective": "Fix the public clamp fixture.",
+          "parentId": "controller",
+          "preference": {
+            "model": "claude-haiku-4-5-20251001",
+            "provider": "anthropic"
+          },
+          "role": "Coding worker",
+          "timeBudgetMs": 180000,
+          "tokenBudget": 20000
+        }
+      ],
+      "goal": "Fix clamp with Fable planning and supervision, a cheaper Haiku worker and real isolated verification.",
+      "id": "live-counted-clamp",
+      "limits": {
+        "costBudgetUsd": 0.37312,
+        "maxAgents": 2,
+        "maxConcurrent": 1,
+        "maxDepth": 1,
+        "maxTasks": 1,
+        "timeBudgetMs": 180000,
+        "tokenBudget": 40000
+      },
+      "supervision": {
+        "allowedActions": [
+          "replan"
+        ],
+        "controllerId": "controller",
+        "maxOutputTokens": 512,
+        "maxRounds": 2,
+        "maxStalledRounds": 1,
+        "principle": "robustness",
+        "version": 1
+      },
+      "tasks": [
+        {
+          "acceptanceChecks": [
+            {
+              "artifactId": "tests",
+              "criteria": [
+                "task:0",
+                "agent:0"
+              ],
+              "id": "regression",
+              "kind": "command"
+            }
+          ],
+          "acceptanceCriteria": [
+            "Original regression cases pass."
+          ],
+          "agentId": "worker",
+          "dependencies": [],
+          "id": "fix",
+          "inputs": [
+            {
+              "id": "source",
+              "kind": "text",
+              "value": "export function clamp(value,min,max) { return Math.min(min,Math.max(max,value)); }\n"
+            },
+            {
+              "id": "plan",
+              "kind": "text",
+              "value": "Defect: min/max swapped — `Math.min(min, ...)` never exceeds min, and `Math.max(max, value)` never drops below max, so the result is always min (for min<=max).\n\nFix: `return Math.min(max, Math.max(min, value));`\n\nEdge cases: value equal to min or max returns unchanged (inclusive); NaN input propagates NaN; min>max is unspecified—consider throwing or asserting."
+            }
+          ],
+          "isolation": {
+            "commands": [
+              {
+                "argv": [
+                  "node",
+                  "--test",
+                  "tests/clamp.test.mjs"
+                ],
+                "artifactId": "tests",
+                "timeoutMs": 15000
+              }
+            ],
+            "patchArtifactId": "patch"
+          },
+          "objective": "Correct src/clamp.mjs using the supplied real planner evidence. Use one write_file call with the full corrected source, then a concise summary. Executor verification runs the unchanged tests. Do not invoke shell or assert test outcomes.",
+          "outputs": [
+            {
+              "description": "Corrected source.",
+              "id": "candidate",
+              "kind": "file",
+              "path": "src/clamp.mjs"
+            },
+            {
+              "description": "Actual isolated diff.",
+              "id": "patch",
+              "kind": "patch"
+            },
+            {
+              "description": "Actual verification.",
+              "id": "tests",
+              "kind": "test_result"
+            }
+          ]
+        }
+      ],
+      "version": 4,
+      "workspace": {
+        "allowedPaths": [
+          {
+            "access": "write",
+            "path": "src"
+          },
+          {
+            "access": "read",
+            "path": "tests"
+          }
+        ],
+        "allowedTools": [
+          "write_file",
+          "read_file",
+          "shell"
+        ],
+        "id": "public",
+        "isolation": {
+          "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
+          "version": 1
+        },
+        "root": "."
+      }
+    },
+    "tasks": {
+      "fix": {
+        "id": "fix",
+        "agentId": "worker",
+        "status": "completed",
+        "attempts": 1,
+        "sessionId": "session_1789222906997_00e99939-9fdc-4f1d-a3cd-c18ec1c37134",
+        "output": {
+          "version": 1,
+          "taskId": "fix",
+          "agentId": "worker",
+          "status": "success",
+          "summary": "**Summary:**\n\nFixed the clamp function by correcting the swapped min/max arguments in the nested Math operations:\n\n**Defect:** `Math.min(min, Math.max(max, value))` always returned `min` because:\n- `Math.max(max, value)` never exceeds `max`\n- `Math.min(min, ...)` always picks the smaller of `min` or that result, which is `min`\n\n**Fix:** `Math.min(max, Math.max(min, value))`\n- `Math.max(min, value)` ensures result ≥ min (clamps lower bound)\n- `Math.min(max, ...)` ensures result ≤ max (clamps upper bound)\n- Combined: returns value clamped to [min, max] inclusive\n\nThe corrected source has been written to `src/clamp.mjs`. Verification will run the regression tests against this candidate.",
+          "changedFiles": [
+            "src/clamp.mjs"
+          ],
+          "artifacts": [
+            {
+              "id": "tests",
+              "taskId": "fix",
+              "agentId": "worker",
+              "kind": "test_result",
+              "location": "run",
+              "path": "cce03e92-634d-4e62-ba97-2bb564a8a112.txt",
+              "sha256": "36d06a7a895275c5aa19f9a445fcf52677a9afbb318b1a1d04962c60ff359d36",
+              "bytes": 733,
+              "createdAt": "2026-09-12T14:21:57.874Z",
+              "source": {
+                "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+                "eventId": "cce03e92-634d-4e62-ba97-2bb564a8a112"
+              },
+              "confidence": 1
+            },
+            {
+              "id": "candidate",
+              "taskId": "fix",
+              "agentId": "worker",
+              "kind": "file",
+              "location": "run",
+              "path": "b06f74e8-bff9-4846-8697-fd60b2c05232.txt",
+              "sha256": "1668600427a6527e9cc16c5e553b43113c3d8f7b1c0fa70e5c3ad6ee8e390c55",
+              "bytes": 85,
+              "createdAt": "2026-09-12T14:21:57.970Z",
+              "source": {
+                "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+                "eventId": "b06f74e8-bff9-4846-8697-fd60b2c05232"
+              },
+              "confidence": 1
+            },
+            {
+              "id": "patch",
+              "taskId": "fix",
+              "agentId": "worker",
+              "kind": "patch",
+              "location": "run",
+              "path": "1849109a-af96-433c-89e1-c900ff093b0d.txt",
+              "sha256": "5fb00110c4fe650afaf92f5a7538b287dc2cc6daa421095c6296cc300bd0c1ae",
+              "bytes": 295,
+              "createdAt": "2026-09-12T14:21:57.988Z",
+              "source": {
+                "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+                "eventId": "1849109a-af96-433c-89e1-c900ff093b0d"
+              },
+              "confidence": 1
+            }
+          ],
+          "testEvidence": [
+            "regression"
+          ],
+          "unresolvedRisks": [],
+          "recommendedNextAction": "Continue with dependency-ready work.",
+          "checks": [
+            {
+              "id": "regression",
+              "artifactId": "tests",
+              "kind": "command",
+              "criteria": [
+                "task:0",
+                "agent:0"
+              ],
+              "passed": true,
+              "observedHash": "36d06a7a895275c5aa19f9a445fcf52677a9afbb318b1a1d04962c60ff359d36"
+            }
+          ]
+        },
+        "artifactIds": [
+          "tests",
+          "candidate",
+          "patch"
+        ],
+        "changedFiles": [
+          "src/clamp.mjs"
+        ],
+        "mutations": true,
+        "escalation": null
+      }
+    },
+    "outcomes": [
+      {
+        "eventId": "2d713796-9a4c-4f03-810f-425662ff7a9f",
+        "taskId": "fix",
+        "status": "completed",
+        "summary": "**Summary:**\n\nFixed the clamp function by correcting the swapped min/max arguments in the nested Math operations:\n\n**Defect:** `Math.min(min, Math.max(max, value))` always returned `min` because:\n- `Math.max(max, value)` never exceeds `max`\n- `Math.min(min, ...)` always picks the smaller of `min` or that result, which is `min`\n\n**Fix:** `Math.min(max, Math.max(min, value))`\n- `Math.max(min, value)` ensures result ≥ min (clamps lower bound)\n- `Math.min(max, ...)` ensures result ≤ max (clamps upper bound)\n- Combined: returns value clamped to [min, max] inclusive\n\nThe corrected source has been written to `src/clamp.mjs`. Verification will run the regression tests against this candidate.",
+        "checks": [
+          {
+            "id": "regression",
+            "artifactId": "tests",
+            "kind": "command",
+            "criteria": [
+              "task:0",
+              "agent:0"
+            ],
+            "passed": true,
+            "observedHash": "36d06a7a895275c5aa19f9a445fcf52677a9afbb318b1a1d04962c60ff359d36"
+          }
+        ],
+        "risks": [],
+        "artifacts": [
+          {
+            "id": "tests",
+            "kind": "test_result",
+            "sha256": "36d06a7a895275c5aa19f9a445fcf52677a9afbb318b1a1d04962c60ff359d36",
+            "source": {
+              "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+              "eventId": "cce03e92-634d-4e62-ba97-2bb564a8a112"
+            },
+            "bytes": 733,
+            "excerpt": "{\"argv\":[\"node\",\"--test\",\"tests/clamp.test.mjs\"],\"cleanupConfirmed\":true,\"container\":\"calliope-check-a6dcd642-e5c0-4eb0-83c4-7631c2161643\",\"durationMs\":1060,\"exitCode\":0,\"image\":\"sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0\",\"kind\":\"isolated-command\",\"outcome\":\"passed\",\"stderr\":\"\",\"stdout\":\"TAP version 13\\n# Subtest: clamp interval\\nok 1 - clamp interval\\n  ---\\n  duration_ms: 0.705041\\n  ...\\n1..1\\n# tests 1\\n# suites 0\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n# duration_ms 40.712292\\n\",\"truncated\":false,\"version\":1,\"workspace\":{\"after\":\"60bb8a9a049b1dba171d5e79b9a9c6c0b69eadd919a964d0cf90bb8aa9648b41\",\"before\":\"60bb8a9a049b1dba171d5e79b9a9c6c0b69eadd919a964d0cf90bb8aa9648b41\"}}",
+            "truncated": false
+          },
+          {
+            "id": "candidate",
+            "kind": "file",
+            "sha256": "1668600427a6527e9cc16c5e553b43113c3d8f7b1c0fa70e5c3ad6ee8e390c55",
+            "source": {
+              "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+              "eventId": "b06f74e8-bff9-4846-8697-fd60b2c05232"
+            },
+            "bytes": 85,
+            "excerpt": "export function clamp(value,min,max) { return Math.min(max, Math.max(min, value)); }\n",
+            "truncated": false
+          },
+          {
+            "id": "patch",
+            "kind": "patch",
+            "sha256": "5fb00110c4fe650afaf92f5a7538b287dc2cc6daa421095c6296cc300bd0c1ae",
+            "source": {
+              "runId": "19d89f18-c8db-4dfa-b10f-0aa33e6264b8",
+              "eventId": "1849109a-af96-433c-89e1-c900ff093b0d"
+            },
+            "bytes": 295,
+            "excerpt": "diff --git a/src/clamp.mjs b/src/clamp.mjs\nindex 6417af7..11e872f 100644\n--- a/src/clamp.mjs\n+++ b/src/clamp.mjs\n@@ -1 +1 @@\n-export function clamp(value,min,max) { return Math.min(min,Math.max(max,value)); }\n+export function clamp(value,min,max) { return Math.min(max, Math.max(min, value)); }\n",
+            "truncated": false
+          }
+        ]
+      }
+    ],
+    "budget": {
+      "deadline": 1789223086922,
+      "spent": {
+        "tokens": 6237,
+        "costNanos": 14607000
+      },
+      "accounts": {
+        "controller": {
+          "tokens": 6237,
+          "costNanos": 14607000
+        },
+        "worker": {
+          "tokens": 6237,
+          "costNanos": 14607000
+        }
+      }
+    },
+    "strategies": {}
+  }
+}

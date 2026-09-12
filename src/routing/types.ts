@@ -1,5 +1,5 @@
 import type { LLMProvider, Message } from '../types.js';
-import type { ModelCapabilities, ModelInfo } from '../models/index.js';
+import type { ModelCapabilities, ModelInfo, ReasoningEffort } from '../models/index.js';
 import type { HealthProvider } from '../health/index.js';
 
 export interface RoutingPreferences {
@@ -15,6 +15,7 @@ export interface RoutingRequirements extends Partial<Record<keyof ModelCapabilit
   outputTokens?: number;
   /** Optional hard minimum, distinct from the cost estimate. */
   minOutputTokens?: number;
+  reasoningEffort?: ReasoningEffort;
 }
 export interface RoutingRequest {
   provider: LLMProvider;
@@ -33,6 +34,7 @@ export interface RouteCandidate {
   evidence: 'live' | 'explicit-unverified';
   discoveredAt: string | null;
   capabilities: ModelCapabilities;
+  reasoningEffort?: ReasoningEffort;
   contextLength: number | null;
   maxOutputTokens: number | null;
   price: ModelInfo['pricing'] | null;
