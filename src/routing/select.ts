@@ -5,6 +5,7 @@ import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutc
 import { capability, isReasoningEffort, ModelDiscoveryError, type ModelInfo, type ModelCapabilities } from '../models/index.js';
 import type { Message } from '../types.js';
 import type { RouteCandidate, RoutingDecision, RoutingRequest, RoutingRequirements, RoutingPreferences } from './types.js';
+import {validateSmartSelection,smartPool,smartTargetMatches,smartScore,type SmartRoutingSelection} from './smart.js';
 
 export class RoutingUnavailableError extends Error {
   constructor(readonly decision: RoutingDecision) { super(decision.reason); this.name = 'RoutingUnavailableError'; }
@@ -51,6 +52,9 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   const exclude = (provider: string, reason: string, model?: string) => {
     if (decision.exclusions.length < 1000) decision.exclusions.push({ provider, ...(model ? { model } : {}), reason });
   };
+  let smart:SmartRoutingSelection|undefined;
+  try {if(request.smart!==undefined)smart=validateSmartSelection(request.smart);}catch {decision.reason='Invalid Smart routing selection.';return decision;}
+  if(smart)decision.smart={profile:smart.policy.profile,stage:smart.stage,...(smart.evidenceId?{evidenceId:smart.evidenceId}:{})};
   const preferences: RoutingPreferences = request.preferences ?? config.get('routing') ?? {};
   const optimize = preferences.enabled ?? true;
   const costWeight = preferences.costSensitivity ?? 0.3;
@@ -80,8 +84,12 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   if (pin) decision.mode = 'protocol-pinned';
   const explicit = (request.origin?.provider ?? request.provider) !== 'auto';
   let providers = request.provider !== 'auto' ? [request.provider as HealthProvider] : names;
-  if (!explicit && preferences.providerPool !== undefined) providers = providers.filter(provider => preferences.providerPool!.includes(provider));
+  if (!smart && !explicit && preferences.providerPool !== undefined) providers = providers.filter(provider => preferences.providerPool!.includes(provider));
   if (pin) providers = providers.filter(provider => provider === pin.provider);
+  // Pins remain authoritative. Automatic choices must belong to the captured pool.
+  const pinnedModel=!!(request.origin?request.origin.model:request.model);
+  const pool=smart?smartPool(smart):undefined;
+  if(pool&&!explicit)providers=providers.filter(provider=>pool.some(target=>target.provider===provider));
   // Preference defines a deterministic scan/tie order; health/cost/latency can
   // select another eligible provider only when provider selection is automatic.
   const preferredProviders = preferences.preferredProviders ?? [];
@@ -97,7 +105,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   for (const provider of providers) {
     if (request.signal?.aborted || overall.aborted) break;
     const target = providerTarget(provider);
-    const preferredModel = request.model ?? pin?.model ?? (config.getProviderCred(provider).model || undefined);
+    const preferredModel = request.model ?? pin?.model ?? (smart?undefined:config.getProviderCred(provider).model || undefined);
     if (preferredModel && (typeof preferredModel !== 'string' || preferredModel.length > 512 || /[\x00-\x1f\x7f]/.test(preferredModel))) {
       exclude(provider, 'invalid-model-preference'); continue;
     }
@@ -142,6 +150,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
     if (needs.reasoningEffort !== undefined && provider !== 'anthropic') { exclude(provider, 'reasoning-effort-protocol-unsupported'); continue; }
     for (const model of models) {
       if (preferredModel && model.id !== preferredModel && !model.aliases?.includes(preferredModel)) continue;
+      if(pool&&!pinnedModel&&(!explicit||pool.some(t=>t.provider===provider))&&!smartTargetMatches(pool,provider,model)){exclude(provider,'outside-smart-pool',model.id);continue;}
       const rejected = mismatch(model, needs);
       if (rejected) { exclude(provider, rejected, model.id); continue; }
       const estimatedCost = model.pricing?.input !== undefined && model.pricing.output !== undefined
@@ -153,8 +162,8 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
       const healthScore = health?.errorRate === null || !health ? 0.5 : 1 - Math.min(1, health.errorRate * 0.7 + (health.timeoutRate ?? 0) * 0.15 + (health.retryRate ?? 0) * 0.15);
       const latencyScore = health?.latencyMs == null ? 0.5 : 1 / (1 + health.latencyMs / 1000);
       const costScore = estimatedCost === null ? 0 : 1 / (1 + estimatedCost * 1000);
-      const score = (support * 0.4 + healthScore * 0.4 + latencyScore * 0.2) * (1 - costWeight) + costScore * costWeight;
-      candidates.push({ provider, model: preferredModel ?? model.id, target: target.key, evidence,
+      const score = smart?smartScore(smart.policy.profile,{support,health:healthScore,latency:latencyScore,cost:costScore}):(support * 0.4 + healthScore * 0.4 + latencyScore * 0.2) * (1 - costWeight) + costScore * costWeight;
+      candidates.push({ provider, model: preferredModel ?? (pool&&!pinnedModel?pool.find(t=>t.model&&smartTargetMatches([t],provider,model))?.model:undefined) ?? model.id, target: target.key, evidence,
         discoveredAt: model.evidence?.at ?? null, capabilities: model.capabilities ?? {}, contextLength: model.contextLength ?? null,
         ...(needs.reasoningEffort !== undefined ? { reasoningEffort: needs.reasoningEffort } : {}),
         maxOutputTokens: model.maxOutputTokens ?? null, price: model.pricing ?? null, estimatedCost,
@@ -165,10 +174,11 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   }
   if (request.signal?.aborted) { decision.status = 'cancelled'; decision.reason = 'Routing cancelled before inference.'; return decision; }
   if (overall.aborted) { decision.reason = 'Model discovery exceeded the routing deadline; no inference was sent.'; return decision; }
-  candidates.sort((a, b) => (optimize ? b.score - a.score : 0) || providers.indexOf(a.provider) - providers.indexOf(b.provider) || a.model.localeCompare(b.model));
+  candidates.sort((a, b) => (smart||optimize ? b.score - a.score : 0) || providers.indexOf(a.provider) - providers.indexOf(b.provider) || a.model.localeCompare(b.model));
   if (candidates.length) {
     decision.status = 'selected'; decision.selected = candidates[0]!; decision.alternatives = candidates.slice(1, 21);
     decision.reason = `${decision.mode} selection${optimize ? '' : ' in configured order (optimization disabled)'}; ${decision.selected.reason}.${decision.selected.evidence === 'explicit-unverified' ? ' Discovery unavailable; honoring the explicit model without claiming compatibility.' : ''}`;
+    if(smart)decision.reason=`Smart ${smart.policy.profile}, ${smart.stage}${pinnedModel?'; model pin preserved':''}${smart.evidenceId?'; failed verification '+smart.evidenceId:''}; ${decision.selected.reason}.${decision.selected.evidence==='explicit-unverified'?' Discovery unavailable; explicit model compatibility is unverified.':''}`;
   }
   return decision;
 }

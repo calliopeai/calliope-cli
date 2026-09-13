@@ -26,8 +26,10 @@ export function workflowSnapshot(progress:CoordinatorProgress):WorkflowSnapshot 
     let ancestor=agent,stopped=false;for(let n=0;n<plan.agents.length;n++){if(state.stoppedAgents.includes(ancestor.id)){stopped=true;break;}const parent=plan.agents.find(a=>a.id===ancestor.parentId);if(!parent)break;ancestor=parent;}
     const supervising=state.supervision?.active?.agentId===agent.id;
     const preference=agentPreference(plan,agent.id),status=stopped?'stopped':supervising?`reviewing round ${state.supervision!.rounds}`:current?.escalation?'escalated':current?.status??'coordinating';
+    const recorded=state.routes?.[agent.id],route=supervising?(recorded?.sessionId===state.supervision!.active!.sessionId?recorded.route:undefined):current?.route??(!current?recorded?.route:undefined);
+    const choice=route?`actual ${route.provider}:${route.model}`:`choice ${preference.provider??'auto'}:${preference.model??'auto'}`;
     const attempt=current?` · ${current.id} ${current.attempts}/${agent.escalationPolicy.maxRetries+1}`:'';
-    return{id:agent.id,active:supervising||current?.status==='running',label:clean(`${agent.id} · ${agent.role} · ${status} · choice ${preference.provider??'auto'}:${preference.model??'auto'}${attempt} · ${assigned.filter(task=>task.status==='completed').length}/${assigned.length} done`)};
+    return{id:agent.id,active:supervising||current?.status==='running',label:clean(`${agent.id} · ${agent.role} · ${status} · ${choice}${attempt} · ${assigned.filter(task=>task.status==='completed').length}/${assigned.length} done${route?' · Smart '+route.profile+'/'+route.stage+' · '+(route.stage==='escalation'?'failed verification':'live capability/health/latency/cost'):''}`)};
   });
   const s=state.supervision,supervision=s?` · ${plan.supervision!.principle} · controller ${s.phase} ${s.rounds}/${plan.supervision!.maxRounds}${s.halt?' · '+s.halt.reason:''}`:'';
   return{id:context.id,revision:state.revision,status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${supervision}${cycleHud(progress)} · limit $${plan.limits.costBudgetUsd} · ${plan.goal}`),agents};

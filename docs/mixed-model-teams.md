@@ -97,7 +97,9 @@ expansion and `/tasks graph` to inspect dependencies.
 The REPL keeps one line per recent workflow and, by default, one line per agent
 in the most recently updated workflow. Lines show status, requested provider/model
 choice, task attempt/limit and completed-task counts. Actual routing decisions
-remain in the task session's run log. Dollar amounts are limits, not billed spend.
+remain in the task session's run log. In opt-in [Smart mode](smart-routing.md),
+agent rows also show actual selections and compact reasons from the execution
+journal. Dollar amounts are limits, not billed spend.
 Review-required and failed work never inflate completed counts.
 
 ```text

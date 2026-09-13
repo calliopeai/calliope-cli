@@ -134,3 +134,9 @@ selection. Appended project instructions and caller-supplied custom prompts are
 preserved. Tests use synthetic HTTP responses through real SDK parsers, the
 runtime, permission resolver and audit store; they do not imply paid provider
 captures have passed.
+
+## Reviewed agent pools
+
+[Smart routing](smart-routing.md) adds an explicit orchestration mode with captured
+role pools and verification-backed escalation. It is independent of the existing
+`routing.enabled` optimization setting and does not change its default.

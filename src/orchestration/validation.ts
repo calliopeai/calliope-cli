@@ -5,6 +5,7 @@ import { canonicalJson, canonicalPath, digest, approvalDisplayText, projectIdent
 import { OrchestrationError, type AgentContract, type AgentInput, type AgentOutput, type ArtifactSpec, type PathGrant, type PlanAnalysis, type ProjectPlan } from './types.js';
 import {validateIsolation,validateTaskIsolation} from '../isolation/contracts.js';
 import {validateSupervisionPolicy} from '../supervision/contracts.js';
+import {validateSmartPolicy} from '../routing/smart.js';
 
 export const MAX_PLAN_BYTES = 2 * 1024 * 1024;
 export const MAX_AGENTS = 256, MAX_TASKS = 1024, MAX_DEPTH = 8;
@@ -53,7 +54,9 @@ function artifact(v: unknown): asserts v is ArtifactSpec {
   if (v.kind === 'file' && v.path === undefined) fail('File artifacts require a project-relative path.');
 }
 function agent(v: unknown): asserts v is AgentContract {
-  shape(v, ['id','parentId','role','objective','inputs','allowedTools','allowedPaths','preference','tokenBudget','costBudgetUsd','timeBudgetMs','maxChildDepth','maxChildCount','acceptanceCriteria','escalationPolicy']);
+  shape(v, ['id','parentId','role','objective','inputs','allowedTools','allowedPaths','preference','tokenBudget','costBudgetUsd','timeBudgetMs','maxChildDepth','maxChildCount','acceptanceCriteria','escalationPolicy'],['routing','childRouting']);
+  if(v.routing!==undefined)try{validateSmartPolicy(v.routing);}catch{fail('Invalid agent Smart routing policy.');}
+  if(v.childRouting!==undefined){try{validateSmartPolicy(v.childRouting);}catch{fail('Invalid child Smart routing policy.');}if(!v.routing||!v.maxChildCount||!v.maxChildDepth)fail('Child routing requires a Smart agent with delegation capacity.');}
   id(v.id); if (v.parentId !== null) id(v.parentId); text(v.role, 128); text(v.objective); inputs(v.inputs); tools(v.allowedTools); paths(v.allowedPaths);
   shape(v.preference, ['provider'], ['model']); if (v.preference.provider !== 'auto' && !getProviderNames().includes(v.preference.provider as never)) fail('Unknown provider preference.');
   if (v.preference.model !== undefined) text(v.preference.model, 256);

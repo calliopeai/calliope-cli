@@ -200,3 +200,50 @@ it.each([null, 'wrong', [], { provider: 'auto', messages: {} }, { provider: 'aut
   expect(route).toMatchObject({ version: 1, status: 'unavailable', reason: 'Invalid routing request.' });
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('keeps Smart routing opt-in and restricts automatic choices to the reviewed pool',async()=>{
+  data.deepseek=[{id:'cheap',pricing:{input:0,output:0}},{id:'approved',pricing:{input:2,output:4}}];
+  expect((await selectRoute(automatic())).selected?.model).toBe('cheap');
+  const route=await selectRoute({...automatic(),smart:{policy:{version:1,profile:'cost',pool:[{provider:'deepseek',model:'approved'}]},stage:'initial'}});
+  expect(route.selected?.model).toBe('approved');expect(route.alternatives).toEqual([]);expect(route.smart).toEqual({profile:'cost',stage:'initial'});expect(route.reason).toContain('Smart cost');
+  expect(route.exclusions).toContainEqual({provider:'deepseek',model:'cheap',reason:'outside-smart-pool'});
+});
+it('uses explicit Smart profiles even when legacy score optimization is disabled',async()=>{
+  data.deepseek=[{id:'a-expensive',pricing:{input:20,output:40}},{id:'z-economical',pricing:{input:0,output:0}}];
+  const route=await selectRoute({...automatic(),preferences:{enabled:false,providerPool:['deepseek']},smart:{policy:{version:1,profile:'cost',pool:[{provider:'deepseek'}]},stage:'initial'}});
+  expect(route.selected?.model).toBe('z-economical');expect(route.reason).not.toContain('disabled');
+});
+it('preserves explicit Smart pins outside a pool while still checking live incompatibility',async()=>{
+  const smart={policy:{version:1 as const,profile:'balanced' as const,pool:[{provider:'xai' as const}]},stage:'initial' as const};
+  expect((await selectRoute({...automatic(),provider:'deepseek',model:'deepseek-live',smart})).selected?.model).toBe('deepseek-live');
+  expect((await selectRoute({...automatic(),provider:'deepseek',smart})).selected?.provider).toBe('deepseek');
+  clearModelCache();data.deepseek=[{id:'deepseek-live',capabilities:{tools:false}}];
+  expect((await selectRoute({...automatic(),provider:'deepseek',model:'deepseek-live',smart})).status).toBe('unavailable');
+});
+it('selects an escalation pool only with a bounded selection and retains the evidence reference',async()=>{
+  const policy={version:1 as const,profile:'balanced' as const,pool:[{provider:'deepseek' as const}],escalationPool:[{provider:'xai' as const}]},evidenceId='00000000-0000-4000-8000-000000000001';
+  const route=await selectRoute({...automatic(),smart:{policy,stage:'escalation',evidenceId}});
+  expect(route.selected?.provider).toBe('xai');expect(route.smart).toMatchObject({stage:'escalation',evidenceId});expect(route.reason).toContain(evidenceId);
+  for(const smart of [{policy,stage:'escalation'},{policy,stage:'initial',evidenceId},{policy:{...policy,pool:[]},stage:'initial'},{policy,stage:'unknown'}])expect((await selectRoute({...automatic(),smart:smart as never})).reason).toBe('Invalid Smart routing selection.');
+});
+it('keeps an automatic Smart continuation inside its captured pool and honors cancellation',async()=>{
+  const smart={policy:{version:1 as const,profile:'speed' as const,pool:[{provider:'deepseek' as const}]},stage:'initial' as const};
+  expect((await selectRoute({...automatic(),provider:'xai',model:'xai-live',origin:{provider:'auto'},smart})).status).toBe('unavailable');
+  expect((await selectRoute({...automatic(),signal:AbortSignal.abort(),smart})).status).toBe('cancelled');
+});
+
+it('keeps quarantine and visibly unverified explicit recovery in Smart mode',async()=>{
+  const smart={policy:{version:1 as const,profile:'speed' as const,pool:[{provider:'deepseek' as const},{provider:'xai' as const}]},stage:'initial' as const};
+  const store=new HealthStore(),target=providerTarget('deepseek');for(let n=0;n<3;n++)store.append({provider:'deepseek',target:target.key,type:'attempt',outcome:'error',failure:'server',durationMs:10});
+  const route=await selectRoute({...automatic(),smart});expect(route.selected?.provider).toBe('xai');expect(route.exclusions).toContainEqual({provider:'deepseek',reason:'quarantined'});
+  clearModelCache();vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('Synthetic offline endpoint');}));
+  const pinned=await selectRoute({provider:'deepseek',model:'explicit-local-model',smart});expect(pinned.selected?.evidence).toBe('explicit-unverified');expect(pinned.reason).toContain('unverified');
+});
+
+it('lets the operator trade cost against observed latency without changing the eligible model pool',async()=>{
+  data.deepseek=[{id:'fast',pricing:{input:20,output:40},capabilities:{tools:true}}];data.xai=[{id:'economical',pricing:{input:0.5,output:0.5},capabilities:{tools:true}}];
+  const store=new HealthStore();for(const provider of ['deepseek','xai'] as const)store.append({provider,target:providerTarget(provider).key,type:'attempt',outcome:'success',durationMs:provider==='deepseek'?20:4000});
+  const pool=[{provider:'deepseek' as const},{provider:'xai' as const}];
+  const cost=await selectRoute({...automatic(),smart:{policy:{version:1,profile:'cost',pool},stage:'initial'}}),speed=await selectRoute({...automatic(),smart:{policy:{version:1,profile:'speed',pool},stage:'initial'}});
+  expect(cost.selected?.model).toBe('economical');expect(speed.selected?.model).toBe('fast');expect(cost.alternatives[0]?.model).toBe('fast');expect(speed.alternatives[0]?.model).toBe('economical');
+});

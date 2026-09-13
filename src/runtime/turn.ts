@@ -3,7 +3,7 @@ import { chat } from '../providers/index.js';
 import type { ChatOptions, StreamCallback, RetryCallback } from '../providers/types.js';
 import { executeTool, getTools, type ExecuteToolOptions } from '../tools.js';
 import { DEFAULT_MODELS, calculateCost, type LLMProvider, type LLMResponse, type Message, type Tool, type ToolCall, type ToolResult, type Mode } from '../types.js';
-import { cancellableDelay, cancellationError, isCancellation, throwIfCancelled } from '../cancellation.js';
+import { cancellable, cancellableDelay, cancellationError, isCancellation, throwIfCancelled } from '../cancellation.js';
 import { selectRoute, formatRoutingDecision, adaptRoutingPrompt, RoutingUnavailableError, type RouteCandidate, type RoutingDecision, type RoutingPreferences } from '../routing/index.js';
 import { autoCompress, type CompressionResult } from '../auto-compressor.js';
 import { withScope } from '../scope.js';
@@ -61,8 +61,9 @@ export interface TurnOptions {
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
   onWarning?: (message: string) => void;
   routing?: RoutingPreferences;
+  smart?: import('../routing/smart.js').SmartRoutingSelection;
   preferenceSources?: RoutingDecision['preferenceSources'];
-  onRoute?: (decision: RoutingDecision) => void;
+  onRoute?: (decision: RoutingDecision) => void | Promise<void>;
   /** Must finish before execution continues. A failed recovery write stops the turn. */
   onCheckpoint?: (messages: Message[], status: RecoveryStatus) => void | Promise<void>;
   /** Called once before the first allowed medium-or-higher-risk action in a turn. */
@@ -137,7 +138,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
     throwIfCancelled(signal);
     const decision = await selectRoute({ provider: initial ? options.provider : input.provider, model: initial ? options.model : input.model,
-      ...(initial ? {} : { origin }), messages: input.messages, preferences: options.routing, signal,
+      ...(initial ? {} : { origin }), messages: input.messages, preferences: options.routing, smart:options.smart, signal,
       requirements: { reasoningEffort: options.reasoningEffort, tools: input.tools.length > 0, streaming: stream && !!options.onToken,
         vision: input.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')),
         json: extra.format !== undefined,
@@ -145,7 +146,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     });
     if (options.preferenceSources) decision.preferenceSources = options.preferenceSources;
     runlog.routingDecision(decision);
-    if (options.onRoute) options.onRoute(decision);
+    if (options.onRoute) await cancellable(Promise.resolve(options.onRoute(decision)),signal);
     else options.onWarning?.(formatRoutingDecision(decision));
     if (decision.status === 'cancelled') throw cancellationError();
     if (!decision.selected) throw new RoutingUnavailableError(decision);
