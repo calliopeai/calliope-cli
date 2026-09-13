@@ -21,6 +21,7 @@ export type ExecutionChange=
   |{type:'graph_admitted';admission:SpawnAdmission}
   |{type:'started';ownerId:string;proposalOnly?:true}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string}
+  |{type:'task_recovery_started';taskId:string;outcomeId:string}
   |{type:'agent_started';agentId:string;taskId:string}
   |{type:'agent_finished';agentId:string;taskId:string;status:Exclude<TaskStatus,'pending'|'running'>}
   |{type:'escalated';agentId:string;taskId:string;target:'stop'|'parent'|'human'}

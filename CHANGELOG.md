@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Preserve actual isolated verification and patches after worker output cutoffs; add explicit legacy evidence recovery with unchanged budgets, deadlines and append-only history, and require fresh controller review (#320).
+
 - Include OpenRouter context tiers and cache rates in admission estimates, bind request price filters to reservations, disable optional routing expansion, and correct the capture harness's price-field names while retaining historical evidence (#318).
 
 - Connect CLI/REPL goal planning to opt-in isolated supervision, with independent controller/reviewer models, bounded optimization controls, local-image admission before inference, exact-plan approval and unchanged recovery/accounting (#312).

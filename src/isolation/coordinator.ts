@@ -33,7 +33,7 @@ export async function taskWorktree(store: ExecutionStore, task: ProjectTask, opt
   options.runlog?.policyEvent({ tool: 'orchestration_workspace', source: 'isolation', decision: 'allow', reason: canonicalJson({ taskId: task.id, base, root, inputs: [...copied] }), durationMs: 0 });
   return workspace;
 }
-export async function verifyInWorktree(store: ExecutionStore, task: ProjectTask, workspace: WorkerWorktree, guard: ExecutionGuard, options: RunActionOptions): Promise<Map<string, string>> {
+export async function verifyInWorktree(store: ExecutionStore, task: ProjectTask, workspace: WorkerWorktree, guard: ExecutionGuard, options: RunActionOptions&{expectedWorkspaceHash?:string}): Promise<Map<string, string>> {
   const context = store.context(), image = context.plan.workspace.isolation!.image;
   const agent = context.plan.agents.find(a => a.id === task.agentId)!, outputs = new Map<string, string>();
   for (const command of task.isolation!.commands) {
@@ -42,6 +42,7 @@ export async function verifyInWorktree(store: ExecutionStore, task: ProjectTask,
     const operation=`Verify in worktree ${workspace.filesRoot}\nImage: ${image}\nRead-only paths: ${agent.allowedPaths.map(p=>p.path).join(', ')}\nNetwork: disabled; timeout: ${command.timeoutMs} ms`;
     await authorizeSessionAction(store.manifest.project.root, 'shell', { command: rendered, operation, argv: command.argv, runId: store.manifest.id, taskId: task.id, image, network: 'none', mounts: agent.allowedPaths.map(p => ({ ...p, access: 'read' })), timeoutMs: command.timeoutMs }, { ...options, confirmation: 'mutating' });
     guard.assertActive(options.signal); const mounts = workspace.mounts(agent.allowedPaths, options.signal), before=workspace.snapshot(agent.allowedPaths,options.signal), callId = randomUUID();
+    if(options.expectedWorkspaceHash&&before!==options.expectedWorkspaceHash)throw new OrchestrationError('conflict','Retained workspace changed before recovery verification.');
     await store.append({ type: 'tool', taskId: task.id, callId, name: 'shell', path: null, stage: 'started', mutating: true, success: false }, options.signal);
     const receipt = await runIsolatedCommand(image, { ...command, timeoutMs: Math.min(command.timeoutMs, Math.max(1, guard.deadline - Date.now())) }, mounts, options.signal);
     let after:string|null=null;try{after=workspace.snapshot(agent.allowedPaths);}catch{/* Preserve the process result even if its input workspace was replaced. */}

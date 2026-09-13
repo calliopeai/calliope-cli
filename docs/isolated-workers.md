@@ -99,6 +99,39 @@ No worktree is deleted automatically. Archive the run evidence before explicitly
 removing its retained worktrees with Git. A failed cleanup result names the
 container to inspect; preserve that result rather than treating it as a test pass.
 
+An output-limit cutoff now collects the actual patch and runs the approved
+verification commands while authority and time remain. The task stays failed:
+partial model reports cannot establish success, even when the tests pass. A
+supervised retry can use these independently collected receipts. Cancellation,
+policy denial and expired budgets/deadlines do not start this verification path.
+
+For older attempts recorded as `Worker stopped: length.` with mutations and no
+artifacts, explicit recovery is available in the CLI and `/run` REPL command:
+
+```sh
+calliope run recover-evidence <run-id> <task-id> --allow-mutations --json
+calliope run retry-controller <run-id>
+calliope run resume <run-id> --allow-mutations --max-output-tokens 2048
+```
+
+Recovery reopens the original worktree and pinned baseline. It checks the actual
+diff against recorded changed paths, applies current project permissions, and
+runs only the reviewed container commands within the original deadline. Missing
+or damaged state, changed approval, stopped agents and unrecorded file changes
+require manual inspection. This includes dependency copies that changed files
+outside the recorded worker edits; recovery does not guess their origin.
+
+Each attempt permits one evidence recovery, including interrupted or failed
+verification. It makes no model calls, changes no source files, and replenishes
+no budget, attempt count, round count or deadline. The new receipts describe the
+**currently retained candidate**, not a reconstructed historical snapshot. The
+original failed outcome remains in the append-only history. A version-1
+`task_recovery_started` event binds recovery to that outcome ID; its replacement
+outcome cannot accept the incomplete worker report. Any pending controller
+decision is invalidated so a subsequent explicit controller retry reviews the
+new evidence within its remaining rounds. The recovery command's successful
+exit means evidence was collected; its JSON task/run status remains `failed`.
+
 ## Boundaries
 
 Git worktrees separate edits; Docker constrains verification processes. Commands

@@ -5,6 +5,7 @@ import {SessionPolicyError} from '../session-management/index.js';
 import {ExecutionLimitError} from '../execution/index.js';
 import {executeReviewedRun,type CoordinatorOptions} from './coordinator.js';
 import {inspectExecution,controlExecution} from './coordinator-actions.js';
+import {recoverTaskEvidence} from './recovery.js';
 import {prepareRun,changePreparedRun} from './actions.js';
 import {OrchestrationError} from './types.js';
 import {RunStore} from './store.js';
@@ -12,7 +13,7 @@ import type {ExecutionInspection} from './coordinator-types.js';
 import type {OrchestrationNamespace} from './cli.js';
 import {analyzePlan} from './validation.js';
 
-export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
+export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run recover-evidence <run-id> <task-id> [--allow-mutations] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
 export type ExecutionCommandOptions=CoordinatorOptions&{cwd?:string;write?:(text:string)=>void};
 export function formatExecutionData(action:string,value:unknown):string {
   const data=value as {runId?:string;status?:string;interrupted?:boolean;execution?:ExecutionInspection;agents?:{id:string;parentId:string|null;role:string}[];runs?:{runId:string;status:string;completed:number;total:number}[]};
@@ -21,6 +22,7 @@ export function formatExecutionData(action:string,value:unknown):string {
   if(data.runs)for(const run of data.runs)lines.push(`${run.runId} · ${run.status} · ${run.completed}/${run.total} verified tasks`);
   const state=data.execution?.state;
   if(state){
+    for(const task of Object.values(state.tasks))if(task.status==='failed'&&task.output?.summary==='Worker stopped: length.'&&task.mutations&&!task.artifactIds.length)lines.push(`Recover retained evidence first: calliope run recover-evidence ${state.runId} ${task.id} --allow-mutations`);
     if(state.supervision){const s=state.supervision;lines.push(`Controller ${s.phase} · round ${s.rounds} · ${s.stalledRounds} stalled`);if(s.halt)lines.push(`Controller stopped: ${s.halt.reason}`,`Recovery: calliope run retry-controller ${state.runId}, then calliope run resume ${state.runId}`);}
     if(data.agents){const tree=(parent:string|null,depth:number)=>{for(const agent of data.agents!.filter(a=>a.parentId===parent)){const tasks=Object.values(state.tasks).filter(t=>t.agentId===agent.id);lines.push(`${'   '.repeat(depth)}${parent?'└─ ':''}${agent.id} · ${agent.role}${state.stoppedAgents.includes(agent.id)?' · stopped':''}${tasks.length?' · '+tasks.map(t=>t.status+(t.escalation?' (escalated to '+t.escalation+')':'')).join(', '):''}`);tree(agent.id,depth+1);}};tree(null,0);}
     for(const task of Object.values(state.tasks)){lines.push(`${task.id} · ${task.status} · ${task.attempts} attempt(s)`);if(task.output){lines.push(`  ${task.output.summary}`,`  ${task.output.testEvidence.length} passing acceptance checks`);for(const risk of task.output.unresolvedRisks)lines.push(`  Review: ${risk}`);for(const artifact of task.output.artifacts)lines.push(`  Artifact ${artifact.id}: ${artifact.location}:${artifact.path} · SHA-256 ${artifact.sha256}`);}}
@@ -34,8 +36,8 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
   let parsed:ReturnType<typeof parseArgs>;
   try{parsed=parseArgs({args,allowPositionals:true,options:{json:{type:'boolean'},'allow-mutations':{type:'boolean'},'max-output-tokens':{type:'string'},run:{type:'string'},tree:{type:'boolean'},graph:{type:'boolean'},'dry-run':{type:'boolean'}}});}catch{return null;}
   const {positionals:p,values:v}=parsed,action=p[0]??'list',cwd=options.cwd??process.cwd();
-  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept','retry-controller'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
-  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept','retry-controller']].includes(action)&&p.length===1&&!v['dry-run'];
+  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept','retry-controller','recover-evidence'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
+  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept','retry-controller','recover-evidence']].includes(action)&&p.length===1&&!v['dry-run'];
   if(v['dry-run'])return null;
   const write=options.write??(text=>{process.stdout.write(text);});
   const emit=(value:unknown,text:string)=>write(json?JSON.stringify(value)+'\n':approvalDisplayText(text)+'\n');
@@ -44,9 +46,13 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
     if(args.some(arg=>arg.length>4096||/[\x00-\x1f\x7f]/.test(arg)))throw new OrchestrationError('invalid',EXECUTION_USAGE);
     if(execution||controls||taskApproval||candidate){
       if(v.tree||v.graph||namespace==='run'&&v.run||candidate&&p.length!==1)throw new OrchestrationError('invalid',EXECUTION_USAGE);
-      if(v['allow-mutations']&&!candidate&&!['execute','resume'].includes(action)||v['max-output-tokens']&&!candidate&&!['execute','resume'].includes(action))throw new OrchestrationError('invalid',EXECUTION_USAGE);
+      if(v['allow-mutations']&&!candidate&&!['execute','resume','recover-evidence'].includes(action)||v['max-output-tokens']&&!candidate&&!['execute','resume'].includes(action))throw new OrchestrationError('invalid',EXECUTION_USAGE);
       const raw=v['max-output-tokens'];if(raw!==undefined&&(!/^\d+$/.test(String(raw))||!Number.isSafeInteger(Number(raw))||Number(raw)<1||Number(raw)>100000000))throw new OrchestrationError('invalid',EXECUTION_USAGE);
       const opts={...options,...(v['allow-mutations']?{approve:async()=> 'allow' as const}:{}),...(raw?{maxOutputTokens:Number(raw)}:{})};
+      if(action==='recover-evidence'){
+        if(p.length!==3)throw new OrchestrationError('invalid',EXECUTION_USAGE);
+        const state=await recoverTaskEvidence(cwd,p[1]!,p[2]!,opts);return report({runId:p[1],status:state.state.status,execution:state});
+      }
       if(controls){if(p.length!==2||!v.run)throw new OrchestrationError('invalid',EXECUTION_USAGE);const state=await controlExecution(cwd,String(v.run),action==='stop'?'agent-stop':'agent-retry',p[1]!,opts);return report({runId:String(v.run),status:state.state.status,execution:state});}
       if(action==='retry-controller'){
         if(p.length!==2)throw new OrchestrationError('invalid',EXECUTION_USAGE);

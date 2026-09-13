@@ -175,6 +175,14 @@ otherwise recovery begins another controller round. Exhausted rounds, stalled
 progress or expired deadlines do not receive fresh allowances through recovery.
 An unavailable safe retry remains unavailable after repeated controller recovery.
 
+Older isolated output cutoffs without receipts can use
+`run recover-evidence <run-id> <task-id> --allow-mutations` before controller
+recovery. It appends actual verification of the retained candidate and invalidates
+the stale decision, preserving round/attempt counts and the original clock.
+See [evidence recovery](isolated-workers.md#evidence-and-recovery) for eligibility
+and interruption limits. New output cutoffs collect that evidence immediately
+while authority remains; their incomplete reports still cannot complete a task.
+
 ## Journal and HUD
 
 Legacy plan and execution events remain readable. Supervision changes use execution
