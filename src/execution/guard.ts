@@ -73,11 +73,13 @@ export class ExecutionGuard {
     const base=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing);
     const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
+      ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
       ...(billing?{inputCounting:'anthropic-count-tokens' as const}:{}),
       reserve:async actual=>{
         this.assertActive(signal);
         if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)
           throw new ExecutionLimitError('authority','Provider attempt does not match its discovered budget quote.');
+        if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after budget admission.');
         if(billing&&(!actual.inputCount||readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
         const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount);
         const id=randomUUID(),caps=getBudgetCaps();

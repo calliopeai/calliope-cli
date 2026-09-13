@@ -39,10 +39,12 @@ export type StreamCallback = (token: string) => void;
  */
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
-export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount }
+export type ProviderPriceCeiling = Readonly<{ input: number; output: number }>;
+export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling }
 export interface ProviderAttemptBudget {
+  readonly priceCeiling?: ProviderPriceCeiling;
   inputCounting?:'anthropic-count-tokens';
-  reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number; inputCount?:import('../execution/billing.js').InputCount}): Promise<string>;
+  reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?:ProviderPriceCeiling}): Promise<string>;
   settle(id: string, outcome: 'success' | 'error' | 'cancelled', usage?: LLMResponse['usage']): Promise<void>;
 }
 /** An explicit caller limit never expands the adapter's own context/output bound. */

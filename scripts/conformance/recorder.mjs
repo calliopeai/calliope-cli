@@ -50,7 +50,8 @@ export function createRecorder(
       body.max_completion_tokens = maxOutput;
     else body.max_tokens = maxOutput;
     if (options.maxPrice)
-      body.provider = { allow_fallbacks: false, max_price: options.maxPrice };
+      body.provider = { ...body.provider, allow_fallbacks: false, require_parameters: true,
+        max_price: { prompt: options.maxPrice.input, completion: options.maxPrice.output, request: 0, image: 0 } };
     // Bedrock requests are signed; changing the serialized body after signing
     // would invalidate SigV4. Refuse rather than issue an unbounded request.
     if (backend.protocol === "bedrock") {

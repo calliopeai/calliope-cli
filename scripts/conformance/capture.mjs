@@ -34,14 +34,15 @@ const adapters = Object.fromEntries(await Promise.all(['anthropic', 'google', 'o
 if (backend.provider === 'openai' && adapters.openai.requiresResponsesAPI(values.model) !== (backend.protocol === 'responses')) throw new Error('Model routing does not match the requested OpenAI API path');
 const originalFetch = globalThis.fetch;
 const signal = AbortSignal.timeout(30000);
-const recorder = createRecorder(originalFetch, backend, maxOutput, signal);
+const priceCeiling = backend.id === 'openrouter' ? { input: Number(values['input-usd-per-million']), output: Number(values['output-usd-per-million']) } : undefined;
+const recorder = createRecorder(originalFetch, backend, maxOutput, signal, { maxPrice: priceCeiling });
 const reservation = reserveProbe(resolve(values.ledger), { maxCostUsd: Number(values['max-cost-usd']),
   inputRate: Number(values['input-usd-per-million']), outputRate: Number(values['output-usd-per-million']), maxOutputTokens: maxOutput,
   runId: values['run-id'], maxRunCostUsd: values['max-run-cost-usd'] === undefined ? undefined : Number(values['max-run-cost-usd']) });
 let outcome = 'failed';
 globalThis.fetch = recorder.fetch;
 try {
-  const result = await invoke(adapters, backend, values.model, probeMessages(values.scenario), values.scenario === 'tool' ? [TOOL] : [], values.stream ? () => {} : undefined, signal, { maxOutputTokens: maxOutput });
+  const result = await invoke(adapters, backend, values.model, probeMessages(values.scenario), values.scenario === 'tool' ? [TOOL] : [], values.stream ? () => {} : undefined, signal, { maxOutputTokens: maxOutput, priceCeiling });
   const sdkVersions = Object.fromEntries(['openai', '@anthropic-ai/sdk', '@google/genai'].map(name => [name, JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url), 'utf8')).version]));
   const capture = validateCapture({ version: 1, backend: backend.id, model: values.model, scenario: values.scenario, stream: values.stream,
     provenance: { kind: 'captured', capturedAt: new Date().toISOString(), sourceOrigin: recorder.sourceOrigin(), sdkVersions,

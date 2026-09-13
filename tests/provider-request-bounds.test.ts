@@ -27,6 +27,34 @@ beforeEach(()=>{
   vi.stubEnv('AWS_ACCESS_KEY_ID','synthetic-access-key');vi.stubEnv('AWS_SECRET_ACCESS_KEY','synthetic-secret');
 });
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();vi.useRealTimers();});
+it.each([false,true])('sends admitted OpenRouter ceilings and disables extra routing (stream=%s)',async stream=>{
+  const wire=syntheticWire('chat','tool',stream),requests:any[]=[];
+  vi.stubGlobal('fetch',vi.fn(async(_input,init)=>{requests.push(JSON.parse(String(init?.body)));return wireResponse(wire.body,wire.type);}));
+  const priceCeiling={input:25,output:75},reserve=vi.fn(async()=> 'quoted'),settle=vi.fn(async()=>{});
+  const result=await chat('openrouter',probeMessages('tool'),[TOOL],'toy',stream?()=>{}:undefined,undefined,
+    {maxOutputTokens:13,priceCeiling:{input:999,output:999},attemptBudget:{priceCeiling,reserve,settle}});
+  expect(reserve).toHaveBeenCalledWith(expect.objectContaining({priceCeiling:{input:25,output:75}}));
+  expect(requests).toHaveLength(1);expect(requests[0]).toMatchObject({model:'toy',max_tokens:13,modalities:['text'],service_tier:'default',
+    provider:{allow_fallbacks:false,require_parameters:true,max_price:{prompt:25,completion:75,request:0,image:0}}});
+  expect(requests[0].plugins).toHaveLength(7);expect(requests[0].plugins.every((p:any)=>p.enabled===false)).toBe(true);
+  expect(requests[0].models).toBeUndefined();expect(requests[0].tools.every((t:any)=>t.type==='function')).toBe(true);
+  expect(result.toolCalls?.[0].name).toBe('echo');expect(settle).toHaveBeenCalledExactlyOnceWith('quoted','success',{inputTokens:7,outputTokens:3});
+});
+it.each([undefined,{input:-1,output:1},{input:1,output:NaN},{input:Infinity,output:1}])('rejects missing or invalid OpenRouter ceilings before admission %#',async priceCeiling=>{
+  vi.stubGlobal('fetch',vi.fn());const reserve=vi.fn(async()=> 'never'),settle=vi.fn(async()=>{});
+  await expect(chat('openrouter',[],[],'toy',undefined,undefined,{maxOutputTokens:13,attemptBudget:{priceCeiling,reserve,settle}})).rejects.toMatchObject({code:'budget'});
+  await expect(compat.chatOpenAICompatible('openrouter',[],[],'toy',undefined,undefined,{bounded:true,priceCeiling})).rejects.toMatchObject({code:'budget'});
+  expect(reserve).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
+});
+it('cancels admitted OpenRouter transport and retains unknown usage',async()=>{
+  const controller=new AbortController(),settle=vi.fn(async()=>{});
+  vi.stubGlobal('fetch',vi.fn((_input,init)=>new Promise((_resolve,reject)=>{
+    init.signal.addEventListener('abort',()=>reject(new DOMException('cancelled','AbortError')),{once:true});queueMicrotask(()=>controller.abort());
+  })));
+  await expect(chat('openrouter',[],[],'toy',undefined,undefined,{signal:controller.signal,maxOutputTokens:13,
+    attemptBudget:{priceCeiling:{input:1,output:2},reserve:async()=> 'cancelled',settle}})).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledTimes(1);expect(settle).toHaveBeenCalledExactlyOnceWith('cancelled','cancelled',undefined);
+});
 it.each([false,true])('retains refusal usage and never retries a refused native request (stream=%s)',async stream=>{
   const wire=syntheticWire('anthropic','text',stream);
   vi.stubGlobal('fetch',vi.fn(async()=>wireResponse(Buffer.from(wire.body.toString().replaceAll('end_turn','refusal')),wire.type)));
@@ -42,14 +70,14 @@ for(const backend of BACKENDS)describe(backend.id,()=>{
   for(const stream of [false,true])for(const scenario of ['text','tool'] as const)it(`bounds ${scenario} output over ${stream?'stream':'JSON'}`,async()=>{
     const bodies:any[]=[];const wire=syntheticWire(backend.protocol,scenario,stream);
     vi.stubGlobal('fetch',vi.fn(async(input,init)=>{bodies.push(await new Request(input,init).json());return wireResponse(wire.body,wire.type);}));
-    const response=await invoke(adapters,backend,model,probeMessages(scenario),scenario==='tool'?[TOOL]:[],stream?()=>{}:undefined,undefined,{maxOutputTokens:13});
+    const response=await invoke(adapters,backend,model,probeMessages(scenario),scenario==='tool'?[TOOL]:[],stream?()=>{}:undefined,undefined,{maxOutputTokens:13,...(backend.id==='openrouter'?{priceCeiling:{input:1,output:2}}:{})});
     expect(response.usage).toEqual({inputTokens:7,outputTokens:3});expect(bodies).toHaveLength(1);
     const body=bodies[0],maximum=backend.protocol==='google'?body.generationConfig.maxOutputTokens:backend.protocol==='bedrock'?body.inferenceConfig.maxTokens:backend.protocol==='ollama'?body.options.num_predict:backend.protocol==='responses'?body.max_output_tokens:body.max_completion_tokens??body.max_tokens;
     expect(maximum).toBe(13);
   });
   it('does not hide extra SDK retries or fallback attempts inside a failed admission',async()=>{
     vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({error:{message:'Synthetic unavailable'}}),{status:503,headers:{'content-type':'application/json'}})));
-    await expect(invoke(adapters,backend,model,probeMessages('text'),[],undefined,undefined,{maxOutputTokens:13})).rejects.toThrow();expect(fetch).toHaveBeenCalledTimes(1);
+    await expect(invoke(adapters,backend,model,probeMessages('text'),[],undefined,undefined,{maxOutputTokens:13,...(backend.id==='openrouter'?{priceCeiling:{input:1,output:2}}:{})})).rejects.toThrow();expect(fetch).toHaveBeenCalledTimes(1);
   });
   for(const stream of [false,true])it(`preserves absent ${stream?'stream':'JSON'} usage as unknown instead of zero`,async()=>{
     const wire=syntheticWire(backend.protocol,'text',stream),body=withoutUsage(wire.body,wire.type);vi.stubGlobal('fetch',vi.fn(async()=>wireResponse(body,wire.type)));
@@ -58,7 +86,7 @@ for(const backend of BACKENDS)describe(backend.id,()=>{
       const settle=vi.fn(async()=>{});await expect(chat('anthropic',probeMessages('text'),[],model,()=>{},undefined,{maxOutputTokens:13,attemptBudget:{reserve:async()=>'missing-usage',settle}})).rejects.toThrow();
       expect(settle).toHaveBeenCalledWith('missing-usage','error',undefined);expect(fetch).toHaveBeenCalledTimes(1);return;
     }
-    const response=await invoke(adapters,backend,model,probeMessages('text'),[],stream?()=>{}:undefined,undefined,{maxOutputTokens:13});expect(response.usage).toBeUndefined();expect(fetch).toHaveBeenCalledTimes(1);
+    const response=await invoke(adapters,backend,model,probeMessages('text'),[],stream?()=>{}:undefined,undefined,{maxOutputTokens:13,...(backend.id==='openrouter'?{priceCeiling:{input:1,output:2}}:{})});expect(response.usage).toBeUndefined();expect(fetch).toHaveBeenCalledTimes(1);
   });
 });
 for(const stream of [false,true])it(`counts reasoning and cache input in ${stream?'stream':'JSON'} usage`,async()=>{

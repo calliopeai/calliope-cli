@@ -144,6 +144,7 @@ export function validateSemanticCapture(value) {
       "sdkVersions",
       "gateway",
       "maxPrice",
+      "routingBoundsVersion",
     ],
     ["kind", "capturedAt", "sourceOrigin", "sdkVersions"],
   );
@@ -171,6 +172,9 @@ export function validateSemanticCapture(value) {
     )
       throw new Error("Invalid routing price bound");
   }
+  if (value.provenance.routingBoundsVersion !== undefined &&
+      (value.provenance.routingBoundsVersion !== 1 || !value.provenance.maxPrice))
+    throw new Error("Invalid routing bound version");
   const origin = new URL(value.provenance.sourceOrigin);
   if (
     value.provenance.kind !== "captured" ||
@@ -239,7 +243,10 @@ export function validateSemanticCapture(value) {
       value.provenance.maxPrice &&
       (requestBody.provider?.allow_fallbacks !== false ||
         canonical(requestBody.provider?.max_price) !==
-          canonical(value.provenance.maxPrice))
+          canonical(value.provenance.routingBoundsVersion === 1
+            ? { prompt: value.provenance.maxPrice.input, completion: value.provenance.maxPrice.output, request: 0, image: 0 }
+            : value.provenance.maxPrice) ||
+        value.provenance.routingBoundsVersion === 1 && requestBody.provider?.require_parameters !== true)
     )
       throw new Error("Routing bound missing from captured request");
     const expected = turn.expected;
@@ -333,6 +340,7 @@ export async function runSemanticProbe({
   if (![1, 2].includes(probeVersion))
     throw new Error("Invalid semantic probe version");
   if (
+    backend.id === "openrouter" && !maxPrice ||
     maxPrice &&
     (backend.id !== "openrouter" ||
       ![maxPrice.input, maxPrice.output].every(
@@ -391,7 +399,7 @@ export async function runSemanticProbe({
           scenario === "tool-result-replay" ? [TOOL] : [],
           stream ? () => {} : undefined,
           combined,
-          { maxOutputTokens },
+          { maxOutputTokens, priceCeiling: maxPrice },
         );
       } catch (caught) {
         error = caught;
@@ -483,7 +491,7 @@ export async function runSemanticProbe({
       capturedAt: new Date().toISOString(),
       sourceOrigin,
       sdkVersions,
-      ...(maxPrice ? { maxPrice } : {}),
+      ...(maxPrice ? { maxPrice, routingBoundsVersion: 1 } : {}),
     },
     turns,
   });
@@ -494,6 +502,10 @@ export async function runSemanticProbe({
 export async function replaySemanticCapture(capture, adapters) {
   validateSemanticCapture(capture);
   let index = 0;
+  // Historical captures used input/output instead of the API's prompt/completion
+  // keys. Retain their bytes and replay model semantics, never treat those old
+  // controls as spend evidence or reproduce the broken controls on a live call.
+  const legacyRouting = capture.backend === 'openrouter' && capture.provenance.routingBoundsVersion === undefined;
   const source = async (input, init) => {
     const exchange = capture.turns[index++]?.exchange;
     const url = new URL(
@@ -506,10 +518,11 @@ export async function replaySemanticCapture(capture, adapters) {
     )
       throw new Error("Unexpected semantic replay request");
     if (
-      canonicalRequest(JSON.parse(String(init.body)), capture.backend) !==
+      canonicalRequest(JSON.parse(String(init.body)), capture.backend, legacyRouting) !==
       canonicalRequest(
         JSON.parse(Buffer.from(exchange.request.body, "base64").toString()),
         capture.backend,
+        legacyRouting,
       )
     )
       throw new Error(
@@ -561,7 +574,8 @@ export async function replaySemanticCapture(capture, adapters) {
       JSON.stringify(capture.turns.map((t) => t.expected))
   )
     throw new Error("Semantic adapter replay disagrees with captured evidence");
-  return result;
+  // Replay is not a new live capture. Preserve the original provenance and bytes.
+  return { ...result, capture: structuredClone(capture) };
 }
 
 function canonical(value) {
@@ -574,7 +588,8 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 
-function canonicalRequest(value, backend) {
+function canonicalRequest(value, backend, legacyRouting = false) {
+  if (legacyRouting) for (const key of ['provider', 'plugins', 'service_tier', 'modalities']) delete value[key];
   // Ollama does not supply streaming IDs; Calliope generates them locally and
   // sends tool results by position. Preserve all native provider IDs elsewhere.
   if (backend === "ollama")

@@ -50,10 +50,12 @@ export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidat
   const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing),ledger=new ProjectSpendLedger(projectBudgetPath(cwd));
   const quotes=new Map<string,ReturnType<typeof providerQuote>>();
   return {
+    ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
     ...(billing?{inputCounting:'anthropic-count-tokens' as const}:{}),
     reserve:async actual=>{
       throwIfCancelled(signal);
       if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)throw new ExecutionLimitError('authority','Provider attempt changed after project budget admission.');
+      if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after project budget admission.');
       if(billing&&(!actual.inputCount||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
       const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount);
       const id=randomUUID(),cap=getBudgetCaps().maxCostPerProject;

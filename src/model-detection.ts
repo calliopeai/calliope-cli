@@ -13,7 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { cancellable, throwIfCancelled } from './cancellation.js';
 import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
 import { createHash } from 'node:crypto';
-import { ModelDiscoveryError, compatibleMetadata, anthropicMetadata, capability, positiveLimit, price, stringList, validateModels, type ModelInfo, type ModelCapabilities } from './models/index.js';
+import { ModelDiscoveryError, compatibleMetadata, anthropicMetadata, openRouterPricing, capability, positiveLimit, price, stringList, validateModels, type ModelInfo, type ModelCapabilities } from './models/index.js';
 export type { ModelInfo, ModelCapabilities } from './models/index.js';
 
 const DEBUG = process.env.CALLIOPE_DEBUG === '1';
@@ -530,7 +530,7 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
       description?: string;
       context_length?: number;
       architecture?: { modality?: string; input_modalities?: string[]; output_modalities?: string[] };
-      pricing?: { prompt?: string; completion?: string };
+      pricing?: unknown;
       supported_parameters?: string[];
       top_provider?: { max_completion_tokens?: number };
     }>
@@ -568,10 +568,7 @@ async function getOpenRouterModels(): Promise<ModelInfo[]> {
       maxOutputTokens: positiveLimit(model.top_provider?.max_completion_tokens),
       capabilities: { chat: true, tools: model.supported_parameters ? model.supported_parameters.includes('tools') : undefined,
         vision: model.architecture?.input_modalities ? model.architecture.input_modalities.includes('image') : undefined },
-      pricing: {
-        input: price(model.pricing?.prompt, 1000000), // Convert per-token prices to per 1M tokens.
-        output: price(model.pricing?.completion, 1000000)
-      }
+      pricing: openRouterPricing(model.pricing)
     }));
 }
 

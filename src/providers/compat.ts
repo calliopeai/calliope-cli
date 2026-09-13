@@ -13,6 +13,7 @@ import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
+import { openRouterBounds } from './openrouter-bounds.js';
 
 // API base URLs for OpenAI-compatible providers
 export const PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
@@ -249,6 +250,7 @@ export async function chatOpenAICompatible(
   signal?: AbortSignal,
   limits?: AdapterLimits
 ): Promise<LLMResponse> {
+  const routingBounds = provider === 'openrouter' && limits?.bounded ? openRouterBounds(limits.priceCeiling) : {};
   // Ollama and LiteLLM use base URL, others use API key
   let apiKey: string | undefined;
   let baseURL: string;
@@ -314,6 +316,7 @@ export async function chatOpenAICompatible(
         max_tokens: dynamicMaxTokens,
         stream: true,
         ...(limits?.bounded ? { stream_options: { include_usage: true } } : {}),
+        ...routingBounds,
       };
       if (activeShim) streamParams = activeShim.transformRequest(streamParams) as ChatCompletionCreateParamsStreaming;
       const stream = await client.chat.completions.create(streamParams, signal ? { signal } : undefined);
@@ -395,6 +398,7 @@ export async function chatOpenAICompatible(
       messages: openaiMessages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
       max_tokens: dynamicMaxTokens,
+      ...routingBounds,
     };
     if (activeShim) reqParams = activeShim.transformRequest(reqParams) as ChatCompletionCreateParamsNonStreaming;
     response = await client.chat.completions.create(reqParams, signal ? { signal } : undefined);
