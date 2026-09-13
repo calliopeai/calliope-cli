@@ -105,6 +105,8 @@ scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.
 [Counted admission](docs/counted-admission.md) describes opt-in native token counting,
 expiring operator-reviewed billing evidence and auditable estimate headroom.
+[Reviewed provider metadata](docs/reviewed-provider-metadata.md) supplies bounded
+full-context admission when live discovery omits pricing, limits or capabilities.
 [OpenRouter admission](docs/openrouter-admission.md) covers tier/cache estimates,
 reservation-bound price filters, historical capture limits and upstream account checks.
 

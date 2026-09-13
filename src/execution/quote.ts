@@ -9,7 +9,7 @@ import {ExecutionLimitError} from './types.js';
 import {integer} from './authority.js';
 import {requestCostNanos} from './ledger.js';
 import {ProjectSpendLedger} from './project-spend.js';
-import {readBillingEvidence,assertBillingCurrent,validateInputCount,type BillingEvidence,type InputCount,type QuoteEvidence} from './billing.js';
+import {readBillingEvidence,assertBillingCurrent,validateInputCount,validateQuoteEvidence,fullContextTerms,type BillingEvidence,type InputCount,type QuoteEvidence} from './billing.js';
 
 export function costCapNanos(value:number):number {
   if(!Number.isFinite(value)||value<0)throw new ExecutionLimitError('budget','Configured cost cap is invalid.');
@@ -20,6 +20,16 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     if(!route || route.evidence!=='live' || !route.discoveredAt || !Number.isFinite(Date.parse(route.discoveredAt)) || Date.now()-Date.parse(route.discoveredAt)>300000 || Date.parse(route.discoveredAt)>Date.now()+1000)
       throw new ExecutionLimitError('authority','Bounded execution requires recent live model discovery.');
     if(billing)assertBillingCurrent(billing,route);
+    if(messages.some(m=>typeof m.content!=='string'&&m.content.some(p=>p.type!=='text')))
+      throw new ExecutionLimitError('budget','Multimodal requests require a separate verified billing bound.');
+    if(billing?.profile.admission==='reviewed-full-context-v1'){
+      if(count)throw new ExecutionLimitError('authority','Full-context admission does not accept an unverified input count.');
+      const quoteEvidence=validateQuoteEvidence({version:2,profileHash:billing.hash,profile:billing.profile,quotedAt:Date.now(),live:{discoveredAt:Date.parse(route.discoveredAt),contextLength:route.contextLength,maxOutputTokens:route.maxOutputTokens,capabilities:Object.fromEntries(['chat','tools','streaming'].filter(k=>route.capabilities[k as keyof typeof route.capabilities]!==undefined).map(k=>[k,route.capabilities[k as keyof typeof route.capabilities]])),prices:{input:route.price?.input??null,output:route.price?.output??null}},requirements:{tools:tools.length>0,streaming}});
+      if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
+      const {inputTokens,maxOutputTokens:outputLimit,inputPrice,outputPrice}=fullContextTerms(quoteEvidence);
+      if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
+      return{provider:route.provider,model:route.model,target:route.target,inputTokens,outputTokens:maxOutputTokens,inputPrice,outputPrice,costNanos:requestCostNanos(inputTokens,maxOutputTokens,inputPrice,outputPrice),quoteEvidence};
+    }
     const capabilities:RouteCandidate['capabilities']={...billing?.profile.capabilities,...Object.fromEntries(Object.entries(route.capabilities).filter(([,v])=>v!==undefined))};
     if(capabilities.chat!==true || tools.length&&capabilities.tools!==true || streaming&&capabilities.streaming!==true)
       throw new ExecutionLimitError('authority','Live discovery did not confirm the required model capabilities.');
@@ -27,12 +37,11 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     let inputTokens=route.contextLength;const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');
-    if(messages.some(m=>typeof m.content!=='string'&&m.content.some(p=>p.type!=='text')))
-      throw new ExecutionLimitError('budget','Multimodal requests require a separate verified billing bound.');
+
     let quoteEvidence:QuoteEvidence|undefined;
     if(count){
       validateInputCount(count);
-      if(!billing||route.provider!=='anthropic'||count.at>Date.now()+1000||Date.now()-count.at>60000)throw new ExecutionLimitError('authority','Provider input count requires current matching billing evidence.');
+      if(!billing||billing.profile.admission!=='provider-count-v1'||route.provider!=='anthropic'||count.at>Date.now()+1000||Date.now()-count.at>60000)throw new ExecutionLimitError('authority','Provider input count requires current matching billing evidence.');
       if(count.inputTokens>inputTokens!)throw new ExecutionLimitError('budget','Counted request exceeds the discovered input capacity.');
       inputTokens=Math.min(inputTokens!,count.inputTokens*2+1024);
       quoteEvidence={version:1,profileHash:billing.hash,profile:structuredClone(billing.profile),count:structuredClone(count),multiplier:2,slackTokens:1024};
@@ -51,17 +60,17 @@ export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidat
   const quotes=new Map<string,ReturnType<typeof providerQuote>>();
   return {
     ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
-    ...(billing?{inputCounting:'anthropic-count-tokens' as const}:{}),
+    ...(billing?.profile.admission==='provider-count-v1'?{inputCounting:'anthropic-count-tokens' as const}:{}),
     reserve:async actual=>{
       throwIfCancelled(signal);
       if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)throw new ExecutionLimitError('authority','Provider attempt changed after project budget admission.');
       if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after project budget admission.');
-      if(billing&&(!actual.inputCount||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
+      if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
       const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount);
       const id=randomUUID(),cap=getBudgetCaps().maxCostPerProject;
       await ledger.reserve(id,runId,quote.costNanos,cap===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(cap),signal);quotes.set(id,quote);onEvent?.(id,'reserved',quote.quoteEvidence);
       throwIfCancelled(signal);
-      if(billing&&readBillingEvidence(route,project)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Counted admission was revoked while committing its reservation.');
+      if(billing&&readBillingEvidence(route,project)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Billing admission was revoked while committing its reservation.');
       return id;
     },
     settle:async(id,outcome,usage)=>{

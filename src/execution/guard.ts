@@ -87,13 +87,13 @@ export class ExecutionGuard {
     const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
       ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
-      ...(billing?{inputCounting:'anthropic-count-tokens' as const}:{}),
+      ...(billing?.profile.admission==='provider-count-v1'?{inputCounting:'anthropic-count-tokens' as const}:{}),
       reserve:async actual=>{
         this.assertActive(signal);
         if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)
           throw new ExecutionLimitError('authority','Provider attempt does not match its discovered budget quote.');
         if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after budget admission.');
-        if(billing&&(!actual.inputCount||readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Counted admission was revoked or omitted its count.');
+        if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
         const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount);
         const id=randomUUID(),caps=getBudgetCaps();
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
@@ -103,7 +103,7 @@ export class ExecutionGuard {
         catch(error){await projectLedger.settle(id,0);throw error;}
         onEvent?.({requestId:id,stage:'reserved',revision:state.revision,...state.spent});
         this.assertActive(signal);
-        if(billing&&readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Counted admission was revoked while committing its reservation.');
+        if(billing&&readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Billing admission was revoked while committing its reservation.');
         return id;
       },
       settle:async(id,outcome,usage)=>{

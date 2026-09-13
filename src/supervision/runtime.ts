@@ -6,7 +6,7 @@ import {projectImprovementHistory,improvementFeedback} from '../improvement/inde
 import {randomUUID} from 'node:crypto';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {runTurn} from '../runtime/index.js';
-import {ExecutionGuard,ExecutionLimitError,type AgentExecution} from '../execution/index.js';
+import {ExecutionGuard,ExecutionLimitError,reviewedOutputLimit,type AgentExecution} from '../execution/index.js';
 import {throwIfCancelled,isCancellation} from '../cancellation.js';
 import {SessionPolicyError} from '../session-management/index.js';
 import {createSession,saveSessionConversation} from '../storage.js';
@@ -61,9 +61,9 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const preference=resolvePreferences(context.project.root,{turn:agentPreference(plan,agentId)});
     const smart=agent.routing?taskSmartSelection(agent.routing,view.events):undefined;
     const route=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:false,reasoningEffort},signal:controller.signal});log.routingDecision(route);
-    if(!route.selected)throw new RoutingUnavailableError(route);if(!route.selected.maxOutputTokens)throw new ExecutionLimitError('budget','Controller model has no discovered output limit.');
+    if(!route.selected)throw new RoutingUnavailableError(route);const maximum=reviewedOutputLimit(route.selected,store.manifest.project.root);if(!maximum)throw new ExecutionLimitError('budget','Controller model needs a live or reviewed output limit.');
     const attribution={version:1 as const,kind:'supervision' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,role,round};
-    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,route.selected.maxOutputTokens),assertAuthority:check,attribution};
+    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,maximum),assertAuthority:check,attribution};
     new ExecutionGuard(execution,context.project.root).assertActive(controller.signal);
     const result=await runTurn({smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agentId,session.id,decision,controller.signal,check)}:{}),cwd:context.project.root,sessionId:session.id,execution,reasoningEffort,provider:preference.provider,model:preference.model,messages,prompt:'Review the recorded outcomes and return one bounded decision.',tools:()=>[],onToolStart:()=>{throw new SessionPolicyError();},beforeTool:()=>{throw new SessionPolicyError();},maxIterations:1,maxRetries:0,parallel:false,mode:options.mode,confirmation:'mutating',signal:controller.signal,runlog:log,onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;}});
     check();if(result.reason!=='completed')throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`Controller stopped: ${result.reason}.`);

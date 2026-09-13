@@ -53,7 +53,7 @@ it('uses explicit evidence without replacing discovery, with bounded estimate he
 it('rejects malformed, future, expired, ambiguous and unsafe local policy without exposing its bytes',()=>{
   expect(billingFile()).toBe(file);vi.stubEnv('CALLIOPE_BILLING_FILE','');expect(billingFile()).toMatch(/\.calliope-cli\/billing.json$/);vi.stubEnv('CALLIOPE_BILLING_FILE',file);
   for(const patch of [{provider:'openai'},{admission:'other'},{model:'bad\nmodel'},{target:'bad'},{checkedAt:-1},{expiresAt:Date.now()+8*86400000},{sources:[]},{sources:['invalid']},{sources:['https://user:secret@example.invalid']},{sources:['https://example.invalid/?key=secret']},{sources:['http://example.invalid']},{prices:{input:NaN,output:5}},{prices:{input:-1,output:5}},{capabilities:{tools:'yes'}},{unknown:1}])expect(()=>validateBillingProfile({...profile,...patch})).toThrow();
-  for(const value of [{version:2,profiles:[]},{version:1,profiles:[profile,profile]},{version:1,profiles:'bad'}]){fs.writeFileSync(file,JSON.stringify(value));expect(()=>readBillingEvidence(route,project)).toThrow();}
+  for(const value of [{version:3,profiles:[]},{version:1,profiles:[profile,profile]},{version:1,profiles:'bad'}]){fs.writeFileSync(file,JSON.stringify(value));expect(()=>readBillingEvidence(route,project)).toThrow();}
   for(const value of ['private unparsed secret',' '.repeat(131073)]){fs.writeFileSync(file,value);expect(()=>readBillingEvidence(route,project)).toThrow(/malformed/);}
   writeProfile();fs.chmodSync(file,0o666);expect(()=>readBillingEvidence(route,project)).toThrow();fs.chmodSync(file,0o600);
   profile.expiresAt=Date.now()-1;profile.checkedAt-=10000;writeProfile();expect(()=>readBillingEvidence(route,project)).toThrow(/expired/);
@@ -70,7 +70,7 @@ it.each([false,true])('counts and sends the same native system/tool replay paylo
   const {max_tokens,stream,...paid}=requests[1]!.body;expect(max_tokens).toBe(100);expect(paid).toEqual(requests[0]!.body);
   expect(paid.system).toContain('Public trailing instruction');expect(paid.messages.at(-1).content[0]).toMatchObject({type:'tool_result',tool_use_id:'call_1'});
   const saved=new ReservationLedger(ledger.root).read(project),proof=Object.values(saved.projection.requests)[0]!.reservation.quoteEvidence!;
-  expect(proof.profile).toEqual(profile);expect(proof.count.inputTokens).toBe(7);expect(saved.projection.spent).toEqual({tokens:10,costNanos:29000});
+  expect(proof.profile).toEqual(profile);expect(proof.version).toBe(1);if(proof.version!==1)throw new Error('Expected legacy counted evidence');expect(proof.count.inputTokens).toBe(7);expect(saved.projection.spent).toEqual({tokens:10,costNanos:29000});
   expect(JSON.stringify(saved.events)).not.toContain('Public root instructions');expect(JSON.stringify(saved.events)).not.toContain('synthetic');
   expect(()=>validateQuoteEvidence({...proof,profileHash:'f'.repeat(64)})).toThrow();expect(()=>validateQuoteEvidence({...proof,multiplier:1})).toThrow();
 });
