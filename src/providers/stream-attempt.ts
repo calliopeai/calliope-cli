@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { MAX_CONTENT_LENGTH, type StreamCallback } from './types.js';
-import { StreamInterruptedError, StreamProtocolError } from '../errors.js';
+import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 
 /** Metadata only: no response text, tool arguments or provider-private reasoning. */
 export interface StreamAttemptEvent {
@@ -48,6 +48,7 @@ export class StreamAttempt {
   }
   retry(delayMs: number): void { this.waiting = true; this.emit('retrying', delayMs); }
   failure(error: unknown, canReset: boolean): unknown {
+    if (error instanceof ProviderRefusalError) return error;
     return this.chars && !canReset ? new StreamInterruptedError() : error;
   }
 }

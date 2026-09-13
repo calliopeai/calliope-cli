@@ -18,7 +18,7 @@ import * as compressor from '../src/auto-compressor.js';
 import * as config from '../src/config.js';
 import { RunLog } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
-import { StreamInterruptedError, StreamProtocolError } from '../src/errors.js';
+import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../src/errors.js';
 import { readToolOutputs } from '../src/sessions/index.js';
 import { clearModelCache } from '../src/model-detection.js';
 import * as storage from '../src/storage.js';
@@ -50,6 +50,15 @@ beforeEach(async () => {
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.useRealTimers(); });
 
 describe('shared turn runtime', () => {
+  it('surfaces a fixed refusal diagnostic without executing tools or retrying the turn', async () => {
+    chatMock.mockResolvedValue({...response(tool('write_file')),content:'private response text',finishReason:'error',errorCode:'refusal'});
+    const onError=vi.fn((_error:unknown)=> 'retry' as const),onUsage=vi.fn(),opts=options({onError,onUsage});
+    await expect(runTurn(opts)).rejects.toBeInstanceOf(ProviderRefusalError);
+    expect(chatMock).toHaveBeenCalledTimes(1);expect(executeMock).not.toHaveBeenCalled();expect(onUsage).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({message:expect.stringContaining('Provider refused')});
+    expect(String(onError.mock.calls[0]?.[0])).not.toContain('private response text');
+    expect(opts.messages.current).toEqual([{role:'user',content:'work'}]);
+  });
   it('creates one durable safety branch before allowed parallel mutations and preserves its pre-tool protocol state', async () => {
     const session = storage.createSession(root, { activate: false }); let revision: string | null = null;
     chatMock.mockResolvedValueOnce(response(tool('write_file', 'a', { path: 'a.txt', content: 'A' }), tool('write_file', 'b', { path: 'b.txt', content: 'B' }))).mockResolvedValueOnce(text());

@@ -6,6 +6,7 @@ import {authorizeSessionAction,SessionPolicyError} from '../session-management/i
 import {ReservationLedger} from '../execution/ledger.js';
 import {ExecutionLimitError} from '../execution/types.js';
 import {assertLocalIsolationImage} from '../isolation/process.js';
+import {PROVIDER_REFUSAL_MESSAGE} from '../errors.js';
 import {RunStore,ExecutionStore,analyzePlan,bindPlan,changePreparedRun,loadRunPlan,executeReviewedRun,inspectExecution,readCollectedArtifact,workerSummary,OrchestrationError} from '../orchestration/index.js';
 import type {CoordinatorOptions,ExecutionEvent,ExecutionInspection,ProjectPlan,RunInspection} from '../orchestration/index.js';
 import {GoalStore} from './store.js';
@@ -70,7 +71,7 @@ async function planGoal(cwd:string,id:string,options:GoalOptions):Promise<GoalRe
     try{
       const run=await ensureRun(cwd,view,view.state.planning!,plan,context),runs=runStore(view,options),executionStore=new ExecutionStore(join(runs.root,run.run.id),run.manifest),execution=await executeReviewedRun(cwd,run.run.id,{...context.options,store:runs,confirmation:'none',resume:executionStore.exists(),maxOutputTokens:Math.min(view.manifest.limits.maxOutputTokens,options.maxOutputTokens??view.manifest.limits.maxOutputTokens),onEvent:options.onRunEvent});
       context.assert();const task=execution.execution.state.tasks.propose!,artifact=task.output?.artifacts.find(a=>a.id==='proposal'),spend=planningSpend(view);
-      if(execution.status==='cancelled')throw cancellationError();if(!artifact||!spend||!['review_required','completed'].includes(task.status))throw new OrchestrationError(execution.status==='denied'?'policy-denied':'unavailable','Planner did not produce a usable proposal; inspect its recorded session and budget.');
+      if(execution.status==='cancelled')throw cancellationError();if(!artifact||!spend||!['review_required','completed'].includes(task.status))throw new OrchestrationError(execution.status==='denied'?'policy-denied':'unavailable',task.output?.summary===PROVIDER_REFUSAL_MESSAGE?`Planner stopped: ${PROVIDER_REFUSAL_MESSAGE}`:'Planner did not produce a usable proposal; inspect its recorded session and budget.');
       const bytes=await readCollectedArtifact(executionStore,artifact,context.options);let value:unknown;try{value=JSON.parse(bytes.toString());}catch{throw new OrchestrationError('invalid','Planner artifact is not a valid JSON plan.');}
       const proposal=proposePlan(view.manifest,value,{kind:'agent',runId:run.run.id,artifactId:artifact.id,artifactHash:artifact.sha256,eventId:artifact.source.eventId},spend);bindPlan(analyzePlan(proposal.plan),cwd);context.assert();context.goals.writeProposal(proposal,spend,context.signal);
       await context.goals.append(id,{type:'planning_finished',status:'review_required',spend,proposalHash:proposal.hash,reason:'Plan structure, bounds and provenance validated; human approval is required.'},{signal:context.signal,expectedRevision:view.state.revision,beforeCommit:()=>{context.assert();if(canonicalJson(planningSpend(view))!==canonicalJson(spend))throw new OrchestrationError('conflict','Planning spend changed before proposal freeze.');}});

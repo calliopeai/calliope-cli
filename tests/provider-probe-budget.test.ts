@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { reserveProbe } from '../scripts/conformance/budget.mjs';
+import { reserveProbe, reserveWorkflowRequest } from '../scripts/conformance/budget.mjs';
 import { createRecorder } from '../scripts/conformance/recorder.mjs';
 
 let directory: string;
@@ -19,6 +19,24 @@ it('persists before network use, keeps failure reservations across restarts and 
   expect(existsSync(file + '.lock')).toBe(false);
   expect(() => reserveProbe(file, budget)).toThrow('exhausted');
   expect(JSON.parse(readFileSync(file, 'utf8')).reservations).toHaveLength(1);
+});
+
+it('accounts for bounded workflow requests in the same ledger without widening capture probes', () => {
+  const options = { maxCostUsd: 0.04, inputRate: 1, outputRate: 2, maxInputTokens: 1000, maxOutputTokens: 8192, runId: 'existing-run', maxRunCostUsd: 0.03 };
+  reserveProbe(file, { ...options, maxOutputTokens: 128 }).finish('captured');
+  const request = reserveWorkflowRequest(file, options);
+  expect(() => reserveWorkflowRequest(file, options)).toThrow();
+  const pending = JSON.parse(readFileSync(file, 'utf8'));
+  expect(pending.reservations[1]).toMatchObject({ id: request.id, kind: 'workflow', maxOutputTokens: 8192, reservedNanoUsd: 17384000, status: 'reserved', runId: 'existing-run' });
+  request.finish('failed');
+  expect(() => reserveWorkflowRequest(file, options)).toThrow('run dollar budget exhausted');
+  expect(() => reserveProbe(file, options)).toThrow('Invalid');
+  expect(() => reserveWorkflowRequest(file, { ...options, maxOutputTokens: 8193 })).toThrow('Invalid');
+  expect(() => reserveWorkflowRequest(file, { ...options, maxRunCostUsd: 0.04 })).toThrow('run dollar limit changed');
+  const saved = JSON.parse(readFileSync(file, 'utf8'));
+  expect(saved.reservations).toHaveLength(2);expect(saved.reservations[0]).not.toHaveProperty('kind');
+  expect(saved.reservations[1].status).toBe('failed');expect(saved.runs).toEqual([{ id: 'existing-run', limitNanoUsd: 30000000 }]);
+  expect(existsSync(file + '.lock')).toBe(false);
 });
 
 it('rejects malformed budgets, corrupt ledgers, changing the cap and duplicate completion', () => {

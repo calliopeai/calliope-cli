@@ -80,6 +80,19 @@ resets cumulative reservations. Do not start new runs merely to bypass a run cap
 The version-1 ledger adds `runs: [{ id, limitNanoUsd }]` and a `runId` reference
 on new reservations; historical unscoped reservations remain in the total.
 
+Reviewed live workflow harnesses can use `reserveWorkflowRequest` from
+`scripts/conformance/budget.mjs` when a complete execution plan needs more output.
+It permits at most 8,192 output tokens and marks each reservation `kind: "workflow"`.
+It uses the same ledger, run limits, locking and retained failure accounting;
+ordinary capture probes still stop at 512 output tokens. The caller must bound
+request count, time and additional workflow spend, and supply reviewed rates and
+conservative input limits before sending each request. A recorded workflow response
+does not satisfy the wire-conformance release gate.
+
+The [September 13 native goal attempt](evidence/native-goal-smoke.json) stopped
+at a Fable planner refusal before a proposal or worker execution. Its failure
+reservation remains charged; the full live supervised goal path is still unverified.
+
 It reads no project context and executes no returned tools. Credentials and request
 headers are excluded from stored metadata. Review the decoded response, origin
 and expected result before committing it: checksums detect changed bytes, not a

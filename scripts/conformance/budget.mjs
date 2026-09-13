@@ -2,9 +2,18 @@
 import { closeSync, existsSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
-export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInputTokens = 5000, maxOutputTokens, runId, maxRunCostUsd }) {
+export function reserveProbe(file, options) {
+  return reserve(file, options, 512);
+}
+
+/** A reviewed workflow needs room for plan JSON; it is not a wire-conformance capture. */
+export function reserveWorkflowRequest(file, options) {
+  return reserve(file, options, 8192, 'workflow');
+}
+
+function reserve(file, { maxCostUsd, inputRate, outputRate, maxInputTokens = 5000, maxOutputTokens, runId, maxRunCostUsd }, outputLimit, kind) {
   if (![maxCostUsd, inputRate, outputRate].every(n => Number.isFinite(n) && n >= 0) ||
-      ![maxInputTokens, maxOutputTokens].every(n => Number.isSafeInteger(n) && n > 0) || maxOutputTokens > 512) {
+      ![maxInputTokens, maxOutputTokens].every(n => Number.isSafeInteger(n) && n > 0) || maxOutputTokens > outputLimit) {
     throw new Error('Invalid probe dollar, pricing or token budget');
   }
   // Rounded upward to integer nanodollars; failed/unknown requests keep their reservation.
@@ -54,7 +63,7 @@ export function reserveProbe(file, { maxCostUsd, inputRate, outputRate, maxInput
       ledger.runs = runs;
     }
     const reservation = { id: randomUUID(), at: new Date().toISOString(), reservedNanoUsd,
-      maxInputTokens, maxOutputTokens, inputRate, outputRate, status: 'reserved', ...(scoped ? { runId } : {}) };
+      maxInputTokens, maxOutputTokens, inputRate, outputRate, status: 'reserved', ...(scoped ? { runId } : {}), ...(kind ? { kind } : {}) };
     ledger.reservations.push(reservation);
     function save() {
       writeFileSync(temp, JSON.stringify(ledger, null, 2) + '\n', { mode: 0o600 });

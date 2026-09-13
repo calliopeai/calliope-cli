@@ -243,8 +243,9 @@ export async function chatAnthropic(
 
       return {
         content,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        toolCalls: finishReason !== 'error' && toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
+        ...(finishReason === 'error' ? { errorCode: 'refusal' as const } : {}),
         usage: limits?.bounded && (!inputUsageSeen || !outputUsageSeen) ? undefined : { inputTokens, outputTokens },
       };
     } catch (streamError) {
@@ -289,8 +290,9 @@ export async function chatAnthropic(
 
   return {
     content,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    toolCalls: finishReason !== 'error' && toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(response.stop_reason === 'refusal' ? { errorCode: 'refusal' as const } : {}),
     usage: response.usage ? {
       inputTokens: response.usage.input_tokens + (response.usage.cache_creation_input_tokens || 0) + (response.usage.cache_read_input_tokens || 0),
       outputTokens: response.usage.output_tokens,

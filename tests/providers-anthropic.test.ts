@@ -759,6 +759,21 @@ describe('adaptive thinking + refusal stop reason (#147)', () => {
     };
     const r = await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-opus-4-8');
     expect(r.finishReason).toBe('error');
+    expect(r.errorCode).toBe('refusal');
     expect(r.content).toMatch(/refused/i);
+    expect(r.usage).toEqual({inputTokens:5,outputTokens:0});
+  });
+  it('discards proposed tools on a refusal in JSON and streaming responses', async () => {
+    const block={type:'tool_use',id:'refused-tool',name:'write_file',input:{path:'unsafe.txt',content:'unused'}};
+    mockCreateResponse={content:[block],stop_reason:'refusal',usage:{input_tokens:5,output_tokens:2}};
+    expect(await chatAnthropic([{role:'user',content:'public fixture'}],[], 'toy')).toMatchObject({finishReason:'error',errorCode:'refusal',toolCalls:undefined});
+    mockStreamEvents=[
+      {type:'message_start',message:{usage:{input_tokens:5}}},
+      {type:'content_block_start',index:0,content_block:block},
+      {type:'content_block_stop',index:0},
+      {type:'message_delta',delta:{stop_reason:'refusal'},usage:{output_tokens:2}},
+    ];
+    const result=await chatAnthropic([{role:'user',content:'public fixture'}],[],'toy',vi.fn());
+    expect(result).toMatchObject({finishReason:'error',errorCode:'refusal',toolCalls:undefined,usage:{inputTokens:5,outputTokens:2}});
   });
 });

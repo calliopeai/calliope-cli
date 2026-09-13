@@ -17,6 +17,9 @@ import {clearModelCache,getAvailableModels} from '../src/model-detection.js';
 import {syntheticWire,wireResponse} from './helpers/provider-wire.js';
 import type {RouteCandidate} from '../src/routing/index.js';
 import type {Message,Tool} from '../src/types.js';
+import {GoalStore,runGoalCommand} from '../src/goals/index.js';
+import {RunStore} from '../src/orchestration/index.js';
+import {PROVIDER_REFUSAL_MESSAGE} from '../src/errors.js';
 let root:string,project:string,file:string,profile:BillingProfile,route:RouteCandidate,requests:{path:string;body:any}[],respond:(path:string,body:any,signal:AbortSignal)=>Promise<Response>;
 const json=(v:unknown,status=200)=>new Response(JSON.stringify(v),{status,headers:{'content-type':'application/json'}});
 const messages:Message[]=[{role:'system',content:'Public root instructions'},{role:'user',content:'Echo hello'},{role:'assistant',content:'',toolCalls:[{id:'call_1',name:'echo',arguments:{text:'hello'}}]},{role:'tool',toolCallId:'call_1',content:'hello'},{role:'system',content:'Public trailing instruction'}];
@@ -75,6 +78,19 @@ it('runs through live discovery and the shared runtime with native missing price
   const {ledger,manifest}=guard();
   const result=await runTurn({cwd:project,provider:'anthropic',model:route.model,sessionId:randomUUID(),prompt:'Public toy',messages:{current:[{role:'user',content:'Public toy'}]},confirmation:'none',maxIterations:1,tools:()=>[],runlog:RunLog.open(randomUUID(),{enabled:false}),execution:{ledger,manifestHash:manifestHash(manifest),agentId:'a',maxOutputTokens:100}});
   expect(result.reason).toBe('completed');expect(requests.map(r=>r.path)).toContain('/v1/models');expect(ledger.read(project).projection.spent.costNanos).toBe(29000);
+});
+it('persists a refused native planner with its usage and exposes the reason through headless restart and replay',async()=>{
+  const prior=respond;respond=async(path,body,signal)=>path==='/v1/messages'?json({id:'refused',type:'message',role:'assistant',model:route.model,content:[],stop_reason:'refusal',usage:{input_tokens:7,output_tokens:0}}):prior(path,body,signal);
+  const goals=new GoalStore(join(root,'goals')),store=new RunStore(join(root,'runs')),lines:string[]=[];
+  const options={cwd:project,goals,store,write:(line:string)=>lines.push(line),preference:{provider:'anthropic',model:route.model},limits:{tokenBudget:10000,costBudgetNanos:100000000,timeBudgetMs:60000,planningTokens:5000,planningCostNanos:50000000,planningTimeMs:30000,maxOutputTokens:100}};
+  expect(await runGoalCommand(['Plan a tiny public fixture.','--json'],options)).toBe(1);
+  const records=lines.map(line=>JSON.parse(line)),id=records.find(r=>r.type==='orchestration.goal.created').data.manifest.id;
+  expect(records.at(-1)).toMatchObject({version:1,error:{code:'unavailable',message:'Planner stopped: '+PROVIDER_REFUSAL_MESSAGE}});
+  const saved=goals.read(id,project);expect(saved.state).toMatchObject({status:'failed',planningFrozen:true,planningSpend:{tokens:1138,costNanos:2576000},execution:null});expect(saved.proposal).toBeNull();
+  expect(saved.events.at(-1)?.change).toMatchObject({type:'planning_finished',reason:'Planner stopped: '+PROVIDER_REFUSAL_MESSAGE});
+  const nativeRequests=requests.filter(r=>r.path==='/v1/messages').length;expect(nativeRequests).toBe(1);expect(fs.readdirSync(project)).toEqual([]);
+  for(const action of ['resume','replay']){lines.length=0;expect(await runGoalCommand([action,id,'--json'],{...options,goals:new GoalStore(goals.root),store:new RunStore(store.root)})).toBe(action==='resume'?1:0);expect(JSON.parse(lines.at(-1)!).data.goal.events.at(-1).change.reason).toContain('Provider refused');}
+  expect(requests.filter(r=>r.path==='/v1/messages')).toHaveLength(nativeRequests);
 });
 it('rejects changed messages or tools after counting before paid dispatch',async()=>{
   const input=structuredClone(messages),receipt=await countAnthropicInput(input,tools,route.model,false,undefined,{maxOutputTokens:100});input[0]!.content='Changed';

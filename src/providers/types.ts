@@ -244,6 +244,7 @@ export function validateLLMResponse(response: LLMResponse): LLMResponse {
   if (!['stop', 'tool_use', 'length', 'error'].includes(response.finishReason)) {
     response.finishReason = 'stop';
   }
+  if (response.finishReason !== 'error' || response.errorCode !== 'refusal') delete response.errorCode;
 
   return response;
 }

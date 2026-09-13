@@ -23,7 +23,7 @@ import { withSession, makeToolOutput, saveToolOutput, type CapturedToolOutput, t
 import { getSessionDirById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
-import { StreamInterruptedError, StreamProtocolError } from '../errors.js';
+import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
 
@@ -304,7 +304,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (options.prepare) currentRequest = await options.prepare(currentRequest, iterations);
         throwIfCancelled(signal);
         let response = await request(currentRequest);
-        if (response.finishReason === 'error') throw new Error('Provider returned an unsuccessful completion');
+        if (response.finishReason === 'error') throw response.errorCode === 'refusal' ? new ProviderRefusalError() : new Error('Provider returned an unsuccessful completion');
         try { checkBudget(); }
         catch (error) {
           messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
@@ -347,7 +347,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
-        if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError)) { await cancellableDelay(2000, signal); continue; }
+        if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }
         if (action === 'stop') { reason = 'stopped'; break; }
         throw error;
       }

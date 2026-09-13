@@ -134,6 +134,12 @@ known, `revise` accepts a policy-checked project plan without another model call
 It preserves total limits and invalidates the old approval hash. Execution must
 not already be allocated; an explicitly cancelled goal cannot be revised.
 
+A native Anthropic refusal stops planning with a fixed provider-refusal message
+in the CLI and saved goal events. It does not authorize tools or create a proposal.
+The request's usage evidence and conservative failure reservation are retained;
+`resume` and `replay` inspect the frozen result without another planning request.
+Review the request and provider policy before deciding how to proceed.
+
 An interruption after allocation but before run creation resumes the same ID.
 A partially written or damaged run fails closed: preserve its directory and
 restore verified records instead of deleting evidence to obtain fresh budget.
