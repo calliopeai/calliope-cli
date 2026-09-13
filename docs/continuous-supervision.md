@@ -100,6 +100,8 @@ No image is pulled automatically.
 
 Principles are `speed`, `robustness`, `stability`, `security`, `performance` and
 `cost`. They guide proposed strategy; they do not change acceptance or policy.
+Linked reviews also receive [whole-goal accounting](goal-accounting.md), including
+planning costs. Its diagnostic headroom never replaces the active run's budget.
 Round limits are 1–64. A round counts when controller admission is recorded,
 including a subsequent failed or interrupted model call. A stalled round means
 the number of completed tasks has not increased since the previous review.

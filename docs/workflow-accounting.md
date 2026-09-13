@@ -43,8 +43,9 @@ actual provider billing.
 A positive recorded balance is not guaranteed request admission. Current project
 policy, ancestor limits, protected child allocations, deadlines, discovered
 capabilities and the next request's full quote still apply. Planning and execution
-remain separate runs with their existing shared goal allowance; this snapshot
-does not combine them or the external provider-validation ledger.
+remain separate runs with their existing shared goal allowance. The additional
+[goal accounting](goal-accounting.md) projection combines their charges for linked
+goals; neither projection includes the external provider-validation ledger.
 
 Unavailable accounting has only `version`, `status: unavailable` and a fixed
 remediation `reason`. A missing, damaged, mismatched or unreadable ledger is never

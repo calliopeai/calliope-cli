@@ -85,6 +85,8 @@ choices and bounded attempts, with a compact HUD driven by recorded execution st
 subtree balances, reservation states and budget-only HUD refreshes.
 [Request attribution](docs/request-attribution.md) binds provider charges to exact
 attempts and reviews, preserving legacy journals and distinguishing missing costs.
+[Goal accounting](docs/goal-accounting.md) combines planning and execution charges
+and inspects final artifacts for cost-per-verified-task metrics without new authority.
 [Smart routing](docs/smart-routing.md) is an opt-in goal mode with captured role
 pools, verification-backed escalation and actual selections recorded before inference.
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker

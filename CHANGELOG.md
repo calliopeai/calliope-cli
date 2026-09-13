@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Account for complete goals across planning, execution, retries, reviews and children; add policy-checked `orchestrate metrics` with verified task costs, recorded recovery/check observations and explicit unavailable evidence (#334).
+
 - Bind provider reservations to immutable task-attempt and controller/reviewer start events; expose per-attempt accounted costs in run diagnostics, bounded improvement feedback, the HUD and explicit Brain ingestion while preserving legacy evidence and unavailable measurements (#332).
 
 - Show persistent run and agent/subtree budget balances, pending/unknown reservations and unavailable-ledger diagnostics in the HUD and headless inspection, without changing admission or restoring capacity (#326).

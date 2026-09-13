@@ -98,6 +98,10 @@ requests retain their conservative charge, but prevent a comparable cost delta.
 Legacy/missing bindings yield unavailable costs rather than fabricated zeroes;
 the shared run/project ledgers continue enforcing their original reservations.
 
+For linked goals, [whole-goal metrics](goal-accounting.md) separately include
+planning and review overhead and inspect final artifacts before reporting cost
+per verified task. This total is not a comparable before/after cycle metric.
+
 The HUD adds the latest cycle's status, comparable check rate and comparable
 worker-attempt cost. Explicit Brain run ingestion cites the budget revision and
 stores a separate snapshot when accounting changes; hypotheses remain proposed.

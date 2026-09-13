@@ -14,6 +14,7 @@ function input(value:AgentInput) {
 export interface ControllerContextInput {
   role:SupervisionRole;round:number;plan:ProjectPlan;tasks:Record<string,TaskState>;
   improvements?:ReturnType<typeof improvementFeedback>;
+  goalAccounting?:import('../goals/accounting.js').GoalAccounting;
   outcomes:Awaited<ReturnType<typeof reviewEvidence>>;draft?:SupervisionDecision|null;
   budget:{deadline:number;spent:unknown;accounts:unknown};strategies:SupervisionProjection['strategies'];
 }
@@ -29,7 +30,7 @@ export function buildControllerContext(value:ControllerContextInput) {
   });
   const content=JSON.stringify({version:1,kind:'controller-review',role:value.role,round:value.round,principle:policy!.principle,policy,
     plan:{...plan,agents:plan.agents.map(a=>({...a,inputs:a.inputs.map(input)})),tasks:plan.tasks.map(t=>({...t,inputs:t.inputs.map(input)}))},
-    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),
+    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),
     omissions:'Long text inputs and worker prose are referenced by hash; task outputs are represented by outcomes. Acceptance criteria and authority are complete. Stop if omitted data is needed to decide safely.'});
   const bytes=Buffer.byteLength(content);
   if(bytes>1024*1024)throw new OrchestrationError('limit','Controller context exceeds 1 MiB; reduce the reviewed graph.');
