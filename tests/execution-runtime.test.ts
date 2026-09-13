@@ -63,8 +63,11 @@ it('allows an explicitly approved scoped mutation and rejects undeclared tool sc
 it('propagates cancellation and deadline expiry to HTTP while retaining pending spend',async()=>{
   // Advance the original clock only after HTTP dispatch; host load must not turn
   // this transport-cancellation test into an admission-before-deadline race.
-  vi.useFakeTimers({toFake:['Date','setTimeout','clearTimeout']});
+  vi.useFakeTimers({now:Date.now()-10000,toFake:['Date','setTimeout','clearTimeout']});
   try {
+  // The ledger captures Date.now at construction; bind it to the runtime clock.
+  // Offset fake time above so accidentally retaining the real clock fails reliably.
+  ledger=new ReservationLedger(join(root,'budget'));
   manifest.createdAt=Date.now();manifest.deadline=manifest.createdAt+500;for(const a of manifest.accounts)a.deadline=manifest.deadline;ledger.create(manifest);
   let started!:()=>void;const ready=new Promise<void>(resolve=>{started=resolve;});let transportSignal:AbortSignal;
   respond=async(_request,signal)=>{transportSignal=signal;started();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
