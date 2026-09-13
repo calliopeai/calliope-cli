@@ -14,6 +14,7 @@ import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog,
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 import { openRouterBounds } from './openrouter-bounds.js';
+import {deepSeekReasoning,toDeepSeekMessages} from './deepseek-reasoning.js';
 
 // API base URLs for OpenAI-compatible providers
 export const PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
@@ -293,7 +294,7 @@ export async function chatOpenAICompatible(
   }
 
   const client = new OpenAI({ apiKey, baseURL, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
-  const openaiMessages = toOpenAIMessages(messages);
+  const openaiMessages = provider==='deepseek'?toDeepSeekMessages(messages):toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
   // Calculate dynamic max_tokens based on available context space
@@ -304,6 +305,7 @@ export async function chatOpenAICompatible(
   // Stream text content while collecting tool calls
   if (onToken) {
     let content = '';
+    let reasoningContent:string|undefined;
     let toolCallDeltas: Record<number, { id: string; name: string; arguments: string }> = {};
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
     let usage: LLMResponse['usage'];
@@ -325,6 +327,7 @@ export async function chatOpenAICompatible(
         if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
+        if(provider==='deepseek')reasoningContent=deepSeekReasoning((choice.delta as {reasoning_content?:unknown}|undefined)?.reasoning_content,reasoningContent);
 
         // Handle text content
         const textDelta = choice.delta?.content;
@@ -377,6 +380,7 @@ export async function chatOpenAICompatible(
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
         usage,
+        ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
         warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
       };
     } catch (streamError) {
@@ -432,6 +436,7 @@ export async function chatOpenAICompatible(
 
   const choice = response.choices[0]!;
   const message = choice.message;
+  const reasoningContent=provider==='deepseek'?deepSeekReasoning((message as {reasoning_content?:unknown}).reasoning_content):undefined;
   const toolCalls = parseOpenAIToolCalls(message.tool_calls);
 
   // Map finish reasons
@@ -441,6 +446,7 @@ export async function chatOpenAICompatible(
     content: message.content || '',
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
     usage: response.usage ? {
       inputTokens: response.usage.prompt_tokens,
       outputTokens: response.usage.completion_tokens,

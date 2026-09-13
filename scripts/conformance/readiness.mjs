@@ -33,7 +33,10 @@ export function createReadiness(captures, availability = {}, now = new Date(), s
     const checks = Object.fromEntries(REQUIRED_CHECKS.map(check => [check, absent]));
     for (const capture of evidence) checks[`${capture.scenario}-${capture.stream ? 'stream' : 'json'}`] = 'captured';
     const semanticEvidence = semanticCaptures.filter(capture => capture.backend === backend.id);
-    for (const capture of semanticEvidence) checks[capture.scenario] = 'captured';
+    for (const capture of semanticEvidence) {
+      if(backend.id==='deepseek'&&capture.scenario==='tool-result-replay'&&capture.provenance.reasoningReplayVersion!==1)continue;
+      checks[capture.scenario] = 'captured';
+    }
     // Usage is independently observed in all four modes, not inferred from SDK support.
     if (['text', 'tool'].every(scenario => [false, true].every(stream => evidence.some(capture =>
       capture.scenario === scenario && capture.stream === stream && validUsage(capture.expected.usage))))) {

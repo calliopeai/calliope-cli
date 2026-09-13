@@ -1,5 +1,6 @@
 /** Manufactured responses test the harness only; never enter the real corpus. */
 import { randomUUID } from "node:crypto";
+import {readFileSync} from 'node:fs';
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   BACKENDS,
@@ -41,7 +42,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function manufacture(backend: any, scenario: string, stream = false) {
+async function manufacture(backend: any, scenario: string, stream = false, reasoning = false) {
   let calls = 0;
   const outcomes: string[] = [];
   const source = vi.fn(async () => {
@@ -57,6 +58,10 @@ async function manufacture(backend: any, scenario: string, stream = false) {
       tool ? "tool" : "text",
       stream,
     );
+    if(reasoning){
+      if(stream)wire.body=Buffer.concat([Buffer.from('data: '+JSON.stringify({choices:[{index:0,delta:{reasoning_content:'opaque public probe'}}]})+'\n\n'),wire.body]);
+      else{const body=JSON.parse(wire.body.toString());body.choices[0].message.reasoning_content='opaque public probe';wire.body=Buffer.from(JSON.stringify(body));}
+    }
     return new Response(wire.body, { headers: { "content-type": wire.type } });
   });
   const reserve = vi.fn(() => ({
@@ -79,6 +84,24 @@ async function manufacture(backend: any, scenario: string, stream = false) {
   });
   return { result, source, reserve, outcomes };
 }
+
+it.each([false,true])('requires recorded DeepSeek reasoning replay before marking current wire readiness (stream=%s)',async stream=>{
+  const backend=BACKENDS.find(b=>b.id==='deepseek')!,{result}=await manufacture(backend,'tool-result-replay',stream,true),capture=result.capture;
+  expect(capture.provenance.reasoningReplayVersion).toBe(1);expect((await replaySemanticCapture(capture,adapters)).capture).toEqual(capture);
+  expect(createReadiness([],{},new Date(),[capture]).adapters.find(a=>a.id==='deepseek')!.checks['tool-result-replay']).toBe('captured');
+  for(const value of [0,2,'1'])expect(()=>validateSemanticCapture({...capture,provenance:{...capture.provenance,reasoningReplayVersion:value}})).toThrow(/reasoning replay/);
+  for(const replacement of [undefined,'altered opaque state']){const changed=structuredClone(capture),exchange=changed.turns[1].exchange,body=JSON.parse(Buffer.from(exchange.request.body,'base64').toString());body.messages.find((m:any)=>m.role==='assistant').reasoning_content=replacement;const bytes=Buffer.from(JSON.stringify(body));exchange.request.body=bytes.toString('base64');exchange.request.sha256=digest(bytes);expect(()=>validateSemanticCapture(changed)).toThrow(/reasoning replay/);}
+  const unmarked=structuredClone(capture);delete unmarked.provenance.reasoningReplayVersion;expect(createReadiness([],{},new Date(),[unmarked]).adapters.find(a=>a.id==='deepseek')!.checks['tool-result-replay']).toBe('missing');
+});
+it('preserves the historical DeepSeek omission while verifying exact current restoration and excluding it from current readiness',async()=>{
+  const raw=readFileSync(new URL('./fixtures/provider-semantic/deepseek-tool-result-replay-json-1.json',import.meta.url),'utf8'),capture=JSON.parse(raw),before=JSON.stringify(capture);vi.mocked(config.getBaseUrl).mockReturnValue('https://replay.invalid');
+  const replayed=await replaySemanticCapture(capture,adapters);expect(replayed.historicalReasoningOmission).toBe(true);expect(JSON.stringify(replayed.capture)).toBe(before);expect(JSON.stringify(capture)).toBe(before);
+  expect(createReadiness([],{},new Date(),[capture]).adapters.find(a=>a.id==='deepseek')!.checks['tool-result-replay']).toBe('missing');
+  for(const replacement of [undefined,{deepseek:{version:1,reasoningContent:'wrong'}}]){
+    const broken={...adapters,compat:{...compat,chatOpenAICompatible:async(...args:Parameters<typeof compat.chatOpenAICompatible>)=>({...await compat.chatOpenAICompatible(...args),providerMetadata:replacement})}};
+    await expect(replaySemanticCapture(capture,broken)).rejects.toThrow(/replay/);
+  }
+});
 
 for (const backend of BACKENDS)
   for (const scenario of [

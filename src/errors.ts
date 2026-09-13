@@ -39,6 +39,9 @@ export interface RetryOptions {
 export class StreamInterruptedError extends Error {
   constructor() { super('Response stream stopped after partial output. Start a new turn to continue; the partial response was not committed.'); this.name = 'StreamInterruptedError'; }
 }
+export class ProviderProtocolError extends Error {
+  constructor(message:string) { super(message); this.name='ProviderProtocolError'; }
+}
 export class StreamProtocolError extends Error {
   constructor(message: string) { super(message); this.name = 'StreamProtocolError'; }
 }
@@ -61,7 +64,7 @@ export function classifyError(error: unknown): ClassifiedError {
   if (error instanceof Error && error.name === 'ExecutionLimitError') return {
     category: 'invalid_request', message: error.message, suggestion: 'Inspect the execution contract and budget history before retrying.', retryable: false,
   };
-  if (error instanceof StreamInterruptedError || error instanceof StreamProtocolError) return {
+  if (error instanceof StreamInterruptedError || error instanceof StreamProtocolError || error instanceof ProviderProtocolError) return {
     category: 'invalid_request', message: error.message, suggestion: 'Inspect /doctor providers and retry explicitly or choose a compatible model.', retryable: false,
   };
   const message = error instanceof Error ? error.message : String(error);

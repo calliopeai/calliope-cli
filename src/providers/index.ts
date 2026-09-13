@@ -11,6 +11,7 @@ import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
 import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions, type AdapterLimits } from './types.js';
+export {deepSeekReasoning,toDeepSeekMessages,MAX_DEEPSEEK_REASONING_BYTES} from './deepseek-reasoning.js';
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
