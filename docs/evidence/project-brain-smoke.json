@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "kind": "project-brain-smoke",
+  "capturedAt": "2026-09-12T23:53:05.215020+00:00",
+  "implementation": {
+    "runIngestSha256": "b67030e70a192e14b862ed31cf39292af6971ca793a249878189563851295446"
+  },
+  "transport": "synthetic localhost; no paid inference",
+  "verification": "real local Docker",
+  "runId": "4807bb7c-7104-4555-912a-86cb2c57d1de",
+  "status": "completed",
+  "attempts": 2,
+  "exitCodes": [
+    1,
+    0
+  ],
+  "cleanupConfirmed": true,
+  "sourceUnchanged": true,
+  "cycleId": "8f3b1df5-e7b0-41b7-8c49-5bea1a44a020",
+  "hypothesisState": "proposed",
+  "cycleStatus": "verified",
+  "withdrawalStatus": "withdrawn",
+  "reservationsRetained": true,
+  "brain": {
+    "entities": 13,
+    "edges": 17,
+    "testResults": [
+      false,
+      true
+    ],
+    "proposedDecisions": 1,
+    "index": "current",
+    "revision": "6983c2dc0a25c56655bc2c99bb4ef0a301c78b77ef5f312178f8744fab09c0b9"
+  },
+  "note": "Localhost model responses are synthetic. Docker checks and retained run/brain journals are real. This is not provider wire evidence."
+}
