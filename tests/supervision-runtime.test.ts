@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {clearModelCache} from '../src/model-detection.js';
+import {providerTarget} from '../src/health/index.js';
 import {RunStore,ExecutionStore,prepareRun,changePreparedRun,executeReviewedRun,controlExecution,recoverTaskEvidence,runOrchestrationCommand,replayExecution,type ProjectPlan} from '../src/orchestration/index.js';
 import {ReservationLedger,type RequestReservation} from '../src/execution/index.js';
 import {coordinatorProgress} from '../src/orchestration/progress.js';
@@ -56,6 +57,15 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 async function reviewed(p=plan()){fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const view=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,view.run.id,'approved',{store:runs});}
 const execute=(id:string,extra={})=>executeReviewedRun(project,id,{store:runs,approve:async()=> 'allow',...extra});
+
+it('uses reviewed limits for ID-only worker, controller and reviewer discovery with replayable reservations',async()=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
+  const original=fetch;vi.stubGlobal('fetch',vi.fn(async(input,init)=>new Request(input,init).url.endsWith('/models')?json({data:['worker-toy','controller-toy','reviewer-toy'].map(id=>({id}))}):original(input,init)));
+  const file=join(root,'billing.json'),now=Date.now();vi.stubEnv('CALLIOPE_BILLING_FILE',file);fs.writeFileSync(file,JSON.stringify({version:2,profiles:p.agents.map(a=>({version:2,provider:'deepseek',model:a.preference.model,target:providerTarget('deepseek').key,checkedAt:now,expiresAt:now+60000,sources:['https://example.invalid/fixture'],prices:{input:1,output:2},capabilities:{chat:true,tools:true},limits:{contextLength:4096,maxOutputTokens:100},admission:'reviewed-full-context-v1'}))}),{mode:0o600});
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).toBe('completed');expect(requests.map(r=>r.body.model)).toEqual(['worker-toy','worker-toy','controller-toy','reviewer-toy']);expect(requests.every(r=>r.body.max_tokens===100)).toBe(true);
+  const saved=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(saved.events.filter(e=>e.change.type==='reserve')).toHaveLength(4);for(const e of saved.events)if(e.change.type==='reserve')expect(e).toMatchObject({version:4,change:{reservation:{quoteEvidence:{version:2,live:{maxOutputTokens:null}},attribution:{version:1}}}});
+  expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);expect(result.accounting).toMatchObject({status:'available',run:{accounted:{tokens:40,costNanos:52000}}});
+});
 
 it('reviews actual executor artifacts with distinct controller/reviewer models, updates the HUD and replays without calls',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';

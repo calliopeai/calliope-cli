@@ -7,7 +7,7 @@ import { cancellableDelay, throwIfCancelled } from '../cancellation.js';
 import { accountLineage, checkExecutionIdentity, hex, identifier, integer, invalid, manifestHash, shape, uuid, validateExecutionManifest } from './authority.js';
 import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, type RequestSettlement, type ReservationEvent, type ReservationProjection,type ChildGrant } from './types.js';
 import {validateChildGrant,applyChildGrant,assertChildCapacity,effectiveExecutionManifest} from './child-grants.js';
-import {validateQuoteEvidence} from './billing.js';
+import {validateQuoteEvidence,fullContextTerms} from './billing.js';
 import {recoverDeadWriterLock} from './writer-recovery.js';
 import {validateRequestAttribution} from './attribution.js';
 
@@ -27,7 +27,9 @@ function reservation(value: unknown): asserts value is RequestReservation {
   if (value.costNanos !== requestCostNanos(value.inputTokens,value.outputTokens,value.inputPrice as number,value.outputPrice as number)) invalid();
   if(value.quoteEvidence!==undefined){
     const proof=validateQuoteEvidence(value.quoteEvidence),p=proof.profile;
-    if(value.provider!==p.provider||value.model!==p.model||value.target!==p.target||value.inputTokens<proof.count.inputTokens||value.inputTokens>proof.count.inputTokens*2+1024||Number(value.inputPrice)<p.prices.input||Number(value.outputPrice)<p.prices.output)invalid();
+    if(value.provider!==p.provider||value.model!==p.model||value.target!==p.target||Number(value.inputPrice)<p.prices.input||Number(value.outputPrice)<p.prices.output)invalid();
+    if(proof.version===1){if(value.inputTokens<proof.count.inputTokens||value.inputTokens>proof.count.inputTokens*2+1024)invalid();}
+    else{const terms=fullContextTerms(proof);if(value.inputTokens!==terms.inputTokens||value.outputTokens>terms.maxOutputTokens||value.inputPrice!==terms.inputPrice||value.outputPrice!==terms.outputPrice)invalid();}
   }
   if(value.limits!==undefined){shape(value.limits,[],['tokens','costNanos']);for(const cap of Object.values(value.limits))integer(cap);}
   if(value.attribution!==undefined)validateRequestAttribution(value.attribution);
@@ -37,7 +39,7 @@ function settlement(value: unknown): asserts value is RequestSettlement {
   if (value.usage !== undefined) { shape(value.usage,['inputTokens','outputTokens']); integer(value.usage.inputTokens,0,100000000); integer(value.usage.outputTokens,0,100000000); }
 }
 function validateEvent(value: unknown): asserts value is ReservationEvent {
-  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
+  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3,4].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
   shape(value.change,['type'],['reservation','settlement','grant']);
   if (value.change.type === 'reserve') { shape(value.change,['type','reservation']); reservation(value.change.reservation); }
   else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); }
@@ -92,7 +94,7 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
 }
 interface Journal { version:1; manifest:ExecutionManifest; events:ReservationEvent[]; hash:string }
 function reservationVersion(change:ReservationEvent['change']):ReservationEvent['version'] {
-  return change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
+  return change.type==='reserve'&&change.reservation.quoteEvidence?.version===2?4:change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
 }
 function decode(raw: string): Journal {
   let value: unknown; try { value = JSON.parse(raw); } catch { throw unavailable(); }

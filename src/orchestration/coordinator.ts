@@ -3,7 +3,7 @@ import {taskSmartSelection,recordAgentRoute} from './routing.js';
 import {join,relative,resolve,isAbsolute} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {runTurn} from '../runtime/index.js';
-import {ExecutionGuard,ExecutionLimitError} from '../execution/index.js';
+import {ExecutionGuard,ExecutionLimitError,reviewedOutputLimit} from '../execution/index.js';
 import {throwIfCancelled,isCancellation,cancellationError,cancellableDelay} from '../cancellation.js';
 import {authorizeSessionAction,branchSession,SessionPolicyError} from '../session-management/index.js';
 import {createSession,saveSessionConversation} from '../storage.js';
@@ -106,8 +106,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,attribution,...(workspace?{workspace}:{})},tools=new ExecutionGuard(provisional,cwd).tools(getTools());
       const smart=agent.routing?taskSmartSelection(agent.routing,store.read().events,task.id):undefined;
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
-      if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=decision.selected.maxOutputTokens;
-      if(!maximum)throw new ExecutionLimitError('budget','Live discovery did not provide an output limit for this task.');
+      if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=reviewedOutputLimit(decision.selected,cwd);
+      if(!maximum)throw new ExecutionLimitError('budget','Live discovery or reviewed metadata must provide an output limit for this task.');
       const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating:['write_file','edit_file'].includes(call.name),success});};
       const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,

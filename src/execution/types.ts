@@ -31,7 +31,7 @@ export interface ChildGrant {
 }
 export interface RecordedChildGrant {grant:ChildGrant;eventId:string;eventHash:string;at:number}
 export interface ReservationEvent {
-  version: 1|2|3; id: string; at: number; previous: string;
+  version: 1|2|3|4; id: string; at: number; previous: string;
   change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement } | {type:'child_grant';grant:ChildGrant};
   hash: string;
 }
