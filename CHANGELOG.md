@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Use one exact certificate identity across installer and CI attestation verification; reject incompatible GitHub CLI identity flags (#308).
+
 - Gate exact-tag npm/binary publication, attest and verify all standalone artifacts, require installer provenance, separate development image tags, and add independent anchored run-log verification. Bundle SQLite for standalone Brain/KG search (#223).
 - Preserve complete piped JSON on headless command exit, including standalone macOS binaries, and run the independent verifier through linked package paths (#223).
 

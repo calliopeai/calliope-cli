@@ -71,10 +71,14 @@ it("attests and verifies every native binary and the complete checksum manifest"
       "--repo calliopeai/calliope-cli",
       "--source-ref",
       "--source-digest",
-      "--signer-workflow",
+      "--cert-identity",
       "--deny-self-hosted-runners",
     ])
       expect(verification).toContain(flag);
+    expect(verification).not.toContain("--signer-workflow");
+    expect(verification).toContain(
+      "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF",
+    );
   }
   expect(
     jobs.build.steps.some((s: any) =>

@@ -40,7 +40,7 @@ fetch() {
 }
 verify() {
   gh attestation verify "$1" --bundle "$2" --repo "$REPO" \
-    --signer-workflow "$SIGNER" --source-ref "refs/tags/$tag" --source-digest "$commit" \
+    --source-ref "refs/tags/$tag" --source-digest "$commit" \
     --cert-identity "https://github.com/$SIGNER@refs/tags/$tag" \
     --deny-self-hosted-runners >/dev/null || fail 'Provenance verification failed. Nothing was installed.'
 }
