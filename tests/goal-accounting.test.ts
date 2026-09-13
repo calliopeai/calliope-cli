@@ -1,4 +1,7 @@
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import React from 'react';
+import {render} from 'ink-testing-library';
+import {WorkflowRegion} from '../src/ui/regions/workflow-region.js';
 import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -79,7 +82,7 @@ it('rejects stale goal observations and foreign active runs while ignoring calle
 it('refreshes the HUD on goal-only changes while execution and run accounting remain unchanged',async()=>{
   const f=await goalFixture(root),store=new ExecutionStore(join(f.runs.root,f.view.run.id),f.view.manifest),budget=f.authority.ledger.read(f.project).manifest;
   store.create({version:1,runId:f.view.run.id,manifestHash:f.view.manifest.hash,approvalRevision:f.view.run.revision,createdAt:f.manifest.createdAt,deadline:budget.deadline});
-  const first=workflowSnapshot(coordinatorProgress(store));expect(first.summary).toContain('goal accounted');const retained=retainWorkflows([],first);await freeze(f);
+  const first=workflowSnapshot(coordinatorProgress(store));expect(first.summary).toContain('goal accounted');const screen=render(React.createElement(WorkflowRegion,{workflows:[first],mode:'workflows',width:80}));expect(screen.lastFrame()).toContain('goal accounted $0.0000/$0.1000');screen.unmount();screen.cleanup();const retained=retainWorkflows([],first);await freeze(f);
   const next=workflowSnapshot(coordinatorProgress(store));expect(next.revision).toBe(first.revision);expect(next.accountingRevision).toBe(first.accountingRevision);expect(next.goalAccountingRevision).not.toBe(first.goalAccountingRevision);expect(retainWorkflows(retained,next)).not.toBe(retained);
   fs.unlinkSync(join(f.authority.ledger.root,'history.json'));const missing=workflowSnapshot(coordinatorProgress(store));expect(missing.summary).toContain('goal budget unavailable');expect(retainWorkflows([next],missing)).not.toEqual([next]);expect(fetch).not.toHaveBeenCalled();
 });
