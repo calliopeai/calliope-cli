@@ -1,0 +1,1336 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-13T02:13:48.568Z",
+  "runId": "provider-followup-2026-09-11-02",
+  "sourceCommit": "ed313cf97eee3a913aa67e26f812e9bbe9df22f8",
+  "scope": "Seven available-provider tool-result replay and streaming usage evidence gaps; fixed public probes with no executed tools",
+  "privacy": "Credential/header and decoded-body scans passed before promotion. Only fixed public toy requests and their responses are captured. Incomplete output content is represented by hashes and lengths.",
+  "budget": {
+    "currency": "USD",
+    "cumulativeLimit": 500,
+    "runLimit": 50,
+    "incrementalLimit": 0.5,
+    "priorCumulativeReservedNanoUsd": 53559523411,
+    "priorRunReservedNanoUsd": 1962793170,
+    "addedReservedNanoUsd": 102897606,
+    "cumulativeReservedNanoUsd": 53662421017,
+    "runReservedNanoUsd": 2065690776,
+    "reservations": 24,
+    "note": "Conservative reservations, not invoiced spend; every historical and failed/incomplete reservation retained."
+  },
+  "summary": {
+    "probes": 18,
+    "captured": 10,
+    "incomplete": 3,
+    "failedWithReservation": 4,
+    "admissionFailures": 1,
+    "checksCompleted": 7,
+    "missingProductChecks": 33
+  },
+  "gateway": {
+    "name": "litellm",
+    "version": "1.100.1",
+    "retries": 0,
+    "requestTimeoutSeconds": 25,
+    "temporary": true,
+    "stopped": true
+  },
+  "limitations": [
+    "OpenAI Chat/Responses and Cerebras were not retried; previous HTTP429/402 evidence remains. xAI remains explicitly deferred. No release was published.",
+    "Together returned empty final content with short reasoning-only output on the Qwen3.5 fixture; reasoning was not reclassified as assistant text. All three incomplete probes remain recorded.",
+    "Together listed Qwen3-Coder-480B but rejected inference with HTTP400. Direct and gateway attempts, including the two already scheduled usage checks, retain their reservations. Listing alone does not prove access.",
+    "One local capture-driver overlap was rejected by the persistent ledger before any request. Its intent and terminal log were reconciled; a driver lock was added before continuing. The subsequent Novita probe has its own intent and reservations.",
+    "Provider captures cover the selected model and path at capture time, not every model or future availability. No private project prompts or model-selected tools executed."
+  ],
+  "attempts": [
+    {
+      "id": "together-tool-result-replay-json-qwen35-1",
+      "at": "2026-09-13T02:09:38.607Z",
+      "backend": "together",
+      "model": "Qwen/Qwen3.5-9B",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.17,
+        "outputUsdPerMillion": 0.25,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 2457,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 0,
+        "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "inputTokens": 376,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "70647955-d981-46c2-85bf-3bb40052e4e3",
+          "at": "2026-09-13T02:09:36.441Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "5d84d3b6-c69e-4ac3-aada-e65c64876e1d",
+          "at": "2026-09-13T02:09:37.828Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "huggingface-tool-result-replay-json-qwen35-1",
+      "at": "2026-09-13T02:09:40.364Z",
+      "backend": "huggingface",
+      "model": "Qwen/Qwen3.5-9B:together",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.17,
+        "outputUsdPerMillion": 0.25,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "huggingface",
+        "model": "Qwen/Qwen3.5-9B"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1754,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 0,
+        "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "inputTokens": 376,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "fbc1a823-34c1-43f2-b577-39ea88838cd7",
+          "at": "2026-09-13T02:09:38.818Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "b459a285-4164-402a-a48f-063b44b5ee98",
+          "at": "2026-09-13T02:09:39.924Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "together-tool-result-replay-json-qwen35-diagnostic",
+      "at": "2026-09-13T02:10:25.326Z",
+      "backend": "together",
+      "model": "Qwen/Qwen3.5-9B",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.17,
+        "outputUsdPerMillion": 0.25,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3.5-9B"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 2109,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 0,
+        "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "inputTokens": 376,
+          "outputTokens": 5
+        }
+      },
+      "reservations": [
+        {
+          "id": "0c8ce318-15d8-48f7-8e21-c0144bf68326",
+          "at": "2026-09-13T02:10:23.437Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "8d6fcd75-669c-497f-a7d9-b7a321caa8c3",
+          "at": "2026-09-13T02:10:25.025Z",
+          "reservedNanoUsd": 978001,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.17,
+          "outputRate": 0.25,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "together-tool-result-replay-json-coder480-1",
+      "at": "2026-09-13T02:11:02.089Z",
+      "backend": "together",
+      "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 2,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "outcome": "failed",
+      "httpStatus": 400,
+      "elapsedMs": 916,
+      "reservations": [
+        {
+          "id": "4f67bbdf-cbdc-478c-8ced-e3e81f05e722",
+          "at": "2026-09-13T02:11:01.373Z",
+          "reservedNanoUsd": 10512000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 2,
+          "outputRate": 2,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "litellm-tool-result-replay-json-coder480-1",
+      "at": "2026-09-13T02:11:02.791Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 2,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "outcome": "failed",
+      "httpStatus": 400,
+      "elapsedMs": 700,
+      "reservations": [
+        {
+          "id": "49bed32d-a2c9-40d2-84a0-79fcfcebe28e",
+          "at": "2026-09-13T02:11:02.274Z",
+          "reservedNanoUsd": 10512000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 2,
+          "outputRate": 2,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "bedrock-compat-tool-result-replay-json-haiku45-1",
+      "at": "2026-09-13T02:11:04.708Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 10,
+        "source": "https://aws.amazon.com/jp/blogs/news/amazon-bedrock-now-supports-japan-cross-region-inference/"
+      },
+      "discovery": {
+        "provider": "bedrock",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "outcome": "captured",
+      "elapsedMs": 1915,
+      "reservations": [
+        {
+          "id": "18e969bb-9084-4d1c-b4da-47433738baac",
+          "at": "2026-09-13T02:11:02.975Z",
+          "reservedNanoUsd": 11280000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 10,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "f68a02ad-659b-46c1-a104-3fba8c9831e1",
+          "at": "2026-09-13T02:11:04.036Z",
+          "reservedNanoUsd": 11280000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 10,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "bedrock-compat-tool-result-replay-json-haiku45-1",
+        "file": "tests/fixtures/provider-semantic/bedrock-compat-tool-result-replay-json-haiku45-1.json",
+        "sha256": "75489df039cdefa7bd05e8b39a694e4a3786c32232a17a7dcec67347dd631bdf",
+        "bytes": 6042
+      }
+    },
+    {
+      "id": "litellm-text-stream-usage-1",
+      "at": "2026-09-13T02:11:05.297Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "wire",
+      "scenario": "text",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 2,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "outcome": "failed",
+      "httpStatus": 400,
+      "elapsedMs": 588,
+      "reservations": [
+        {
+          "id": "b4420c1f-91ce-4073-9602-4150f9c74e7a",
+          "at": "2026-09-13T02:11:04.886Z",
+          "reservedNanoUsd": 10256000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 2,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "litellm-tool-stream-usage-1",
+      "at": "2026-09-13T02:11:05.745Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "wire",
+      "scenario": "tool",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 2,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8"
+      },
+      "outcome": "failed",
+      "httpStatus": 400,
+      "elapsedMs": 446,
+      "reservations": [
+        {
+          "id": "74624ccf-3f41-4b24-96dd-90b2e1ba4c7c",
+          "at": "2026-09-13T02:11:05.476Z",
+          "reservedNanoUsd": 10256000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 2,
+          "status": "failed",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ]
+    },
+    {
+      "id": "bedrock-compat-text-stream-usage-1",
+      "at": "2026-09-13T02:11:06.814Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "kind": "wire",
+      "scenario": "text",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 10,
+        "source": "https://aws.amazon.com/jp/blogs/news/amazon-bedrock-now-supports-japan-cross-region-inference/"
+      },
+      "discovery": {
+        "provider": "bedrock",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "outcome": "captured",
+      "elapsedMs": 1068,
+      "observed": {
+        "content": "Hello π",
+        "finishReason": "stop",
+        "usage": {
+          "inputTokens": 13,
+          "outputTokens": 5
+        },
+        "tools": []
+      },
+      "reservations": [
+        {
+          "id": "80feb77f-4a5e-4b17-a3c4-4bd124e3105b",
+          "at": "2026-09-13T02:11:05.926Z",
+          "reservedNanoUsd": 11280000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 10,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "bedrock-compat-text-stream-usage-1",
+        "file": "tests/fixtures/provider-wire/bedrock-compat-text-stream-usage-1.json",
+        "sha256": "24a9c798a56776c838d4f81ad0bbce5cebc83e65cc25bf67a2dd824efa21bdb6",
+        "bytes": 2451
+      }
+    },
+    {
+      "id": "bedrock-compat-tool-stream-usage-1",
+      "at": "2026-09-13T02:11:07.828Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "kind": "wire",
+      "scenario": "tool",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 10,
+        "source": "https://aws.amazon.com/jp/blogs/news/amazon-bedrock-now-supports-japan-cross-region-inference/"
+      },
+      "discovery": {
+        "provider": "bedrock",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+      },
+      "outcome": "captured",
+      "elapsedMs": 1012,
+      "observed": {
+        "content": "",
+        "finishReason": "tool_use",
+        "usage": {
+          "inputTokens": 584,
+          "outputTokens": 52
+        },
+        "tools": [
+          {
+            "name": "echo",
+            "arguments": {
+              "text": "hello"
+            }
+          }
+        ]
+      },
+      "reservations": [
+        {
+          "id": "0842759d-09bc-4bfe-a59d-4b42426f0779",
+          "at": "2026-09-13T02:11:07.003Z",
+          "reservedNanoUsd": 11280000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 2,
+          "outputRate": 10,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "bedrock-compat-tool-stream-usage-1",
+        "file": "tests/fixtures/provider-wire/bedrock-compat-tool-stream-usage-1.json",
+        "sha256": "c7e5084e860fd8f33e6434a7c6ede5ca696e4d331c4e521f00f92cc25e3bf571",
+        "bytes": 4725
+      }
+    },
+    {
+      "id": "openai-compat-text-stream-usage-1",
+      "at": "2026-09-13T02:11:28.899Z",
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "kind": "wire",
+      "scenario": "text",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; no provider token charge"
+      },
+      "discovery": {
+        "provider": "ollama",
+        "model": "devstral:latest"
+      },
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "devstral:latest"
+      },
+      "outcome": "captured",
+      "elapsedMs": 21069,
+      "observed": {
+        "content": "Hello π",
+        "finishReason": "stop",
+        "usage": {
+          "inputTokens": 1231,
+          "outputTokens": 3
+        },
+        "tools": []
+      },
+      "reservations": [
+        {
+          "id": "d8cd8f13-a18c-428d-a500-8049d3abc357",
+          "at": "2026-09-13T02:11:08.017Z",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 0,
+          "outputRate": 0,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "openai-compat-text-stream-usage-1",
+        "file": "tests/fixtures/provider-wire/openai-compat-text-stream-usage-1.json",
+        "sha256": "af329eed098cce38c39ce047aed6f1180ba04afbdd5fdecffe9832b91f61b1d3",
+        "bytes": 2274
+      }
+    },
+    {
+      "id": "openai-compat-tool-stream-usage-1",
+      "at": "2026-09-13T02:11:30.493Z",
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "kind": "wire",
+      "scenario": "tool",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; no provider token charge"
+      },
+      "discovery": {
+        "provider": "ollama",
+        "model": "devstral:latest"
+      },
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "devstral:latest"
+      },
+      "outcome": "captured",
+      "elapsedMs": 1592,
+      "observed": {
+        "content": "",
+        "finishReason": "tool_use",
+        "usage": {
+          "inputTokens": 1296,
+          "outputTokens": 15
+        },
+        "tools": [
+          {
+            "name": "echo",
+            "arguments": {
+              "text": "hello"
+            }
+          }
+        ]
+      },
+      "reservations": [
+        {
+          "id": "215d35f8-69c7-4d1d-bc3a-65f99ed06819",
+          "at": "2026-09-13T02:11:29.193Z",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128,
+          "inputRate": 0,
+          "outputRate": 0,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "openai-compat-tool-stream-usage-1",
+        "file": "tests/fixtures/provider-wire/openai-compat-tool-stream-usage-1.json",
+        "sha256": "7ca0d9d4a7fc18d2b25aa544de1731cd0c0e084e02f0a9b4e7fd2ea554f0b432",
+        "bytes": 2263
+      }
+    },
+    {
+      "id": "huggingface-tool-result-replay-json-coder480-novita-1",
+      "at": "2026-09-13T02:11:30.115541+00:00",
+      "timestampNote": "Intent-file mtime; terminal failure time was not retained during driver contention.",
+      "backend": "huggingface",
+      "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 0.38,
+        "outputUsdPerMillion": 1.55,
+        "source": "https://router.huggingface.co/v1/models"
+      },
+      "discovery": {
+        "provider": "huggingface",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "gateway": {
+        "name": "huggingface-router",
+        "version": "v1",
+        "upstreamProvider": "novita",
+        "upstreamModel": "qwen/qwen3-coder-480b-a35b-instruct"
+      },
+      "outcome": "failed",
+      "reason": "Ledger contention rejected admission before any HTTP request; zero reservations. Original terminal log retained.",
+      "reservations": []
+    },
+    {
+      "id": "huggingface-tool-result-replay-json-coder480-novita-2",
+      "at": "2026-09-13T02:12:05.073Z",
+      "backend": "huggingface",
+      "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct:novita",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 0.38,
+        "outputUsdPerMillion": 1.55,
+        "source": "https://router.huggingface.co/v1/models"
+      },
+      "discovery": {
+        "provider": "huggingface",
+        "model": "Qwen/Qwen3-Coder-480B-A35B-Instruct"
+      },
+      "gateway": {
+        "name": "huggingface-router",
+        "version": "v1",
+        "upstreamProvider": "novita",
+        "upstreamModel": "qwen/qwen3-coder-480b-a35b-instruct"
+      },
+      "outcome": "captured",
+      "elapsedMs": 2559,
+      "reservations": [
+        {
+          "id": "46da9086-6f20-442e-a1f4-6e32ba3a021c",
+          "at": "2026-09-13T02:12:02.708Z",
+          "reservedNanoUsd": 2296800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 0.38,
+          "outputRate": 1.55,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "470b1e4e-c13c-40cb-89a6-3b6c51ee17db",
+          "at": "2026-09-13T02:12:04.091Z",
+          "reservedNanoUsd": 2296800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 0.38,
+          "outputRate": 1.55,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "huggingface-tool-result-replay-json-coder480-novita-2",
+        "file": "tests/fixtures/provider-semantic/huggingface-tool-result-replay-json-coder480-novita-2.json",
+        "sha256": "e7c4de426808d33cd0108309d6d68bf234c6fa5404c1b0cf887e5ec5c2efef5d",
+        "bytes": 5726
+      }
+    },
+    {
+      "id": "together-tool-result-replay-json-glm53flash-1",
+      "at": "2026-09-13T02:12:34.732Z",
+      "backend": "together",
+      "model": "zai-org/GLM-5.3-Flash",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.15,
+        "outputUsdPerMillion": 0.5,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "zai-org/GLM-5.3-Flash"
+      },
+      "outcome": "captured",
+      "elapsedMs": 2242,
+      "reservations": [
+        {
+          "id": "e468a564-9f92-45db-b7d5-bd5bc19e2155",
+          "at": "2026-09-13T02:12:32.678Z",
+          "reservedNanoUsd": 1006000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "a3999eb1-2771-4c46-aca0-0a69773f5f1a",
+          "at": "2026-09-13T02:12:33.753Z",
+          "reservedNanoUsd": 1006000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "together-tool-result-replay-json-glm53flash-1",
+        "file": "tests/fixtures/provider-semantic/together-tool-result-replay-json-glm53flash-1.json",
+        "sha256": "700ce4b775dadf76568e1c4ccbb158966c0c3902e85c43018aaf036bda07e688",
+        "bytes": 6498
+      }
+    },
+    {
+      "id": "litellm-tool-result-replay-json-glm53flash-1",
+      "at": "2026-09-13T02:12:53.523Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "semantic",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.15,
+        "outputUsdPerMillion": 0.5,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "zai-org/GLM-5.3-Flash"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "zai-org/GLM-5.3-Flash"
+      },
+      "outcome": "captured",
+      "elapsedMs": 2823,
+      "reservations": [
+        {
+          "id": "13193fa5-e636-447e-a79b-5d2f0abdd395",
+          "at": "2026-09-13T02:12:50.880Z",
+          "reservedNanoUsd": 1006000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        },
+        {
+          "id": "3062c340-96f1-4658-b5bb-9a4ea4384509",
+          "at": "2026-09-13T02:12:52.343Z",
+          "reservedNanoUsd": 1006000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "litellm-tool-result-replay-json-glm53flash-1",
+        "file": "tests/fixtures/provider-semantic/litellm-tool-result-replay-json-glm53flash-1.json",
+        "sha256": "d737d3f06671c336ec3b9e39fd932f79c353aff83a0471bbac463c994eb9f667",
+        "bytes": 6820
+      }
+    },
+    {
+      "id": "litellm-text-stream-usage-glm53flash-1",
+      "at": "2026-09-13T02:12:54.261Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "wire",
+      "scenario": "text",
+      "stream": true,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 0.15,
+        "outputUsdPerMillion": 0.5,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "zai-org/GLM-5.3-Flash"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "zai-org/GLM-5.3-Flash"
+      },
+      "outcome": "captured",
+      "elapsedMs": 735,
+      "observed": {
+        "content": "Hello π",
+        "finishReason": "stop",
+        "usage": {
+          "inputTokens": 18,
+          "outputTokens": 67
+        },
+        "tools": []
+      },
+      "reservations": [
+        {
+          "id": "c93a7c1f-f754-4d81-abe6-eb5a5470b847",
+          "at": "2026-09-13T02:12:53.705Z",
+          "reservedNanoUsd": 878000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "litellm-text-stream-usage-glm53flash-1",
+        "file": "tests/fixtures/provider-wire/litellm-text-stream-usage-glm53flash-1.json",
+        "sha256": "aa6219c959fd4159795ddefe4d14ba120ad2e451ace660d0374dff25ed78f7ff",
+        "bytes": 8493
+      }
+    },
+    {
+      "id": "litellm-tool-stream-usage-glm53flash-1",
+      "at": "2026-09-13T02:12:54.835Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "kind": "wire",
+      "scenario": "tool",
+      "stream": true,
+      "maxOutputTokens": 256,
+      "rates": {
+        "inputUsdPerMillion": 0.15,
+        "outputUsdPerMillion": 0.5,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "discovery": {
+        "provider": "together",
+        "model": "zai-org/GLM-5.3-Flash"
+      },
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "zai-org/GLM-5.3-Flash"
+      },
+      "outcome": "captured",
+      "elapsedMs": 572,
+      "observed": {
+        "content": "",
+        "finishReason": "tool_use",
+        "usage": {
+          "inputTokens": 181,
+          "outputTokens": 34
+        },
+        "tools": [
+          {
+            "name": "echo",
+            "arguments": {
+              "text": "hello"
+            }
+          }
+        ]
+      },
+      "reservations": [
+        {
+          "id": "44febd25-eb33-4836-84ec-f8b1b15b2b41",
+          "at": "2026-09-13T02:12:54.440Z",
+          "reservedNanoUsd": 878000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 256,
+          "inputRate": 0.15,
+          "outputRate": 0.5,
+          "status": "captured",
+          "runId": "provider-followup-2026-09-11-02"
+        }
+      ],
+      "capture": {
+        "attempt": "litellm-tool-stream-usage-glm53flash-1",
+        "file": "tests/fixtures/provider-wire/litellm-tool-stream-usage-glm53flash-1.json",
+        "sha256": "823d89a9130fa43ad4d2ab36068d4847c4426f1fd5ffed9a1b11ed29272ec267",
+        "bytes": 5398
+      }
+    }
+  ],
+  "readiness": {
+    "version": 1,
+    "generatedAt": "2026-09-13T02:13:48.560Z",
+    "evidence": "historical real-wire captures; credential presence does not establish current access",
+    "adapterCount": 18,
+    "requiredWireCombinations": 72,
+    "capturedWireCombinations": 56,
+    "wireGateReady": false,
+    "productGateReady": false,
+    "missingWireCombinations": [
+      "openai-chat/text/json",
+      "openai-chat/text/stream",
+      "openai-chat/tool/json",
+      "openai-chat/tool/stream",
+      "openai-responses/text/json",
+      "openai-responses/text/stream",
+      "openai-responses/tool/json",
+      "openai-responses/tool/stream",
+      "xai/text/json",
+      "xai/text/stream",
+      "xai/tool/json",
+      "xai/tool/stream",
+      "cerebras/text/json",
+      "cerebras/text/stream",
+      "cerebras/tool/json",
+      "cerebras/tool/stream"
+    ],
+    "adapters": [
+      {
+        "id": "anthropic",
+        "provider": "anthropic",
+        "protocol": "anthropic",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:51.266Z"
+      },
+      {
+        "id": "google",
+        "provider": "google",
+        "protocol": "google",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:55.793Z"
+      },
+      {
+        "id": "openai-chat",
+        "provider": "openai",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:01.731Z"
+      },
+      {
+        "id": "openai-responses",
+        "provider": "openai",
+        "protocol": "responses",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:03.850Z"
+      },
+      {
+        "id": "ollama",
+        "provider": "ollama",
+        "protocol": "ollama",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:26:58.379Z"
+      },
+      {
+        "id": "bedrock-native",
+        "provider": "bedrock",
+        "protocol": "bedrock",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:30:23.654Z"
+      },
+      {
+        "id": "openrouter",
+        "provider": "openrouter",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:24:05.989Z"
+      },
+      {
+        "id": "together",
+        "provider": "together",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T02:12:34.725Z"
+      },
+      {
+        "id": "groq",
+        "provider": "groq",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:53.028Z"
+      },
+      {
+        "id": "fireworks",
+        "provider": "fireworks",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:19:53.761Z"
+      },
+      {
+        "id": "mistral",
+        "provider": "mistral",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:30:21.560Z"
+      },
+      {
+        "id": "deepseek",
+        "provider": "deepseek",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:52.606Z"
+      },
+      {
+        "id": "xai",
+        "provider": "xai",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "missing",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": null
+      },
+      {
+        "id": "cerebras",
+        "provider": "cerebras",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:04.577Z"
+      },
+      {
+        "id": "huggingface",
+        "provider": "huggingface",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T02:12:05.062Z"
+      },
+      {
+        "id": "litellm",
+        "provider": "litellm",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T02:12:54.819Z"
+      },
+      {
+        "id": "bedrock-compat",
+        "provider": "bedrock",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T02:11:07.810Z"
+      },
+      {
+        "id": "openai-compat",
+        "provider": "openai-compat",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T02:11:30.476Z"
+      }
+    ],
+    "retired": [
+      {
+        "provider": "ai21",
+        "status": "retired",
+        "includedInReleaseGate": false
+      }
+    ]
+  }
+}

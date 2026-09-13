@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-compat",
+  "model": "conformance-bedrock",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T02:11:04.701Z",
+    "sourceOrigin": "http://127.0.0.1:39431",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "litellm",
+      "version": "1.100.1",
+      "upstreamProvider": "bedrock",
+      "upstreamModel": "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "18e969bb-9084-4d1c-b4da-47433738baac",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNvbmZvcm1hbmNlLWJlZHJvY2siLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiQ2FsbCBlY2hvIGV4YWN0bHkgb25jZSB3aXRoIHRleHQ9XCJoZWxsb1wiLiBUaGlzIGlzIGEgY29uZm9ybWFuY2UgZml4dHVyZTogdGhlIHRvb2wgc3VwcGxpZXMgYSBtYXJrZXIgdGhhdCBjYW4gZGlmZmVyIGZyb20gaXRzIGlucHV0LiBBZnRlciB5b3UgcmVjZWl2ZSBpdCwgb3V0cHV0IG9ubHkgaXRzIHJlc3VsdCBzdHJpbmcgd2l0aG91dCBwdW5jdHVhdGlvbiwgcXVvdGF0aW9uIG1hcmtzLCBvciBleHBsYW5hdGlvbi4ifV0sInRvb2xzIjpbeyJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImRlc2NyaXB0aW9uIjoiRWNobyBhIHN0cmluZy4gQ29uZm9ybWFuY2UgcHJvYmUgb25seTsgbmV2ZXIgZXhlY3V0ZXMuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0ZXh0Ijp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6IlRleHQgdG8gZWNobyJ9fSwicmVxdWlyZWQiOlsidGV4dCJdfX19XSwibWF4X3Rva2VucyI6MTI4fQ==",
+          "sha256": "7b65a2bf501197a7dda8255dc23d81bc0ca3186dc17ae28ba0b902bd11ab4753"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTY2ZjBkNjliLTY2ZDgtNGMxMS04ZTcyLWQxZjY2OGQwOWZlYyIsImNyZWF0ZWQiOjE3ODkyNjU0NjQsIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IiIsInJvbGUiOiJhc3Npc3RhbnQiLCJ0b29sX2NhbGxzIjpbeyJpbmRleCI6MCwiZnVuY3Rpb24iOnsiYXJndW1lbnRzIjoie1widGV4dFwiOiBcImhlbGxvXCJ9IiwibmFtZSI6ImVjaG8ifSwiaWQiOiJ0b29sdXNlX2k1THRpUEprbW1rTmFNWXNzMFRUUnUiLCJ0eXBlIjoiZnVuY3Rpb24ifV19fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjo1MiwicHJvbXB0X3Rva2VucyI6NjE5LCJ0b3RhbF90b2tlbnMiOjY3MSwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjowLCJ0ZXh0X3Rva2VucyI6NTJ9LCJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOnsiY2FjaGVfd3JpdGVfdG9rZW5zIjowLCJjYWNoZWRfdG9rZW5zIjowLCJ0ZXh0X3Rva2VucyI6NjE5LCJjYWNoZV9jcmVhdGlvbl90b2tlbnMiOjB9LCJjYWNoZV9jcmVhdGlvbl9pbnB1dF90b2tlbnMiOjAsImNhY2hlX3JlYWRfaW5wdXRfdG9rZW5zIjowfX0=",
+        "sha256": "02852b88e99befb9c7a6df2dcbece0ddab95a549697de7341ffc2221578e68d4",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 619,
+            "outputTokens": 52
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "f68a02ad-659b-46c1-a104-3fba8c9831e1",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNvbmZvcm1hbmNlLWJlZHJvY2siLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiQ2FsbCBlY2hvIGV4YWN0bHkgb25jZSB3aXRoIHRleHQ9XCJoZWxsb1wiLiBUaGlzIGlzIGEgY29uZm9ybWFuY2UgZml4dHVyZTogdGhlIHRvb2wgc3VwcGxpZXMgYSBtYXJrZXIgdGhhdCBjYW4gZGlmZmVyIGZyb20gaXRzIGlucHV0LiBBZnRlciB5b3UgcmVjZWl2ZSBpdCwgb3V0cHV0IG9ubHkgaXRzIHJlc3VsdCBzdHJpbmcgd2l0aG91dCBwdW5jdHVhdGlvbiwgcXVvdGF0aW9uIG1hcmtzLCBvciBleHBsYW5hdGlvbi4ifSx7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiIiwidG9vbF9jYWxscyI6W3siaWQiOiJ0b29sdXNlX2k1THRpUEprbW1rTmFNWXNzMFRUUnUiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjpcImhlbGxvXCJ9In19XX0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6InRvb2x1c2VfaTVMdGlQSmttbWtOYU1Zc3MwVFRSdSIsImNvbnRlbnQiOiJIZWxsbyDPgCJ9XSwidG9vbHMiOlt7InR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiZGVzY3JpcHRpb24iOiJFY2hvIGEgc3RyaW5nLiBDb25mb3JtYW5jZSBwcm9iZSBvbmx5OyBuZXZlciBleGVjdXRlcy4iLCJwYXJhbWV0ZXJzIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InRleHQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiVGV4dCB0byBlY2hvIn19LCJyZXF1aXJlZCI6WyJ0ZXh0Il19fX1dLCJtYXhfdG9rZW5zIjoxMjh9",
+          "sha256": "56ba9ef762eacee24d1dde7bcb46068ff4a197d1ecbf363485f3514a30063623"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTY5OWZlMTgxLTEwYmMtNGQ1MS05ZDg5LTUxM2E1YzVjMGU2YyIsImNyZWF0ZWQiOjE3ODkyNjU0NjQsIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJzdG9wIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IkhlbGxvIM+AIiwicm9sZSI6ImFzc2lzdGFudCJ9fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjo1LCJwcm9tcHRfdG9rZW5zIjo2ODUsInRvdGFsX3Rva2VucyI6NjkwLCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjp7InJlYXNvbmluZ190b2tlbnMiOjAsInRleHRfdG9rZW5zIjo1fSwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlX3dyaXRlX3Rva2VucyI6MCwiY2FjaGVkX3Rva2VucyI6MCwidGV4dF90b2tlbnMiOjY4NSwiY2FjaGVfY3JlYXRpb25fdG9rZW5zIjowfSwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MH19",
+        "sha256": "14aaa142eff5f0cd51cd8a50a461550ddec038a185e996220f5fcc083a8d5f05",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 685,
+            "outputTokens": 5
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}
