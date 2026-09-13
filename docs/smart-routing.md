@@ -115,5 +115,5 @@ deadlines and escalation provenance without discovering models or sending reques
 
 The HUD shows the actual model once its active attempt selects a route, followed
 by attempt/count and a compact selection reason. Before selection, it shows the
-requested choice. Dollar figures remain declared limits, not billed spending;
-request reservations and settled usage remain in the budget ledger.
+requested choice. [Workflow accounting](workflow-accounting.md) shows conservative
+ledger charges and remaining balances, distinct from billed spending.

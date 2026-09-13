@@ -1,3 +1,4 @@
+import {readRunAccounting,type RunAccounting} from './accounting.js';
 import {parseArgs} from 'node:util';
 import {approvalDisplayText} from '../approvals/index.js';
 import {isCancellation} from '../cancellation.js';
@@ -16,8 +17,9 @@ import {analyzePlan} from './validation.js';
 export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run recover-evidence <run-id> <task-id> [--allow-mutations] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
 export type ExecutionCommandOptions=CoordinatorOptions&{cwd?:string;write?:(text:string)=>void};
 export function formatExecutionData(action:string,value:unknown):string {
-  const data=value as {runId?:string;status?:string;interrupted?:boolean;execution?:ExecutionInspection;agents?:{id:string;parentId:string|null;role:string}[];runs?:{runId:string;status:string;completed:number;total:number}[]};
+  const data=value as {runId?:string;status?:string;interrupted?:boolean;execution?:ExecutionInspection;accounting?:RunAccounting;agents?:{id:string;parentId:string|null;role:string}[];runs?:{runId:string;status:string;completed:number;total:number}[]};
   const lines=[`Orchestration ${action}${data.runId?' · '+data.runId:''}${data.status?' · '+data.status:''}`];
+  if(data.accounting){const a=data.accounting;lines.push(a.status==='available'?`Budget accounted $${a.run.accounted.costNanos/1e9} / $${a.run.limit.costNanos/1e9} · remaining ${a.run.remaining.tokens} tokens, $${a.run.remaining.costNanos/1e9} · pending ${a.run.requests.pending}, unknown ${a.run.requests.unknown}${a.exceeded?' · usage exceeded reservation':''}`:'Budget unavailable: '+a.reason);}
   if(data.interrupted)lines.push('Coordinator is no longer active; interrupted tasks need inspection before retry.');
   if(data.runs)for(const run of data.runs)lines.push(`${run.runId} · ${run.status} · ${run.completed}/${run.total} verified tasks`);
   const state=data.execution?.state;
@@ -82,8 +84,9 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
     const view=await inspectExecution(cwd,runId,options);if(!view.execution)return null;
     if(namespace==='run'&&action==='cancel'){await changePreparedRun(cwd,runId,'cancelled',options);return report({runId,status:'cancellation-requested',execution:view.store.read(),owner:view.store.owner()});}
     const context=view.store.context(view.execution),analysis=analyzePlan(context.plan);
-    options.onProgress?.({context,execution:view.execution});
-    return report({runId,status:view.execution.state.status,interrupted:view.execution.state.status==='running'&&!view.owner?.alive,approval:view.view.run.approval,owner:view.owner,execution:view.execution,...(namespace==='agents'?{agents:context.plan.agents,depths:analysis.depths}:namespace==='tasks'?{tasks:context.plan.tasks,stages:analysis.stages,conflicts:analysis.conflicts}:{})});
+    const accounting=readRunAccounting(view.store,view.execution);
+    options.onProgress?.({context,execution:view.execution,manifest:view.view.manifest,accounting});
+    return report({runId,status:view.execution.state.status,interrupted:view.execution.state.status==='running'&&!view.owner?.alive,approval:view.view.run.approval,owner:view.owner,execution:view.execution,accounting,...(namespace==='agents'?{agents:context.plan.agents,depths:analysis.depths}:namespace==='tasks'?{tasks:context.plan.tasks,stages:analysis.stages,conflicts:analysis.conflicts}:{})});
   }catch(error){
     const cancelled=options.signal?.aborted||isCancellation(error),denied=error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied';
     const code=cancelled?130:denied?3:error instanceof OrchestrationError&&error.code==='invalid'?2:1,message=cancelled?'Coordinator operation cancelled; inspect the recorded run before resuming.':error instanceof Error?approvalDisplayText(error.message):'Execution operation failed.';

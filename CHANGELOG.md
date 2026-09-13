@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Show persistent run and agent/subtree budget balances, pending/unknown reservations and unavailable-ledger diagnostics in the HUD and headless inspection, without changing admission or restoring capacity (#326).
+
 - Add opt-in Smart orchestration routing with reviewed role pools, explicit pins, verification-backed escalation, original budget/deadline enforcement and actual route events in the HUD and replay (#324).
 
 - Add opt-in bounded planner repair with precise inherited-authority diagnostics, immutable validation events, retained rejected drafts and unchanged budgets, deadlines and human approval (#321).

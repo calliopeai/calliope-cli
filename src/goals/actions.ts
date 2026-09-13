@@ -1,3 +1,4 @@
+import {coordinatorProgress} from '../orchestration/progress.js';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {canonicalJson,digest} from '../approvals/index.js';
@@ -29,7 +30,7 @@ const code=(status:GoalStatus)=>status==='completed'?0:status==='review_required
 function validateOptions(options:GoalOptions):void {if(options.maxOutputTokens!==undefined&&(!Number.isSafeInteger(options.maxOutputTokens)||options.maxOutputTokens<1||options.maxOutputTokens>100000000))throw new OrchestrationError('invalid','Invalid goal output cap.');}
 async function result(cwd:string,id:string,options:GoalOptions):Promise<GoalResult> {
   const goals=goalStore(options),goal=goals.read(id,cwd),runs=runStore(goal,options),owners:GoalResult['owners']={goal:goals.owner(id),execution:null};let execution:ExecutionInspection|null=null,status=goal.state.status;
-  if(goal.state.execution&&existsSync(join(runs.root,goal.state.execution.runId))){const inspected=await inspectExecution(cwd,goal.state.execution.runId,{store:runs,signal:options.signal});assertLinkedRun(goal,goal.state.execution,inspected.view,goals);execution=inspected.execution;if(execution)options.onProgress?.({context:inspected.store.context(execution),execution});owners.execution=inspected.owner;
+  if(goal.state.execution&&existsSync(join(runs.root,goal.state.execution.runId))){const inspected=await inspectExecution(cwd,goal.state.execution.runId,{store:runs,signal:options.signal});assertLinkedRun(goal,goal.state.execution,inspected.view,goals);execution=inspected.execution;if(execution)options.onProgress?.(coordinatorProgress(inspected.store,execution));owners.execution=inspected.owner;
     // A read may report newer child evidence (for example explicit task acceptance) without rewriting history.
     if(!goal.state.revoked&&execution&&(execution.state.status==='completed'||!['failed','denied','cancelled'].includes(status)||goal.events.at(-1)?.change.type!=='execution_interrupted')){if(execution.state.status==='ready')status='approved';else status=execution.state.status;}
     if(inspected.view.run.status==='cancelled')status='cancelled';

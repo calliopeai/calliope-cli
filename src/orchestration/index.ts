@@ -13,5 +13,6 @@ export * from './coordinator-actions.js';
 export * from './recovery.js';
 export * from './execution-cli.js';
 export type {CoordinatorProgress} from './progress.js';
+export {readRunAccounting,type RunAccounting,type AccountBalance} from './accounting.js';
 
 export type {RecordedAgentRoute} from './routing.js';

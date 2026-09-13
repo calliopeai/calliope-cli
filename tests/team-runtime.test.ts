@@ -85,3 +85,14 @@ it('wires team flags, headless contracts and REPL progress into the same executi
   await handleCommand('/orchestrate Public goal --reviewer-provider groq --reviewer-model reviewer-toy --worker-provider mistral --worker-model worker-toy --attempts 2 --planning-tokens 12000 --planning-cost 0.02 --max-output-tokens 100',context);
   expect(messages.length).toBeGreaterThan(0);expect(snapshots.some(value=>value.context.plan.agents.some(agent=>agent.id==='reviewer'))).toBe(true);
 },30000);
+
+it('refreshes accounted reservations while a worker response is pending without an execution event',async()=>{
+  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+  respond=async context=>{if(context.task.id==='inspect-a')await held;return reply(context);};
+  const pending=await startGoal(project,'Inspect public accounting fixture.',options());let observed=false;
+  const done=await approveGoal(project,pending.goal.manifest.id,pending.goal.proposal!.hash,{...options(),onProgress:value=>{
+    progress.push(value);if(value.execution.state.tasks['inspect-a']?.status==='running'&&requests.some(r=>r.context.task.id==='inspect-a')&&value.accounting?.status==='available'&&value.accounting.accounts.a!.requests.pending===1){observed=true;release();}
+  }});
+  expect(observed).toBe(true);expect(done.status).toBe('completed');const final=progress.at(-1)!.accounting;
+  expect(final).toMatchObject({status:'available',run:{accounted:{tokens:30},requests:{pending:0,settled:3}}});
+},30000);

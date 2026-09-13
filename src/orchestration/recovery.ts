@@ -1,3 +1,4 @@
+import {coordinatorProgress} from './progress.js';
 import {join} from 'node:path';
 import {digest} from '../approvals/index.js';
 import {throwIfCancelled,isCancellation} from '../cancellation.js';
@@ -39,7 +40,7 @@ export async function recoverTaskEvidence(cwd:string,runId:string,taskId:string,
     if(!began&&current.state.revision!==prior.state.revision)throw new OrchestrationError('conflict','Execution changed before evidence recovery.');
   };
   let timer:ReturnType<typeof setInterval>|undefined,deadline:ReturnType<typeof setTimeout>|undefined;
-  const notify=()=>{const execution=store.read();for(const event of execution.events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}options.onProgress?.({context:store.context(execution),execution,manifest:view.manifest});return execution;};
+  const notify=()=>{const execution=store.read();for(const event of execution.events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}options.onProgress?.(coordinatorProgress(store,execution));return execution;};
   const append=async(change:Parameters<typeof store.append>[0],verify=false)=>{
     await store.append(change,undefined,undefined,()=>{lease.check();if(verify){throwIfCancelled(controller.signal);assertAuthority();if(change.type==='task_finished')for(const artifact of change.output.artifacts)checkArtifactSnapshot(store,artifact);}});notify();
   };
