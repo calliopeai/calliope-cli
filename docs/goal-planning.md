@@ -91,7 +91,7 @@ Goal records live in `~/.calliope-cli/goals/GOAL_ID/` by default:
 
 | Record | Version and purpose |
 |---|---|
-| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256; v2 adds captured team settings; v3 adds captured isolation and supervision settings |
+| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256; v2 adds captured team settings; v3 adds captured isolation and supervision settings; v4 adds opt-in bounded planning repair |
 | `history.json` | v1: append-only logical event history and integrity hash |
 | `proposals/HASH.json` | v1: immutable validated plan, plan hash, source and inference marker |
 | `owner.json` | v1: process ownership lease, reclaimed only after confirmed process exit |
@@ -129,10 +129,32 @@ code. Source files remain separate from generated proposals and artifacts.
 
 ## Recovery and machine output
 
-Malformed or excessive model proposals freeze planning as failed. When spend is
+By default, malformed or excessive model proposals freeze planning as failed. When spend is
 known, `revise` accepts a policy-checked project plan without another model call.
 It preserves total limits and invalidates the old approval hash. Execution must
 not already be allocated; an explicitly cancelled goal cannot be revised.
+
+Use `--planning-repairs 1` (or `2`, default `0`) to let the read-only planner
+correct a rejected proposal. This captures `planningRepair:{version:1,maxRetries:N}`
+in a v4 goal manifest. Each planning stage has at most N retries; a configured
+plan reviewer shares the original planning allocation and clock. Missing reports,
+provider failures and invalid proposals consume attempts. Denial, cancellation,
+exhaustion or expiration stops the loop. No retry refreshes tokens, dollars or time.
+Existing v1–v3 manifests retain their exact planner contracts and hashes.
+
+Before a draft becomes a dependency or a final proposal, the coordinator validates
+its structure, inherited authority, remaining goal allowance and file inputs.
+The immutable `proposal_validated` run event uses version 4 and records `taskId`,
+`artifactId`, `artifactHash`, `goalManifestHash`, `valid` and bounded `diagnostics`.
+Diagnostics contain a field `path`, `message`, optional `parentPath` and numeric
+`actual`/`limit`. Rejected artifacts and request charges stay in the history; the
+next attempt receives recorded feedback. Replay rejects an unchecked or rejected
+draft marked ready for review. Direct `run` and resumed planning use this same gate.
+
+A successful repair preserves agent provenance and freezes the final proposal
+for exact-hash human approval. Structural validation proves proposal eligibility;
+it does not prove implementation success, execute the proposed work, or grant
+additional tools or paths. Human `revise` remains a separate, attributed action.
 
 A native Anthropic refusal stops planning with a fixed provider-refusal message
 in the CLI and saved goal events. It does not authorize tools or create a proposal.

@@ -10,13 +10,14 @@ import {resolvePreferences} from '../preferences/index.js';
 import {selectRoute,RoutingUnavailableError} from '../routing/index.js';
 import {getTools} from '../tools.js';
 import {RunLog} from '../runlog.js';
+import {ProviderRefusalError} from '../errors.js';
 import type {Message,ToolCall} from '../types.js';
 import type {ApprovalStore,ApprovalChoice} from '../approvals/index.js';
 import type {PermissionDecision} from '../runtime/types.js';
 import {RunStore} from './store.js';
 import {prepareAgentExecution} from './execution.js';
 import {ExecutionStore} from './execution-store.js';
-import {agentStopped} from './execution-journal.js';
+import {agentStopped,requiresProposalValidation} from './execution-journal.js';
 import {collectTaskOutput,collectStoppedTaskOutput,readCollectedArtifact,checkArtifactSnapshot,workerSummary} from './verification.js';
 import {OrchestrationError,type ProjectTask,type ProjectPlan} from './types.js';
 import {analyzePlan} from './validation.js';
@@ -122,6 +123,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       }
       const executorOutputs=workspace?await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log}):undefined;
       const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;const collected=await collectTaskOutput(store,task,typeof final==='string'?final:'',{...childOptions(child.signal),workspace,executorOutputs});
+      if(requiresProposalValidation(store.manifest)){const {validatePlanningArtifact}=await import('../goals/repair.js');await validatePlanningArtifact(store,task,collected,childOptions(child.signal),assertRun);}
       throwIfCancelled(child.signal);assertRun();await finish(collected.status as Exclude<TaskStatus,'pending'|'running'>,collected.output,true);
     }catch(error){
       if(!began){
@@ -129,7 +131,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         if(timedOut||Date.now()>=agentDeadline)throw new ExecutionLimitError('deadline','Original agent deadline expired before task admission.');
         throw error;
       }
-      const status=timedOut?'denied':child.signal.aborted||isCancellation(error)?'cancelled':error instanceof SessionPolicyError||error instanceof ExecutionLimitError?'denied':'failed';
+      const status=timedOut?'denied':child.signal.aborted||isCancellation(error)?'cancelled':error instanceof SessionPolicyError||error instanceof ExecutionLimitError||requiresProposalValidation(store.manifest)&&error instanceof ProviderRefusalError?'denied':'failed';
       const taskState=store.read().state.tasks[task.id];if(taskState?.status==='running')await finish(status,incompleteOutput(store,task,status,timedOut?'Original agent deadline expired.':error instanceof Error?error.message:'Worker failed.'));
     }finally{clearTimeout(taskTimer);controller.signal.removeEventListener('abort',parentAbort);children.delete(task.id);await taskLog?.flush();}
   };

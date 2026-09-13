@@ -49,10 +49,16 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId']);const c=value.change;
-  if(value.version!==(String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
+  if(![1,2,3,4].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);const c=value.change;
+  if(value.version!==(c.type==='proposal_validated'?4:String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
+  else if(c.type==='proposal_validated'){
+    shape(c,['type','taskId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);
+    if(!requiresProposalValidation(manifest)||c.goalManifestHash!==manifest.goal!.manifestHash||c.artifactId!==(c.taskId==='draft'?'draft':'proposal')||!hex(c.artifactHash)||typeof c.valid!=='boolean')fail('Proposal validation must match its bound planning artifact.');
+    array(c.diagnostics,16);if(c.valid!==!c.diagnostics.length)fail('Proposal validity differs from its diagnostics.');
+    for(const d of c.diagnostics){shape(d,['path','message'],['parentPath','actual','limit']);for(const path of [d.path,...(d.parentPath===undefined?[]:[d.parentPath])])if(typeof path!=='string'||path.length>256||!/^(?:\$|(?:agents\[\d{1,3}\]|workspace|limits)(?:\.[a-zA-Z][a-zA-Z0-9]*)+)$/.test(path))fail('Invalid proposal diagnostic path.');text(d.message,1024);for(const n of [d.actual,d.limit])if(n!==undefined&&(typeof n!=='number'||!Number.isFinite(n)||Math.abs(n)>1e13))fail('Invalid proposal diagnostic limit.');}
+  }
   else if(c.type==='graph_admitted'){shape(c,['type','admission']);if(!header)fail('A graph admission requires its original execution header.');validateSpawnAdmission(c.admission,manifest,header,manifest.plan);}
   else if(c.type==='started'){shape(c,['type','ownerId'],['proposalOnly']);if(c.proposalOnly!==undefined&&(c.proposalOnly!==true||!manifest.plan.supervision))fail('Proposal-only execution requires reviewed supervision.');if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
   else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
@@ -79,12 +85,13 @@ export const artifactSetHash=(artifacts:CollectedArtifact[])=>digest(canonicalJs
 export function agentStopped(state:ExecutionProjection,manifest:RunPlanContext,agentId:string):boolean {
   let current=manifest.plan.agents.find(a=>a.id===agentId);for(let n=0;current&&n<256;n++){if(state.stoppedAgents.includes(current.id)||Object.values(state.tasks).some(t=>t.agentId===current!.id&&t.escalation))return true;current=manifest.plan.agents.find(a=>a.id===current!.parentId);}return false;
 }
+export function requiresProposalValidation(manifest:RunManifest):boolean {return manifest.version===2&&manifest.goal?.phase==='planning'&&manifest.plan.agents.some(a=>a.parentId===null&&a.inputs.some(i=>i.id==='planning-repair'));}
 export function replayExecution(header:ExecutionHeader,manifest:RunManifest,events:ExecutionEvent[]):ExecutionProjection {
   validateExecutionHeader(header,manifest);array(events,MAX_EXECUTION_EVENTS);let analysis=analyzePlan(manifest.plan);
   const state:ExecutionProjection={version:1,runId:manifest.id,revision:journalHash(header,[]),status:'ready',ownerId:null,deadline:header.deadline,tasks:Object.create(null),artifacts:Object.create(null),stoppedAgents:[]};
   for(const task of manifest.plan.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
   if(manifest.plan.supervision){state.supervision=newSupervision();state.version=3;}
-  const seen=new Set<string>(),agentEvents=new Set<string>(),toolStarts=new Map<string,string>(),recoveries=new Set<string>(),recovering=new Set<string>();let last=header.createdAt;
+  const seen=new Set<string>(),agentEvents=new Set<string>(),toolStarts=new Map<string,string>(),recoveries=new Set<string>(),recovering=new Set<string>(),proposals=new Map<string,boolean>();let last=header.createdAt;
   const conflict=(message:string):never=>{throw new OrchestrationError('conflict',message);};
   const active=()=>{if(state.status!=='running'||!state.ownerId)conflict('Coordinator is not active.');};
   for(const event of events){
@@ -132,8 +139,14 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       if(c.mutating){task!.mutations=true;if(c.success&&c.path&&!task!.changedFiles.includes(c.path)){if(task!.changedFiles.length>=256)conflict('Task changed-file limit reached.');task!.changedFiles.push(c.path);}}
     }else if(c.type==='artifact'){
       active();const t=state.tasks[c.artifact.taskId]!;if(t.status!=='running'||t.artifactIds.includes(c.artifact.id))conflict('Artifact needs a running task and unique ID.');state.artifacts[c.artifact.id]=c.artifact;t.artifactIds.push(c.artifact.id);
+    }else if(c.type==='proposal_validated'){
+      active();const key=c.taskId+':'+task!.attempts,artifact=state.artifacts[c.artifactId],agent=manifest.plan.agents.find(a=>a.id===task!.agentId)!;
+      if(agentStopped(state,manifest,agent.id)||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Proposal validation requires active, unexpired planning authority.');
+      if(task!.status!=='running'||proposals.has(key)||!task!.artifactIds.includes(c.artifactId)||artifact?.taskId!==c.taskId||artifact.sha256!==c.artifactHash)conflict('Proposal validation requires one immutable artifact in the current task attempt.');
+      proposals.set(key,c.valid);state.version=4;
     }else if(c.type==='task_finished'){
-      active();if(task!.status!=='running')conflict('Task is not running.');
+      active();
+      if(requiresProposalValidation(manifest)&&['completed','review_required'].includes(c.status)&&proposals.get(c.taskId+':'+task!.attempts)!==true)conflict('A rejected or unchecked proposal cannot be accepted as a task outcome.');if(task!.status!=='running')conflict('Task is not running.');
       if(recovering.has(c.taskId)&&!['failed','denied','cancelled'].includes(c.status))conflict('Evidence recovery cannot accept an incomplete worker report.');
       if(c.output.artifacts.some(a=>canonicalJson(state.artifacts[a.id])!==canonicalJson(a))||canonicalJson(c.output.artifacts.map(a=>a.id))!==canonicalJson(task!.artifactIds)||canonicalJson(c.output.changedFiles)!==canonicalJson(task!.changedFiles))fail('Task output is not backed by recorded evidence.');
       const expectedStatus=c.status==='completed'?'success':c.status==='review_required'?'partial':c.status==='unknown'?'failed':c.status;if(c.output.status!==expectedStatus)fail('Task result status differs from its evidence.');

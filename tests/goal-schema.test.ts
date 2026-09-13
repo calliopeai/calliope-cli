@@ -3,11 +3,15 @@ import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {canonicalJson} from '../src/approvals/index.js';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {GoalStore,newGoalManifest,plannerPlan,proposePlan,signed,validateGoalManifest,validateGoalLimits,validateGoalLink,validateGoalProposal,validateGoalEvent,replayGoal,goalHistoryHash,type GoalManifest,type GoalEvent} from '../src/goals/index.js';
 import {toyGoal,toyProposal,goalFixture} from './helpers/goal.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
+import {goalSupervision} from './helpers/supervised-goal.js';
+import {analyzePlan,OrchestrationError,RunStore} from '../src/orchestration/index.js';
+import {runGoalCommand,formatGoal} from '../src/goals/index.js';
 let root:string,project:string,manifest:GoalManifest;
 const resign=(value:any)=>{const {hash,...body}=value;return signed(body);};
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-goal-schema-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);manifest=toyGoal(project,join(root,'runs'));vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('No provider requests in schema tests.');}));});
@@ -25,6 +29,38 @@ it('caps defaults by configured policy, preserves preference and builds a read-o
   const tiny=newGoalManifest(project,'Tiny goal.',manifest.runsRoot,{limits:{tokenBudget:2,costBudgetNanos:0}});expect(tiny.limits.planningTokens).toBe(1);
   for(const limits of [{tokenBudget:Infinity},{extra:1},{planningTokens:0},{timeBudgetMs:86400001}])expect(()=>newGoalManifest(project,'Toy.',manifest.runsRoot,{limits:limits as any})).toThrow();
   const paths=Array.from({length:20},(_,n)=>({path:'path-'+n,access:'read' as const})),large=plannerPlan(newGoalManifest(project,'Scoped public goal.',manifest.runsRoot,{workspace:{allowedTools:['read_file'],allowedPaths:paths}}));expect(large.agents[0]!.inputs.filter(i=>i.id.startsWith('scope-'))).toHaveLength(4);
+});
+it('versions repair intent independently of teams and supervision while retaining legacy planner bytes',()=>{
+  for(const configuration of [{},{team:{version:1 as const,maxAttempts:2}},{supervision:goalSupervision()}]){
+    const m=JSON.parse(canonicalJson(newGoalManifest(project,'Public goal.',manifest.runsRoot,configuration))),old=plannerPlan(m),repaired=resign({...m,version:4,planningRepair:{version:1,maxRetries:2}}),plan=plannerPlan(repaired);
+    expect(plan.agents.every(a=>a.escalationPolicy.maxRetries===2)).toBe(true);expect(plan.agents[0]!.inputs.some(i=>i.id==='planning-repair')).toBe(true);
+    for(const a of plan.agents){a.escalationPolicy.maxRetries=0;a.inputs=a.inputs.filter(i=>i.id!=='planning-repair');}expect(JSON.stringify(plan)).toBe(JSON.stringify(old));
+    expect(newGoalManifest(project,'Public goal.',manifest.runsRoot,{...configuration,planningRepairs:0}).version).toBe(m.version);
+  }
+  const m=newGoalManifest(project,'Repair intent.',manifest.runsRoot,{planningRepairs:1});expect(validateGoalManifest(m)).toEqual(m);expect(m.workspace.allowedTools).not.toContain('shell');
+  for(const planningRepairs of [-1,3,1.5,NaN,Infinity,'1'])expect(()=>newGoalManifest(project,'Invalid repair.',manifest.runsRoot,{planningRepairs:planningRepairs as number})).toThrow();
+  for(const planningRepair of [undefined,null,{version:2,maxRetries:1},{version:1,maxRetries:0},{version:1,maxRetries:3},{version:1,maxRetries:1,extra:true}])expect(()=>validateGoalManifest(resign({...m,planningRepair}))).toThrow();
+  expect(()=>validateGoalManifest(resign({...m,version:1}))).toThrow(/version 4/);
+  const store=new GoalStore(join(root,'goals'));store.create(m);expect(new GoalStore(store.root).read(m.id).manifest.planningRepair).toEqual({version:1,maxRetries:1});
+  expect(formatGoal({goal:store.read(m.id),status:'created'} as any)).toContain('1 retries per stage');
+});
+it('reports numeric field paths and inherited limits without echoing untrusted plan content',()=>{
+  const cases:Array<[(p:ReturnType<typeof verifiedPlan>)=>void,string]>=[
+    [p=>{p.agents[0]!.allowedTools=[];},'allowedTools'],
+    [p=>{p.agents[0]!.allowedPaths=[];},'allowedPaths'],
+    [p=>{p.agents[1]!.tokenBudget=p.agents[0]!.tokenBudget+1;},'tokenBudget'],
+    [p=>{p.agents[1]!.costBudgetUsd=p.agents[0]!.costBudgetUsd+1;},'costBudgetUsd'],
+    [p=>{p.agents[1]!.timeBudgetMs=p.agents[0]!.timeBudgetMs+1;},'timeBudgetMs'],
+    [p=>{p.agents[1]!.maxChildDepth=2;},'maxChildDepth'],
+    [p=>{p.agents[1]!.maxChildCount=4;},'maxChildCount'],
+    [p=>{p.agents[1]!.escalationPolicy.maxRetries=2;},'escalationPolicy.maxRetries'],
+  ];
+  for(const [edit,field]of cases){const p=verifiedPlan();edit(p);try{analyzePlan(p);throw new Error('Expected diagnostic');}catch(error){expect(error).toBeInstanceOf(OrchestrationError);expect((error as OrchestrationError).diagnostics?.[0]).toMatchObject({path:'agents[1].'+field,parentPath:'agents[0].'+field});}}
+});
+it('rejects misplaced and malformed repair flags before storing a goal or discovering models',async()=>{
+  const goals=new GoalStore(join(root,'goals')),lines:string[]=[],options={cwd:project,goals,store:new RunStore(manifest.runsRoot),write:(line:string)=>lines.push(line)};
+  for(const value of ['-1','3','1.0','01','Infinity'])expect(await runGoalCommand(['Public goal.','--planning-repairs',value,'--json'],options)).toBe(2);
+  expect(await runGoalCommand(['resume',randomUUID(),'--planning-repairs','1','--json'],options)).toBe(2);expect(goals.list(project).goals).toHaveLength(0);expect(fetch).not.toHaveBeenCalled();
 });
 it('keeps proposal provenance separate from human execution approval and validates remaining budgets and scope',()=>{
   const allocation={id:randomUUID(),phase:'planning' as const,runId:randomUUID(),planHash:'a'.repeat(64),tokens:5000,costNanos:10000000,deadline:manifest.deadline},proposal=toyProposal(manifest,allocation),spend={tokens:100,costNanos:1000,revision:'b'.repeat(64)};

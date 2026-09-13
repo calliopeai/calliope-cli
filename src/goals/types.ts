@@ -7,9 +7,9 @@ export interface GoalLimits {
   maxAgents:number;maxTasks:number;maxDepth:number;maxConcurrent:number;
 }
 export interface GoalManifest {
-  version:1|2|3;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
+  version:1|2|3|4;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
   preference:{provider:string;model?:string};workspace:{allowedTools:string[];allowedPaths:PathGrant[]};
-  limits:GoalLimits;team?:GoalTeam;supervision?:GoalSupervision;hash:string;
+  limits:GoalLimits;team?:GoalTeam;supervision?:GoalSupervision;planningRepair?:{version:1;maxRetries:number};hash:string;
 }
 /** Operator intent captured before planning; the proposed graph supplies account IDs. */
 export interface GoalSupervision extends Pick<SupervisionPolicy,'version'|'maxRounds'|'maxStalledRounds'|'maxOutputTokens'|'principle'|'allowedActions'|'reasoningEffort'> {

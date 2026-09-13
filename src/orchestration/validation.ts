@@ -87,12 +87,20 @@ export function analyzePlan(value: unknown): PlanAnalysis {
     depths[item.id] = depth;
     const parent = item.parentId ? agents.get(item.parentId)! : undefined;
     const authority = parent ?? plan.workspace;
-    if (item.allowedTools.some(name => !authority.allowedTools.includes(name)) || item.allowedPaths.some(grant => !permits(authority.allowedPaths, grant.path, grant.access))) fail('Agent tools or paths exceed parent/workspace authority.');
-    if (item.tokenBudget > (parent?.tokenBudget ?? plan.limits.tokenBudget) || item.costBudgetUsd > (parent?.costBudgetUsd ?? plan.limits.costBudgetUsd) || item.timeBudgetMs > (parent?.timeBudgetMs ?? plan.limits.timeBudgetMs)) fail('Agent budget exceeds its parent or run.');
-    if (item.maxChildDepth > (parent ? parent.maxChildDepth - 1 : plan.limits.maxDepth) || parent && (item.maxChildCount > parent.maxChildCount || item.escalationPolicy.maxRetries > parent.escalationPolicy.maxRetries)) fail('Child delegation limits exceed parent authority.');
-    const children = plan.agents.filter(child => child.parentId === item.id);
-    if (children.length > item.maxChildCount || children.reduce((sum, child) => sum + child.tokenBudget, 0) > item.tokenBudget || children.reduce((sum, child) => sum + Math.round(child.costBudgetUsd * 1e9), 0) > Math.round(item.costBudgetUsd * 1e9)) fail('Direct children exceed the parent count or aggregate budget.');
+    const prefix=`agents[${plan.agents.indexOf(item)}]`,parentPrefix=parent?`agents[${plan.agents.indexOf(parent)}]`:undefined;
+    const reject=(message:string,field:string,parentPath:string,actual?:number,limit?:number):never=>{const path=prefix+'.'+field;throw new OrchestrationError('invalid',message+' '+path+' exceeds '+parentPath+'.',[{path,parentPath,message,...(actual===undefined?{}:{actual,limit})}]);};
+    if(item.allowedTools.some(name=>!authority.allowedTools.includes(name)))reject('Agent tools or paths exceed parent/workspace authority.','allowedTools',(parentPrefix??'workspace')+'.allowedTools');
+    if(item.allowedPaths.some(grant=>!permits(authority.allowedPaths,grant.path,grant.access)))reject('Agent tools or paths exceed parent/workspace authority.','allowedPaths',(parentPrefix??'workspace')+'.allowedPaths');
+    for(const key of ['tokenBudget','costBudgetUsd','timeBudgetMs'] as const){const limit=parent?.[key]??plan.limits[key];if(item[key]>limit)reject('Agent budget exceeds its parent or run.',key,(parentPrefix??'limits')+'.'+key,item[key],limit);}
+    const childDepth=parent?parent.maxChildDepth-1:plan.limits.maxDepth;
+    if(item.maxChildDepth>childDepth)reject('Child delegation limits exceed parent authority.','maxChildDepth',parentPrefix?parentPrefix+'.maxChildDepth':'limits.maxDepth',item.maxChildDepth,childDepth);
+    if(parent&&item.maxChildCount>parent.maxChildCount)reject('Child delegation limits exceed parent authority.','maxChildCount',parentPrefix+'.maxChildCount',item.maxChildCount,parent.maxChildCount);
+    if(parent&&item.escalationPolicy.maxRetries>parent.escalationPolicy.maxRetries)reject('Child delegation limits exceed parent authority.','escalationPolicy.maxRetries',parentPrefix+'.escalationPolicy.maxRetries',item.escalationPolicy.maxRetries,parent.escalationPolicy.maxRetries);
     for (const input of item.inputs) if (input.kind === 'file' && !permits(item.allowedPaths, input.value, 'read')) fail('Agent input exceeds allowed paths.');
+  }
+  for(const item of plan.agents){
+    const children=plan.agents.filter(child=>child.parentId===item.id),prefix=`agents[${plan.agents.indexOf(item)}]`;
+    for(const [field,actual,limit]of [['maxChildCount',children.length,item.maxChildCount],['tokenBudget',children.reduce((sum,child)=>sum+child.tokenBudget,0),item.tokenBudget],['costBudgetUsd',children.reduce((sum,child)=>sum+Math.round(child.costBudgetUsd*1e9),0)/1e9,Math.round(item.costBudgetUsd*1e9)/1e9]] as const)if(actual>limit)throw new OrchestrationError('invalid','Direct children exceed the parent count or aggregate budget.',[{path:prefix+'.'+field,message:'Direct children exceed the parent count or aggregate budget.',actual,limit}]);
   }
   const tasks = new Map<string, ProjectPlan['tasks'][number]>(), producers = new Map<string, string>();
   for (const item of v.tasks) {

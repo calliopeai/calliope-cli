@@ -57,8 +57,9 @@ export interface PreparedRun {
   createdAt: string; updatedAt: string; eventCount: number; executedTasks: 0;
 }
 export interface RunInspection { run: PreparedRun; manifest: RunManifest; events: OrchestrationEvent[]; analysis: PlanAnalysis }
+export interface PlanDiagnostic {path:string;message:string;parentPath?:string;actual?:number;limit?:number}
 export class OrchestrationError extends Error {
-  constructor(readonly code: 'invalid' | 'policy-denied' | 'conflict' | 'locked' | 'limit' | 'unavailable', message: string) {
+  constructor(readonly code: 'invalid' | 'policy-denied' | 'conflict' | 'locked' | 'limit' | 'unavailable', message: string,readonly diagnostics?:PlanDiagnostic[]) {
     super(message); this.name = 'OrchestrationError';
   }
 }

@@ -9,3 +9,4 @@ export * from './cli.js';
 export * from './team.js';
 export * from './supervised.js';
 export * from './supervised-cli.js';
+export * from './repair.js';
