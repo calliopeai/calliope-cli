@@ -1,0 +1,361 @@
+{
+  "version": 1,
+  "kind": "native-supervised-brain-loop-validation",
+  "issue": 330,
+  "sourceCommit": "22e3d6a2ac5ace65483384aefc5a79b8f8ca4c9b",
+  "startedAt": "2026-09-13T21:02:57.808Z",
+  "finishedAt": "2026-09-13T21:09:17.006Z",
+  "goalId": "86e17c30-f907-4804-8139-2bf2a9339b1f",
+  "runId": "fa9aeb7e-88c8-4cc9-8e7f-491438673104",
+  "passed": true,
+  "transport": "Native Anthropic for all 12 paid requests; live discovery; no synthetic responses or host-side patching.",
+  "experiment": "Deliberately staged unchanged baseline followed by controller replan and repair; not a spontaneous model failure.",
+  "planning": {
+    "attempts": 2,
+    "cutoffRecovered": true,
+    "cutoffReservationRetained": true,
+    "proposalHash": "4f5cdcfd36a732276a7e6403a5c70ec76999bf3a79734b9e39c09e3bd535dcdf",
+    "planHash": "9d94e3ed1159432e5ca0d3a567afbc72ff5a9c895fa2729d533e369b24676971",
+    "approvalReviewedAt": "2026-09-13T21:06:32.881Z"
+  },
+  "execution": {
+    "status": "completed",
+    "exitCode": 0,
+    "rounds": 2,
+    "attempts": [
+      "failed",
+      "completed"
+    ],
+    "decisions": [
+      {
+        "id": "ce42fd8a-f5b6-4700-9b13-cae43bdab8f5",
+        "action": "replan",
+        "evidence": [
+          "3f1c7cbe-c8ff-45d9-a5d5-84875c2a37ef"
+        ]
+      },
+      {
+        "id": "8e14a415-488f-4ecf-9838-8f25aa097341",
+        "action": "continue",
+        "evidence": [
+          "20efd1b5-c961-4f77-ab39-96d9d9091ab6"
+        ]
+      }
+    ],
+    "changedFiles": [
+      "src/clamp.mjs"
+    ],
+    "sourceCheckoutUnchanged": true,
+    "originalTestsUnchanged": true,
+    "verification": [
+      {
+        "exitCode": 1,
+        "outcome": "failed",
+        "argv": [
+          "node",
+          "--test",
+          "tests/clamp.test.mjs"
+        ],
+        "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
+        "cleanupConfirmed": true,
+        "workspaceUnchangedByCommand": true
+      },
+      {
+        "exitCode": 0,
+        "outcome": "passed",
+        "argv": [
+          "node",
+          "--test",
+          "tests/clamp.test.mjs"
+        ],
+        "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
+        "cleanupConfirmed": true,
+        "workspaceUnchangedByCommand": true
+      }
+    ],
+    "artifacts": [
+      {
+        "attempt": 1,
+        "id": "clamp-test-result",
+        "sha256": "bd168c4772b33c17e7a584acc3c107616162e82847db3e4b9c9e716133aa1d7e",
+        "eventId": "183b5ca5-c142-4a7d-a3ee-e8af13924767",
+        "bytes": 1498
+      },
+      {
+        "attempt": 1,
+        "id": "clamp-source",
+        "sha256": "ccfd89acb630f8791d9ef157f36470a8464b4f60db1d6c4dea86d87e946f4936",
+        "eventId": "df4cf032-4e8c-4c6c-b404-435cce88a985",
+        "bytes": 83
+      },
+      {
+        "attempt": 1,
+        "id": "clamp-patch",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "eventId": "cd4f1f8e-0358-4142-ab3b-7d9197c22afa",
+        "bytes": 0
+      },
+      {
+        "attempt": 2,
+        "id": "clamp-test-result",
+        "sha256": "30987e1ff5a6f9eebe2707ee576c62a57c66f0006066264365bd9bc6244a703c",
+        "eventId": "92dacae6-260f-4fbb-b377-481d1bf28abd",
+        "bytes": 732
+      },
+      {
+        "attempt": 2,
+        "id": "clamp-source",
+        "sha256": "5dbe38a2cb1805915d5a58bcf12417f878cb9c1736332f35be17201ce81462c4",
+        "eventId": "a01e6724-af33-4f04-b348-6c178bb34483",
+        "bytes": 83
+      },
+      {
+        "attempt": 2,
+        "id": "clamp-patch",
+        "sha256": "8c301a688decc6a25d78116a3c0b1f8781865601de83eea42476fd593f49f4f4",
+        "eventId": "b9675f7c-13df-4d96-8d07-6b7c4fc6ea21",
+        "bytes": 293
+      }
+    ]
+  },
+  "brain": {
+    "plannerRetrievals": 2,
+    "workerRetrievals": 2,
+    "journalUnchangedDuringExecution": true,
+    "explicitRunIngestion": true,
+    "ingestedVerifiedRun": true,
+    "indexedSearchMatches": 11,
+    "entities": 14,
+    "edges": 17,
+    "checks": [
+      {
+        "id": "run:d110d80a52e4ae60f14e9227a7407ef5b9b5043677bceb4bbd42962aa540cdee",
+        "state": "accepted",
+        "passed": false
+      },
+      {
+        "id": "run:2cc559eed992378efbbdbdac1f1a7cf241fedca361070bb6a7b8d75b4af7140e",
+        "state": "accepted",
+        "passed": true
+      }
+    ],
+    "proposedHypotheses": 1
+  },
+  "improvement": {
+    "id": "ce42fd8a-f5b6-4700-9b13-cae43bdab8f5",
+    "status": "verified",
+    "principle": "robustness",
+    "parentCycleId": null,
+    "hypothesisState": "proposed",
+    "expectedMetricState": "proposed",
+    "productionApproval": "not-approved",
+    "metrics": [
+      {
+        "name": "acceptance-check-pass-rate",
+        "unit": "ratio",
+        "before": 0,
+        "after": 1,
+        "delta": 1,
+        "comparable": true,
+        "direction": "increase",
+        "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+      },
+      {
+        "name": "attempt-duration",
+        "unit": "ms",
+        "before": 10272,
+        "after": 14918,
+        "delta": 4646,
+        "comparable": true,
+        "direction": "decrease",
+        "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+      },
+      {
+        "name": "tool-failure-rate",
+        "unit": "ratio",
+        "before": 0.25,
+        "after": 0,
+        "delta": -0.25,
+        "comparable": true,
+        "direction": "decrease",
+        "reason": "Recorded observations for the same tasks; this alone does not establish causal improvement."
+      }
+    ],
+    "rollbackBaseCommit": "2ed00fba33eeeee1686a381092c30a79d0577bc6"
+  },
+  "replay": {
+    "freshProcess": true,
+    "resumeCompleted": true,
+    "deterministicPlanningAndExecution": true,
+    "accountingStable": true,
+    "executionAndBudgetUnchanged": true,
+    "providerRequests": 0
+  },
+  "hud": {
+    "planningUpdates": 2469,
+    "executionUpdates": 639,
+    "planningRendered": true,
+    "executionRendered": true,
+    "showsAgentModelsAttemptsControllerRoundsAndBudget": true
+  },
+  "budget": {
+    "probeCapUsd": 5,
+    "runCapUsd": 50,
+    "cumulativeCapUsd": 500,
+    "additionalReservedNanoUsd": 3068752000,
+    "retainedRunNanoUsd": 36164762776,
+    "retainedCumulativeNanoUsd": 87761493017,
+    "paidRequests": 12,
+    "requestCap": 16,
+    "reservedTokens": 181904,
+    "tokenCap": 250000,
+    "accounting": "Conservative retained reservations, not invoices. Includes the planner cutoff; no refunds or allowance resets."
+  },
+  "requests": [
+    {
+      "reservationId": "408d955e-87e1-4e03-85fe-39b4cc8fe1c3",
+      "phase": "plan",
+      "model": "claude-fable-5-1",
+      "inputCount": 5624,
+      "inputReservation": 12272,
+      "outputReservation": 6144,
+      "reservedNanoUsd": 552640000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "94ee1557-6e01-41cc-953d-58c8a5595e67",
+      "phase": "plan",
+      "model": "claude-fable-5-1",
+      "inputCount": 7069,
+      "inputReservation": 15162,
+      "outputReservation": 6144,
+      "reservedNanoUsd": 610440000,
+      "httpStatus": 200,
+      "finishReason": "max_tokens"
+    },
+    {
+      "reservationId": "d80f6f83-0a7e-4a7d-b5a3-1d653aa4f52d",
+      "phase": "plan",
+      "model": "claude-fable-5-1",
+      "inputCount": 5710,
+      "inputReservation": 12444,
+      "outputReservation": 6144,
+      "reservedNanoUsd": 556080000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "102580c9-7cf8-41ca-8545-82c826ed2908",
+      "phase": "plan",
+      "model": "claude-fable-5-1",
+      "inputCount": 7156,
+      "inputReservation": 15336,
+      "outputReservation": 6144,
+      "reservedNanoUsd": 613920000,
+      "httpStatus": 200,
+      "finishReason": "end_turn"
+    },
+    {
+      "reservationId": "84b7d4e5-2d36-4ac0-b129-c3e945f0c664",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 2356,
+      "inputReservation": 5736,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 21712000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "7a563dfd-5d4b-41b4-adaa-4233bca415eb",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 3549,
+      "inputReservation": 8122,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 26484000,
+      "httpStatus": 200,
+      "finishReason": "end_turn"
+    },
+    {
+      "reservationId": "757d348c-4816-4763-b796-0173ba1a5a6d",
+      "phase": "approve",
+      "model": "claude-fable-5-1",
+      "inputCount": 5306,
+      "inputReservation": 11636,
+      "outputReservation": 512,
+      "reservedNanoUsd": 258320000,
+      "httpStatus": 200,
+      "finishReason": "end_turn"
+    },
+    {
+      "reservationId": "4d88578c-b196-4886-bde1-74dccbca22ae",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 4605,
+      "inputReservation": 10234,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 30708000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "fff29ce4-0036-441c-8ef6-c5c8113be105",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 5855,
+      "inputReservation": 12734,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 35708000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "8f78e9d6-99d9-4069-b90d-9fdffcac6c81",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 6227,
+      "inputReservation": 13478,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 37196000,
+      "httpStatus": 200,
+      "finishReason": "tool_use"
+    },
+    {
+      "reservationId": "d5309f1d-3ce0-414b-be71-98d52c89eb34",
+      "phase": "approve",
+      "model": "claude-haiku-4-5-20251001",
+      "inputCount": 6364,
+      "inputReservation": 13752,
+      "outputReservation": 2048,
+      "reservedNanoUsd": 37744000,
+      "httpStatus": 200,
+      "finishReason": "end_turn"
+    },
+    {
+      "reservationId": "aa06b22a-001d-4120-ade3-3492e94d5630",
+      "phase": "approve",
+      "model": "claude-fable-5-1",
+      "inputCount": 6043,
+      "inputReservation": 13110,
+      "outputReservation": 512,
+      "reservedNanoUsd": 287800000,
+      "httpStatus": 200,
+      "finishReason": "end_turn"
+    }
+  ],
+  "provenance": {
+    "trackedContent": "Metadata and hashes only; no credentials, prompt text or response text.",
+    "privateEvidenceFiles": 212,
+    "privateEvidenceBytes": 9002472,
+    "knownSecretMatches": 0,
+    "harnessSha256": "2901af0bfb1f46f0eb054a5b94384470f68741a96e1669871201ddbcb626afc3",
+    "manifestSha256": "d8161989a8a0d96979d84df37fe0d8124ebd0dadfc1bd38b89252355b9616fba"
+  },
+  "limitations": [
+    "One public clamp task with a deliberately staged baseline; not proof of general coding reliability or causal improvement.",
+    "No fully native nested decomposition, parallel workers, reviewer pair or smart-routing escalation in this probe. Those paths retain separate deterministic test evidence.",
+    "xAI and OpenRouter remain deferred. This validation does not satisfy the provider release conformance or signing gates."
+  ]
+}

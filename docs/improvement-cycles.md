@@ -109,5 +109,28 @@ require explicit recovery. A cancelled or denied experiment keeps its partial
 results; a new run is not an automatic escape from its allowance.
 
 This implements recursive, evidence-driven **task strategy improvement**. It does
-not automatically patch Calliope itself, promote knowledge to accepted fact, or
-provide the later project Brain/KG subsystem.
+not automatically patch Calliope itself or promote knowledge to accepted fact.
+The [project Brain](project-brain.md) can explicitly ingest verified run evidence;
+improvement hypotheses remain proposed. [Opt-in agent retrieval](agent-knowledge.md)
+lets planners and workers read that knowledge within their inherited source scopes.
+
+## Native validation
+
+The [native Brain-loop receipt](evidence/native-brain-loop-smoke.json) records a
+Fable planner/controller and a Haiku worker on a public clamp fixture. All 12 paid
+requests used the native provider after live discovery. Planning recovered from
+one output cutoff within its original allowance. After exact-plan review, the
+worker submitted a deliberately unchanged baseline, the real Docker check failed,
+the controller replanned, and a one-line repair passed the same unchanged tests.
+The live HUD showed both agents, attempts, controller rounds and remaining budgets.
+
+Planner and worker Brain reads left its journal unchanged. A fresh process resumed
+and replayed the completed run without model calls or execution/budget changes.
+Explicit run ingestion then preserved both failed and passed checks as observations
+and the improvement hypothesis as proposed knowledge. All artifact hashes were
+verified, and the source checkout remained unchanged.
+
+The probe retained $3.068752 of conservative reservations, including the cutoff,
+within a $5 cap. This demonstrates one staged repair cycle; it does not establish
+general coding reliability, causal improvement, or native nested decomposition.
+Provider conformance and signing remain separate release gates.
