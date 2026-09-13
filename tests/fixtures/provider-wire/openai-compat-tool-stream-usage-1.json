@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "backend": "openai-compat",
+  "model": "devstral:latest",
+  "scenario": "tool",
+  "stream": true,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T02:11:30.476Z",
+    "sourceOrigin": "http://127.0.0.1:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "215d35f8-69c7-4d1d-bc3a-65f99ed06819",
+    "gateway": {
+      "name": "ollama",
+      "version": "0.33.2",
+      "upstreamProvider": "ollama",
+      "upstreamModel": "devstral:latest"
+    }
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "text/event-stream"
+      },
+      "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLTYxMyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNjU0OTAsIm1vZGVsIjoiZGV2c3RyYWw6bGF0ZXN0Iiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiIiwidG9vbF9jYWxscyI6W3siaWQiOiJjYWxsX3V3NG5zcDZhIiwiaW5kZXgiOjAsInR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiYXJndW1lbnRzIjoie1widGV4dFwiOlwiaGVsbG9cIn0ifX1dfSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLTYxMyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNjU0OTAsIm1vZGVsIjoiZGV2c3RyYWw6bGF0ZXN0Iiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InRvb2xfY2FsbHMifV19CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtNjEzIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTI2NTQ5MCwibW9kZWwiOiJkZXZzdHJhbDpsYXRlc3QiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF9vbGxhbWEiLCJjaG9pY2VzIjpbXSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MTI5NiwiY29tcGxldGlvbl90b2tlbnMiOjE1LCJ0b3RhbF90b2tlbnMiOjEzMTF9fQoKZGF0YTogW0RPTkVdCgo=",
+      "sha256": "f019346d4444049e1992e38f11c4b4737babfbe8668e332f8bd2992ceb89f081"
+    }
+  ],
+  "expected": {
+    "content": "",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 1296,
+      "outputTokens": 15
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}

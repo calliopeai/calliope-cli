@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Complete seven available-provider replay/usage evidence gaps with ten real captures; retain prior failures and enforce the unchanged release gate (#310).
+
 - Use one exact certificate identity across installer and CI attestation verification; reject incompatible GitHub CLI identity flags (#308).
 
 - Gate exact-tag npm/binary publication, attest and verify all standalone artifacts, require installer provenance, separate development image tags, and add independent anchored run-log verification. Bundle SQLite for standalone Brain/KG search (#223).

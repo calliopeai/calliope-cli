@@ -1,5 +1,7 @@
 # Extended provider semantics — September 13, 2026 UTC
 
+Later that day, the [gateway follow-up](provider-gateway-followup.md) completed the seven replay/usage gaps described below. This report retains the original findings and reservations; its counts are historical.
+
 The [machine-readable audit](reports/provider-semantic-followup-2026-09-13.json) records **55 reviewed real-wire captures across 17 adapter paths**, from 70 bounded probes and 90 independently reserved requests. Fifteen probes were incomplete: fourteen positive checks missed their exact expected result, and an OpenRouter negative/access check returned a successful HTTP 200 response. That access recovery led to passing positive OpenRouter checks. No incomplete result was promoted into the corpus.
 
 | Adapter | System instructions | Tool-result replay | Cancellation | Provider error |

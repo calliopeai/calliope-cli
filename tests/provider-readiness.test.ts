@@ -33,10 +33,23 @@ it('counts unique historical captures without treating missing access or unteste
 });
 
 it('keeps incomplete usage explicit and rejects malformed or secret-bearing status input', () => {
-  const report = createReadiness(captures);
+  // Keep the historical missing-stream-usage control when newer captures fill it.
+  const incomplete = captures.filter(capture => capture.backend !== 'litellm' ||
+    !capture.stream || !capture.expected.usage);
+  const report = createReadiness(incomplete);
   expect(report.adapters.find(a => a.id === 'litellm')!.checks.usage).toBe('incomplete');
   expect(() => createReadiness(captures, { google: 'secret-key' })).toThrow('credential values');
   expect(() => createReadiness([{ version: 99 }])).toThrow('provenance');
+});
+
+it.each(['litellm', 'bedrock-compat', 'openai-compat'])('requires reported usage in every mode for %s while retaining older incomplete captures', backend => {
+  expect(captures.some(capture => capture.backend === backend && !capture.expected.usage)).toBe(true);
+  expect(createReadiness(captures).adapters.find(adapter => adapter.id === backend)!.checks.usage).toBe('captured');
+  for (const scenario of ['text', 'tool']) for (const stream of [false, true]) {
+    const missingMode = captures.filter(capture => !(capture.backend === backend &&
+      capture.scenario === scenario && capture.stream === stream && capture.expected.usage));
+    expect(createReadiness(missingMode).adapters.find(adapter => adapter.id === backend)!.checks.usage).toBe('incomplete');
+  }
 });
 
 it('never copies credentials into status, handles native AWS and keyless local endpoints', () => {

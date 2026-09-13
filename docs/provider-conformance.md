@@ -156,7 +156,8 @@ SDKs, carries provider metadata, and compares the request bodies and results.
 Only generated Ollama call IDs are excluded from equality; native IDs stay intact.
 Checksums provide tamper detection, not independent proof of where bytes came from.
 
-The [September 13 semantic follow-up](provider-semantic-followup.md) records current
-coverage and limitations. `providers:readiness` includes this corpus. The mandatory
+The [September 13 semantic follow-up](provider-semantic-followup.md) records initial
+coverage and limitations; the [gateway follow-up](provider-gateway-followup.md)
+completes seven further replay/usage checks. `providers:readiness` includes both corpora. The mandatory
 release gate now fails for *any* missing basic, semantic or usage check; deferrals
 and incomplete results remain visible. No publication bypass was added.
