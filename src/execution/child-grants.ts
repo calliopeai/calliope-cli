@@ -32,5 +32,5 @@ export function applyChildGrant(base:ExecutionManifest,current:ExecutionManifest
   for(const account of grant.accounts){const lineage=accountLineage(next,account.id);if(!lineage.slice(1).some(a=>a.id===grant.parentId))invalid();if(record.at>=Math.min(...lineage.map(a=>a.deadline)))throw new ExecutionLimitError('deadline','Original parent or child deadline expired before allocation.');}
   for(const account of next.accounts)assertChildCapacity(next,state,account.id);
   for(const account of grant.accounts)Object.defineProperty(state.accounts,account.id,{value:{tokens:0,costNanos:0},enumerable:true});
-  (state.childGrants??=[]).push(structuredClone(record));state.version=2;return next;
+  (state.childGrants??=[]).push(structuredClone(record));if(state.version<2)state.version=2;return next;
 }

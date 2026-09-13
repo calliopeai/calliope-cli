@@ -8,7 +8,7 @@ import {recoverDeadWriterLock} from '../execution/writer-recovery.js';
 import {OrchestrationError,type RunManifest} from './types.js';
 import {validateRunManifest} from './store.js';
 import {hex,integer,iso,shape,uuid} from './validation.js';
-import {journalHash,replayExecution,validateExecutionHeader,MAX_EXECUTION_BYTES,MAX_EXECUTION_EVENTS,MAX_EXECUTION_EVENT_BYTES} from './execution-journal.js';
+import {journalHash,replayExecution,validateExecutionHeader,executionEventVersion,MAX_EXECUTION_BYTES,MAX_EXECUTION_EVENTS,MAX_EXECUTION_EVENT_BYTES} from './execution-journal.js';
 import type {ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionInspection,ExecutionJournal,ExecutionLease,RunPlanContext} from './coordinator-types.js';
 
 const unavailable=()=>new OrchestrationError('unavailable','Execution records are damaged or unavailable. Preserve the run and restore verified evidence; no new work is authorized.');
@@ -96,7 +96,7 @@ export class ExecutionStore {
       const changes=await prepare(prior);throwIfCancelled(signal);if(changes.length>1280)throw new OrchestrationError('limit','Invalid execution event batch size.');if(!changes.length)return[];
       const at=[new Date().toISOString(),prior.events.at(-1)?.at??prior.header.createdAt].sort().at(-1)!;
       const events=[...prior.events],added:ExecutionEvent[]=[];
-      for(const entry of changes){const body={version:entry.change.type==='agent_routed'?5 as const:entry.change.type==='proposal_validated'?4 as const:entry.change.type.startsWith('supervision_')?3 as const:entry.change.type==='graph_admitted'?2 as const:1 as const,id:entry.eventId??randomUUID(),runId:this.manifest.id,sequence:events.length+1,at,previous:events.at(-1)?.hash??prior.state.revision,change:structuredClone(entry.change)},event={...body,hash:digest(canonicalJson(body))};events.push(event);added.push(event);}
+      for(const entry of changes){const body={version:executionEventVersion(entry.change),id:entry.eventId??randomUUID(),runId:this.manifest.id,sequence:events.length+1,at,previous:events.at(-1)?.hash??prior.state.revision,change:structuredClone(entry.change)},event={...body,hash:digest(canonicalJson(body))};events.push(event);added.push(event);}
       replayExecution(prior.header,this.manifest,events);const next=JSON.stringify({version:1,header:prior.header,events,hash:journalHash(prior.header,events)});
       const settlement=changes.every(({change:c})=>['task_finished','agent_finished','escalated','finished','supervision_decided','supervision_halted'].includes(c.type)||c.type==='tool'&&c.stage==='finished'),reserve=4*this.manifest.plan.limits.maxConcurrent+(this.manifest.plan.supervision?3:1);
       if(!settlement&&(events.length+reserve>MAX_EXECUTION_EVENTS||Buffer.byteLength(next)+reserve*MAX_EXECUTION_EVENT_BYTES>MAX_EXECUTION_BYTES))throw new OrchestrationError('limit','Execution retention leaves room only for active task outcomes; preserve this run.');

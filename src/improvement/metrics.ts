@@ -20,7 +20,17 @@ export function cycleMetrics(before:CycleOutcome[],after:CycleOutcome[],targets:
     return{name,unit,before:b,after:a,delta:comparable?a!-b!:null,comparable,direction,
       reason:comparable?'Recorded observations for the same tasks; this alone does not establish causal improvement.':!matching?'Task population or check definitions differ, or the next attempt is incomplete.':'The required measurement was not recorded.'};
   };
-  return[metric('acceptance-check-pass-rate','ratio',rate(before,'checks'),rate(after,'checks'),sameChecks,'increase'),
+  const result=[metric('acceptance-check-pass-rate','ratio',rate(before,'checks'),rate(after,'checks'),sameChecks,'increase'),
     metric('attempt-duration','ms',duration(before),duration(after),same,'decrease'),
     metric('tool-failure-rate','ratio',rate(before,'tools'),rate(after,'tools'),same,'decrease')];
+  if([...before,...after].some(v=>'accounting'in v)){
+    const charge=(value:CycleOutcome)=>{const a=value.accounting;return a?.status==='available'&&a.source.kind==='task'&&a.source.taskId===value.taskId&&a.source.attempt===value.attempt?a:undefined;};
+    const cost=(values:CycleOutcome[])=>!values.length||values.some(v=>!charge(v))?null:values.reduce((n,v)=>n+charge(v)!.accounted.costNanos,0);
+    const complete=[...before,...after].every(v=>charge(v)?.usageComplete);
+    const m=metric('provider-accounted-cost','nano-usd',cost(before),cost(after),same&&complete,'decrease');
+    if(same&&!complete)m.reason='Request attribution or settled usage is incomplete; conservative charges are not comparable costs.';
+    else if(m.comparable)m.reason='Accounted worker-attempt charges for the same tasks; excludes planning and controller/reviewer overhead, is not an invoice and does not establish causal improvement.';
+    result.push(m);
+  }
+  return result;
 }

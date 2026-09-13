@@ -18,6 +18,7 @@ export interface RequestReservation {
   inputPrice: number; outputPrice: number;
   limits?: {tokens?:number;costNanos?:number};
   quoteEvidence?:import('./billing.js').QuoteEvidence;
+  attribution?:import('./attribution.js').RequestAttribution;
 }
 export interface RequestSettlement {
   requestId: string; outcome: 'success' | 'error' | 'cancelled' | 'invalid-usage';
@@ -30,15 +31,15 @@ export interface ChildGrant {
 }
 export interface RecordedChildGrant {grant:ChildGrant;eventId:string;eventHash:string;at:number}
 export interface ReservationEvent {
-  version: 1|2; id: string; at: number; previous: string;
+  version: 1|2|3; id: string; at: number; previous: string;
   change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement } | {type:'child_grant';grant:ChildGrant};
   hash: string;
 }
 export interface AccountSpend { tokens: number; costNanos: number }
 export interface ReservationProjection {
-  version: 1|2; runId: string; manifestHash: string; revision: string;
+  version: 1|2|3; runId: string; manifestHash: string; revision: string;
   spent: AccountSpend; accounts: Record<string, AccountSpend>;
-  requests: Record<string, { reservation: RequestReservation; state: 'pending' | 'settled' | 'unknown' | 'exceeded' }>;
+  requests: Record<string, { reservation: RequestReservation; state: 'pending' | 'settled' | 'unknown' | 'exceeded'; accounted?:AccountSpend }>;
   exceeded: boolean;
   childGrants?:RecordedChildGrant[];
 }

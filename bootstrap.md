@@ -83,6 +83,8 @@ corrections under the same allowance; legacy goal contracts keep their hashes.
 choices and bounded attempts, with a compact HUD driven by recorded execution state.
 [Workflow accounting](docs/workflow-accounting.md) adds ledger-backed run and
 subtree balances, reservation states and budget-only HUD refreshes.
+[Request attribution](docs/request-attribution.md) binds provider charges to exact
+attempts and reviews, preserving legacy journals and distinguishing missing costs.
 [Smart routing](docs/smart-routing.md) is an opt-in goal mode with captured role
 pools, verification-backed escalation and actual selections recorded before inference.
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker

@@ -5,6 +5,7 @@ import { inspectExecution } from '../orchestration/coordinator-actions.js';
 import { readCollectedArtifact, checkArtifactSnapshot } from '../orchestration/verification.js';
 import type { RunStore } from '../orchestration/store.js';
 import { projectImprovementHistory } from '../improvement/projection.js';
+import { readRunAccounting } from '../orchestration/accounting.js';
 import { brainStore, sanitizeBrainText, type BrainOptions } from './access.js';
 import { commitBrain } from './actions.js';
 import { recordInput } from './journal.js';
@@ -42,13 +43,16 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
     entities = new Map<string, EntityInput>(),
     edges: EdgeInput[] = [],
     sources = new Map<string, SourceInput>();
+  const accounting = readRunAccounting(current.store, execution);
+  const improvement = projectImprovementHistory(current.view.manifest, execution, context, accounting.status === 'available' ? accounting.attribution : undefined);
+  const snapshot = improvement.accounting ? digest(canonicalJson({ execution: execution.state.revision, accounting: improvement.accounting })) : execution.state.revision;
   // Task resets remove prior artifacts from the active projection, not from history.
   const artifacts = execution.events.flatMap(({ change }) =>
     change.type === 'artifact' ? [change.artifact] : [],
   );
   let total = 0;
   const key = (kind: string, id: string) =>
-      'run:' + digest(runId + ':' + execution.state.revision + ':' + kind + ':' + id),
+      'run:' + digest(runId + ':' + snapshot + ':' + kind + ':' + id),
     event = execution.events.at(-1)!,
     root = key('run', runId);
   const evidence = (id: string, data: unknown, eventId = event.id, path?: string) => {
@@ -109,11 +113,12 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
     manifestHash: current.view.manifest.hash,
     executionRevision: execution.state.revision,
     status: execution.state.status,
+    ...(improvement.accounting ? { accounting: improvement.accounting } : {}),
   });
   add(
     root,
     'run',
-    runId + '@' + execution.state.revision.slice(0, 12),
+    runId + '@' + snapshot.slice(0, 12),
     'Recorded execution snapshot; status is an executor observation.',
     runEvidence,
     { status: execution.state.status, runId, revision: execution.state.revision },
@@ -203,7 +208,6 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
       }
     }
   // Reuse the supervisor's evidence projection, which excludes unreviewed controller drafts.
-  const improvement = projectImprovementHistory(current.view.manifest, execution, context);
   for (const cycle of improvement.cycles) {
     const id = key('decision', cycle.id),
       p = evidence(
@@ -213,6 +217,7 @@ export async function ingestBrainRun(cwd: string, runId: string, options: BrainR
           status: cycle.status,
           metrics: cycle.metrics,
           source: cycle.source,
+          ...(improvement.accounting ? { accounting: improvement.accounting } : {}),
         },
         cycle.id,
       ).map((p) => ({ ...p, basis: 'inferred' as const }));

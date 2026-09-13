@@ -22,7 +22,7 @@ export type ExecutionChange=
   |import('../supervision/types.js').SupervisionChange
   |{type:'graph_admitted';admission:SpawnAdmission}
   |{type:'started';ownerId:string;proposalOnly?:true}
-  |{type:'task_started';taskId:string;attempt:number;sessionId:string}
+  |{type:'task_started';taskId:string;attempt:number;sessionId:string;requestAttribution?:1}
   |{type:'task_recovery_started';taskId:string;outcomeId:string}
   |{type:'agent_started';agentId:string;taskId:string}
   |{type:'agent_finished';agentId:string;taskId:string;status:Exclude<TaskStatus,'pending'|'running'>}
@@ -36,7 +36,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
@@ -44,7 +44,7 @@ export interface TaskState {
   route?:import('./routing.js').RecordedAgentRoute;
 }
 export interface ExecutionProjection {
-  version:1|2|3|4|5;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  version:1|2|3|4|5|6;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
   routes?:Record<string,{sessionId:string;taskId?:string;route:import('./routing.js').RecordedAgentRoute}>;
   supervision?:import('../supervision/types.js').SupervisionProjection;
   tasks:Record<string,TaskState>;artifacts:Record<string,CollectedArtifact>;stoppedAgents:string[];

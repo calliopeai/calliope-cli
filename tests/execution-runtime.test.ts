@@ -9,7 +9,7 @@ import {clearModelCache} from '../src/model-detection.js';
 import {runTurn,type TurnOptions} from '../src/runtime/index.js';
 import {getTools} from '../src/tools.js';
 import {RunLog,readRunLog,verifyChain} from '../src/runlog.js';
-import {ReservationLedger,manifestHash,type ExecutionManifest} from '../src/execution/index.js';
+import {ReservationLedger,manifestHash,type ExecutionManifest,type RequestAttribution} from '../src/execution/index.js';
 import {executionManifest} from './helpers/execution-manifest.js';
 import {saveHooks} from '../src/hooks.js';
 import {loadProjectSpend,projectBudgetPath} from '../src/budget.js';
@@ -35,6 +35,16 @@ it('executes a bounded request using live metadata and records reservation/usage
   const saved=ledger.read(project);expect(saved.projection.spent).toEqual({tokens:10,costNanos:13000});expect(saved.events.map(e=>e.change.type)).toEqual(['reserve','settle']);
   expect(JSON.stringify(saved.events)).not.toContain('Use the public toy');
   const trace=readRunLog(log.filePath);expect(verifyChain(trace).ok).toBe(true);expect(trace.some(e=>e.type==='policy_event'&&JSON.stringify(e).includes('execution-budget'))).toBe(true);
+});
+it('commits trusted attempt provenance before each native SDK dispatch and freezes the caller snapshot',async()=>{
+  ledger.create(manifest);const attribution:RequestAttribution={version:1,kind:'task',taskId:'inspect-a',attempt:1,eventId:randomUUID(),eventHash:'a'.repeat(64),sessionId:randomUUID()},expected=structuredClone(attribution),opts=options({sessionId:attribution.sessionId,tools:getTools});opts.execution!.attribution=attribution;
+  respond=async()=>{
+    const pending=Object.values(ledger.read(project).projection.requests).find(r=>r.state==='pending');expect(pending?.reservation.attribution).toEqual(expected);expect(pending?.accounted?.tokens).toBe(1000);
+    attribution.eventHash='f'.repeat(64);return requests.length===1?completion({name:'read_file',args:{path:'a/toy.txt'}}):completion();
+  };
+  expect((await runTurn(opts)).reason).toBe('completed');expect(requests).toHaveLength(2);
+  const saved=ledger.read(project);expect(saved.projection.version).toBe(3);expect(Object.values(saved.projection.requests).every(r=>r.reservation.attribution?.eventHash===expected.eventHash&&r.accounted?.tokens===10)).toBe(true);
+  const invalid=options();invalid.execution!.attribution={...expected,version:2} as unknown as RequestAttribution;await expect(runTurn(invalid)).rejects.toThrow('Invalid execution');expect(requests).toHaveLength(2);
 });
 it('carries live OpenRouter tier rates through the agent ledger and actual SDK request',async()=>{
   config.setProviderCred('openrouter',{apiKey:'synthetic',baseUrl:'https://execution.invalid/v1'});

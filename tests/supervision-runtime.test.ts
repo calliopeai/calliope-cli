@@ -8,7 +8,8 @@ import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {clearModelCache} from '../src/model-detection.js';
 import {RunStore,ExecutionStore,prepareRun,changePreparedRun,executeReviewedRun,controlExecution,recoverTaskEvidence,runOrchestrationCommand,replayExecution,type ProjectPlan} from '../src/orchestration/index.js';
-import {ReservationLedger} from '../src/execution/index.js';
+import {ReservationLedger,type RequestReservation} from '../src/execution/index.js';
+import {coordinatorProgress} from '../src/orchestration/progress.js';
 import {projectBudgetPath} from '../src/budget.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import * as commands from '../src/isolation/process.js';
@@ -16,6 +17,7 @@ import * as isolation from '../src/isolation/coordinator.js';
 import {workflowSnapshot,workflowLines} from '../src/ui/workflow-progress.js';
 import {inspectImprovements,proposeImprovement,runImprovement,withdrawImprovement,runImprovementCommand,improvementProposalHash,projectImprovementHistory,improvementFeedback} from '../src/improvement/index.js';
 import {reviewEvidence} from '../src/supervision/index.js';
+import {initBrain,ingestBrainRun,BrainStore} from '../src/brain/index.js';
 vi.setConfig({testTimeout:20000}); // Multiple real Git worktrees and durable journals per recovery scenario.
 let root:string,project:string,runs:RunStore,requests:any[],verificationExits:number[],controllerTool:boolean,truncateWorkers:number,decide:(context:any,signal:AbortSignal)=>Promise<unknown>;
 const image='sha256:'+'a'.repeat(64),json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
@@ -60,7 +62,11 @@ it('reviews actual executor artifacts with distinct controller/reviewer models, 
   const view=await reviewed(p),hud:string[]=[];decide=async context=>{expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='tests').excerpt).toContain('"cleanupConfirmed":true');expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='patch').excerpt).toContain('+public toy candidate');if(context.role==='reviewer')expect(context.draft.action).toBe('continue');return keepGoing(context);};
   const result=await execute(view.run.id,{onProgress:(value:any)=>hud.push(...workflowLines([workflowSnapshot(value)],'agents'))});
   expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');expect(requests.map(r=>r.body.model)).toEqual(['worker-toy','worker-toy','controller-toy','reviewer-toy']);
-  expect(result.execution.state).toMatchObject({version:3,supervision:{rounds:1,phase:'ready'}});expect(hud.some(row=>row.includes('reviewing round 1'))).toBe(true);
+  expect(result.execution.state).toMatchObject({version:6,supervision:{rounds:1,phase:'ready'}});expect(hud.some(row=>row.includes('reviewing round 1'))).toBe(true);
+  const accounting=result.accounting;if(accounting.status!=='available'||accounting.attribution?.status!=='available')throw Error('Missing request attribution');
+  const groups=Object.values(accounting.attribution.groups);expect(groups).toHaveLength(3);expect(groups.every(g=>g.status==='available'&&g.usageComplete)).toBe(true);
+  expect(groups.filter(g=>g.source.kind==='task')).toMatchObject([{accounted:{tokens:20,costNanos:26000}}]);
+  expect(groups.filter(g=>g.source.kind==='supervision').map(g=>[g.source.kind==='supervision'?g.source.role:'',g.status==='available'?g.accounted.costNanos:null])).toEqual([['controller',13000],['reviewer',13000]]);
   const events=result.execution.events;expect(events.findIndex(e=>e.change.type==='supervision_started')).toBeGreaterThan(events.findIndex(e=>e.change.type==='agent_finished'));
   expect(replayExecution(result.execution.header,view.manifest,events)).toEqual(result.execution.state);expect(new ExecutionStore(join(runs.root,view.run.id),view.manifest).read()).toEqual(result.execution);
   const lines:string[]=[];await runOrchestrationCommand('run',['replay',view.run.id,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)});expect(JSON.parse(lines[0]!).data.execution.events).toEqual(events);expect(requests).toHaveLength(4);expect(git('status','--porcelain')).toBe('?? plan.json\n');
@@ -75,6 +81,43 @@ it('replans a failed isolated candidate, preserves both attempts and only comple
   expect(result.execution.events.find(e=>e.change.type==='supervision_applied')?.change).toMatchObject({receipts:[{artifactId:'tests',exitCode:1,cleanupConfirmed:true}]});
   for(const attempt of [1,2])expect(fs.existsSync(join(runs.root,view.run.id,'execution',`worker-inspect-a-${attempt}`,'files','a/report.txt'))).toBe(true);
   const budget=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(Object.keys(budget.projection.requests)).toHaveLength(6);expect(budget.projection.spent.tokens).toBe(60);
+  const inspected=await inspectImprovements(project,view.run.id,{store:runs});expect(inspected.history.version).toBe(2);expect(inspected.history.cycles[0]!.version).toBe(2);
+  expect(inspected.history.cycles[0]!.metrics.find(m=>m.name==='provider-accounted-cost')).toMatchObject({before:26000,after:26000,delta:0,comparable:true});
+  const controller=requests.filter(r=>r.context.kind==='controller-review').at(-1)!.context;
+  expect(controller.improvements.accounting.scope).toBe('worker-attempts');expect(controller.improvements.cycles[0].measurements.find((m:any)=>m.name==='provider-accounted-cost')).toMatchObject({before:26000,after:26000,comparable:true});
+});
+
+it('ingests attributed improvement measurements with their ledger revision without accepting hypotheses',async()=>{
+  verificationExits=[1,0];const view=await reviewed(),ledger=new ReservationLedger(join(runs.root,view.run.id,'budget'));let pending:RequestReservation|undefined;
+  decide=async context=>{if(!pending){const saved=ledger.read(project);pending={...structuredClone(Object.values(saved.projection.requests).find(r=>r.state==='pending')!.reservation),id:randomUUID()};await ledger.reserve(project,saved.projection.manifestHash,pending);}return context.outcomes[0].status==='failed'?retry(context):keepGoing(context);};
+  await execute(view.run.id);const current=await inspectImprovements(project,view.run.id,{store:runs}),options={runs,base:join(root,'brain'),confirmation:'none' as const};
+  await initBrain(project,options);const imported=await ingestBrainRun(project,view.run.id,options);
+  const decision=Object.values(imported.state.entities).find(e=>e.kind==='decision')!;expect(decision.state).toBe('proposed');expect(decision.provenance[0]!.basis).toBe('inferred');
+  const source=imported.state.sources[decision.provenance[0]!.sourceId]!,record=JSON.parse(source.content);
+  expect(record.accounting.revision).toBe(current.history.accounting!.revision);expect(record.accounting.scope).toBe('worker-attempts');expect(record.metrics.find((m:any)=>m.name==='provider-accounted-cost')).toMatchObject({before:26000,after:26000,comparable:true});
+  const before=new BrainStore(project,'project',options.base).read();await ingestBrainRun(project,view.run.id,options);expect(new BrainStore(project,'project',options.base).read().state.revision).toBe(before.state.revision);
+  const checks=Object.values(imported.state.entities).filter(e=>e.kind==='test_evidence');expect(checks.some(e=>e.attributes.passed===false)).toBe(true);expect(checks.every(e=>e.state==='accepted')).toBe(true);
+  const execution=new ExecutionStore(join(runs.root,view.run.id),view.manifest),events=execution.read();
+  await ledger.settle(project,ledger.read(project).projection.manifestHash,{requestId:pending!.id,outcome:'success',usage:{inputTokens:7,outputTokens:3}});
+  const updated=await ingestBrainRun(project,view.run.id,options);expect(updated.state.revision).not.toBe(before.state.revision);expect(execution.read()).toEqual(events);
+  const decisions=Object.values(updated.state.entities).filter(e=>e.kind==='decision');expect(decisions).toHaveLength(2);expect(decisions.every(e=>e.state==='proposed')).toBe(true);expect(updated.state.entities[decision.id]).toEqual(decision);
+  await ingestBrainRun(project,view.run.id,options);expect(new BrainStore(project,'project',options.base).read().state.revision).toBe(updated.state.revision);
+});
+
+it('refreshes improvement cost after settlement alone and rejects stale execution attribution',async()=>{
+  verificationExits=[1,0];const view=await reviewed(),ledger=new ReservationLedger(join(runs.root,view.run.id,'budget'));let pending:RequestReservation|undefined;
+  // Reserve one additional worker request while its recorded attempt is active.
+  const transport=globalThis.fetch;vi.stubGlobal('fetch',async(input:any,init:any)=>{
+    const req=new Request(input,init);if(req.url.endsWith('/chat/completions')&&!pending){const saved=ledger.read(project),active=Object.values(saved.projection.requests).find(r=>r.state==='pending');if(active?.reservation.attribution?.kind==='task'){pending={...structuredClone(active.reservation),id:randomUUID()};await ledger.reserve(project,saved.projection.manifestHash,pending);}}
+    return transport(input,init);
+  });
+  decide=async context=>context.outcomes[0].status==='failed'?retry(context):keepGoing(context);await execute(view.run.id);
+  const execution=new ExecutionStore(join(runs.root,view.run.id),view.manifest),progress=coordinatorProgress(execution),before=workflowSnapshot(progress);expect(before.summary).not.toContain('attempt cost');
+  await ledger.settle(project,ledger.read(project).projection.manifestHash,{requestId:pending!.id,outcome:'success',usage:{inputTokens:7,outputTokens:3}});
+  const next=coordinatorProgress(execution),after=workflowSnapshot(next);expect(after.revision).toBe(before.revision);expect(after.accountingRevision).not.toBe(before.accountingRevision);expect(after.summary).toContain('attempt cost <$0.0001→<$0.0001');
+  if(next.accounting?.status!=='available'||next.accounting.attribution?.status!=='available')throw Error('Missing attribution');
+  const stale={...next.accounting.attribution,executionRevision:'a'.repeat(64)},history=projectImprovementHistory(view.manifest,next.execution,next.context,stale);
+  expect(history.accounting).toMatchObject({status:'unavailable',revision:null});expect(history.cycles[0]!.metrics.find(m=>m.name==='provider-accounted-cost')).toMatchObject({before:null,after:null,comparable:false});
 });
 
 it('retains real verification after a truncated worker report and retries without accepting the cutoff as success',async()=>{
@@ -380,7 +423,7 @@ it('streams proposal events as JSON and allows an expired proposal to be withdra
   verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed();await execute(view.run.id);decide=async context=>retry(context);
   const lines:string[]=[];expect(await runImprovementCommand(['propose','--run',view.run.id,'--allow-mutations','--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(0);
   const records=lines.map(l=>JSON.parse(l)),last=records.at(-1),{cycle,proposalHash}=last.data;expect(last).toMatchObject({version:1,type:'improvement',action:'propose',localOnly:true});
-  const events=records.filter(r=>r.type==='improvement.event');expect(events.length).toBeGreaterThan(0);expect(events.every(r=>r.version===1&&r.runId===view.run.id&&r.event.version===(r.event.change.type.startsWith('supervision_')?3:1)&&r.event.hash.length===64)).toBe(true);
+  const events=records.filter(r=>r.type==='improvement.event');expect(events.length).toBeGreaterThan(0);expect(events.every(r=>r.version===1&&r.runId===view.run.id&&r.event.version===(r.event.change.requestAttribution===1?6:r.event.change.type.startsWith('supervision_')?3:1)&&r.event.hash.length===64)).toBe(true);
   const calls=requests.length,ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project);vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(cycle.budget.deadline+1);
   await expect(runImprovement(project,view.run.id,cycle.id,proposalHash,{store:runs})).rejects.toThrow(/deadline|expired/i);
   const human:string[]=[];expect(await runImprovementCommand(['history','--run',view.run.id],{cwd:project,store:runs,write:l=>human.push(l)})).toBe(0);expect(human[0]).toContain(cycle.id);

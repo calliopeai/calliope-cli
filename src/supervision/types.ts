@@ -36,7 +36,7 @@ export type SupervisionDecision=
 export interface RetryReceipt {artifactId:string;sha256:string;exitCode:number;outcome:'passed'|'failed'|'timeout';cleanupConfirmed:true}
 export type SupervisionRole='controller'|'reviewer';
 export type SupervisionChange=
-  |{type:'supervision_started';round:number;role:SupervisionRole;agentId:string;sessionId:string;evidenceIds:string[];evidenceHash:string}
+  |{type:'supervision_started';round:number;role:SupervisionRole;agentId:string;sessionId:string;evidenceIds:string[];evidenceHash:string;requestAttribution?:1}
   |{type:'supervision_decided';round:number;role:SupervisionRole;agentId:string;sessionId:string;decision:SupervisionDecision}
   |{type:'supervision_applied';round:number;decisionId:string;receipts:RetryReceipt[]}
   |{type:'supervision_halted';round:number;outcome:'stop'|'limit'|'failed'|'denied'|'cancelled'|'interrupted';reason:string}

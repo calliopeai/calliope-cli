@@ -14,6 +14,7 @@ import {shape} from '../orchestration/validation.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import {projectImprovementHistory} from './projection.js';
 import type {ImprovementCycle} from './types.js';
+import {readRunAccounting} from '../orchestration/accounting.js';
 
 export function improvementProposalHash(cycle:ImprovementCycle):string {
   return digest(canonicalJson({version:1,runId:cycle.runId,manifestHash:cycle.source.manifestHash,decision:cycle.source.decision,proposal:cycle.proposedChange,deadline:cycle.budget.deadline}));
@@ -23,7 +24,8 @@ export async function inspectImprovements(cwd:string,runId:string|undefined,opti
   const initial=await inspectRun(cwd,runId,options),current=await inspectExecution(cwd,initial.run.id,options);
   assertExecutionStoreOutsideProject(current.view.manifest.project.root,join(current.store.root,'..','..'));
   if(!current.execution)throw new OrchestrationError('unavailable','This run has no execution evidence.');
-  const history=projectImprovementHistory(current.view.manifest,current.execution,current.store.context(current.execution)),seen=new Set<string>();let total=0;
+  const accounting=readRunAccounting(current.store,current.execution);
+  const history=projectImprovementHistory(current.view.manifest,current.execution,current.store.context(current.execution),accounting.status==='available'?accounting.attribution:undefined),seen=new Set<string>();let total=0;
   for(const cycle of history.cycles)for(const outcome of [...cycle.baseline,...cycle.results])for(const artifact of outcome.artifacts){
     throwIfCancelled(options.signal);if(seen.has(artifact.source.eventId))continue;seen.add(artifact.source.eventId);
     total+=artifact.bytes;if(total>64*1024*1024)throw new OrchestrationError('limit','Improvement evidence exceeds the 64 MiB inspection bound.');

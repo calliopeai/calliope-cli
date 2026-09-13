@@ -49,8 +49,10 @@ clock or refund spend.
 ## Evidence and schema
 
 History is a deterministic projection of the existing private, hash-chained
-execution journal, not a second mutable database. Each `ImprovementCycle` has
-`version: 1` and an immutable ID equal to the final decision event ID. It includes:
+journals, not a second mutable database. Legacy histories and cycles retain
+`version: 1`; runs with [request attribution](request-attribution.md) use version 2
+and identify the observed budget revision. Each cycle's immutable ID is its final
+decision event ID. It includes:
 
 - Trigger event IDs/hashes, principle, proposed hypothesis/change/metric.
 - Parent decomposition and previous attempt links, target tasks, original run
@@ -82,16 +84,24 @@ proved. Human acceptance remains distinguishable by its source event.
 | `acceptance-check-pass-rate` | Passed recorded acceptance checks / all recorded checks | Same tasks and check definitions |
 | `attempt-duration` | Sum of task-start to task-finish event durations, milliseconds | Same complete task population |
 | `tool-failure-rate` | Failed completed tool calls / completed tool calls | Same complete task population |
+| `provider-accounted-cost` | Accounted provider charges for the recorded worker attempts, integer nano-dollars | Same complete task population, bound request provenance and fully settled usage |
 
 Missing measurements are `null`, never zero. New task populations and changed
 check definitions are explicitly non-comparable. These observations do not prove
 causality or provide an automatic security/performance certification. Requested
 metrics remain proposed even when checks pass. The duration is summed task time,
 not workflow wall time; acceptance checks are not the individual assertions inside
-a test process. Per-cycle provider cost is unavailable without trustworthy request
-attribution; the shared run/project ledgers continue enforcing actual reservations.
+a test process. The cost measurement excludes planning and controller/reviewer
+overhead, and is not whole-goal cost per successful task or an invoice. Those
+roles retain separate request attribution in run diagnostics. Unknown or pending
+requests retain their conservative charge, but prevent a comparable cost delta.
+Legacy/missing bindings yield unavailable costs rather than fabricated zeroes;
+the shared run/project ledgers continue enforcing their original reservations.
 
-The HUD adds the latest cycle's status and comparable check rate. Headless output
+The HUD adds the latest cycle's status, comparable check rate and comparable
+worker-attempt cost. Explicit Brain run ingestion cites the budget revision and
+stores a separate snapshot when accounting changes; hypotheses remain proposed.
+Headless output
 uses `version: 1`, `type: improvement` for results and `type: improvement.event`
 for streamed execution events; enclosed events keep their own schema version.
 Execution exit codes remain 0 success, 4 partial, 3 policy denial, 130 cancellation

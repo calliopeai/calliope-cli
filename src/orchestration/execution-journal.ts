@@ -2,12 +2,15 @@ import {validateRecordedRoute,taskSmartSelection} from './routing.js';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,hex,id,integer,iso,pathName,permits,shape,strings,text,uuid,fail} from './validation.js';
 import {OrchestrationError,type RunManifest} from './types.js';
-import type {CollectedArtifact,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput,RunPlanContext} from './coordinator-types.js';
+import type {CollectedArtifact,ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput,RunPlanContext} from './coordinator-types.js';
 import {validateSpawnAdmission,extendPlan} from '../spawning/validation.js';
 import {newSupervision,validateSupervisionChange,replaySupervisionChange,supervisionEvidence,assertSupervisionProposal} from '../supervision/journal.js';
 
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
+export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
+  return 'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+}
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
   if(value.version!==1||value.runId!==manifest.id||value.manifestHash!==manifest.hash||!uuid(value.approvalRevision)||!iso(value.createdAt))fail('Execution header does not match its reviewed run.');
@@ -50,9 +53,10 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route']);const c=value.change;
-  if(value.version!==(c.type==='agent_routed'?5:c.type==='proposal_validated'?4:String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
+  if(![1,2,3,4,5,6].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution']);const c=value.change;
+  if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
+  if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
   else if(c.type==='proposal_validated'){
     shape(c,['type','taskId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);
@@ -63,7 +67,7 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest,header
   else if(c.type==='agent_routed'){shape(c,['type','agentId','sessionId','route'],['taskId']);text(c.agentId,64);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid route session.');validateRecordedRoute(c.route,manifest,c.agentId);if(c.taskId!==undefined&&!manifest.plan.tasks.some(t=>t.id===c.taskId&&t.agentId===c.agentId))fail('Route task belongs to another agent.');}
   else if(c.type==='graph_admitted'){shape(c,['type','admission']);if(!header)fail('A graph admission requires its original execution header.');validateSpawnAdmission(c.admission,manifest,header,manifest.plan);}
   else if(c.type==='started'){shape(c,['type','ownerId'],['proposalOnly']);if(c.proposalOnly!==undefined&&(c.proposalOnly!==true||!manifest.plan.supervision))fail('Proposal-only execution requires reviewed supervision.');if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
-  else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
+  else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId'],['requestAttribution']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
   else if(c.type==='task_recovery_started'){shape(c,['type','taskId','outcomeId']);if(!uuid(c.outcomeId))fail('Evidence recovery requires its original outcome ID.');}
   else if(c.type==='agent_started'||c.type==='agent_finished'||c.type==='escalated'){
     shape(c,['type','agentId','taskId',...(c.type==='agent_finished'?['status']:c.type==='escalated'?['target']:[])]);
@@ -93,11 +97,12 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
   const state:ExecutionProjection={version:1,runId:manifest.id,revision:journalHash(header,[]),status:'ready',ownerId:null,deadline:header.deadline,tasks:Object.create(null),artifacts:Object.create(null),stoppedAgents:[]};
   for(const task of manifest.plan.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
   if(manifest.plan.supervision){state.supervision=newSupervision();state.version=3;}
-  const seen=new Set<string>(),agentEvents=new Set<string>(),toolStarts=new Map<string,string>(),recoveries=new Set<string>(),recovering=new Set<string>(),proposals=new Map<string,boolean>();let last=header.createdAt;
+  const seen=new Set<string>(),agentEvents=new Set<string>(),toolStarts=new Map<string,string>(),recoveries=new Set<string>(),recovering=new Set<string>(),proposals=new Map<string,boolean>();let last=header.createdAt,attributed=false;
   const conflict=(message:string):never=>{throw new OrchestrationError('conflict',message);};
   const active=()=>{if(state.status!=='running'||!state.ownerId)conflict('Coordinator is not active.');};
   for(const event of events){
     validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
+    if(event.version===6)attributed=true;
     const c=event.change,task='taskId' in c&&c.taskId?state.tasks[c.taskId]!:undefined;
     if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
     else if(c.type==='agent_routed'){
@@ -178,7 +183,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       active();if(c.status==='completed'&&state.supervision&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');
       if(c.ownerId!==state.ownerId||Object.values(state.tasks).some(t=>t.status==='running')||c.status==='completed'&&!Object.values(state.tasks).every(t=>t.status==='completed'))conflict('Coordinator cannot finish with active or unverified work.');state.status=c.status;state.ownerId=null;
     }
-    if(state.routes)state.version=5;state.revision=event.hash;
+    if(state.routes)state.version=5;if(attributed)state.version=6;state.revision=event.hash;
   }
   return state;
 }

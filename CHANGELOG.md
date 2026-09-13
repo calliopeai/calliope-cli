@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Bind provider reservations to immutable task-attempt and controller/reviewer start events; expose per-attempt accounted costs in run diagnostics, bounded improvement feedback, the HUD and explicit Brain ingestion while preserving legacy evidence and unavailable measurements (#332).
+
 - Show persistent run and agent/subtree budget balances, pending/unknown reservations and unavailable-ledger diagnostics in the HUD and headless inspection, without changing admission or restoring capacity (#326).
 
 - Add opt-in Smart orchestration routing with reviewed role pools, explicit pins, verification-backed escalation, original budget/deadline enforcement and actual route events in the HUD and replay (#324).
