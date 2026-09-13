@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add opt-in bounded planner repair with precise inherited-authority diagnostics, immutable validation events, retained rejected drafts and unchanged budgets, deadlines and human approval (#321).
+
 - Preserve actual isolated verification and patches after worker output cutoffs; add explicit legacy evidence recovery with unchanged budgets, deadlines and append-only history, and require fresh controller review (#320).
 
 - Include OpenRouter context tiers and cache rates in admission estimates, bind request price filters to reservations, disable optional routing expansion, and correct the capture harness's price-field names while retaining historical evidence (#318).

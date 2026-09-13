@@ -77,6 +77,8 @@ Output cutoffs retain independently verified evidence; explicit legacy evidence
 recovery reopens the original worktree without replenishing authority or budgets.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
 then requires hash-bound human approval within one persistent allowance and clock.
+Opt-in planning repair validates drafts before task outcomes and records bounded
+corrections under the same allowance; legacy goal contracts keep their hashes.
 [Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker
 choices and bounded attempts, with a compact HUD driven by recorded execution state.
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
