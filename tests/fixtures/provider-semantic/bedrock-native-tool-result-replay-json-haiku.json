@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-native",
+  "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:30:23.654Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "077c29be-7ecf-4060-ac4a-a2ec1694d60a",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/model/us.anthropic.claude-haiku-4-5-20251001-v1%3A0/converse",
+          "body": "eyJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0ZXh0IjoiQ2FsbCBlY2hvIGV4YWN0bHkgb25jZSB3aXRoIHRleHQ9XCJoZWxsb1wiLiBUaGlzIGlzIGEgY29uZm9ybWFuY2UgZml4dHVyZTogdGhlIHRvb2wgc3VwcGxpZXMgYSBtYXJrZXIgdGhhdCBjYW4gZGlmZmVyIGZyb20gaXRzIGlucHV0LiBBZnRlciB5b3UgcmVjZWl2ZSBpdCwgb3V0cHV0IG9ubHkgaXRzIHJlc3VsdCBzdHJpbmcgd2l0aG91dCBwdW5jdHVhdGlvbiwgcXVvdGF0aW9uIG1hcmtzLCBvciBleHBsYW5hdGlvbi4ifV19XSwiaW5mZXJlbmNlQ29uZmlnIjp7Im1heFRva2VucyI6NTEyfSwidG9vbENvbmZpZyI6eyJ0b29scyI6W3sidG9vbFNwZWMiOnsibmFtZSI6ImVjaG8iLCJkZXNjcmlwdGlvbiI6IkVjaG8gYSBzdHJpbmcuIENvbmZvcm1hbmNlIHByb2JlIG9ubHk7IG5ldmVyIGV4ZWN1dGVzLiIsImlucHV0U2NoZW1hIjp7Impzb24iOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidGV4dCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJUZXh0IHRvIGVjaG8ifX0sInJlcXVpcmVkIjpbInRleHQiXX19fX1dfX0=",
+          "sha256": "07bcc1caec9e1dde0a5d567bcf6e79176a95c8cb1647e488f66199f034996d31"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6NzUwfSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidG9vbFVzZSI6eyJpbnB1dCI6eyJ0ZXh0IjoiaGVsbG8ifSwibmFtZSI6ImVjaG8iLCJ0b29sVXNlSWQiOiJ0b29sdXNlX05xdU52NW52WmIxZXlaZVZSdlBVNm0iLCJ0eXBlIjoidG9vbF91c2UifX1dLCJyb2xlIjoiYXNzaXN0YW50In19LCJzdG9wUmVhc29uIjoidG9vbF91c2UiLCJ1c2FnZSI6eyJjYWNoZVJlYWRJbnB1dFRva2VuQ291bnQiOjAsImNhY2hlUmVhZElucHV0VG9rZW5zIjowLCJpbnB1dFRva2VucyI6NjE5LCJvdXRwdXRUb2tlbnMiOjUyLCJzZXJ2ZXJUb29sVXNhZ2UiOnt9LCJ0b3RhbFRva2VucyI6NjcxfX0=",
+        "sha256": "41f592f0a3909dd10cfb86fd4c766458042a8f165362e4d9034e9f96f0fb0436",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 619,
+            "outputTokens": 52
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "8c0a93f8-e012-4dcf-bc49-3482b3c09840",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/model/us.anthropic.claude-haiku-4-5-20251001-v1%3A0/converse",
+          "body": "eyJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0ZXh0IjoiQ2FsbCBlY2hvIGV4YWN0bHkgb25jZSB3aXRoIHRleHQ9XCJoZWxsb1wiLiBUaGlzIGlzIGEgY29uZm9ybWFuY2UgZml4dHVyZTogdGhlIHRvb2wgc3VwcGxpZXMgYSBtYXJrZXIgdGhhdCBjYW4gZGlmZmVyIGZyb20gaXRzIGlucHV0LiBBZnRlciB5b3UgcmVjZWl2ZSBpdCwgb3V0cHV0IG9ubHkgaXRzIHJlc3VsdCBzdHJpbmcgd2l0aG91dCBwdW5jdHVhdGlvbiwgcXVvdGF0aW9uIG1hcmtzLCBvciBleHBsYW5hdGlvbi4ifV19LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOlt7InRvb2xVc2UiOnsidG9vbFVzZUlkIjoidG9vbHVzZV9OcXVOdjVudlpiMWV5WmVWUnZQVTZtIiwibmFtZSI6ImVjaG8iLCJpbnB1dCI6eyJ0ZXh0IjoiaGVsbG8ifX19XX0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOlt7InRvb2xSZXN1bHQiOnsidG9vbFVzZUlkIjoidG9vbHVzZV9OcXVOdjVudlpiMWV5WmVWUnZQVTZtIiwiY29udGVudCI6W3sidGV4dCI6IkhlbGxvIM+AIn1dfX1dfV0sImluZmVyZW5jZUNvbmZpZyI6eyJtYXhUb2tlbnMiOjUxMn0sInRvb2xDb25maWciOnsidG9vbHMiOlt7InRvb2xTcGVjIjp7Im5hbWUiOiJlY2hvIiwiZGVzY3JpcHRpb24iOiJFY2hvIGEgc3RyaW5nLiBDb25mb3JtYW5jZSBwcm9iZSBvbmx5OyBuZXZlciBleGVjdXRlcy4iLCJpbnB1dFNjaGVtYSI6eyJqc29uIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InRleHQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiVGV4dCB0byBlY2hvIn19LCJyZXF1aXJlZCI6WyJ0ZXh0Il19fX19XX19",
+          "sha256": "14bd1c1532df416f98f552bc3637ab047058252305749be7482c8c2a11d3e346"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6NTQ0fSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidGV4dCI6IkhlbGxvIM+AIn1dLCJyb2xlIjoiYXNzaXN0YW50In19LCJzdG9wUmVhc29uIjoiZW5kX3R1cm4iLCJ1c2FnZSI6eyJjYWNoZVJlYWRJbnB1dFRva2VuQ291bnQiOjAsImNhY2hlUmVhZElucHV0VG9rZW5zIjowLCJpbnB1dFRva2VucyI6Njg1LCJvdXRwdXRUb2tlbnMiOjUsInNlcnZlclRvb2xVc2FnZSI6e30sInRvdGFsVG9rZW5zIjo2OTB9fQ==",
+        "sha256": "eceb55c77f93fd113343dba79396455492e7d1eab0aac801147aeb745e9eb167",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 685,
+            "outputTokens": 5
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

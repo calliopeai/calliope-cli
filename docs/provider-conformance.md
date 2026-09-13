@@ -39,7 +39,7 @@ excluded from normalized expectations; function names and arguments are asserted
 
 `npm run test:conformance:release` requires a text and tool capture in JSON and
 streaming mode for each of the 18 active adapter paths (72 combinations). It fails while
-any are missing. `prepublishOnly` runs this gate; ordinary CI remains fully offline
+any are missing. `prepublishOnly` also requires the nine-check product gate, including extended semantic captures and usage; ordinary CI remains fully offline
 and tests any captures that have been checked in. The default suite skips the
 readiness assertion explicitly rather than reporting captured coverage as passing.
 
@@ -102,3 +102,61 @@ errors, usage, system instructions and tool-result replay. Missing extended wire
 evidence remains missing even when synthetic regression tests pass; use
 `--require-ready` to fail on any incomplete product check. This inventory is not
 the phase-2 runtime health subsystem.
+
+## Extended semantic captures
+
+`npm run capture:semantics -- --help` describes the opt-in runner. It retains the
+same persistent ledger and per-request output/input bounds as basic captures.
+Tool-result replay uses two independently reserved requests; the other scenarios
+use one. Every request has a 30-second deadline. HTTP redirects and SDK retries
+cannot create hidden extra wire requests. OpenRouter probes additionally bind
+`provider.max_price` to the reservation rates and disable provider fallbacks.
+
+```sh
+npm run capture:semantics -- --live --provider <adapter-id> --model <model-id> \
+  --scenario tool-result-replay --max-output-tokens 128 \
+  --output /private/local/new-capture.json \
+  --ledger /private/local/probe-budget.json --max-cost-usd <authorized-total> \
+  --run-id <existing-run-id> --max-run-cost-usd <authorized-run-limit> \
+  --input-usd-per-million <verified-rate> --output-usd-per-million <verified-rate>
+```
+
+The scenarios are `system-instructions`, `tool-result-replay`, `provider-error`
+and `cancellation` (requires `--stream`). Successful instruction/replay checks
+require the exact public marker, with no extra tools; noncompliant or truncated
+replies remain incomplete. Error checks require a complete HTTP error response
+and adapter rejection. A successful completion in an error check is incomplete
+negative evidence, and does not mean inference access failed.
+
+Cancellation now observes the live body rather than buffering it to completion.
+It aborts after actual bytes arrive and records that the adapter rejected and its
+local response body reached a terminal state. This does not establish when a
+remote provider stopped computing or billing. A local HTTP integration test also
+checks connection closure while the server deliberately leaves the stream open.
+Tests additionally cancel from an emitted token with terminal frames already
+buffered; no adapter may return success after that cancellation.
+
+The version-1 `provider-semantic` schema stores backend/model/scenario, stream
+mode, output cap, provenance and one or two turns. Each turn has its own budget
+reservation ID; a fixed public request and response encoded as base64 with SHA256
+checksums; method/path/status/content-type; complete/body-closed flags; and a
+strict expected outcome. Headers other than response content-type, query strings
+and exception objects are excluded. Request bodies contain only the fixed toy
+conversation and provider state derived from its first response. Returned tools
+never execute. Known credentials and recognizable key material are refused,
+without modifying bytes to manufacture a passing transcript. Review decoded
+content before adding any capture to `tests/fixtures/provider-semantic/`.
+
+`probeVersion: 2` clarifies that a tool's returned marker can differ from its input;
+version 1 remains replayable and is the default for older records without this
+field. Both versions require the same exact output. Gateway provenance identifies
+the local server/version and actual upstream. OpenRouter price limits are recorded
+and checked against the request. Replay reconstructs both turns through actual
+SDKs, carries provider metadata, and compares the request bodies and results.
+Only generated Ollama call IDs are excluded from equality; native IDs stay intact.
+Checksums provide tamper detection, not independent proof of where bytes came from.
+
+The [September 13 semantic follow-up](provider-semantic-followup.md) records current
+coverage and limitations. `providers:readiness` includes this corpus. The mandatory
+release gate now fails for *any* missing basic, semantic or usage check; deferrals
+and incomplete results remain visible. No publication bypass was added.

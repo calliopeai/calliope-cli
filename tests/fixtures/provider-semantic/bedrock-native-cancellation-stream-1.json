@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-native",
+  "model": "us.amazon.nova-micro-v1:0",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:22:46.549Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "521ccd7b-830a-4319-90a2-4411e5676bb3",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/model/us.amazon.nova-micro-v1%3A0/converse-stream",
+          "body": "eyJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0ZXh0IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XX1dLCJpbmZlcmVuY2VDb25maWciOnsibWF4VG9rZW5zIjoxMjh9fQ==",
+          "sha256": "900a1b2925ddaa9cf8774340b0c532763859a4c50627b4c837b8eb13aeab9852"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/vnd.amazon.eventstream"
+        },
+        "body": "AAAAjwAAAFLT8cjyCzpldmVudC10eXBlBwAMbWVzc2FnZVN0YXJ0DTpjb250ZW50LXR5cGUHABBhcHBsaWNhdGlvbi9qc29uDTptZXNzYWdlLXR5cGUHAAVldmVudHsicCI6ImFiY2RlZmdoaWprbG1ub3BxciIsInJvbGUiOiJhc3Npc3RhbnQifcFrcQs=",
+        "sha256": "b4936d7aa6f23f8c06e4691ca172924360c52ff99316828726f187525e7c7c67",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 143,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-compat",
+  "model": "conformance-bedrock",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:30.464Z",
+    "sourceOrigin": "http://127.0.0.1:39431",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "litellm",
+      "version": "1.100.1",
+      "upstreamProvider": "bedrock",
+      "upstreamModel": "amazon.nova-micro-v1:0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "7aaacc56-e4ac-419d-a4b3-c01e824edb8e",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNvbmZvcm1hbmNlLWJlZHJvY2siLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgZmlyc3Qgd29yZCBvZiB5b3VyIGV4YWN0IHJlcGx5IG11c3QgYmUgSGVsbG8uIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy4ifSx7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIHNlY29uZCBhbmQgZmluYWwgd29yZCBtdXN0IGJlIM+ALiBTZXBhcmF0ZSB0aGUgdHdvIHdvcmRzIHdpdGggb25lIHNwYWNlOyBhZGQgbm90aGluZyBlbHNlLiJ9XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "407dd76b2ed154e87e3222691e52372a734993f1b58236c0114d30cf60cc4cd0"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTliOWZkZWNkLTljYjEtNGU5NS1hZjcwLWE1NjRkZGRkZDlkYSIsImNyZWF0ZWQiOjE3ODkyNTkxOTAsIm1vZGVsIjoiY29uZm9ybWFuY2UtYmVkcm9jayIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJzdG9wIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IkhlbGxvIM+AIiwicm9sZSI6ImFzc2lzdGFudCJ9fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjozLCJwcm9tcHRfdG9rZW5zIjozNywidG90YWxfdG9rZW5zIjo0MCwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjowLCJ0ZXh0X3Rva2VucyI6M30sInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZV93cml0ZV90b2tlbnMiOjAsImNhY2hlZF90b2tlbnMiOjAsInRleHRfdG9rZW5zIjozNywiY2FjaGVfY3JlYXRpb25fdG9rZW5zIjowfSwiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjowLCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MH19",
+        "sha256": "d81fd207c410685e5998c4210a4b8780aae224706eaf279753e9a4279e7203e6",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 37,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

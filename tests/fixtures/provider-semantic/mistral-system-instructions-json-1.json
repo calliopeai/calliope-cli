@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "mistral",
+  "model": "ministral-3b-2512",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:15.214Z",
+    "sourceOrigin": "https://api.mistral.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "1a74da91-8df0-4e58-9247-298964b6f4df",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1pbmlzdHJhbC0zYi0yNTEyIiwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIGZpcnN0IHdvcmQgb2YgeW91ciBleGFjdCByZXBseSBtdXN0IGJlIEhlbGxvLiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoiRm9sbG93IGJvdGggc3lzdGVtIGRpcmVjdGl2ZXMuIn0seyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBzZWNvbmQgYW5kIGZpbmFsIHdvcmQgbXVzdCBiZSDPgC4gU2VwYXJhdGUgdGhlIHR3byB3b3JkcyB3aXRoIG9uZSBzcGFjZTsgYWRkIG5vdGhpbmcgZWxzZS4ifV0sIm1heF90b2tlbnMiOjEyOH0=",
+          "sha256": "a0a24beeaa2737353dc8952b5d3adffbc02e40009dce4fdb5a36b314c2f14f46"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6IjkyMzkyYWFhZGM2NDRhYTc5YTM0OGE1MDE5ZmY5YzcwIiwiY3JlYXRlZCI6MTc4OTI1ODU3NSwibW9kZWwiOiJtaW5pc3RyYWwtM2ItMjUxMiIsInVzYWdlIjp7InByb21wdF90b2tlbnMiOjQ1LCJ0b3RhbF90b2tlbnMiOjQ4LCJjb21wbGV0aW9uX3Rva2VucyI6MywicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjB9LCJzZXJ2aWNlX3RpZXIiOiJzdGFuZGFyZCJ9LCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24iLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZmluaXNoX3JlYXNvbiI6InN0b3AiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJ0b29sX2NhbGxzIjpudWxsLCJjb250ZW50IjoiSGVsbG8gz4AifX1dfQ==",
+        "sha256": "d40961f82b81030168b899f527a2c248bac91f3c09476b966948e2abc7ccf92c",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 45,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

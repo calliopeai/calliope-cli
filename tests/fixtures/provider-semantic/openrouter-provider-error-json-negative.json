@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openrouter",
+  "model": "calliope/conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:24:05.989Z",
+    "sourceOrigin": "https://openrouter.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "maxPrice": {
+      "input": 0.1,
+      "output": 0.4
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "66f4ecb3-2b63-4940-9818-aeb679a860cd",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlL2NvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6NTEyLCJwcm92aWRlciI6eyJhbGxvd19mYWxsYmFja3MiOmZhbHNlLCJtYXhfcHJpY2UiOnsiaW5wdXQiOjAuMSwib3V0cHV0IjowLjR9fX0=",
+          "sha256": "06278510ef7463e6e281f012bb274f0b5db742b225dc5364483f7f87041c5c58"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiY2FsbGlvcGUvY29uZm9ybWFuY2UtbWlzc2luZy1tb2RlbCBpcyBub3QgYSB2YWxpZCBtb2RlbCBJRCIsImNvZGUiOjQwMH0sInVzZXJfaWQiOiJ1c2VyXzMwdWdZM0k2WFRrcTVOR3JIYXdhaHozRzM2eSJ9",
+        "sha256": "9304d34f36c9cf3140a3577429135bf127d5dd2d1c77d032e1b216da1bff3907",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

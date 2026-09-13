@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "litellm",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:29.510Z",
+    "sourceOrigin": "http://127.0.0.1:39431",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "litellm",
+      "version": "1.100.1",
+      "upstreamProvider": "together",
+      "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "1f8f4c50-b205-4585-8a55-a7f6f2187da8",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "13e0aef6cb3e32cd386021ba48030bd1dfa51890e193d9928ca68ed263b9306a"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiL2NoYXQvY29tcGxldGlvbnM6IEludmFsaWQgbW9kZWwgbmFtZSBwYXNzZWQgaW4gbW9kZWw9Y2FsbGlvcGUtY29uZm9ybWFuY2UtbWlzc2luZy1tb2RlbC4gQ2FsbCBgL3YxL21vZGVsc2AgdG8gdmlldyBhdmFpbGFibGUgbW9kZWxzIGZvciB5b3VyIGtleS4iLCJ0eXBlIjoiTm9uZSIsInBhcmFtIjoiTm9uZSIsImNvZGUiOiI0MDAiLCJwcm92aWRlcl9zcGVjaWZpY19maWVsZHMiOnsiZXJyb3IiOiIvY2hhdC9jb21wbGV0aW9uczogSW52YWxpZCBtb2RlbCBuYW1lIHBhc3NlZCBpbiBtb2RlbD1jYWxsaW9wZS1jb25mb3JtYW5jZS1taXNzaW5nLW1vZGVsLiBDYWxsIGAvdjEvbW9kZWxzYCB0byB2aWV3IGF2YWlsYWJsZSBtb2RlbHMgZm9yIHlvdXIga2V5LiJ9fX0=",
+        "sha256": "2fa674d557307c16496e3d6c3135cba6aff2c01d6c8c4826e6566d1c4cc2ed6d",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

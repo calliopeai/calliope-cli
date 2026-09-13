@@ -1,0 +1,3240 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-13T00:33:53.190Z",
+  "runId": "provider-followup-2026-09-11-02",
+  "scope": "Extended semantic real-wire probes; historical basic corpus retained",
+  "privacy": "Fixed public toy prompts and static tool results only; no tool execution or project context. Credential/header and decoded-body scans completed before promotion.",
+  "budget": {
+    "currency": "USD",
+    "cumulativeLimit": 500,
+    "runLimit": 50,
+    "priorCumulativeReservedNanoUsd": 53366830241,
+    "priorRunReservedNanoUsd": 1770100000,
+    "addedReservedNanoUsd": 192693170,
+    "cumulativeReservedNanoUsd": 53559523411,
+    "runReservedNanoUsd": 1962793170,
+    "reservations": 90,
+    "note": "Conservative reservations, not invoices. Failed/incomplete/cancelled attempts retain every reservation. Per-turn ledger status does not establish a complete semantic check."
+  },
+  "summary": {
+    "probes": 70,
+    "captured": 55,
+    "incomplete": 15,
+    "capturedSemanticCombinations": 55,
+    "requiredSemanticCombinations": 72,
+    "adapterPathsWithSemanticEvidence": 17
+  },
+  "corrections": [
+    {
+      "attempt": "bedrock-native-tool-result-replay-json-haiku",
+      "field": "rates.source",
+      "explanation": "The regional Bedrock offer catalog did not contain Haiku 4.5 Marketplace prices. The reservation used a conservative $2/$10 allowance; AWS documents US-zone Haiku 4.5 at $1.1/$5.5 per million. No reservation was reduced.",
+      "source": "https://aws.amazon.com/jp/blogs/news/amazon-bedrock-now-supports-japan-cross-region-inference/"
+    }
+  ],
+  "discoveryFinding": {
+    "provider": "bedrock",
+    "observed": {
+      "httpStatus": 200,
+      "nextToken": null,
+      "profileCount": 75
+    },
+    "fix": "Accept null as a terminal cursor; retain rejection of invalid/repeated cursors and the page budget.",
+    "after": {
+      "liveModels": 129
+    }
+  },
+  "gateway": {
+    "name": "litellm",
+    "version": "1.100.1",
+    "retries": 0,
+    "requestTimeoutSeconds": 25,
+    "temporary": true,
+    "stopped": true
+  },
+  "deferred": [
+    {
+      "backend": "xai",
+      "checks": [
+        "system-instructions",
+        "tool-result-replay",
+        "cancellation",
+        "provider-error"
+      ],
+      "reason": "Explicit user deferral; not treated as passing."
+    }
+  ],
+  "limitations": [
+    "Cancellation observes client abort after bytes arrive and a terminal local response body. It does not establish when server computation/billing stopped.",
+    "Provider-error evidence proves a rejected HTTP response, not successful inference access. OpenAI Chat/Responses remain HTTP429 and Cerebras HTTP402.",
+    "Strict exact-output misses remain incomplete. Prompt v2 clarifies that the returned marker may differ from echo input; original v1 failures and captures remain retained.",
+    "Gateway evidence belongs only to the invoked adapter and recorded upstream configuration.",
+    "Native model metadata and opaque provider state are replayed from the recorded SDK response; only locally generated Ollama call IDs are excluded from request equality.",
+    "Publication remains blocked by the basic provider gate, remaining semantic/usage evidence and release integrity work."
+  ],
+  "attempts": [
+    {
+      "id": "anthropic-system-instructions-json-1",
+      "at": "2026-09-13T00:14:15.725Z",
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1,
+        "outputUsdPerMillion": 5,
+        "source": "https://www.anthropic.com/claude/haiku"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1107,
+      "reservations": [
+        {
+          "id": "2ebe89ac-3f35-4c2c-9adb-342e93beb475",
+          "status": "captured",
+          "reservedNanoUsd": 5640000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/anthropic-system-instructions-json-1.json",
+        "sha256": "dbbc3b1d115e3eb6139da46aaf28c0a22750bebf5c742582e644ee181ade9786",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 47,
+          "outputTokens": 5
+        }
+      ]
+    },
+    {
+      "id": "anthropic-tool-result-replay-json-1",
+      "at": "2026-09-13T00:14:17.311Z",
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1,
+        "outputUsdPerMillion": 5,
+        "source": "https://www.anthropic.com/claude/haiku"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1584,
+      "reservations": [
+        {
+          "id": "bb8204e3-b4ba-42de-964c-4a18c56581ca",
+          "status": "captured",
+          "reservedNanoUsd": 5640000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        },
+        {
+          "id": "fae0443d-5bd3-4132-8a30-7abd66affe44",
+          "status": "captured",
+          "reservedNanoUsd": 5640000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/anthropic-tool-result-replay-json-1.json",
+        "sha256": "df54ff247351309d485ee24302cf6446c7015f6bf96da16a622d8b3e74b8a5b2",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 599,
+          "outputTokens": 52
+        },
+        {
+          "inputTokens": 665,
+          "outputTokens": 5
+        }
+      ]
+    },
+    {
+      "id": "anthropic-cancellation-stream-1",
+      "at": "2026-09-13T00:14:18.257Z",
+      "backend": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1,
+        "outputUsdPerMillion": 5,
+        "source": "https://www.anthropic.com/claude/haiku"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 946,
+      "reservations": [
+        {
+          "id": "231c357c-777a-40d5-80bb-92e1065a4d1b",
+          "status": "cancelled",
+          "reservedNanoUsd": 5640000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/anthropic-cancellation-stream-1.json",
+        "sha256": "9f851a947b38502f2fe5d816c11ac86cb484fcc18fa6553033903f7790352abd",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "google-system-instructions-json-1",
+      "at": "2026-09-13T00:14:19.122Z",
+      "backend": "google",
+      "model": "gemini-2.5-flash-lite",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 865,
+      "reservations": [
+        {
+          "id": "675afaf3-186e-4ded-b8f2-9e5b15a5869f",
+          "status": "captured",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/google-system-instructions-json-1.json",
+        "sha256": "926a837ce505c08f6797f22f41b44fe4b45357152d6251c6f76800089f2a6988",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 40,
+          "outputTokens": 2
+        }
+      ]
+    },
+    {
+      "id": "google-tool-result-replay-json-1",
+      "at": "2026-09-13T00:14:20.313Z",
+      "backend": "google",
+      "model": "gemini-2.5-flash-lite",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1190,
+      "reservations": [
+        {
+          "id": "c419a7de-7412-4b96-90db-887c7ef83f7f",
+          "status": "captured",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        },
+        {
+          "id": "d1e0a4b3-ba0d-49e2-97dd-3aab764fdaf9",
+          "status": "failed",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "google-cancellation-stream-1",
+      "at": "2026-09-13T00:14:21.120Z",
+      "backend": "google",
+      "model": "gemini-2.5-flash-lite",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 807,
+      "reservations": [
+        {
+          "id": "1957a98c-cae5-4489-8739-ea4397cd5cdc",
+          "status": "cancelled",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/google-cancellation-stream-1.json",
+        "sha256": "b0a1193fbdd0de8b8923be37ba3dcdc96fa2b3b423c2e8171524234b899d2b00",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "deepseek-system-instructions-json-1",
+      "at": "2026-09-13T00:14:22.797Z",
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.3,
+        "outputUsdPerMillion": 1.2,
+        "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1677,
+      "reservations": [
+        {
+          "id": "4ba3e42d-67cb-4abf-940a-3d15865638ea",
+          "status": "captured",
+          "reservedNanoUsd": 2114400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/deepseek-system-instructions-json-1.json",
+        "sha256": "69baf145479ebe2d76d6e39b724e1636ee72807ddb4c4bcec0f54abc843bbebf",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 68,
+          "outputTokens": 91
+        }
+      ]
+    },
+    {
+      "id": "deepseek-tool-result-replay-json-1",
+      "at": "2026-09-13T00:14:25.211Z",
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.3,
+        "outputUsdPerMillion": 1.2,
+        "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 2413,
+      "reservations": [
+        {
+          "id": "e77ab737-9f22-4890-b98f-4cf72531d693",
+          "status": "captured",
+          "reservedNanoUsd": 2114400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "fe351b87-6435-466d-8789-9e9451370a67",
+          "status": "captured",
+          "reservedNanoUsd": 2114400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/deepseek-tool-result-replay-json-1.json",
+        "sha256": "c37c19b1a7f544cb97d8e3cba034a567cfff86563e7d7b6d13764d503ae8e793",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 329,
+          "outputTokens": 69
+        },
+        {
+          "inputTokens": 412,
+          "outputTokens": 19
+        }
+      ]
+    },
+    {
+      "id": "deepseek-cancellation-stream-1",
+      "at": "2026-09-13T00:14:26.202Z",
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.3,
+        "outputUsdPerMillion": 1.2,
+        "source": "https://api-docs.deepseek.com/quick_start/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 991,
+      "reservations": [
+        {
+          "id": "9143945b-4dc2-40e9-bbf3-24dfe9768b0d",
+          "status": "cancelled",
+          "reservedNanoUsd": 2114400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/deepseek-cancellation-stream-1.json",
+        "sha256": "3d9dbbfba2062688a62ced488911b0bd2d711f34f8f4da46a61b24a0b9eb8e39",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "groq-system-instructions-json-1",
+      "at": "2026-09-13T00:16:13.244Z",
+      "backend": "groq",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.075,
+        "outputUsdPerMillion": 0.3,
+        "source": "https://console.groq.com/docs/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 682,
+      "reservations": [
+        {
+          "id": "1d8ad7a2-50b6-4f0e-a9d9-471431f8add3",
+          "status": "captured",
+          "reservedNanoUsd": 528600,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/groq-system-instructions-json-1.json",
+        "sha256": "b7cb44989ccffb3ad5c94539c41c1c2af2e95283115835759228281488a4eb59",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 118,
+          "outputTokens": 109
+        }
+      ]
+    },
+    {
+      "id": "groq-tool-result-replay-json-1",
+      "at": "2026-09-13T00:16:14.078Z",
+      "backend": "groq",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.075,
+        "outputUsdPerMillion": 0.3,
+        "source": "https://console.groq.com/docs/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 832,
+      "reservations": [
+        {
+          "id": "50500137-dc02-4b07-bf10-3c4c7e98b6c0",
+          "status": "captured",
+          "reservedNanoUsd": 528600,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "8ccbd4a5-5e5a-4af9-bbf5-d4ea000868a0",
+          "status": "captured",
+          "reservedNanoUsd": 528600,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/groq-tool-result-replay-json-1.json",
+        "sha256": "928fe2e2e8c35fa72cae0e670118dd4b37df124ed2fba4bde96c48e27106a067",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 156,
+          "outputTokens": 73
+        },
+        {
+          "inputTokens": 181,
+          "outputTokens": 98
+        }
+      ]
+    },
+    {
+      "id": "groq-cancellation-stream-1",
+      "at": "2026-09-13T00:16:14.607Z",
+      "backend": "groq",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.075,
+        "outputUsdPerMillion": 0.3,
+        "source": "https://console.groq.com/docs/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 529,
+      "reservations": [
+        {
+          "id": "a47c73d7-d08c-40da-9447-1802c993cc41",
+          "status": "cancelled",
+          "reservedNanoUsd": 528600,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/groq-cancellation-stream-1.json",
+        "sha256": "980633eb6777f84ec1a227965220d31e02b7638c1e31b6f597c46d8e8cfbd66e",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "mistral-system-instructions-json-1",
+      "at": "2026-09-13T00:16:15.242Z",
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.1,
+        "source": "https://docs.mistral.ai/models/ministral-3-3b-25-12"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 635,
+      "reservations": [
+        {
+          "id": "1a74da91-8df0-4e58-9247-298964b6f4df",
+          "status": "captured",
+          "reservedNanoUsd": 512800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/mistral-system-instructions-json-1.json",
+        "sha256": "328700e39f917d0447715da8636c0191d65d950cd7220fec684648c1a0c4bd67",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 45,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "mistral-tool-result-replay-json-1",
+      "at": "2026-09-13T00:16:16.271Z",
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.1,
+        "source": "https://docs.mistral.ai/models/ministral-3-3b-25-12"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1029,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 9,
+        "contentSha256": "73ffa5a86a2a398471b2d2b302a5ecb3705403873f6c7a38476e05a95b73db80",
+        "usage": {
+          "inputTokens": 117,
+          "outputTokens": 4
+        }
+      },
+      "reservations": [
+        {
+          "id": "5d9d0ad6-e2a2-46ad-a4eb-f1f97cddaaef",
+          "status": "captured",
+          "reservedNanoUsd": 512800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        },
+        {
+          "id": "4a191539-3f96-43ec-8373-705f3284f4d6",
+          "status": "failed",
+          "reservedNanoUsd": 512800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "mistral-cancellation-stream-1",
+      "at": "2026-09-13T00:16:16.932Z",
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.1,
+        "source": "https://docs.mistral.ai/models/ministral-3-3b-25-12"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 660,
+      "reservations": [
+        {
+          "id": "847003fb-fc6b-4c4c-872b-6e36fa995ce9",
+          "status": "cancelled",
+          "reservedNanoUsd": 512800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/mistral-cancellation-stream-1.json",
+        "sha256": "e5f99e28b6e6ce10ab0c4878795bb5f2135c4dcb543dfb900ab9082dcf80ede4",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "together-system-instructions-json-1",
+      "at": "2026-09-13T00:16:18.493Z",
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1560,
+      "reservations": [
+        {
+          "id": "81247578-1b65-4976-b009-9d490ec5eb52",
+          "status": "captured",
+          "reservedNanoUsd": 5333120,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/together-system-instructions-json-1.json",
+        "sha256": "f189dfff8a21846f13995bce6efe8a6f4a09cc2c171d2f7d6f5dcc412262f659",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 77,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "together-tool-result-replay-json-1",
+      "at": "2026-09-13T00:16:21.249Z",
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 2757,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 5,
+        "contentSha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "usage": {
+          "inputTokens": 94,
+          "outputTokens": 2
+        }
+      },
+      "reservations": [
+        {
+          "id": "27786822-acd0-44c5-a2a5-cf8d4bbc9a54",
+          "status": "captured",
+          "reservedNanoUsd": 5333120,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        },
+        {
+          "id": "f8c9962c-28fa-4a86-a508-14f039924f05",
+          "status": "failed",
+          "reservedNanoUsd": 5333120,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "together-cancellation-stream-1",
+      "at": "2026-09-13T00:16:22.122Z",
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 872,
+      "reservations": [
+        {
+          "id": "335dc6d6-b491-48f9-8569-1aa7d3e13ea8",
+          "status": "cancelled",
+          "reservedNanoUsd": 5333120,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/together-cancellation-stream-1.json",
+        "sha256": "8a7fc88d3ec140078763d97b693269c5860e7a908ac22ca499bddb6b5b7f8b0a",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "ollama-system-instructions-json-1",
+      "at": "2026-09-13T00:16:35.263Z",
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; compute excluded"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 13141,
+      "reservations": [
+        {
+          "id": "3cb3286d-2921-4fbc-a778-36e2982bc616",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/ollama-system-instructions-json-1.json",
+        "sha256": "06ca1ebafa730011c14b2d565fda25173423bee2f6ac89d9a0064627e5d1fa8c",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 45,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "ollama-tool-result-replay-json-1",
+      "at": "2026-09-13T00:16:50.103Z",
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; compute excluded"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 14839,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 422,
+        "contentSha256": "3e230d2afdb10e2096908339b644e69d4219196207f9af29e30213a0a638852b",
+        "usage": {
+          "inputTokens": 1310,
+          "outputTokens": 98
+        }
+      },
+      "reservations": [
+        {
+          "id": "fc7babaf-ace5-4548-b4be-ef83d5bc770b",
+          "status": "failed",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "ollama-cancellation-stream-1",
+      "at": "2026-09-13T00:16:50.676Z",
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; compute excluded"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 573,
+      "reservations": [
+        {
+          "id": "1eebd0be-4b35-4e3a-be68-ee1e1dcf6ae2",
+          "status": "cancelled",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/ollama-cancellation-stream-1.json",
+        "sha256": "2600516f2c5707a7623c3afded49ba743d7efbd54f90bd90a3d5d6bc73e44e80",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "anthropic-provider-error-json-1",
+      "at": "2026-09-13T00:16:51.293Z",
+      "backend": "anthropic",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1,
+        "outputUsdPerMillion": 5,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 616,
+      "reservations": [
+        {
+          "id": "3f582a14-0287-43dd-9ad3-b62108ebc82a",
+          "status": "captured",
+          "reservedNanoUsd": 5640000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/anthropic-provider-error-json-1.json",
+        "sha256": "09c278f8a78838fb90bb04eea84cb5a566f2bb75ba476b7bed250bb4aea5d0b9",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "google-provider-error-json-1",
+      "at": "2026-09-13T00:16:51.823Z",
+      "backend": "google",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 530,
+      "reservations": [
+        {
+          "id": "4551132d-1bf2-4127-ac62-338f6892ebc9",
+          "status": "captured",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/google-provider-error-json-1.json",
+        "sha256": "511e10cd4d36d4a066b206306baf0d011859cd88c0bd2969cdf58b2a567e4a19",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "deepseek-provider-error-json-1",
+      "at": "2026-09-13T00:16:52.636Z",
+      "backend": "deepseek",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.3,
+        "outputUsdPerMillion": 1.2,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 812,
+      "reservations": [
+        {
+          "id": "61d87f3b-42d2-4444-8f87-798d08cf9570",
+          "status": "captured",
+          "reservedNanoUsd": 1653600,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/deepseek-provider-error-json-1.json",
+        "sha256": "cf07e05af674a6eaebfc4a6c60be409a9119e7f8e14e34629d2b181ad18c33fe",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "groq-provider-error-json-1",
+      "at": "2026-09-13T00:16:53.056Z",
+      "backend": "groq",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.075,
+        "outputUsdPerMillion": 0.3,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 420,
+      "reservations": [
+        {
+          "id": "adb4ee8a-4944-44f6-a783-a91c64464e51",
+          "status": "captured",
+          "reservedNanoUsd": 413400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/groq-provider-error-json-1.json",
+        "sha256": "571a8fe4f2456c06c11b86c96c88c68a17a5206ad8c44c7167804b0152a76c2f",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "mistral-provider-error-json-1",
+      "at": "2026-09-13T00:16:53.614Z",
+      "backend": "mistral",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.1,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 557,
+      "reservations": [
+        {
+          "id": "e0c266ce-45ac-45da-b016-2b227bed96cd",
+          "status": "captured",
+          "reservedNanoUsd": 512800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/mistral-provider-error-json-1.json",
+        "sha256": "ea6f87bd2217a89e4624ab6e309f4cbcce102e6bc0688d35cbd1b245c41074e1",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "together-provider-error-json-1",
+      "at": "2026-09-13T00:16:54.435Z",
+      "backend": "together",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 821,
+      "reservations": [
+        {
+          "id": "977fef81-955e-4ceb-a8f6-dd50087f6ae3",
+          "status": "captured",
+          "reservedNanoUsd": 5333120,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/together-provider-error-json-1.json",
+        "sha256": "27380446f4c92503410c26cfd19fca01ff21d281e0b2d5756dc99e4192e08388",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "ollama-provider-error-json-1",
+      "at": "2026-09-13T00:16:54.701Z",
+      "backend": "ollama",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "same provider positive-probe allowance; intentionally unknown model"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 265,
+      "reservations": [
+        {
+          "id": "16cf1cf9-9dee-4d20-82d6-4f40dec2c2f9",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/ollama-provider-error-json-1.json",
+        "sha256": "a6846a5fa2b8c06507b61f58c65c63b5e83dfda0259c5907b91bc7917f14154a",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "google-tool-result-replay-json-2",
+      "at": "2026-09-13T00:16:55.800Z",
+      "backend": "google",
+      "model": "gemini-2.5-flash-lite",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://ai.google.dev/gemini-api/docs/pricing"
+      },
+      "negativeModel": false,
+      "reason": "Test whether incomplete exact response at 128 was output-cap related; do not replace the original failure.",
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1099,
+      "reservations": [
+        {
+          "id": "d9393590-38a9-447a-9cf7-c2f304e50444",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "816b9169-8b6c-4bec-9939-73a541bfdc66",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/google-tool-result-replay-json-2.json",
+        "sha256": "e0d1973e679ee9ce7ffd11b7f2aac9ce5ba2823f2ac7bc951e4205c684fbba7a",
+        "probeVersion": 1
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 73,
+          "outputTokens": 13
+        },
+        {
+          "inputTokens": 100,
+          "outputTokens": 2
+        }
+      ]
+    },
+    {
+      "id": "openai-chat-provider-error-json-1",
+      "at": "2026-09-13T00:18:01.762Z",
+      "backend": "openai-chat",
+      "model": "gpt-4.1-nano",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://developers.openai.com/api/docs/models/gpt-4.1-nano"
+      },
+      "negativeModel": false,
+      "reason": "One bounded access recheck on a live-listed model; success requires rejected HTTP evidence, not a usable completion.",
+      "outcome": "captured",
+      "httpStatus": 429,
+      "elapsedMs": 2153,
+      "reservations": [
+        {
+          "id": "3e1d9e60-61e9-475c-b99b-e30902169ae6",
+          "status": "captured",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-chat-provider-error-json-1.json",
+        "sha256": "d0a8e55525081961525b747d63aa48b25a26125d8e4ec0e824c93bdfd4bb85e5",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openai-responses-provider-error-json-1",
+      "at": "2026-09-13T00:18:03.880Z",
+      "backend": "openai-responses",
+      "model": "gpt-5-nano",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://developers.openai.com/api/docs/models/gpt-5-nano"
+      },
+      "negativeModel": false,
+      "reason": "One bounded access recheck on a live-listed model; success requires rejected HTTP evidence, not a usable completion.",
+      "outcome": "captured",
+      "httpStatus": 429,
+      "elapsedMs": 2117,
+      "reservations": [
+        {
+          "id": "9295e620-dca9-403e-9f8d-d6d10e591efa",
+          "status": "captured",
+          "reservedNanoUsd": 301200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-responses-provider-error-json-1.json",
+        "sha256": "56cc412bbb31c38a4b7210fff747a1ce74669a4cc58a3c50d292ca5b6fa64c00",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "cerebras-provider-error-json-1",
+      "at": "2026-09-13T00:18:04.610Z",
+      "backend": "cerebras",
+      "model": "gpt-oss-120b",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.35,
+        "outputUsdPerMillion": 0.75,
+        "source": "https://api.cerebras.ai/public/v1/models/gpt-oss-120b"
+      },
+      "negativeModel": false,
+      "reason": "One bounded access recheck on a live-listed model; success requires rejected HTTP evidence, not a usable completion.",
+      "outcome": "captured",
+      "httpStatus": 402,
+      "elapsedMs": 729,
+      "reservations": [
+        {
+          "id": "42f85b64-28bd-4c89-afdd-3538ee20f82f",
+          "status": "captured",
+          "reservedNanoUsd": 1846000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/cerebras-provider-error-json-1.json",
+        "sha256": "82381a099b4d3eec4c5e0faac60fd842624e0589c13d2703d8aa628c1e9a37e4",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "mistral-tool-result-replay-json-v2",
+      "at": "2026-09-13T00:18:05.633Z",
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.1,
+        "source": "https://docs.mistral.ai/models/ministral-3-3b-25-12"
+      },
+      "negativeModel": false,
+      "reason": "Versioned clarification distinguishes returned marker from echo input; retains v1 incomplete attempt.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1022,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 7,
+        "contentSha256": "284b886705242a48ec8f97886796c07dc5bb903447676bc7bbc0354b70c88c6f",
+        "usage": {
+          "inputTokens": 137,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "5f151e60-62f2-4cd0-9f33-2febfa89969c",
+          "status": "captured",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "9e9a3dfd-f2ad-4492-b42d-79063ff3c0ee",
+          "status": "failed",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "together-tool-result-replay-json-v2",
+      "at": "2026-09-13T00:18:07.305Z",
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models"
+      },
+      "negativeModel": false,
+      "reason": "Versioned clarification distinguishes returned marker from echo input; retains v1 incomplete attempt.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1672,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 8,
+        "contentSha256": "5c2747dcba9b399166829e0058228130e5732dbfa9c77a176cbf5bfe8ca4b46e",
+        "usage": {
+          "inputTokens": 113,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "a9518798-b352-4f4f-baed-27058661d9aa",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "6921f2cc-d594-460f-a889-2f29842c11b9",
+          "status": "failed",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "ollama-tool-result-replay-json-v2",
+      "at": "2026-09-13T00:18:08.409Z",
+      "backend": "ollama",
+      "model": "devstral:latest",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; compute excluded"
+      },
+      "negativeModel": false,
+      "reason": "Versioned clarification distinguishes returned marker from echo input; retains v1 incomplete attempt.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1103,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 5,
+        "contentSha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "usage": {
+          "inputTokens": 1330,
+          "outputTokens": 2
+        }
+      },
+      "reservations": [
+        {
+          "id": "ee105b71-c405-4cae-bfe1-12f9a5735e2f",
+          "status": "failed",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "fireworks-system-instructions-json-1",
+      "at": "2026-09-13T00:19:49.856Z",
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "https://fireworks.ai/models/fireworks/nemotron-lightning-3p5-30b-a3b"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1433,
+      "reservations": [
+        {
+          "id": "a32bad46-33d5-4990-9d21-2716faf02e98",
+          "status": "captured",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/fireworks-system-instructions-json-1.json",
+        "sha256": "8acd40ab16512789663223d899beaf262e75f06ba49fe5bd20673dc7ed03fe08",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 59,
+          "outputTokens": 310
+        }
+      ]
+    },
+    {
+      "id": "fireworks-tool-result-replay-json-1",
+      "at": "2026-09-13T00:19:52.228Z",
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "https://fireworks.ai/models/fireworks/nemotron-lightning-3p5-30b-a3b"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 2371,
+      "reservations": [
+        {
+          "id": "98afd0f0-4aef-4c47-bfff-43aa2f603832",
+          "status": "captured",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "69cd81d1-cc80-46b5-9816-2916f936960c",
+          "status": "captured",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/fireworks-tool-result-replay-json-1.json",
+        "sha256": "7a28b09e2fe0f459158b071cbbc58d363c542edbc7fb64919f8109be00627b34",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 328,
+          "outputTokens": 195
+        },
+        {
+          "inputTokens": 371,
+          "outputTokens": 337
+        }
+      ]
+    },
+    {
+      "id": "fireworks-cancellation-stream-1",
+      "at": "2026-09-13T00:19:53.150Z",
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "https://fireworks.ai/models/fireworks/nemotron-lightning-3p5-30b-a3b"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 922,
+      "reservations": [
+        {
+          "id": "d918ccdb-3835-4b5d-9997-c6b07e067221",
+          "status": "cancelled",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/fireworks-cancellation-stream-1.json",
+        "sha256": "fd39be118de073822dfb4d0a8b3993e11b8d90a7c6f19232363fbce7071cedfb",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "fireworks-provider-error-json-1",
+      "at": "2026-09-13T00:19:53.767Z",
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "https://fireworks.ai/models/fireworks/nemotron-lightning-3p5-30b-a3b"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 617,
+      "reservations": [
+        {
+          "id": "c2be1130-5635-42a6-a0d5-08c08ce206bb",
+          "status": "captured",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/fireworks-provider-error-json-1.json",
+        "sha256": "53e54ffe1ee465306fb3a45d1529d910ac9b508d03a8190e332eecccb55b0293",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openrouter-provider-error-json-1",
+      "at": "2026-09-13T00:22:42.650Z",
+      "backend": "openrouter",
+      "model": "google/gemini-2.5-flash-lite",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://openrouter.ai/api/v1/models"
+      },
+      "negativeModel": false,
+      "reason": "Recheck prior HTTP402, with provider max_price and fallbacks disabled.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1667,
+      "reservations": [
+        {
+          "id": "4ea569fd-1b77-46ef-a5d7-ea1e27348144",
+          "status": "failed",
+          "reservedNanoUsd": 551200,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "bedrock-native-system-instructions-json-1",
+      "at": "2026-09-13T00:22:43.658Z",
+      "backend": "bedrock-native",
+      "model": "us.amazon.nova-micro-v1:0",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "https://aws.amazon.com/bedrock/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1006,
+      "reservations": [
+        {
+          "id": "87631aa8-5dc1-497b-8e61-e46731ab410c",
+          "status": "captured",
+          "reservedNanoUsd": 192921,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-native-system-instructions-json-1.json",
+        "sha256": "ea79c446a549095b0dc41ad4db2e6418f94bbd069e348220d29387b775de5ccb",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 37,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "bedrock-native-tool-result-replay-json-1",
+      "at": "2026-09-13T00:22:45.581Z",
+      "backend": "bedrock-native",
+      "model": "us.amazon.nova-micro-v1:0",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "https://aws.amazon.com/bedrock/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1922,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 5,
+        "contentSha256": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "usage": {
+          "inputTokens": 565,
+          "outputTokens": 2
+        }
+      },
+      "reservations": [
+        {
+          "id": "b478317c-a8d7-47ce-9e44-e56c4428c338",
+          "status": "captured",
+          "reservedNanoUsd": 192921,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        },
+        {
+          "id": "7e3ea657-6b2a-4542-b806-f6d9cfc950e7",
+          "status": "failed",
+          "reservedNanoUsd": 192921,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ]
+    },
+    {
+      "id": "bedrock-native-cancellation-stream-1",
+      "at": "2026-09-13T00:22:46.708Z",
+      "backend": "bedrock-native",
+      "model": "us.amazon.nova-micro-v1:0",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "https://aws.amazon.com/bedrock/pricing/"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1127,
+      "reservations": [
+        {
+          "id": "521ccd7b-830a-4319-90a2-4411e5676bb3",
+          "status": "cancelled",
+          "reservedNanoUsd": 192921,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-native-cancellation-stream-1.json",
+        "sha256": "6d5c2a140f759af4d8146558106dcdfe456b4e0f71d580819d817aa96a057c92",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "bedrock-native-provider-error-json-1",
+      "at": "2026-09-13T00:22:47.278Z",
+      "backend": "bedrock-native",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "https://aws.amazon.com/bedrock/pricing/"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 570,
+      "reservations": [
+        {
+          "id": "cec11ea1-48df-4eac-ad87-f33dcbd747f4",
+          "status": "captured",
+          "reservedNanoUsd": 192921,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-native-provider-error-json-1.json",
+        "sha256": "8c04d91729adeb1db14ba55d95e4af83d0d52aa8f026a523f4f7b1da36262b0d",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openrouter-system-instructions-json-positive",
+      "at": "2026-09-13T00:24:02.359Z",
+      "backend": "openrouter",
+      "model": "google/gemini-2.5-flash-lite",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://openrouter.ai/api/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1426,
+      "reservations": [
+        {
+          "id": "919882a4-5603-43e8-9a3d-e087270a928a",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openrouter-system-instructions-json-positive.json",
+        "sha256": "9fcee0b43a25af11109b7f87a8c139daf5ea0cc34d29f2485e69b4efcf6b6471",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 38,
+          "outputTokens": 2
+        }
+      ]
+    },
+    {
+      "id": "openrouter-tool-result-replay-json-positive",
+      "at": "2026-09-13T00:24:04.353Z",
+      "backend": "openrouter",
+      "model": "google/gemini-2.5-flash-lite",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://openrouter.ai/api/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1992,
+      "reservations": [
+        {
+          "id": "d859c4fe-0003-43bb-98df-d8159dec617a",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "e97d6c6a-0871-4f60-8764-7659e7598556",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openrouter-tool-result-replay-json-positive.json",
+        "sha256": "4a6126c24f28635006001e4eb1d5e3c272c75e192dcf1c80c73211b404b36ac7",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 66,
+          "outputTokens": 3
+        },
+        {
+          "inputTokens": 73,
+          "outputTokens": 2
+        }
+      ]
+    },
+    {
+      "id": "openrouter-cancellation-stream-positive",
+      "at": "2026-09-13T00:24:05.668Z",
+      "backend": "openrouter",
+      "model": "google/gemini-2.5-flash-lite",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://openrouter.ai/api/v1/models"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1315,
+      "reservations": [
+        {
+          "id": "e7850229-4f54-4a02-a927-0256c163f953",
+          "status": "cancelled",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openrouter-cancellation-stream-positive.json",
+        "sha256": "b3b9347eb49f6fda5b5f917f0b567664fc662ecea973da94c629ed9942443e40",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openrouter-provider-error-json-negative",
+      "at": "2026-09-13T00:24:06.019Z",
+      "backend": "openrouter",
+      "model": "calliope/conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.1,
+        "outputUsdPerMillion": 0.4,
+        "source": "https://openrouter.ai/api/v1/models"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 350,
+      "reservations": [
+        {
+          "id": "66f4ecb3-2b63-4940-9818-aeb679a860cd",
+          "status": "captured",
+          "reservedNanoUsd": 704800,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openrouter-provider-error-json-negative.json",
+        "sha256": "7d083acff9422a88cc9578334a07815b599cf52812f660b5943d9b834881e56f",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "huggingface-system-instructions-json-1",
+      "at": "2026-09-13T00:24:07.394Z",
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models; https://huggingface.co/docs/inference-providers/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1375,
+      "reservations": [
+        {
+          "id": "f7418882-cf10-4616-a0d5-92d2196ae9c1",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/huggingface-system-instructions-json-1.json",
+        "sha256": "785efaaa45aebd0f61f1b94f917545cb6804d66a0dafcb227e9a8bf754fbfdcd",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 77,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "huggingface-tool-result-replay-json-1",
+      "at": "2026-09-13T00:24:09.194Z",
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models; https://huggingface.co/docs/inference-providers/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1800,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 8,
+        "contentSha256": "5c2747dcba9b399166829e0058228130e5732dbfa9c77a176cbf5bfe8ca4b46e",
+        "usage": {
+          "inputTokens": 113,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "2a4bc28d-002c-464f-a2b5-aab35c98d197",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "78deb77f-5fc1-4fba-8ccf-e4db65a2884b",
+          "status": "failed",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "huggingface-cancellation-stream-1",
+      "at": "2026-09-13T00:24:10.745Z",
+      "backend": "huggingface",
+      "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models; https://huggingface.co/docs/inference-providers/pricing"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1550,
+      "reservations": [
+        {
+          "id": "23edde2c-6eb8-4e92-a007-ff714ddd21ab",
+          "status": "cancelled",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/huggingface-cancellation-stream-1.json",
+        "sha256": "dc65ec8df258c15ce75f48fe1a481e00d8044e45e09aae80d85bbff89d8eb3aa",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "huggingface-provider-error-json-1",
+      "at": "2026-09-13T00:24:11.254Z",
+      "backend": "huggingface",
+      "model": "calliope/conformance-missing-model:together",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "https://api.together.xyz/v1/models; https://huggingface.co/docs/inference-providers/pricing"
+      },
+      "negativeModel": true,
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 508,
+      "reservations": [
+        {
+          "id": "9f103a85-7206-4a7b-8b52-2a9bd00ce5a4",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/huggingface-provider-error-json-1.json",
+        "sha256": "bc7c47d39bd71289e9f03520c8bcc15a03103f000ea39b324868d6ffd9253dcb",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "litellm-system-instructions-json-1",
+      "at": "2026-09-13T00:26:26.638Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1150,
+      "reservations": [
+        {
+          "id": "5bbe4ca0-1a8c-4c3d-a436-32affb654f24",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/litellm-system-instructions-json-1.json",
+        "sha256": "381de718bca46cc28619bb308fc0b6c9b210409d7581885116747985f11acac0",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 77,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "litellm-tool-result-replay-json-1",
+      "at": "2026-09-13T00:26:27.992Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1352,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 8,
+        "contentSha256": "5c2747dcba9b399166829e0058228130e5732dbfa9c77a176cbf5bfe8ca4b46e",
+        "usage": {
+          "inputTokens": 113,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "d1196440-8d0e-4fc1-a5a9-0ca169f8d3a0",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "e5568494-492c-4e56-8ea9-03c8d7ce7386",
+          "status": "failed",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "litellm-cancellation-stream-1",
+      "at": "2026-09-13T00:26:29.246Z",
+      "backend": "litellm",
+      "model": "conformance-together",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1254,
+      "reservations": [
+        {
+          "id": "7ff42c08-07b4-4f24-bc08-6a17c9ca59d7",
+          "status": "cancelled",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/litellm-cancellation-stream-1.json",
+        "sha256": "fa7bdfc2180c7322a1862cf48ea589e66d0ece02780feff68e43cb1fe7b377ef",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "litellm-provider-error-json-1",
+      "at": "2026-09-13T00:26:29.516Z",
+      "backend": "litellm",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 1.04,
+        "outputUsdPerMillion": 1.04,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": true,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "together",
+        "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      },
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 269,
+      "reservations": [
+        {
+          "id": "1f8f4c50-b205-4585-8a55-a7f6f2187da8",
+          "status": "captured",
+          "reservedNanoUsd": 5732480,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/litellm-provider-error-json-1.json",
+        "sha256": "a3a174cceb004dff57d93e966e91dd0d665bb4f88021130853c298295a17ed78",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "bedrock-compat-system-instructions-json-1",
+      "at": "2026-09-13T00:26:30.493Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "amazon.nova-micro-v1:0"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 977,
+      "reservations": [
+        {
+          "id": "7aaacc56-e4ac-419d-a4b3-c01e824edb8e",
+          "status": "captured",
+          "reservedNanoUsd": 246681,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-compat-system-instructions-json-1.json",
+        "sha256": "ff82c797827b9ba32d9820fe25add985e886dc1df7db0657c3ab9a9fce88cf75",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 37,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "bedrock-compat-tool-result-replay-json-1",
+      "at": "2026-09-13T00:26:31.603Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "amazon.nova-micro-v1:0"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 1110,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 7,
+        "contentSha256": "284b886705242a48ec8f97886796c07dc5bb903447676bc7bbc0354b70c88c6f",
+        "usage": {
+          "inputTokens": 489,
+          "outputTokens": 3
+        }
+      },
+      "reservations": [
+        {
+          "id": "cb83cab0-0d72-49fc-8085-f9204bc4a742",
+          "status": "captured",
+          "reservedNanoUsd": 246681,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "9e4afa09-9540-43f6-be33-de71d213d02d",
+          "status": "failed",
+          "reservedNanoUsd": 246681,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "bedrock-compat-cancellation-stream-1",
+      "at": "2026-09-13T00:26:32.445Z",
+      "backend": "bedrock-compat",
+      "model": "conformance-bedrock",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "amazon.nova-micro-v1:0"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 842,
+      "reservations": [
+        {
+          "id": "5a3d5bf7-b042-41f4-9ea7-6900483e8136",
+          "status": "cancelled",
+          "reservedNanoUsd": 246681,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-compat-cancellation-stream-1.json",
+        "sha256": "d4dad4cb20f707bc61b12b2307507deb816923202eb84c79c03741dbd21618c7",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "bedrock-compat-provider-error-json-1",
+      "at": "2026-09-13T00:26:32.703Z",
+      "backend": "bedrock-compat",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.035,
+        "outputUsdPerMillion": 0.14,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": true,
+      "gateway": {
+        "name": "litellm",
+        "version": "1.100.1",
+        "upstreamProvider": "bedrock",
+        "upstreamModel": "amazon.nova-micro-v1:0"
+      },
+      "outcome": "captured",
+      "httpStatus": 400,
+      "elapsedMs": 258,
+      "reservations": [
+        {
+          "id": "0d4b19ed-e750-4bc9-b4a6-41b9fb25c261",
+          "status": "captured",
+          "reservedNanoUsd": 246681,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-compat-provider-error-json-1.json",
+        "sha256": "321bae216de3af1bc1956e6d66343657a72a76d2cbaa6d8935669766e1f9bb22",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openai-compat-system-instructions-json-1",
+      "at": "2026-09-13T00:26:49.844Z",
+      "backend": "openai-compat",
+      "model": "qwen3-coder:30b",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "qwen3-coder:30b"
+      },
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 17141,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 679,
+        "contentSha256": "2f50f6608551e7a70eed06143b99e5ee8f5985ca90d5eb6ce40a232e97a5ac56",
+        "usage": {
+          "inputTokens": 29,
+          "outputTokens": 139
+        }
+      },
+      "reservations": [
+        {
+          "id": "0a37afe8-3986-4cd1-a4c2-9b13dbb71f6c",
+          "status": "failed",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "openai-compat-tool-result-replay-json-1",
+      "at": "2026-09-13T00:26:50.986Z",
+      "backend": "openai-compat",
+      "model": "qwen3-coder:30b",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "qwen3-coder:30b"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1141,
+      "reservations": [
+        {
+          "id": "7deb10a1-4981-497c-88f3-b345bdbac280",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "bb7a3f28-015f-4ab4-a128-55e7dfdec0fd",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-compat-tool-result-replay-json-1.json",
+        "sha256": "af57af10c7f800e5922a2c3dd4ae0f985ec0233cc13b3410541ba5b26bde027b",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 337,
+          "outputTokens": 21
+        },
+        {
+          "inputTokens": 373,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "openai-compat-cancellation-stream-1",
+      "at": "2026-09-13T00:26:51.348Z",
+      "backend": "openai-compat",
+      "model": "qwen3-coder:30b",
+      "scenario": "cancellation",
+      "stream": true,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "qwen3-coder:30b"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 362,
+      "reservations": [
+        {
+          "id": "7b51e4ba-6ce7-4566-90ec-4c02ee9e9464",
+          "status": "cancelled",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-compat-cancellation-stream-1.json",
+        "sha256": "01d7b37f8617a250ad8d252dbfe4d077e509cc6a28f1d9756c3dfb365fb65bad",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "openai-compat-provider-error-json-1",
+      "at": "2026-09-13T00:26:51.616Z",
+      "backend": "openai-compat",
+      "model": "calliope-conformance-missing-model",
+      "scenario": "provider-error",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "provider live discovery / AWS catalog 20260911124408 / local compute excluded"
+      },
+      "negativeModel": true,
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "qwen3-coder:30b"
+      },
+      "outcome": "captured",
+      "httpStatus": 404,
+      "elapsedMs": 269,
+      "reservations": [
+        {
+          "id": "72ad13b7-d7eb-4aba-893c-43bf0fb870ac",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-compat-provider-error-json-1.json",
+        "sha256": "c69c73c5772fc69ee38bf8593caec9fb7bf6d8700b205a02803968d10420191c",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        null
+      ]
+    },
+    {
+      "id": "together-tool-result-replay-json-coder",
+      "at": "2026-09-13T00:26:55.031Z",
+      "backend": "together",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "Together live model API / HF pass-through / local compute excluded"
+      },
+      "negativeModel": false,
+      "reason": "Try a live-discovered tool-capable coding/reasoning model; retain previous exact-output failures.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 3414,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 35,
+        "contentSha256": "10751790d398ad48ba73ebeb9e62bf5ee4ea727b4308e147900fdfc5d41c93b0",
+        "usage": {
+          "inputTokens": 286,
+          "outputTokens": 6
+        }
+      },
+      "reservations": [
+        {
+          "id": "ab06cf7a-6d3b-4759-a634-fd4718a51b64",
+          "status": "captured",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "673051f6-2881-4a83-892a-80bb1beade53",
+          "status": "failed",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "huggingface-tool-result-replay-json-coder",
+      "at": "2026-09-13T00:26:57.646Z",
+      "backend": "huggingface",
+      "model": "openai/gpt-oss-20b:together",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.05,
+        "outputUsdPerMillion": 0.2,
+        "source": "Together live model API / HF pass-through / local compute excluded"
+      },
+      "negativeModel": false,
+      "reason": "Try a live-discovered tool-capable coding/reasoning model; retain previous exact-output failures.",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "elapsedMs": 2614,
+      "observed": {
+        "finishReason": "tool_use",
+        "toolCount": 2,
+        "contentBytes": 54,
+        "contentSha256": "d3d2b3d7b2783754311361cc628807a19562fb33d0a5788d46d9f298b6ee3589",
+        "usage": {
+          "inputTokens": 175,
+          "outputTokens": 208
+        }
+      },
+      "reservations": [
+        {
+          "id": "e526e889-dae4-4c86-bb20-5163fa581691",
+          "status": "failed",
+          "reservedNanoUsd": 352400,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ]
+    },
+    {
+      "id": "ollama-tool-result-replay-json-coder",
+      "at": "2026-09-13T00:26:58.386Z",
+      "backend": "ollama",
+      "model": "qwen3-coder:30b",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "Together live model API / HF pass-through / local compute excluded"
+      },
+      "negativeModel": false,
+      "reason": "Try a live-discovered tool-capable coding/reasoning model; retain previous exact-output failures.",
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 740,
+      "reservations": [
+        {
+          "id": "d95533eb-3acd-48c8-8c63-4bfc98c8c475",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "3915b922-08b4-4ebf-a537-7130457467b8",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/ollama-tool-result-replay-json-coder.json",
+        "sha256": "fc33d8d0acd6899a81e72da0942b99f8605464c392ea07cd7f865124f10c7c58",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 337,
+          "outputTokens": 21
+        },
+        {
+          "inputTokens": 373,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "mistral-tool-result-replay-json-large",
+      "at": "2026-09-13T00:30:21.569Z",
+      "backend": "mistral",
+      "model": "mistral-large-2512",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 0.5,
+        "outputUsdPerMillion": 1.5,
+        "source": "https://docs.mistral.ai/inference/pricing"
+      },
+      "negativeModel": false,
+      "reason": "Final bounded follow-up using a larger live-discovered model.",
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 1600,
+      "reservations": [
+        {
+          "id": "6763a1dc-093e-4012-affb-c308a5eee9cc",
+          "status": "captured",
+          "reservedNanoUsd": 3268000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "80ffbab9-a44c-4196-a8e8-a7660ae9d949",
+          "status": "captured",
+          "reservedNanoUsd": 3268000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/mistral-tool-result-replay-json-large.json",
+        "sha256": "ce2afc47ddb9ae245e1e9661cdff820fc2190279083ae9b68e669be0aa13266d",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 123,
+          "outputTokens": 10
+        },
+        {
+          "inputTokens": 137,
+          "outputTokens": 3
+        }
+      ]
+    },
+    {
+      "id": "bedrock-native-tool-result-replay-json-haiku",
+      "at": "2026-09-13T00:30:23.690Z",
+      "backend": "bedrock-native",
+      "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "scenario": "tool-result-replay",
+      "stream": false,
+      "maxOutputTokens": 512,
+      "rates": {
+        "inputUsdPerMillion": 2,
+        "outputUsdPerMillion": 10,
+        "source": "AWS current us-east-1 price catalog 20260911124408; conservative ceiling above standard Haiku rates"
+      },
+      "negativeModel": false,
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 2119,
+      "reservations": [
+        {
+          "id": "077c29be-7ecf-4060-ac4a-a2ec1694d60a",
+          "status": "captured",
+          "reservedNanoUsd": 15120000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        },
+        {
+          "id": "8c0a93f8-e012-4dcf-bc49-3482b3c09840",
+          "status": "captured",
+          "reservedNanoUsd": 15120000,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 512
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/bedrock-native-tool-result-replay-json-haiku.json",
+        "sha256": "a0a878c07f5b57e6072fff9d87f598d4e4a1e0ed5ce674d083ad6145d2ae8c70",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 619,
+          "outputTokens": 52
+        },
+        {
+          "inputTokens": 685,
+          "outputTokens": 5
+        }
+      ]
+    },
+    {
+      "id": "openai-compat-system-instructions-json-devstral",
+      "at": "2026-09-13T00:30:32.083Z",
+      "backend": "openai-compat",
+      "model": "devstral:latest",
+      "scenario": "system-instructions",
+      "stream": false,
+      "maxOutputTokens": 128,
+      "rates": {
+        "inputUsdPerMillion": 0,
+        "outputUsdPerMillion": 0,
+        "source": "local inference; compute excluded"
+      },
+      "negativeModel": false,
+      "gateway": {
+        "name": "ollama",
+        "version": "0.33.2",
+        "upstreamProvider": "ollama",
+        "upstreamModel": "devstral:latest"
+      },
+      "outcome": "captured",
+      "httpStatus": 200,
+      "elapsedMs": 8392,
+      "reservations": [
+        {
+          "id": "17e6d994-f043-4a1e-b8ac-a3c1baf6dd76",
+          "status": "captured",
+          "reservedNanoUsd": 0,
+          "maxInputTokens": 5000,
+          "maxOutputTokens": 128
+        }
+      ],
+      "capture": {
+        "file": "tests/fixtures/provider-semantic/openai-compat-system-instructions-json-devstral.json",
+        "sha256": "3593f46e3004b8523a538f0ed553254f9254ded551a9b0d6a7d36a5d71750994",
+        "probeVersion": 2
+      },
+      "reportedUsage": [
+        {
+          "inputTokens": 45,
+          "outputTokens": 3
+        }
+      ]
+    }
+  ],
+  "readiness": {
+    "version": 1,
+    "generatedAt": "2026-09-13T00:33:53.186Z",
+    "evidence": "historical real-wire captures; credential presence does not establish current access",
+    "adapterCount": 18,
+    "requiredWireCombinations": 72,
+    "capturedWireCombinations": 56,
+    "wireGateReady": false,
+    "productGateReady": false,
+    "missingWireCombinations": [
+      "openai-chat/text/json",
+      "openai-chat/text/stream",
+      "openai-chat/tool/json",
+      "openai-chat/tool/stream",
+      "openai-responses/text/json",
+      "openai-responses/text/stream",
+      "openai-responses/tool/json",
+      "openai-responses/tool/stream",
+      "xai/text/json",
+      "xai/text/stream",
+      "xai/tool/json",
+      "xai/tool/stream",
+      "cerebras/text/json",
+      "cerebras/text/stream",
+      "cerebras/tool/json",
+      "cerebras/tool/stream"
+    ],
+    "adapters": [
+      {
+        "id": "anthropic",
+        "provider": "anthropic",
+        "protocol": "anthropic",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:51.266Z"
+      },
+      {
+        "id": "google",
+        "provider": "google",
+        "protocol": "google",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:55.793Z"
+      },
+      {
+        "id": "openai-chat",
+        "provider": "openai",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:01.731Z"
+      },
+      {
+        "id": "openai-responses",
+        "provider": "openai",
+        "protocol": "responses",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:03.850Z"
+      },
+      {
+        "id": "ollama",
+        "provider": "ollama",
+        "protocol": "ollama",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:26:58.379Z"
+      },
+      {
+        "id": "bedrock-native",
+        "provider": "bedrock",
+        "protocol": "bedrock",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:30:23.654Z"
+      },
+      {
+        "id": "openrouter",
+        "provider": "openrouter",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:24:05.989Z"
+      },
+      {
+        "id": "together",
+        "provider": "together",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:54.407Z"
+      },
+      {
+        "id": "groq",
+        "provider": "groq",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:53.028Z"
+      },
+      {
+        "id": "fireworks",
+        "provider": "fireworks",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:19:53.761Z"
+      },
+      {
+        "id": "mistral",
+        "provider": "mistral",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:30:21.560Z"
+      },
+      {
+        "id": "deepseek",
+        "provider": "deepseek",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:16:52.606Z"
+      },
+      {
+        "id": "xai",
+        "provider": "xai",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "missing",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": null
+      },
+      {
+        "id": "cerebras",
+        "provider": "cerebras",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "missing",
+          "text-stream": "missing",
+          "tool-json": "missing",
+          "tool-stream": "missing",
+          "cancellation": "missing",
+          "provider-error": "captured",
+          "usage": "missing",
+          "system-instructions": "missing",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:18:04.577Z"
+      },
+      {
+        "id": "huggingface",
+        "provider": "huggingface",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "captured",
+          "system-instructions": "captured",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:24:11.225Z"
+      },
+      {
+        "id": "litellm",
+        "provider": "litellm",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "incomplete",
+          "system-instructions": "captured",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:26:29.510Z"
+      },
+      {
+        "id": "bedrock-compat",
+        "provider": "bedrock",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "incomplete",
+          "system-instructions": "captured",
+          "tool-result-replay": "missing"
+        },
+        "lastCapturedAt": "2026-09-13T00:26:32.698Z"
+      },
+      {
+        "id": "openai-compat",
+        "provider": "openai-compat",
+        "protocol": "chat",
+        "credentials": "not-inspected",
+        "checks": {
+          "text-json": "captured",
+          "text-stream": "captured",
+          "tool-json": "captured",
+          "tool-stream": "captured",
+          "cancellation": "captured",
+          "provider-error": "captured",
+          "usage": "incomplete",
+          "system-instructions": "captured",
+          "tool-result-replay": "captured"
+        },
+        "lastCapturedAt": "2026-09-13T00:30:32.068Z"
+      }
+    ],
+    "retired": [
+      {
+        "provider": "ai21",
+        "status": "retired",
+        "includedInReleaseGate": false
+      }
+    ]
+  }
+}

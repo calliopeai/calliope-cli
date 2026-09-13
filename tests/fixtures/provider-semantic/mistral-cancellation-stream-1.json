@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "mistral",
+  "model": "ministral-3b-2512",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:16.904Z",
+    "sourceOrigin": "https://api.mistral.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "847003fb-fc6b-4c4c-872b-6e36fa995ce9",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1pbmlzdHJhbC0zYi0yNTEyIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IlJlcGx5IHdpdGggZXhhY3RseTogSGVsbG8gz4AifV0sIm1heF90b2tlbnMiOjEyOCwic3RyZWFtIjp0cnVlLCJzdHJlYW1fb3B0aW9ucyI6eyJpbmNsdWRlX3VzYWdlIjp0cnVlfX0=",
+          "sha256": "c2b2abc44f6cdeff23fe44810ea01a1edfc78e7b1b21a9114e9df71ed2790f06"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6ImI2NjAyM2ZiOTlmYjQwNTZiNmQ0MGM0ZjljYmMzNmI2Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTI1ODU3NiwibW9kZWwiOiJtaW5pc3RyYWwtM2ItMjUxMiIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiYjY2MDIzZmI5OWZiNDA1NmI2ZDQwYzRmOWNiYzM2YjYiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MjU4NTc2LCJtb2RlbCI6Im1pbmlzdHJhbC0zYi0yNTEyIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiJIZWxsbyJ9",
+        "sha256": "0327d3a602fabaeaa6da81f0dba803a6dd645d8d6c2b1f9432cd57e025810074",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 396,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

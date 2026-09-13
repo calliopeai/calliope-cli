@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "ollama",
+  "model": "devstral:latest",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:50.666Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "1eebd0be-4b35-4e3a-be68-ee1e1dcf6ae2",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/chat",
+          "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJzdHJlYW0iOnRydWUsIm9wdGlvbnMiOnsibnVtX3ByZWRpY3QiOjEyOH19",
+          "sha256": "491d07e588623eb0664772532e27e84a89eb9321437b99e2f71ff4ac13c3e200"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/x-ndjson"
+        },
+        "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsImNyZWF0ZWRfYXQiOiIyMDI2LTA5LTEzVDAwOjE2OjUwLjY1OTQ1NFoiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8ifSwiZG9uZSI6ZmFsc2V9Cg==",
+        "sha256": "b9c65bc7944f1cbd8a4ee2a5fc771e50b2825980aa3c6574e16621c0c9f2bf6e",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 133,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

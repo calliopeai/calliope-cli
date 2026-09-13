@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "anthropic",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:51.266Z",
+    "sourceOrigin": "https://api.anthropic.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "3f582a14-0287-43dd-9ad3-b62108ebc82a",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtYXhfdG9rZW5zIjoxMjgsInN5c3RlbSI6IiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dfQ==",
+          "sha256": "a7c12f151945c0ded46a3fd2d792a5c0e9d06e5e8184541921a74459fbdad1e8"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJ0eXBlIjoiZXJyb3IiLCJlcnJvciI6eyJ0eXBlIjoibm90X2ZvdW5kX2Vycm9yIiwibWVzc2FnZSI6Im1vZGVsOiBjYWxsaW9wZS1jb25mb3JtYW5jZS1taXNzaW5nLW1vZGVsIn0sInJlcXVlc3RfaWQiOiJyZXFfMDExQ2V6VWNCYWluWWFVMm1pdE1pWVZRIn0=",
+        "sha256": "9a6518609d3a7f743f7305d0436e7343a9466bc3fc7f15cea76ea1c5b8d5c2dd",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

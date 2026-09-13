@@ -1,6 +1,7 @@
 /** Offline release evidence inventory. Unknown or unavailable never means pass. */
 import { BACKENDS } from './contract.mjs';
 import { validateCapture, missingCaptures } from './captures.mjs';
+import { validateSemanticCapture } from './semantic.mjs';
 
 export const REQUIRED_CHECKS = [
   'text-json', 'text-stream', 'tool-json', 'tool-stream', 'cancellation',
@@ -19,8 +20,9 @@ export function credentialStatus(backend, config, env = process.env) {
   return config.getApiKey(backend.provider) ? 'configured' : 'missing';
 }
 
-export function createReadiness(captures, availability = {}, now = new Date()) {
+export function createReadiness(captures, availability = {}, now = new Date(), semanticCaptures = []) {
   captures.forEach(validateCapture);
+  semanticCaptures.forEach(validateSemanticCapture);
   const adapters = BACKENDS.map(backend => {
     const evidence = captures.filter(capture => capture.backend === backend.id);
     const credentials = availability[backend.id] ?? 'not-inspected';
@@ -30,6 +32,8 @@ export function createReadiness(captures, availability = {}, now = new Date()) {
     const absent = credentials === 'missing' || credentials === 'missing-endpoint' ? 'unavailable' : 'missing';
     const checks = Object.fromEntries(REQUIRED_CHECKS.map(check => [check, absent]));
     for (const capture of evidence) checks[`${capture.scenario}-${capture.stream ? 'stream' : 'json'}`] = 'captured';
+    const semanticEvidence = semanticCaptures.filter(capture => capture.backend === backend.id);
+    for (const capture of semanticEvidence) checks[capture.scenario] = 'captured';
     // Usage is independently observed in all four modes, not inferred from SDK support.
     if (['text', 'tool'].every(scenario => [false, true].every(stream => evidence.some(capture =>
       capture.scenario === scenario && capture.stream === stream && validUsage(capture.expected.usage))))) {
@@ -38,7 +42,7 @@ export function createReadiness(captures, availability = {}, now = new Date()) {
       checks.usage = 'incomplete';
     }
     return { id: backend.id, provider: backend.provider, protocol: backend.protocol, credentials, checks,
-      lastCapturedAt: evidence.map(c => c.provenance.capturedAt).sort().at(-1) ?? null };
+      lastCapturedAt: [...evidence, ...semanticEvidence].map(c => c.provenance.capturedAt).sort().at(-1) ?? null };
   });
   const missing = missingCaptures(captures);
   return {

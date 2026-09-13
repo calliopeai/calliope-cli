@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "litellm",
+  "model": "conformance-together",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:29.218Z",
+    "sourceOrigin": "http://127.0.0.1:39431",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "litellm",
+      "version": "1.100.1",
+      "upstreamProvider": "together",
+      "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "7ff42c08-07b4-4f24-bc08-6a17c9ca59d7",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNvbmZvcm1hbmNlLXRvZ2V0aGVyIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IlJlcGx5IHdpdGggZXhhY3RseTogSGVsbG8gz4AifV0sIm1heF90b2tlbnMiOjUxMiwic3RyZWFtIjp0cnVlLCJzdHJlYW1fb3B0aW9ucyI6eyJpbmNsdWRlX3VzYWdlIjp0cnVlfX0=",
+          "sha256": "f728c84b77a9649c2007f753992121f5d8ffb9d70572f89a12e649373a955efd"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6InAxM2kycnctZmRObW4tYTNhMzA1NDcwYWUyYjE1ZSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNTkxODksIm1vZGVsIjoiY29uZm9ybWFuY2UtdG9nZXRoZXIiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJIZWxsbyJ9fV19CgpkYXRhOiB7ImlkIjoicDEzaTJydy1mZE5tbi1hM2EzMDU0NzBhZTJiMTVlIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTI1OTE4OSwibW9kZWwiOiJjb25mb3JtYW5jZS10b2dldGhlciIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJjb250ZW50IjoiIM+AIn19XX0KCmRhdGE6IHsiaWQiOiJwMTNpMnJ3LWZkTm1uLWEzYTMwNTQ3MGFlMmIxNWUiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MjU5MTg5LCJtb2RlbCI6ImNvbmZvcm1hbmNlLXRvZ2V0aGVyIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7fSwiZmluaXNoX3JlYXNvbiI6InN0b3AifV19CgpkYXRhOiB7ImlkIjoicDEzaTJydy1mZE5tbi1hM2EzMDU0NzBhZTJiMTVlIiwiY3JlYXRlZCI6MTc4OTI1OTE4OSwibW9kZWwiOiJjb25mb3JtYW5jZS10b2dldGhlciIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6e319XSwidXNhZ2UiOnsiY29tcGxldGlvbl90b2tlbnMiOjMsInByb21wdF90b2tlbnMiOjQxLCJ0b3RhbF90b2tlbnMiOjQ0LCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjp7InJlYXNvbmluZ190b2tlbnMiOjB9fX0KCmRhdGE6IFtET05FXQoK",
+        "sha256": "368ebc2eab097f6fe43dcf54a41b1930da5fce4f153dbb57b2a61aa2e08ab2b3",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 876,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

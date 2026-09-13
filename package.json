@@ -48,10 +48,11 @@
     "bench:ui": "vitest run -c bench/vitest.bench.config.ts bench/keystroke.bench.test.ts",
     "bench:mem": "NODE_OPTIONS=--expose-gc vitest run -c bench/vitest.bench.config.ts bench/memory.bench.test.ts",
     "prepublishOnly": "npm run build && npm test && npm run test:conformance:release",
-    "test:conformance": "vitest run tests/provider-conformance.test.ts tests/provider-captures.test.ts tests/provider-readiness.test.ts tests/provider-probe-budget.test.ts",
+    "test:conformance": "vitest run tests/provider-conformance.test.ts tests/provider-captures.test.ts tests/provider-readiness.test.ts tests/provider-probe-budget.test.ts tests/provider-semantic.test.ts tests/provider-semantic-recorder.test.ts tests/provider-semantic-captures.test.ts tests/provider-semantic-cli.test.ts",
     "test:conformance:release": "CALLIOPE_REQUIRE_WIRE_CAPTURES=1 npm run test:conformance",
     "capture:provider": "npm run build && node scripts/conformance/capture.mjs",
-    "providers:readiness": "npm run build && node scripts/conformance/report.mjs"
+    "providers:readiness": "npm run build && node scripts/conformance/report.mjs",
+    "capture:semantics": "npm run build && node scripts/conformance/capture-semantic.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.111.0",

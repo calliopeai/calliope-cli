@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "google",
+  "model": "gemini-2.5-flash-lite",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:14:19.095Z",
+    "sourceOrigin": "https://generativelanguage.googleapis.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "675afaf3-186e-4ded-b8f2-9e5b15a5869f",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1beta/models/gemini-2.5-flash-lite:generateContent",
+          "body": "eyJjb250ZW50cyI6W3sicGFydHMiOlt7InRleHQiOiJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy4ifV0sInJvbGUiOiJ1c2VyIn1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IlRoZSBmaXJzdCB3b3JkIG9mIHlvdXIgZXhhY3QgcmVwbHkgbXVzdCBiZSBIZWxsby5cblxuVGhlIHNlY29uZCBhbmQgZmluYWwgd29yZCBtdXN0IGJlIM+ALiBTZXBhcmF0ZSB0aGUgdHdvIHdvcmRzIHdpdGggb25lIHNwYWNlOyBhZGQgbm90aGluZyBlbHNlLiJ9XSwicm9sZSI6InVzZXIifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJtYXhPdXRwdXRUb2tlbnMiOjEyOH19",
+          "sha256": "7cbb17920bb247f0cc33f7d62dbb5ee0bed8be9bbd26faedbaef05b7281b49b0"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": "ewogICJjYW5kaWRhdGVzIjogWwogICAgewogICAgICAiY29udGVudCI6IHsKICAgICAgICAicGFydHMiOiBbCiAgICAgICAgICB7CiAgICAgICAgICAgICJ0ZXh0IjogIkhlbGxvIM+AIgogICAgICAgICAgfQogICAgICAgIF0sCiAgICAgICAgInJvbGUiOiAibW9kZWwiCiAgICAgIH0sCiAgICAgICJmaW5pc2hSZWFzb24iOiAiU1RPUCIsCiAgICAgICJpbmRleCI6IDAKICAgIH0KICBdLAogICJ1c2FnZU1ldGFkYXRhIjogewogICAgInByb21wdFRva2VuQ291bnQiOiA0MCwKICAgICJjYW5kaWRhdGVzVG9rZW5Db3VudCI6IDIsCiAgICAidG90YWxUb2tlbkNvdW50IjogNDIsCiAgICAicHJvbXB0VG9rZW5zRGV0YWlscyI6IFsKICAgICAgewogICAgICAgICJtb2RhbGl0eSI6ICJURVhUIiwKICAgICAgICAidG9rZW5Db3VudCI6IDQwCiAgICAgIH0KICAgIF0sCiAgICAic2VydmljZVRpZXIiOiAic3RhbmRhcmQiCiAgfSwKICAibW9kZWxWZXJzaW9uIjogImdlbWluaS0yLjUtZmxhc2gtbGl0ZSIsCiAgInJlc3BvbnNlSWQiOiAiMnVxbGF1VHVPNUtsNmRrUGo2cmdrQXMiCn0K",
+        "sha256": "d67fe98937bd5cbec48533fc4e584e185aaa41f7a40e3672ab7ad596b0d49791",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 40,
+            "outputTokens": 2
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

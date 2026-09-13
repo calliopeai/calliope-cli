@@ -122,7 +122,7 @@ it('uses Ollama show capabilities and actual num_ctx overrides', async () => {
   expect(route.selected).toMatchObject({ model: 'local-custom', contextLength: 12000, capabilities: { tools: true, thinking: false, vision: true } });
 });
 
-it('discovers Bedrock native models without a model-family tool allowlist and follows profile evidence', async () => {
+it.each([undefined, null, ''])('discovers Bedrock native models with terminal cursor %s and follows profile evidence', async terminal => {
   config.set('providers', { ...config.get('providers'), bedrock: {} });
   vi.stubEnv('AWS_ACCESS_KEY_ID', 'fake'); vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'fake');
   vi.stubEnv('AWS_PROFILE', ''); vi.stubEnv('AWS_REGION', 'us-east-1');
@@ -132,7 +132,7 @@ it('discovers Bedrock native models without a model-family tool allowlist and fo
       { modelId: 'newvendor.custom-model', inputModalities: ['TEXT', 'IMAGE'], outputModalities: ['TEXT'], responseStreamingSupported: false },
       { modelId: 'newvendor.other-model', inputModalities: ['TEXT'], outputModalities: ['TEXT'] },
     ] });
-    return url.searchParams.has('nextToken') ? json({ inferenceProfileSummaries: [] }) : json({ inferenceProfileSummaries: [
+    return url.searchParams.has('nextToken') ? json({ inferenceProfileSummaries: [], nextToken: terminal }) : json({ inferenceProfileSummaries: [
       { inferenceProfileId: 'custom-profile', models: [{ modelArn: 'arn:aws:bedrock:us-east-1::foundation-model/newvendor.custom-model' }] },
     ], nextToken: 'next' });
   });

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "anthropic",
+  "model": "claude-haiku-4-5-20251001",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:14:18.231Z",
+    "sourceOrigin": "https://api.anthropic.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "231c357c-777a-40d5-80bb-92e1065a4d1b",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/messages",
+          "body": "eyJtb2RlbCI6ImNsYXVkZS1oYWlrdS00LTUtMjAyNTEwMDEiLCJtYXhfdG9rZW5zIjoxMjgsInN5c3RlbSI6IiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJzdHJlYW0iOnRydWV9",
+          "sha256": "70a72bd252296be06f843419d7cfd9efa936bc41f61689f6140f5a9e69b96bb0"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZXZlbnQ6IG1lc3NhZ2Vfc3RhcnQKZGE=",
+        "sha256": "dcc836ac9f8383e0f96f59730b639aae84c17da8ff9e15cabf1f15b5284e175d",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 23,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

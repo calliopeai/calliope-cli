@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "together",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:54.407Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "977fef81-955e-4ceb-a8f6-dd50087f6ae3",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6MTI4fQ==",
+          "sha256": "977d8a1a482ff68ff669c12da1808800f9841a7f2af6c967494a153e54eea3d7"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "ewogICJpZCI6ICJwMTNmNkVKLTJrRkhvdC1hM2EyZjc0MTdjZjBjODQ2IiwKICAiZXJyb3IiOiB7CiAgICAibWVzc2FnZSI6ICJVbmFibGUgdG8gYWNjZXNzIG1vZGVsIGNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwuIFBsZWFzZSB2aXNpdCBodHRwczovL2FwaS50b2dldGhlci5haS9tb2RlbHMgdG8gdmlldyB0aGUgbGlzdCBvZiBzdXBwb3J0ZWQgbW9kZWxzLiIsCiAgICAidHlwZSI6ICJpbnZhbGlkX3JlcXVlc3RfZXJyb3IiLAogICAgInBhcmFtIjogbnVsbCwKICAgICJjb2RlIjogIm1vZGVsX25vdF9hdmFpbGFibGUiCiAgfQp9",
+        "sha256": "b09131d3f7e20fe87cec1a314da23a22fbf46bb4d05aa8ac3eafcc624fd7962a",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

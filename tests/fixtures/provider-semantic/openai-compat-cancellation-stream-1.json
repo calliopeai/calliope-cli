@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-compat",
+  "model": "qwen3-coder:30b",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:51.339Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "ollama",
+      "version": "0.33.2",
+      "upstreamProvider": "ollama",
+      "upstreamModel": "qwen3-coder:30b"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "7b51e4ba-6ce7-4566-90ec-4c02ee9e9464",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6InF3ZW4zLWNvZGVyOjMwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjo1MTIsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+          "sha256": "33032b3829fb1fb9b3da81a979af66cac8184bc6ebba2ef3d28f80bf150f159b"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLTYxMyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNTkyMTEsIm1vZGVsIjoicXdlbjMtY29kZXI6MzBiIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8ifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoK",
+        "sha256": "f17a546747991dbff294c417d15826b67e68b48c74bd5f7e0ff720d680341335",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 234,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

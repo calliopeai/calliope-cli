@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "ollama",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:54.695Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "16cf1cf9-9dee-4d20-82d6-4f40dec2c2f9",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/chat",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwic3RyZWFtIjpmYWxzZSwib3B0aW9ucyI6eyJudW1fcHJlZGljdCI6MTI4fX0=",
+          "sha256": "a58d1b81431e91af4a9d1218f343451e37df889ee71a5584bf9851c7ef211c6c"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "eyJlcnJvciI6Im1vZGVsICdjYWxsaW9wZS1jb25mb3JtYW5jZS1taXNzaW5nLW1vZGVsJyBub3QgZm91bmQifQ==",
+        "sha256": "a886628053c1357e59464571c4141bf6789fbe620b0f9c5cf0d92cfe49f0b463",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openrouter",
+  "model": "google/gemini-2.5-flash-lite",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:24:02.351Z",
+    "sourceOrigin": "https://openrouter.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "maxPrice": {
+      "input": 0.1,
+      "output": 0.4
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "919882a4-5603-43e8-9a3d-e087270a928a",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Imdvb2dsZS9nZW1pbmktMi41LWZsYXNoLWxpdGUiLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgZmlyc3Qgd29yZCBvZiB5b3VyIGV4YWN0IHJlcGx5IG11c3QgYmUgSGVsbG8uIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy4ifSx7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIHNlY29uZCBhbmQgZmluYWwgd29yZCBtdXN0IGJlIM+ALiBTZXBhcmF0ZSB0aGUgdHdvIHdvcmRzIHdpdGggb25lIHNwYWNlOyBhZGQgbm90aGluZyBlbHNlLiJ9XSwibWF4X3Rva2VucyI6NTEyLCJwcm92aWRlciI6eyJhbGxvd19mYWxsYmFja3MiOmZhbHNlLCJtYXhfcHJpY2UiOnsiaW5wdXQiOjAuMSwib3V0cHV0IjowLjR9fX0=",
+          "sha256": "3a2429e0a93c7615024c52f497995d0ebbe45af9ed4eaa713bf647f88543e10c"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "CiAgICAgICAgIAp7ImlkIjoiZ2VuLTE3ODkyNTkwNDEtM3V6aTNyNzc2TFduNlVnYTNFOUoiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24iLCJjcmVhdGVkIjoxNzg5MjU5MDQxLCJtb2RlbCI6Imdvb2dsZS9nZW1pbmktMi41LWZsYXNoLWxpdGUiLCJwcm92aWRlciI6Ikdvb2dsZSIsInN5c3RlbV9maW5nZXJwcmludCI6bnVsbCwic2VydmljZV90aWVyIjoiZGVmYXVsdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6InN0b3AiLCJuYXRpdmVfZmluaXNoX3JlYXNvbiI6IlNUT1AiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8gz4AiLCJyZWZ1c2FsIjpudWxsLCJyZWFzb25pbmciOm51bGx9fV0sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjM4LCJjb21wbGV0aW9uX3Rva2VucyI6MiwidG90YWxfdG9rZW5zIjo0MCwiY29zdCI6MC4wMDAwMDQ2LCJpc19ieW9rIjpmYWxzZSwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjAsImNhY2hlX3dyaXRlX3Rva2VucyI6MCwiYXVkaW9fdG9rZW5zIjowLCJ2aWRlb190b2tlbnMiOjB9LCJjb3N0X2RldGFpbHMiOnsidXBzdHJlYW1faW5mZXJlbmNlX2Nvc3QiOjAuMDAwMDA0NiwidXBzdHJlYW1faW5mZXJlbmNlX3Byb21wdF9jb3N0IjowLjAwMDAwMzgsInVwc3RyZWFtX2luZmVyZW5jZV9jb21wbGV0aW9uc19jb3N0Ijo4ZS03fSwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjowLCJpbWFnZV90b2tlbnMiOjAsImF1ZGlvX3Rva2VucyI6MH19fQ==",
+        "sha256": "fb620ded41ae76e476930f5d480c6e00ebc8a25444a4eec32226de91bdb75574",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 38,
+            "outputTokens": 2
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

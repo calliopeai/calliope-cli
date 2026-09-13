@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "huggingface",
+  "model": "meta-llama/Llama-3.3-70B-Instruct:together",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:24:10.614Z",
+    "sourceOrigin": "https://router.huggingface.co",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "huggingface-router",
+      "version": "v1",
+      "upstreamProvider": "together",
+      "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "23edde2c-6eb8-4e92-a007-ff714ddd21ab",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdDp0b2dldGhlciIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjo1MTIsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+          "sha256": "18ff36a0a2c461a105c0765fda4427508a53a0222dba1dc187b350d7ff65780c"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream;charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6InAxM2hLZ2UtNFlOQ2I0LWEzYTMwMWU0ZTliMmM1NzQiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MjU5MDQ5LCJjaG9pY2VzIjpbeyJpbmRleCI6MCwidGV4dCI6IkhlbGxvIiwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGwsInNlZWQiOm51bGwsImRlbHRhIjp7InRva2VuX2lkIjo5OTA2LCJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IkhlbGxvIn19XSwibW9kZWwiOiJtZXRhLWxsYW1hL0xsYW1hLTMuMy03MEItSW5zdHJ1Y3QtVHVyYm8iLCJ1c2FnZSI6bnVsbH0KCg==",
+        "sha256": "cc7757004201020f1d65ca5a91d2ed10844f40284ac163f421601d3813b308f0",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 316,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

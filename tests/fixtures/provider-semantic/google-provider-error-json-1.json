@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "google",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:51.794Z",
+    "sourceOrigin": "https://generativelanguage.googleapis.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "4551132d-1bf2-4127-ac62-338f6892ebc9",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1beta/models/calliope-conformance-missing-model:generateContent",
+          "body": "eyJjb250ZW50cyI6W3sicGFydHMiOlt7InRleHQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJyb2xlIjoidXNlciJ9XSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJtYXhPdXRwdXRUb2tlbnMiOjEyOH19",
+          "sha256": "df8eb223658ff834eb496f63e6ff6b74b7e7f435e938d5d926ff8732c523ed84"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=UTF-8"
+        },
+        "body": "ewogICJlcnJvciI6IHsKICAgICJjb2RlIjogNDA0LAogICAgIm1lc3NhZ2UiOiAibW9kZWxzL2NhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwgaXMgbm90IGZvdW5kIGZvciBBUEkgdmVyc2lvbiB2MWJldGEsIG9yIGlzIG5vdCBzdXBwb3J0ZWQgZm9yIGdlbmVyYXRlQ29udGVudC4gQ2FsbCBNb2RlbFNlcnZpY2UuTGlzdE1vZGVscyB0byBzZWUgdGhlIGxpc3Qgb2YgYXZhaWxhYmxlIG1vZGVscyBhbmQgdGhlaXIgc3VwcG9ydGVkIG1ldGhvZHMuIiwKICAgICJzdGF0dXMiOiAiTk9UX0ZPVU5EIgogIH0KfQo=",
+        "sha256": "396d49b99a1880a337e747f9f7f237684c7c618899e5656ee3e0367b18534caf",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

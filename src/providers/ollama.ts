@@ -325,7 +325,7 @@ async function doChat(
   }
 
   if (onToken) {
-    return streamResponse(response, onToken, limits?.bounded);
+    return streamResponse(response, onToken, limits?.bounded, signal);
   }
 
   const data = await response.json() as OllamaChatResponse;
@@ -362,7 +362,8 @@ async function doChat(
 async function streamResponse(
   response: Response,
   onToken: StreamCallback,
-  bounded = false
+  bounded = false,
+  signal?: AbortSignal
 ): Promise<LLMResponse> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body from Ollama');
@@ -418,6 +419,7 @@ async function streamResponse(
     reader.releaseLock();
   }
 
+  throwIfCancelled(signal);
   if (!receivedDone) throw new Error('Ollama stream ended before its completion frame');
 
   // Fallback: parse text-based tool calls from streamed content
