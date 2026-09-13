@@ -8,9 +8,73 @@ An optional second model reviews its draft before any decision takes effect.
 Worker, controller and reviewer choices use the existing agent preferences and
 live discovery. Each uses its original account, allowance and absolute deadline.
 
+## Start from a goal
+
+Use the same flags in the terminal REPL and headless CLI:
+
+```text
+calliope orchestrate "Fix the parser boundary case and verify its regression test" \
+  --supervise --isolation-image sha256:<existing-local-Linux-image-ID> \
+  --planner-provider <provider> --planner-model <discovered-ID> \
+  --controller-provider <provider> --controller-model <discovered-ID> \
+  --worker-provider <provider> --worker-model <discovered-ID> \
+  --supervision-reviewer-provider <provider> --supervision-reviewer-model <discovered-ID> \
+  --principle robustness --supervision-rounds 4 --supervision-stall-rounds 2 \
+  --supervision-output-tokens 1024 --attempts 2 --cost 1 --json
+```
+
+The placeholders must be replaced with live-discovered model IDs and a pinned
+local image ID, not a mutable image tag. Calliope checks that image with the local
+Docker daemon before planning inference. It never pulls or runs it during
+planning. Missing images leave an unallocated goal that can be resumed under its
+original clock after the exact image is prepared. Image inspection is bounded to
+five seconds, cancellable, and receives only PATH rather than provider credentials
+or Docker remote-context environment.
+
+`--supervise` opts into a version 3 goal manifest that captures isolated verification
+and supervision settings before the read-only planner runs. The planner proposes
+a version 4 execution plan; it cannot remove supervision, change the image or
+principle, or widen the captured limits/actions. Every initial worker task needs
+at least one declared isolated verification command and its executor acceptance
+check. Controller and reviewer accounts are separate from worker tasks; the
+reviewer is a read-only leaf. Review the proposed commands for meaningful coverage
+of your goal: validation cannot establish that a model selected an adequate test.
+
+The controller defaults to the captured planner preference. The execution
+reviewer is optional and independent of `--reviewer-provider/model`, which still
+selects a read-only **planning** reviewer. Selecting a planning reviewer does not
+silently add a recurring execution reviewer. Explicit controller/reviewer model
+flags require their matching provider flags. Optional `--controller-effort` and
+`--supervision-reviewer-effort` use the native discovery restrictions below.
+Supervision flags require `--supervise` when creating a goal, and cannot change an
+existing goal during approval or resume.
+
+Defaults are four rounds, two stalled rounds, 1,024 output tokens per review and
+`robustness`, with retry, replan and decomposition allowed within the original
+graph limits. With `--supervision-rounds 1`, the default stalled limit is one.
+The proposed plan can narrow those bounds. Normal token, cost, task-attempt,
+agent-count/depth, time and project-policy limits still apply to every role.
+
+Headless planning stops at exit 5 with the complete proposal and hash:
+
+```text
+calliope orchestrate proposal <goal-id>
+calliope orchestrate approve <goal-id> <proposal-hash> --allow-mutations --json
+calliope orchestrate status <goal-id> --json
+calliope orchestrate resume <goal-id> --allow-mutations --json
+```
+
+In the REPL, `/orchestrate` shows the same proposal before its approval dialog and
+updates the existing per-workflow/per-agent HUD during execution. Tool permission
+checks still apply separately to candidate edits and each exact verification
+command. Candidates remain in retained worktrees; source-checkout promotion is a
+separate human decision. Existing goal manifests and NDJSON envelopes remain
+readable; goal output envelopes stay at version 1.
+
 ## Reviewed contract
 
-Start with an isolated version 3 plan, set `version` to `4`, and add:
+For a manually authored plan, start with an isolated version 3 plan, set
+`version` to `4`, and add:
 
 ```json
 {
@@ -50,9 +114,9 @@ calliope run execute <run-id> --json
 
 The equivalent `/run` commands work in the REPL. Plan approval and project tool
 permissions remain separate: noninteractive mutations still require permission.
-Existing goal-generated version 2 plans retain their prior behavior; this contract
-can be supplied in a reviewed plan or through goal-plan revision when the original
-goal scope already permits the required isolation and verification tools.
+Existing goal-generated version 2 plans retain their prior behavior. Supervised
+goal revisions must preserve the captured isolation and supervision authority;
+explicit human per-agent model choices remain visible in the new proposal hash.
 
 ## Decisions and execution
 

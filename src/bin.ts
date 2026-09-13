@@ -401,6 +401,8 @@ ${bold('USAGE')}
   calliope kg search|graph [--json]   Knowledge graph
   calliope improve history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
   calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
+  calliope orchestrate <goal> --supervise --isolation-image sha256:ID [--principle robustness]
+    [--controller-provider NAME --controller-model ID] [--supervision-reviewer-provider NAME --supervision-reviewer-model ID]
   calliope orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] [--json]
   calliope orchestrate status|proposal|replay|resume|cancel <goal-id> [--json]
   calliope orchestrate revise <goal-id> <plan.json> [--json]   Correct a proposed plan

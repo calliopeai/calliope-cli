@@ -14,7 +14,7 @@ reported instead of silently replaced.
 ```
 
 The same arguments work after `calliope orchestrate` in headless mode. Omit the
-reviewer flags for a single controller. Omit a model flag to discover/select a
+reviewer flags for a single planner. Omit a model flag to discover/select a
 model for that role; worker/reviewer model flags require their matching provider
 flag. `--provider` and `--model` are aliases for the planner/controller selection;
 combining an alias with its corresponding `--planner-*` flag is an error.
@@ -34,6 +34,14 @@ receive the captured defaults. A human can lower the attempt allowance. Changing
 the proposal invalidates its previous approval hash. Running agents retain their
 reviewed choices; model changes are made before approval or in a separately
 reviewed child admission. Session model switches do not rewrite an active team.
+
+For ongoing controller/reviewer supervision, add `--supervise` and a pinned
+`--isolation-image`. `--controller-provider/model` can override the planner
+choice for execution, and `--supervision-reviewer-provider/model` selects a
+separate recurring reviewer. Planning and execution reviews have independent
+choices and accounts within the one allowance. See
+[supervised goals](continuous-supervision.md#start-from-a-goal) for the complete
+command and bounds.
 
 ## Planning pair, one allowance
 

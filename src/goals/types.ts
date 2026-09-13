@@ -1,4 +1,5 @@
 import type {ProjectIdentity,ProjectPlan,PathGrant,GoalRunLink} from '../orchestration/types.js';
+import type {SupervisionPolicy} from '../supervision/types.js';
 
 export interface GoalLimits {
   tokenBudget:number;costBudgetNanos:number;timeBudgetMs:number;
@@ -6,9 +7,15 @@ export interface GoalLimits {
   maxAgents:number;maxTasks:number;maxDepth:number;maxConcurrent:number;
 }
 export interface GoalManifest {
-  version:1|2;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
+  version:1|2|3;id:string;createdAt:string;deadline:number;project:ProjectIdentity;runsRoot:string;goal:string;
   preference:{provider:string;model?:string};workspace:{allowedTools:string[];allowedPaths:PathGrant[]};
-  limits:GoalLimits;team?:GoalTeam;hash:string;
+  limits:GoalLimits;team?:GoalTeam;supervision?:GoalSupervision;hash:string;
+}
+/** Operator intent captured before planning; the proposed graph supplies account IDs. */
+export interface GoalSupervision extends Pick<SupervisionPolicy,'version'|'maxRounds'|'maxStalledRounds'|'maxOutputTokens'|'principle'|'allowedActions'|'reasoningEffort'> {
+  image:string;
+  controller?:GoalManifest['preference'];
+  reviewer?:GoalManifest['preference'];
 }
 export interface GoalTeam {
   version:1;

@@ -80,6 +80,8 @@ choices and bounded attempts, with a compact HUD driven by recorded execution st
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
 evidence between batches and applies bounded retries, strategy changes and child
 admissions under the original authority, with explicit interrupted-call recovery.
+`orchestrate --supervise` connects read-only goal planning to that isolated loop,
+with captured controller/reviewer choices, local-image admission and exact-plan approval.
 [Improvement cycles](docs/improvement-cycles.md) derives auditable nested experiments,
 measured outcomes and persistent proposal approval/withdrawal controls from that history.
 [Project brain and knowledge graph](docs/project-brain.md) adds private versioned knowledge,
