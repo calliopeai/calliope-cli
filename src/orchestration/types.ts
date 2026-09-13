@@ -6,6 +6,9 @@ export interface AgentContract {
   id: string; parentId: string | null; role: string; objective: string; inputs: AgentInput[];
   allowedTools: string[]; allowedPaths: PathGrant[];
   preference: { provider: string; model?: string };
+  routing?:import('../routing/smart.js').SmartRoutingPolicy;
+  /** Reviewed delegation pool, independent of the agent's own inference role. */
+  childRouting?:import('../routing/smart.js').SmartRoutingPolicy;
   tokenBudget: number; costBudgetUsd: number; timeBudgetMs: number;
   maxChildDepth: number; maxChildCount: number; acceptanceCriteria: string[];
   escalationPolicy: { onFailure: 'stop' | 'parent' | 'human'; maxRetries: number };

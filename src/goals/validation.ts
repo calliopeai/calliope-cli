@@ -6,6 +6,7 @@ import {OrchestrationError} from '../orchestration/types.js';
 import type {GoalRunLink} from '../orchestration/types.js';
 import type {GoalManifest,GoalProposal,GoalAllocation,GoalLimits,PlanningSpend,ProposalSource} from './types.js';
 import {validateGoalTeam} from './team.js';
+import {validateGoalRouting,applyGoalRouting} from './routing.js';
 import {validateGoalSupervision,validateSupervisedGoalPlan} from './supervised.js';
 
 export const GOAL_TOOLS=['think','read_file','list_files','write_file','edit_file'];
@@ -19,11 +20,12 @@ export function validateGoalLimits(value:unknown):GoalLimits {
   integer(value.maxAgents,1,256);integer(value.maxTasks,1,1024);integer(value.maxDepth,0,8);integer(value.maxConcurrent,1,16);return value as unknown as GoalLimits;
 }
 export function validateGoalManifest(value:unknown):GoalManifest {
-  shape(value,['version','id','createdAt','deadline','project','runsRoot','goal','preference','workspace','limits','hash'],['team','supervision','planningRepair']);
-  if(![1,2,3,4].includes(Number(value.version))||typeof value.version!=='number'||!uuid(value.id)||!iso(value.createdAt))fail('Invalid goal identity or version.');text(value.goal);validateGoalLimits(value.limits);
-  if(value.version===2||(value.version===3||value.version===4)&&value.team!==undefined){const team=validateGoalTeam(value.team),limits=value.limits as unknown as GoalLimits;if(team.reviewer&&(limits.maxAgents<2||limits.maxTasks<2||limits.maxDepth<1||limits.planningTokens<2))fail('A plan reviewer requires two agents, two tasks, depth one and two planning tokens.');}else if(value.team!==undefined)fail('Version 1 goals cannot contain team configuration.');
-  if(value.version===3||value.version===4&&value.supervision!==undefined){const s=validateGoalSupervision(value.supervision),limits=value.limits as unknown as GoalLimits;if(limits.maxAgents<(s.reviewer?3:2)||limits.maxDepth<1||s.maxOutputTokens>limits.tokenBudget-limits.planningTokens)fail('Supervised goals need controller/worker capacity and output within their execution allowance.');}else if(value.supervision!==undefined)fail('Supervision requires a version 3 or 4 goal manifest.');
-  if(value.version===4){shape(value.planningRepair,['version','maxRetries']);if(value.planningRepair.version!==1)fail('Unknown planning repair version.');integer(value.planningRepair.maxRetries,1,2);}else if(value.planningRepair!==undefined)fail('Planning repair requires a version 4 goal manifest.');
+  shape(value,['version','id','createdAt','deadline','project','runsRoot','goal','preference','workspace','limits','hash'],['team','supervision','planningRepair','routing']);
+  if(![1,2,3,4,5].includes(Number(value.version))||typeof value.version!=='number'||!uuid(value.id)||!iso(value.createdAt))fail('Invalid goal identity or version.');text(value.goal);validateGoalLimits(value.limits);
+  if(value.version===2||(value.version===3||value.version===4||value.version===5)&&value.team!==undefined){const team=validateGoalTeam(value.team),limits=value.limits as unknown as GoalLimits;if(team.reviewer&&(limits.maxAgents<2||limits.maxTasks<2||limits.maxDepth<1||limits.planningTokens<2))fail('A plan reviewer requires two agents, two tasks, depth one and two planning tokens.');}else if(value.team!==undefined)fail('Version 1 goals cannot contain team configuration.');
+  if(value.version===3||(value.version===4||value.version===5)&&value.supervision!==undefined){const s=validateGoalSupervision(value.supervision),limits=value.limits as unknown as GoalLimits;if(limits.maxAgents<(s.reviewer?3:2)||limits.maxDepth<1||s.maxOutputTokens>limits.tokenBudget-limits.planningTokens)fail('Supervised goals need controller/worker capacity and output within their execution allowance.');}else if(value.supervision!==undefined)fail('Supervision requires a version 3 or 4 goal manifest.');
+  if(value.version===4||value.version===5&&value.planningRepair!==undefined){shape(value.planningRepair,['version','maxRetries']);if(value.planningRepair.version!==1)fail('Unknown planning repair version.');integer(value.planningRepair.maxRetries,1,2);}else if(value.planningRepair!==undefined)fail('Planning repair requires a version 4 goal manifest.');
+  if(value.version===5)validateGoalRouting(value.routing);else if(value.routing!==undefined)fail('Smart routing requires a version 5 goal manifest.');
   integer(value.deadline,Date.parse(value.createdAt)+1,Date.parse(value.createdAt)+86400000);if(value.deadline!==Date.parse(value.createdAt)+(value.limits as unknown as GoalLimits).timeBudgetMs)fail('Goal deadline differs from its original allowance.');
   shape(value.project,['root','key']);text(value.project.root,4096);if(!isAbsolute(value.project.root)||!hex(value.project.key))fail('Invalid goal project identity.');
   text(value.runsRoot,4096);if(!isAbsolute(value.runsRoot))fail('Goal runs require an absolute private store.');
@@ -60,6 +62,8 @@ export function validateGoalProposal(value:unknown,manifest:GoalManifest,spend?:
   if(manifest.team?.maxAttempts!==undefined&&p.agents.some(agent=>agent.escalationPolicy.maxRetries>=manifest.team!.maxAttempts!))fail('Proposal exceeds the goal task attempt limit.');
   if(p.workspace.allowedTools.some(t=>!manifest.workspace.allowedTools.includes(t))||p.workspace.allowedPaths.some(g=>!permits(manifest.workspace.allowedPaths,g.path,g.access)))fail('Proposed workspace exceeds the reviewed goal scope.');
   validateSupervisedGoalPlan(p,manifest);
+  if(!manifest.routing&&p.agents.some(a=>a.routing||a.childRouting))fail('A goal must opt into Smart routing before planning.');
+  if(manifest.routing&&canonicalJson(applyGoalRouting(structuredClone(p),manifest,'execution'))!==canonicalJson(p))fail('Proposal routing differs from the captured goal policy.');
   verifyHash(value);if(Buffer.byteLength(JSON.stringify(value))>MAX_PLAN_BYTES+8192)fail('Proposal exceeds its byte limit.');return value as unknown as GoalProposal;
 }
 export function assertGoalProject(manifest:GoalManifest,cwd=manifest.project.root):void {

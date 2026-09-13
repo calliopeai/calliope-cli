@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add opt-in Smart orchestration routing with reviewed role pools, explicit pins, verification-backed escalation, original budget/deadline enforcement and actual route events in the HUD and replay (#324).
+
 - Add opt-in bounded planner repair with precise inherited-authority diagnostics, immutable validation events, retained rejected drafts and unchanged budgets, deadlines and human approval (#321).
 
 - Preserve actual isolated verification and patches after worker output cutoffs; add explicit legacy evidence recovery with unchanged budgets, deadlines and append-only history, and require fresh controller review (#320).

@@ -1,3 +1,4 @@
+import {validateRecordedRoute,taskSmartSelection} from './routing.js';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,hex,id,integer,iso,pathName,permits,shape,strings,text,uuid,fail} from './validation.js';
 import {OrchestrationError,type RunManifest} from './types.js';
@@ -49,9 +50,9 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);const c=value.change;
-  if(value.version!==(c.type==='proposal_validated'?4:String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
+  if(![1,2,3,4,5].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route']);const c=value.change;
+  if(value.version!==(c.type==='agent_routed'?5:c.type==='proposal_validated'?4:String(c.type).startsWith('supervision_')?3:c.type==='graph_admitted'?2:1))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
   else if(c.type==='proposal_validated'){
     shape(c,['type','taskId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);
@@ -59,6 +60,7 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest,header
     array(c.diagnostics,16);if(c.valid!==!c.diagnostics.length)fail('Proposal validity differs from its diagnostics.');
     for(const d of c.diagnostics){shape(d,['path','message'],['parentPath','actual','limit']);for(const path of [d.path,...(d.parentPath===undefined?[]:[d.parentPath])])if(typeof path!=='string'||path.length>256||!/^(?:\$|(?:agents\[\d{1,3}\]|workspace|limits)(?:\.[a-zA-Z][a-zA-Z0-9]*)+)$/.test(path))fail('Invalid proposal diagnostic path.');text(d.message,1024);for(const n of [d.actual,d.limit])if(n!==undefined&&(typeof n!=='number'||!Number.isFinite(n)||Math.abs(n)>1e13))fail('Invalid proposal diagnostic limit.');}
   }
+  else if(c.type==='agent_routed'){shape(c,['type','agentId','sessionId','route'],['taskId']);text(c.agentId,64);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid route session.');validateRecordedRoute(c.route,manifest,c.agentId);if(c.taskId!==undefined&&!manifest.plan.tasks.some(t=>t.id===c.taskId&&t.agentId===c.agentId))fail('Route task belongs to another agent.');}
   else if(c.type==='graph_admitted'){shape(c,['type','admission']);if(!header)fail('A graph admission requires its original execution header.');validateSpawnAdmission(c.admission,manifest,header,manifest.plan);}
   else if(c.type==='started'){shape(c,['type','ownerId'],['proposalOnly']);if(c.proposalOnly!==undefined&&(c.proposalOnly!==true||!manifest.plan.supervision))fail('Proposal-only execution requires reviewed supervision.');if(!uuid(c.ownerId))fail('Invalid coordinator owner.');}
   else if(c.type==='task_started'){shape(c,['type','taskId','attempt','sessionId']);integer(c.attempt,1,4);text(c.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(c.sessionId))fail('Invalid agent session.');}
@@ -96,8 +98,18 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
   const active=()=>{if(state.status!=='running'||!state.ownerId)conflict('Coordinator is not active.');};
   for(const event of events){
     validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
-    const c=event.change,task='taskId' in c?state.tasks[c.taskId]!:undefined;
+    const c=event.change,task='taskId' in c&&c.taskId?state.tasks[c.taskId]!:undefined;
     if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
+    else if(c.type==='agent_routed'){
+      active();const agent=manifest.plan.agents.find(a=>a.id===c.agentId)!,last=state.routes?.[agent.id],prior=c.taskId?task?.route:last?.sessionId===c.sessionId?last.route:undefined;
+      if(agentStopped(state,manifest,agent.id)||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Routing requires active unexpired agent authority.');
+      if(c.taskId?task?.status!=='running'||task.sessionId!==c.sessionId:state.supervision?.active?.agentId!==c.agentId||state.supervision.active.sessionId!==c.sessionId)conflict('Routing requires the active task/controller session.');
+      const expected=taskSmartSelection(agent.routing!,events.slice(0,event.sequence-1),c.taskId);
+      if(c.route.stage!==expected.stage||c.route.evidenceId!==expected.evidenceId)conflict('Routing escalation is not backed by the previous failed verification.');
+      if(prior&&(prior.provider!==c.route.provider||prior.model!==c.route.model))conflict('An active agent session cannot switch its provider/model protocol.');
+      if(task)task.route=c.route;
+      state.routes??=Object.create(null);state.routes![c.agentId]={sessionId:c.sessionId,...(c.taskId?{taskId:c.taskId}:{}),route:c.route};state.version=5;
+    }
     else if(c.type==='graph_admitted'){
       if(c.admission.proposal.source.kind==='supervision')assertSupervisionProposal(c.admission.proposal,state);
       else if(state.supervision&&state.supervision.phase!=='ready')conflict('Resolve the controller review before admitting external children.');
@@ -123,7 +135,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       if(task!.status!=='pending'||agentStopped(state,manifest,agent.id)||c.attempt!==task!.attempts+1||c.attempt>agent.escalationPolicy.maxRetries+1||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs)||spec.dependencies.some(d=>!['completed','review_required'].includes(state.tasks[d]!.status)))conflict('Task is not ready or exceeds its retry/deadline limit.');
       if(Object.values(state.tasks).filter(t=>t.status==='running').length>=manifest.plan.limits.maxConcurrent)conflict('Run concurrency limit reached.');
       for(const t of Object.values(state.tasks).filter(t=>t.status==='running'))if(analysis.conflicts.some(pair=>pair.tasks.includes(t.id)&&pair.tasks.includes(c.taskId)))conflict('Concurrent task scopes conflict.');
-      task!.status='running';task!.attempts=c.attempt;task!.sessionId=c.sessionId;
+      task!.status='running';task!.attempts=c.attempt;task!.sessionId=c.sessionId;delete task!.route;
     }else if(c.type==='agent_started'||c.type==='agent_finished'){
       active();const key=c.type+':'+c.taskId+':'+task!.attempts;
       if(agentEvents.has(key)||c.type==='agent_started'&&task!.status!=='running'||c.type==='agent_finished'&&(task!.status!==c.status||!agentEvents.has('agent_started:'+c.taskId+':'+task!.attempts)))conflict('Agent lifecycle event does not match its task attempt.');agentEvents.add(key);
@@ -156,7 +168,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       const spec=manifest.plan.tasks.find(t=>t.id===c.taskId)!,agent=manifest.plan.agents.find(a=>a.id===spec.agentId)!;
       if(c.source==='automatic'&&state.supervision)conflict('Supervised runs require a controller or explicit operator retry.');
       if(!['failed','denied','cancelled','unknown'].includes(task!.status)||task!.attempts>agent.escalationPolicy.maxRetries||manifest.plan.tasks.some(t=>t.dependencies.includes(c.taskId)&&state.tasks[t.id]!.attempts>0)||c.source==='automatic'&&(task!.mutations||task!.status!=='failed'))conflict('Task retry requires remaining budget and safe, unused prior output.');
-      task!.status='pending';task!.output=null;task!.artifactIds=[];task!.changedFiles=[];task!.mutations=false;task!.escalation=null;
+      task!.status='pending';task!.output=null;task!.artifactIds=[];task!.changedFiles=[];task!.mutations=false;task!.escalation=null;delete task!.route;
     }else if(c.type==='task_accepted'){
       if(state.ownerId||task!.status!=='review_required'||!task!.output||task!.output.checks.some(check=>!check.passed)||artifactSetHash(task!.output.artifacts)!==c.artifactsHash||manifest.plan.tasks.find(t=>t.id===c.taskId)!.outputs.some(o=>!task!.artifactIds.includes(o.id)))conflict('Task is not eligible for human acceptance.');
       task!.status='completed';task!.output={...task!.output!,status:'success',unresolvedRisks:task!.output!.unresolvedRisks.filter(r=>r!=='Natural-language acceptance criteria still require human review.'),recommendedNextAction:'Human acceptance recorded.'};if(!state.supervision&&Object.values(state.tasks).every(t=>t.status==='completed'))state.status='completed';
@@ -166,7 +178,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       active();if(c.status==='completed'&&state.supervision&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');
       if(c.ownerId!==state.ownerId||Object.values(state.tasks).some(t=>t.status==='running')||c.status==='completed'&&!Object.values(state.tasks).every(t=>t.status==='completed'))conflict('Coordinator cannot finish with active or unverified work.');state.status=c.status;state.ownerId=null;
     }
-    state.revision=event.hash;
+    if(state.routes)state.version=5;state.revision=event.hash;
   }
   return state;
 }

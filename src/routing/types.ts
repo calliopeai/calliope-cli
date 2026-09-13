@@ -26,6 +26,8 @@ export interface RoutingRequest {
   requirements?: RoutingRequirements;
   preferences?: RoutingPreferences;
   signal?: AbortSignal;
+  /** Opt-in, reviewed per-role policy. No ambient default enables this mode. */
+  smart?: import('./smart.js').SmartRoutingSelection;
 }
 export interface RouteCandidate {
   provider: HealthProvider;
@@ -56,4 +58,5 @@ export interface RoutingDecision {
   exclusions: { provider: string; model?: string; reason: string }[];
   reason: string;
   preferenceSources?: { provider: string; model: string | null };
+  smart?: {profile:import('./smart.js').SmartRoutingPolicy['profile'];stage:'initial'|'escalation';evidenceId?:string};
 }

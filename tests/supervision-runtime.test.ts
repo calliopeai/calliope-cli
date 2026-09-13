@@ -249,12 +249,14 @@ it('honors stop decisions and round limits even when a model claims the task is 
   await expect(controlExecution(project,next.run.id,'controller-retry','coordinator',{store:runs})).rejects.toThrow('rounds remaining');
 });
 
-it('admits controller children against one recorded decision and original persistent budget',async()=>{
-  const p=plan(),child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
+it.each([false,true])('admits controller children against one recorded decision and original persistent budget (Smart %s)',async smart=>{
+  const p=plan();if(smart){p.agents[0]!.routing={version:1,profile:'balanced',pool:[{provider:'deepseek',model:'controller-toy'}]};p.agents[0]!.childRouting={version:1,profile:'cost',pool:[{provider:'deepseek',model:'worker-toy'}]};p.agents[1]!.routing=structuredClone(p.agents[0]!.childRouting);p.agents[1]!.preference={provider:'auto'};}
+  const child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
   decide=async context=>context.round===1?{...keepGoing(context),action:'decompose',hypothesis:'A second candidate supplies independent evidence.',expectedMetric:{name:'verified tasks',direction:'increase'},children:{version:1,parentId:'coordinator',agents:[child],tasks:[task]}}:keepGoing(context);
   const view=await reviewed(p),result=await execute(view.run.id);expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');
   const graph=result.execution.state.graph!;expect(graph.admissions).toHaveLength(1);expect(graph.plan.tasks).toHaveLength(2);expect(graph.admissions[0]!.proposal.source).toMatchObject({kind:'supervision',eventId:result.execution.events.find(e=>e.change.type==='supervision_decided')!.id});
   const budget=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(budget.projection.childGrants).toHaveLength(1);expect(budget.manifest.accounts).toHaveLength(2);expect(result.execution.header.deadline).toBe(budget.manifest.deadline);
+  if(smart){expect(result.execution.state.routes!.child!.route.model).toBe('worker-toy');expect(result.execution.state.routes!.coordinator!.route.model).toBe('controller-toy');expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);}
 });
 
 it('denies model-requested tools in controller turns even when the root account owns write tools',async()=>{
@@ -392,3 +394,11 @@ it('rejects malformed improvement commands and redacts unexpected errors without
   }
   const lines:string[]=[];const signal=AbortSignal.abort();expect(await runImprovementCommand(['--json'],{cwd:project,store:runs,signal,write:l=>lines.push(l)})).toBe(130);expect(JSON.parse(lines.at(-1)!).error.code).toBe('cancelled');expect(requests).toEqual([]);
 });
+
+it('records actual controller routing in Smart mode without granting mutation or changing the supervised loop',async()=>{
+  const p=plan();p.agents[0]!.routing={version:1,profile:'balanced',pool:[{provider:'deepseek',model:'controller-toy'}]};p.agents[1]!.routing={version:1,profile:'cost',pool:[{provider:'deepseek',model:'worker-toy'}]};p.agents[1]!.preference={provider:'auto'};
+  const view=await reviewed(p),result=await executeReviewedRun(project,view.run.id,{store:runs,approve:async()=> 'allow'});expect(result.status).toBe('completed');
+  expect(result.execution.state.routes!.coordinator!.route).toMatchObject({model:'controller-toy',profile:'balanced',stage:'initial'});expect(result.execution.state.routes!.a!.route.model).toBe('worker-toy');
+  const event=result.execution.events.find(e=>e.change.type==='agent_routed'&&e.change.agentId==='coordinator')!;expect(event.change).not.toHaveProperty('taskId');
+  expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);expect(requests.filter(r=>r.context.kind==='controller-review').every(r=>!r.body.tools?.length)).toBe(true);
+},20000);

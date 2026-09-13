@@ -239,3 +239,13 @@ it('reports later human acceptance from the linked execution without creating fr
 it('rejects invalid embedding output caps before creating a goal or allocating its execution',async()=>{
   await expect(startGoal(project,'Toy.',{...options(),maxOutputTokens:NaN})).rejects.toThrow(/cap/);expect(created).toBeUndefined();const first=await start();await expect(approveGoal(project,first.goal.manifest.id,first.goal.proposal!.hash,{...options(),maxOutputTokens:0})).rejects.toThrow(/cap/);expect(goals.read(first.goal.manifest.id).state.execution).toBeNull();
 });
+
+it('opts into Smart routing through CLI/REPL arguments and persists actual planner/worker routes for offline replay',async()=>{
+  fs.writeFileSync(join(project,'routing.json'),JSON.stringify({version:1,default:{version:1,profile:'cost',pool:[{provider:'deepseek',model:'goal-toy'}]},planner:{version:1,profile:'balanced',pool:[{provider:'deepseek',model:'goal-toy'}]}}),{mode:0o600});
+  const lines:string[]=[],code=await runGoalCommand(['Inspect public evidence.','--routing','smart','--routing-policy','routing.json','--json'],{...options(),cwd:project,write:line=>lines.push(line)});
+  expect(code).toBe(5);const envelopes=lines.map(line=>JSON.parse(line));expect(envelopes.every(e=>e.version===1)).toBe(true);expect(envelopes.some(e=>e.type==='orchestration.goal.run_event'&&e.data.change.type==='agent_routed'&&e.data.version===5)).toBe(true);
+  const m=created!.manifest;expect(m.version).toBe(5);const h=await planningHistory();expect(h.state.routes!.planner!.route).toMatchObject({profile:'balanced',model:'goal-toy'});
+  fs.writeFileSync(join(project,'routing.json'),'invalid later file contents must not change the captured policy');
+  const pending=goals.read(m.id),done=await approveGoal(project,m.id,pending.proposal!.hash,{...options(),approve:async()=> 'allow'});expect(done.status).toBe('completed');expect(Object.values(done.execution!.state.routes!).every(r=>r.route.profile==='cost')).toBe(true);
+  const before=requests.length,replay:string[]=[];expect(await runGoalCommand(['replay',m.id,'--json'],{cwd:project,goals:new GoalStore(goals.root),store:new RunStore(runs.root),write:line=>replay.push(line)})).toBe(0);expect(requests).toHaveLength(before);expect(JSON.parse(replay[0]!).data.execution.state.routes).toEqual(done.execution!.state.routes);
+});

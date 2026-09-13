@@ -84,7 +84,7 @@ async function planGoal(cwd:string,id:string,options:GoalOptions):Promise<GoalRe
 }
 export async function startGoal(cwd:string,goal:string,options:GoalOptions={}):Promise<GoalResult> {
   throwIfCancelled(options.signal);validateOptions(options);const runs=options.store??new RunStore(),goals=goalStore(options),manifest=newGoalManifest(cwd,goal,runs.root,options);
-  await authorizeSessionAction(cwd,'orchestration_goal_plan',{path:cwd,goalHash:digest(goal),limits:manifest.limits,workspace:manifest.workspace,preference:manifest.preference,...(manifest.team?{team:manifest.team}:{}),...(manifest.supervision?{supervision:manifest.supervision}:{})},options);throwIfCancelled(options.signal);const created=goals.create(manifest,options.signal);options.onCreated?.(created);
+  await authorizeSessionAction(cwd,'orchestration_goal_plan',{path:cwd,goalHash:digest(goal),limits:manifest.limits,workspace:manifest.workspace,preference:manifest.preference,...(manifest.routing?{routing:manifest.routing}:{}),...(manifest.team?{team:manifest.team}:{}),...(manifest.supervision?{supervision:manifest.supervision}:{})},options);throwIfCancelled(options.signal);const created=goals.create(manifest,options.signal);options.onCreated?.(created);
   return planGoal(cwd,manifest.id,{...options,store:runs,goals});
 }
 export async function approveGoal(cwd:string,id:string,proposalHash:string,options:GoalOptions={}):Promise<GoalResult> {

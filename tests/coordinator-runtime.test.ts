@@ -183,3 +183,26 @@ it('propagates approval revocation from another command to active agents',async(
   const view=await reviewed();let ready!:()=>void;const began=new Promise<void>(resolve=>{ready=resolve;});respond=async(_task,_body,signal)=>{ready();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
   const running=executeReviewedRun(project,view.run.id,{store:runs,approve:async()=> 'allow'});await began;await changePreparedRun(project,view.run.id,'cancelled',{store:runs});expect((await running).status).toBe('cancelled');expect(requests.length).toBeLessThanOrEqual(2);
 });
+
+it('uses reviewed Smart worker pools and escalates a failed check without resetting attempts, reservations or the deadline',async()=>{
+  const p=plan();p.agents=p.agents.slice(0,2);p.tasks=p.tasks.slice(0,1);delete p.tasks[0]!.outputs[0]!.path;
+  p.agents[1]!.preference={provider:'auto'};p.agents[1]!.routing={version:1,profile:'cost',pool:[{provider:'deepseek',model:'economical'}],escalationPool:[{provider:'deepseek',model:'reviewed-escalation'}]};
+  const original=fetch;
+  vi.stubGlobal('fetch',vi.fn(async(input,init)=>new URL(new Request(input,init).url).pathname==='/v1/models'?json({data:['coordinator-toy','economical','reviewed-escalation'].map(id=>({id,context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true}}))}):original(input,init)));
+  respond=async(task,body)=>json({id:'toy',choices:[{index:0,message:{role:'assistant',content:JSON.stringify({version:1,summary:'Report for verification.',outputs:[{id:task.outputs[0].id,content:body.model==='economical'?'failed check':'public toy verified'}]})},finish_reason:'stop'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}});
+  const v=await reviewed(p),progress:any[]=[],result=await executeReviewedRun(project,v.run.id,{store:runs,onProgress:p=>progress.push(p)});
+  expect(result.status).toBe('completed');expect(requests.map(r=>r.body.model)).toEqual(['economical','reviewed-escalation']);expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(2);
+  const routes=result.execution.events.filter(e=>e.change.type==='agent_routed');expect([...new Set(routes.map(e=>e.change.type==='agent_routed'&&e.change.route.stage))]).toEqual(['initial','escalation']);
+  const failure=result.execution.events.find(e=>e.change.type==='task_finished'&&e.change.status==='failed')!;expect(result.execution.state.routes!.a!.route.evidenceId).toBe(failure.id);
+  const {ReservationLedger}=await import('../src/execution/index.js'),ledger=new ReservationLedger(join(runs.root,v.run.id,'budget')).read(project);expect(Object.values(ledger.projection.requests)).toHaveLength(2);expect(ledger.manifest.deadline).toBe(result.execution.header.deadline);
+  const before=requests.length,again=await inspectExecution(project,v.run.id,{store:runs});expect(again.execution!.state.routes).toEqual(result.execution.state.routes);expect(requests).toHaveLength(before);expect(progress.some(p=>p.execution.state.routes?.a?.route.model==='reviewed-escalation')).toBe(true);
+},20000);
+
+it.each(['budget','permission','cancelled'] as const)('Smart routing retains safe %s behavior without escalation or extra requests',async(kind)=>{
+  const p=plan();p.agents=p.agents.slice(0,2);p.tasks=p.tasks.slice(0,1);p.agents[1]!.preference={provider:'auto'};p.agents[1]!.routing={version:1,profile:'cost',pool:[{provider:'deepseek',model:'coordinator-toy'}],escalationPool:[{provider:'deepseek',model:'never-admitted'}]};
+  if(kind==='budget')p.agents[1]!.costBudgetUsd=0.000001;
+  const controller=new AbortController();if(kind==='cancelled')respond=async()=>{controller.abort();throw controller.signal.reason;};
+  const view=await reviewed(p),result=await executeReviewedRun(project,view.run.id,{store:runs,signal:controller.signal,approve:async()=> 'deny'});
+  expect(result.status).toBe(kind==='cancelled'?'cancelled':'denied');expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(1);expect(requests).toHaveLength(kind==='budget'?0:1);
+  expect(result.execution.events.filter(e=>e.change.type==='agent_routed').every(e=>e.change.type==='agent_routed'&&e.change.route.stage==='initial')).toBe(true);expect(fs.existsSync(join(project,'a/report.txt'))).toBe(false);
+},20000);

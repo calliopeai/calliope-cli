@@ -10,3 +10,6 @@ export * from './team.js';
 export * from './supervised.js';
 export * from './supervised-cli.js';
 export * from './repair.js';
+
+export {validateGoalRouting,loadGoalRouting} from './routing.js';
+export type {GoalRouting} from './routing.js';

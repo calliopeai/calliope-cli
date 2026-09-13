@@ -1,3 +1,4 @@
+import {smartPolicyWithin} from '../routing/smart.js';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,shape,id,hex,uuid,integer,pathName,fail} from '../orchestration/validation.js';
 import type {ProjectPlan,RunManifest} from '../orchestration/types.js';
@@ -17,6 +18,10 @@ export function extendPlan(base:ProjectPlan,input:SpawnInput):ProjectPlan {
   const addedAgents=new Set(input.agents.map(agent=>agent?.id));
   if(input.tasks.some(task=>!task||!addedAgents.has(task.agentId)))fail('New tasks must belong to the proposed child hierarchy.');
   const next=analyzePlan({...base,agents:[...base.agents,...input.agents],tasks:[...base.tasks,...input.tasks]}).plan;
+  for(const child of input.agents){
+    const parent=next.agents.find(a=>a.id===child.parentId),allowed=parent?.childRouting??parent?.routing;
+    if(allowed&&(!child.routing||!smartPolicyWithin(child.routing,allowed)||child.childRouting&&!smartPolicyWithin(child.childRouting,allowed)||!allowed.pool.some(target=>(child.preference.provider==='auto'||target.provider===child.preference.provider)&&(!child.preference.model||!target.model||target.model===child.preference.model))))fail('Child routing exceeds its parent approved delegation pool; inherit or narrow the policy.');
+  }
   for(const child of input.agents){let current=next.agents.find(a=>a.id===child.id),found=false;for(let n=0;current?.parentId&&n<next.agents.length;n++){if(current.parentId===input.parentId){found=true;break;}current=next.agents.find(a=>a.id===current!.parentId);}if(!found)fail('Every proposed agent must descend from the named parent.');}
   return next;
 }

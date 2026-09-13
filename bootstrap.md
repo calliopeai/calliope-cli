@@ -81,6 +81,8 @@ Opt-in planning repair validates drafts before task outcomes and records bounded
 corrections under the same allowance; legacy goal contracts keep their hashes.
 [Mixed-model teams](docs/mixed-model-teams.md) bind independent planner/reviewer/worker
 choices and bounded attempts, with a compact HUD driven by recorded execution state.
+[Smart routing](docs/smart-routing.md) is an opt-in goal mode with captured role
+pools, verification-backed escalation and actual selections recorded before inference.
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
 evidence between batches and applies bounded retries, strategy changes and child
 admissions under the original authority, with explicit interrupted-call recovery.
