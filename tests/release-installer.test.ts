@@ -45,8 +45,10 @@ if(name==='uname'){console.log(args[0]==='-s'?'Linux':'x86_64');process.exit(0);
 if(name==='curl'){if(!args.includes('--max-time')||value('--retry')!=='0'||value('--proto')!=='=https'||value('--proto-redir')!=='=https')process.exit(9);const url=args.find(a=>a.startsWith('https://'));const input=path.join(root,'files',url.split('/').at(-1));if(!fs.existsSync(input))process.exit(22);fs.copyFileSync(input,value('--output'));process.exit(0);}
 if(name==='gh'&&args[0]==='api'){console.log(args[1].endsWith('/latest')?'v3.2.0':'a'.repeat(40));process.exit(0);}
 if(name==='gh'&&args[0]==='attestation'&&args[1]==='verify'){
+// Real gh rejects combinations of these mutually exclusive identity selectors.
+if(['--cert-identity','--cert-identity-regex','--signer-repo','--signer-workflow'].filter(flag=>args.includes(flag)).length>1)process.exit(2);
 const bundle=JSON.parse(fs.readFileSync(value('--bundle')));const signer='calliopeai/calliope-cli/.github/workflows/release-binaries.yml';
-const good=value('--repo')==='calliopeai/calliope-cli'&&value('--signer-workflow')===signer&&value('--source-ref')==='refs/tags/'+bundle.tag&&value('--source-digest')===bundle.sha&&value('--cert-identity')==='https://github.com/'+signer+'@refs/tags/'+bundle.tag&&args.includes('--deny-self-hosted-runners')&&bundle.digest===crypto.createHash('sha256').update(fs.readFileSync(args[2])).digest('hex');process.exit(good?0:1);}
+const good=value('--repo')==='calliopeai/calliope-cli'&&value('--source-ref')==='refs/tags/'+bundle.tag&&value('--source-digest')===bundle.sha&&value('--cert-identity')==='https://github.com/'+signer+'@refs/tags/'+bundle.tag&&args.includes('--deny-self-hosted-runners')&&bundle.digest===crypto.createHash('sha256').update(fs.readFileSync(args[2])).digest('hex');process.exit(good?0:1);}
 process.exit(8);
 `;
   for (const tool of ["gh", "curl", "uname"])

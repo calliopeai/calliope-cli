@@ -74,7 +74,7 @@ jobs:
           file="out/calliope-$VERSION-$ASSET"
           cp "$BUNDLE" "$file.sigstore.json"
           gh attestation verify "$file" --bundle "$file.sigstore.json" --repo calliopeai/calliope-cli \
-            --signer-workflow calliopeai/calliope-cli/.github/workflows/release-binaries.yml \
+            --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF" \
             --source-ref "$SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
       - uses: actions/upload-artifact@v4
         with:
@@ -125,7 +125,7 @@ jobs:
         run: |
           cp "$BUNDLE" out/checksums.txt.sigstore.json
           gh attestation verify out/checksums.txt --bundle out/checksums.txt.sigstore.json --repo calliopeai/calliope-cli \
-            --signer-workflow calliopeai/calliope-cli/.github/workflows/release-binaries.yml \
+            --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF" \
             --source-ref "$SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
       - name: Retain the verified CI artifact set
         uses: actions/upload-artifact@v4

@@ -28,13 +28,14 @@ commit=$(gh api "repos/calliopeai/calliope-cli/commits/$tag" --jq .sha)
 file=calliope-3.2.0-darwin-arm64
 gh attestation verify "$file" --bundle "$file.sigstore.json" \
   --repo calliopeai/calliope-cli \
-  --signer-workflow calliopeai/calliope-cli/.github/workflows/release-binaries.yml \
   --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@refs/tags/$tag" \
   --source-ref "refs/tags/$tag" --source-digest "$commit" \
   --deny-self-hosted-runners
 ```
 
 Use the same policy for `checksums.txt`. [GitHub CLI's verifier reference](https://cli.github.com/manual/gh_attestation_verify) describes bundle and certificate checks. Retain a trusted copy of the source commit and bundles for subsequent independent review; a mutable tag name alone is a weaker reference.
+
+The exact certificate identity binds the repository, workflow path and reference. GitHub CLI treats `--cert-identity` and `--signer-workflow` as mutually exclusive; do not combine them. CI binary/manifest verification and assembly use the same certificate policy as the installer.
 
 ## Preview and publication
 
