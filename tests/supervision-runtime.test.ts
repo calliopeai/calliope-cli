@@ -7,16 +7,17 @@ import {randomUUID} from 'node:crypto';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {clearModelCache} from '../src/model-detection.js';
-import {RunStore,ExecutionStore,prepareRun,changePreparedRun,executeReviewedRun,controlExecution,runOrchestrationCommand,replayExecution,type ProjectPlan} from '../src/orchestration/index.js';
+import {RunStore,ExecutionStore,prepareRun,changePreparedRun,executeReviewedRun,controlExecution,recoverTaskEvidence,runOrchestrationCommand,replayExecution,type ProjectPlan} from '../src/orchestration/index.js';
 import {ReservationLedger} from '../src/execution/index.js';
 import {projectBudgetPath} from '../src/budget.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import * as commands from '../src/isolation/process.js';
+import * as isolation from '../src/isolation/coordinator.js';
 import {workflowSnapshot,workflowLines} from '../src/ui/workflow-progress.js';
 import {inspectImprovements,proposeImprovement,runImprovement,withdrawImprovement,runImprovementCommand,improvementProposalHash,projectImprovementHistory,improvementFeedback} from '../src/improvement/index.js';
 import {reviewEvidence} from '../src/supervision/index.js';
 vi.setConfig({testTimeout:20000}); // Multiple real Git worktrees and durable journals per recovery scenario.
-let root:string,project:string,runs:RunStore,requests:any[],verificationExits:number[],controllerTool:boolean,decide:(context:any,signal:AbortSignal)=>Promise<unknown>;
+let root:string,project:string,runs:RunStore,requests:any[],verificationExits:number[],controllerTool:boolean,truncateWorkers:number,decide:(context:any,signal:AbortSignal)=>Promise<unknown>;
 const image='sha256:'+'a'.repeat(64),json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
 const git=(...args:string[])=>execFileSync('git',args,{cwd:project,stdio:'pipe'}).toString();
 function plan():ProjectPlan {
@@ -32,7 +33,7 @@ const keepGoing=(context:any)=>({version:1,action:'continue',reason:'Inspect the
 const retry=(context:any,action='replan')=>({...keepGoing(context),action,taskId:'inspect-a',hypothesis:'Correct the failed boundary case.',expectedMetric:{name:'failed acceptance checks',direction:'decrease'},...(action==='replan'?{strategy:'Use the retained failing test and patch to repair the boundary case.'}:{})});
 beforeEach(()=>{
   config.resetConfig();saveHooks([]);clearModelCache();root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-supervision-')));project=join(root,'project');fs.mkdirSync(project);fs.mkdirSync(join(project,'a'));fs.writeFileSync(join(project,'a/seed.txt'),'public fixture');
-  git('init','-q');git('config','user.name','Test');git('config','user.email','test@example.invalid');git('add','.');git('commit','-qm','fixture');runs=new RunStore(join(root,'runs'));requests=[];verificationExits=[0];controllerTool=false;decide=async context=>keepGoing(context);
+  git('init','-q');git('config','user.name','Test');git('config','user.email','test@example.invalid');git('add','.');git('commit','-qm','fixture');runs=new RunStore(join(root,'runs'));requests=[];verificationExits=[0];controllerTool=false;truncateWorkers=0;decide=async context=>keepGoing(context);
   for(const provider of config.getProviderNames()){const names=config.getProviderEnvVars(provider);for(const name of [names.apiKey,names.baseUrl])if(name)vi.stubEnv(name,'');}
   config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://supervision.invalid/v1'});config.set('routing',{enabled:true,providerPool:['deepseek']});
   vi.stubGlobal('fetch',vi.fn(async(input,init)=>{
@@ -45,7 +46,8 @@ beforeEach(()=>{
       if(first)tool_calls=[{id:'write',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:context.task.outputs[0].path,content:'public toy candidate'})}}];
     }
     if(context.kind==='controller-review'&&controllerTool)tool_calls=[{id:'unauthorized',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:'forbidden.txt',content:'must not execute'})}}];
-    return json({id:'toy',object:'chat.completion',model:body.model,choices:[{index:0,message:{role:'assistant',content,...(tool_calls?{tool_calls}:{})},finish_reason:tool_calls?'tool_calls':'stop'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}});
+    const truncated=context.kind!=='controller-review'&&!tool_calls&&truncateWorkers>0;if(truncated)truncateWorkers--;
+    return json({id:'toy',object:'chat.completion',model:body.model,choices:[{index:0,message:{role:'assistant',content:truncated?'{"version":1,"outputs":[{"id":"forged-test",':content,...(tool_calls?{tool_calls}:{})},finish_reason:tool_calls?'tool_calls':truncated?'length':'stop'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}});
   }));
   vi.spyOn(commands,'runIsolatedCommand').mockImplementation(async(image,command)=>{const exit=verificationExits.shift()??0;return{version:1,kind:'isolated-command',argv:command.argv,image,exitCode:exit,outcome:exit?'failed':'passed',stdout:'retained boundary test evidence',stderr:'',truncated:false,durationMs:1,container:'calliope-check-'+randomUUID(),cleanupConfirmed:true};});
 });
@@ -73,6 +75,147 @@ it('replans a failed isolated candidate, preserves both attempts and only comple
   expect(result.execution.events.find(e=>e.change.type==='supervision_applied')?.change).toMatchObject({receipts:[{artifactId:'tests',exitCode:1,cleanupConfirmed:true}]});
   for(const attempt of [1,2])expect(fs.existsSync(join(runs.root,view.run.id,'execution',`worker-inspect-a-${attempt}`,'files','a/report.txt'))).toBe(true);
   const budget=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(Object.keys(budget.projection.requests)).toHaveLength(6);expect(budget.projection.spent.tokens).toBe(60);
+});
+
+it('retains real verification after a truncated worker report and retries without accepting the cutoff as success',async()=>{
+  truncateWorkers=1;decide=async context=>context.outcomes[0].status==='failed'?retry(context,'retry'):keepGoing(context);
+  const view=await reviewed(),result=await execute(view.run.id);
+  expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');
+  const outcomes=result.execution.events.filter(e=>e.change.type==='task_finished').map(e=>(e.change as any).output);
+  expect(outcomes.map(o=>o.status)).toEqual(['failed','success']);expect(outcomes[0].summary).toContain('truncated');
+  expect(outcomes[0].checks.every((c:any)=>c.passed)).toBe(true);expect(outcomes[0].artifacts.map((a:any)=>a.id)).toEqual(expect.arrayContaining(['patch','tests']));
+  expect(JSON.stringify(outcomes)).not.toContain('forged-test');
+  expect(result.execution.events.find(e=>e.change.type==='supervision_applied')?.change).toMatchObject({receipts:[{artifactId:'tests',exitCode:0,cleanupConfirmed:true}]});
+  expect(commands.runIsolatedCommand).toHaveBeenCalledTimes(2);expect(result.execution.state.tasks['inspect-a']?.attempts).toBe(2);
+  expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);
+});
+
+// Reproduce the legacy cutoff boundary without rewriting any journal or fabricating receipts.
+async function legacyCutoff(){
+  truncateWorkers=1;decide=async context=>context.outcomes[0].status==='failed'?retry(context,'retry'):keepGoing(context);
+  const spy=vi.spyOn(isolation,'verifyInWorktree').mockRejectedValueOnce(new Error('Worker stopped: length.'));
+  try{
+    const view=await reviewed(),result=await execute(view.run.id),store=new ExecutionStore(join(runs.root,view.run.id),view.manifest);
+    expect(result.execution.state.tasks['inspect-a']).toMatchObject({status:'failed',attempts:1,artifactIds:[],output:{summary:'Worker stopped: length.'}});
+    expect(result.execution.state.supervision?.halt?.reason).toContain('original verification');
+    return{view,result,store,workspace:join(store.root,'worker-inspect-a-1','files'),ledger:new ReservationLedger(join(runs.root,view.run.id,'budget'))};
+  }finally{spy.mockRestore();}
+}
+
+it('recovers legacy evidence through the JSON command after restart, retains history and forces a fresh bounded review',async()=>{
+  const {view,result,store,workspace,ledger}=await legacyCutoff(),before=ledger.read(project),count=requests.length,lines:string[]=[];
+  const file=fs.readFileSync(join(workspace,'a/report.txt')),identity=fs.statSync(workspace).ino;
+  expect(await runOrchestrationCommand('run',['recover-evidence',view.run.id,'inspect-a','--allow-mutations','--json'],{cwd:project,store:new RunStore(runs.root),write:line=>lines.push(line)})).toBe(0);
+  const recovered=store.read();expect(JSON.parse(lines[0]!)).toMatchObject({version:2,type:'orchestration.execution',action:'recover-evidence',data:{status:'failed'}});
+  expect(recovered.events.slice(0,result.execution.events.length)).toEqual(result.execution.events);expect(recovered.header).toEqual(result.execution.header);
+  expect(recovered.state.tasks['inspect-a']).toMatchObject({attempts:1,status:'failed',output:{testEvidence:['output-check','real-tests']}});
+  expect(recovered.state.supervision).toMatchObject({rounds:1,stalledRounds:1,phase:'halted',decision:null,decisionId:null,reviewedHash:null,forceReview:true});
+  expect(ledger.read(project)).toEqual(before);expect(requests).toHaveLength(count);expect(commands.runIsolatedCommand).toHaveBeenCalledTimes(1);
+  expect(fs.statSync(workspace).ino).toBe(identity);expect(fs.readFileSync(join(workspace,'a/report.txt'))).toEqual(file);
+  expect(replayExecution(recovered.header,view.manifest,recovered.events)).toEqual(recovered.state);
+  await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=> 'allow'})).rejects.toThrow('inactive isolated cutoff');
+  await controlExecution(project,view.run.id,'controller-retry','coordinator',{store:runs});
+  const next=await execute(view.run.id,{resume:true});expect(next.status).toBe('completed');expect(next.execution.state.tasks['inspect-a']?.attempts).toBe(2);expect(next.execution.state.supervision?.rounds).toBe(3);
+  expect(requests.slice(count).map(r=>r.body.model)).toEqual(['controller-toy','worker-toy','worker-toy','controller-toy']);
+});
+
+it('requires explicit recovery approval and preserves all state when denied or already cancelled',async()=>{
+  const {view,store,ledger}=await legacyCutoff(),before=store.read(),budget=ledger.read(project),count=requests.length,lines:string[]=[];
+  expect(await runOrchestrationCommand('run',['recover-evidence',view.run.id,'inspect-a','--json'],{cwd:project,store:runs,write:line=>lines.push(line)})).toBe(3);
+  expect(JSON.parse(lines[0]!).error.code).toBe('policy-denied');
+  const controller=new AbortController();controller.abort();
+  await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,signal:controller.signal,approve:async()=> 'allow'})).rejects.toThrow();
+  expect(store.read()).toEqual(before);expect(ledger.read(project)).toEqual(budget);expect(requests).toHaveLength(count);expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+
+it('does not start cutoff verification after a shell denial or cancellation',async()=>{
+  for(const cancel of [false,true]){
+    truncateWorkers=1;const view=await reviewed(),controller=new AbortController();
+    const result=await execute(view.run.id,{signal:controller.signal,approve:async(d:any)=>{if(d.request?.tool==='shell'){if(cancel)controller.abort();return 'reject';}return 'allow';}});
+    expect(result.execution.state.tasks['inspect-a']?.status).toBe(cancel?'cancelled':'denied');expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+  }
+});
+
+it('does not recreate missing baselines, budgets or workspaces or verify unrecorded changes',async()=>{
+  const {view,store,workspace,ledger}=await legacyCutoff(),before=store.read();
+  const recover=()=>recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=> 'allow'});
+  for(const path of [join(store.root,'workspace-base.json'),ledger.root,join(workspace,'..','identity.json'),workspace]){
+    fs.renameSync(path,path+'.retained');try{await expect(recover()).rejects.toThrow();expect(fs.existsSync(path)).toBe(false);}finally{fs.renameSync(path+'.retained',path);}
+  }
+  fs.writeFileSync(join(workspace,'a/seed.txt'),'unrecorded replacement');await expect(recover()).rejects.toThrow('unrecorded or unauthorized');
+  expect(store.read()).toEqual(before);expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+
+it('rechecks approval, run ownership, stopped agents and the original deadline before recovery commands',async()=>{
+  const {view,store}=await legacyCutoff(),before=store.read(),opts={store:runs,approve:async()=> 'allow' as const};
+  const lease=store.acquire();try{await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',opts)).rejects.toThrow('already owns');}finally{lease.release();}
+  vi.spyOn(Date,'now').mockReturnValue(before.header.deadline+1);await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',opts)).rejects.toThrow('deadline');vi.mocked(Date.now).mockRestore();
+  expect(store.read()).toEqual(before);
+  let stopped=false;
+  await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=>{if(!stopped){stopped=true;await controlExecution(project,view.run.id,'agent-stop','a',{store:runs});}return 'allow';}})).rejects.toThrow();
+  expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+
+it('retains real failed verification and never promotes recovered files to accepted work',async()=>{
+  const {view,store,ledger}=await legacyCutoff(),before=ledger.read(project);verificationExits=[1];
+  const result=await recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=> 'allow'}),task=result.state.tasks['inspect-a']!;
+  expect(task.status).toBe('failed');expect(task.output?.checks.find(c=>c.id==='real-tests')?.passed).toBe(false);
+  const receipt=task.output!.artifacts.find(a=>a.id==='tests')!;expect(JSON.parse(fs.readFileSync(join(store.root,'artifacts',receipt.path),'utf8'))).toMatchObject({exitCode:1,outcome:'failed',cleanupConfirmed:true});
+  await expect(controlExecution(project,view.run.id,'accept','inspect-a',{store:runs})).rejects.toThrow('not awaiting acceptance');expect(ledger.read(project)).toEqual(before);
+});
+
+it('cancels recovery verification promptly and keeps its process receipt without claiming success',async()=>{
+  const {view,store,ledger}=await legacyCutoff(),before=ledger.read(project),controller=new AbortController();let ready!:()=>void;const started=new Promise<void>(resolve=>{ready=resolve;});
+  vi.mocked(commands.runIsolatedCommand).mockImplementationOnce(async(image,command,_mounts,signal)=>{
+    ready();await new Promise<void>(resolve=>signal!.addEventListener('abort',()=>resolve(),{once:true}));
+    return{version:1,kind:'isolated-command',argv:command.argv,image,exitCode:-1,outcome:'cancelled',stdout:'',stderr:'',truncated:false,durationMs:1,container:'calliope-check-'+randomUUID(),cleanupConfirmed:true};
+  });
+  const pending=recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=> 'allow',signal:controller.signal});await started;controller.abort();await expect(pending).rejects.toThrow();
+  const result=store.read();expect(result.state).toMatchObject({status:'cancelled',ownerId:null,tasks:{'inspect-a':{status:'cancelled',attempts:1,artifactIds:['tests']}}});
+  expect(ledger.read(project)).toEqual(before);expect(replayExecution(result.header,view.manifest,result.events)).toEqual(result.state);
+});
+
+it('records verification denial without running commands or replenishing attempts',async()=>{
+  const {view,store}=await legacyCutoff();
+  await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async d=>d.request?.tool==='shell'?'reject':'allow'})).rejects.toThrow('denied');
+  expect(store.read().state).toMatchObject({status:'denied',ownerId:null,tasks:{'inspect-a':{attempts:1,status:'denied',artifactIds:[]}}});expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+
+it('rejects candidate changes during either approval and retains receipts if inputs change during execution',async()=>{
+  for(const stage of ['recovery','shell','execution']){
+    const {view,store,workspace}=await legacyCutoff(),file=join(workspace,'a/report.txt');let changed=false,recoveryApprovals=0;
+    if(stage==='execution')vi.mocked(commands.runIsolatedCommand).mockImplementationOnce(async(image,command)=>{fs.writeFileSync(file,'changed during command');return{version:1,kind:'isolated-command',argv:command.argv,image,exitCode:0,outcome:'passed',stdout:'',stderr:'',truncated:false,durationMs:1,container:'calliope-check-'+randomUUID(),cleanupConfirmed:true};});
+    const before=vi.mocked(commands.runIsolatedCommand).mock.calls.length;
+    await expect(recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async d=>{
+      const tool=d.request?.tool;if(tool==='orchestration_evidence_recovery')recoveryApprovals++;
+      if(!changed&&(stage==='shell'&&tool==='shell'||stage==='recovery'&&recoveryApprovals===2)){changed=true;fs.writeFileSync(file,'changed during approval');}
+      return 'allow';
+    }})).rejects.toThrow('changed');
+    expect(commands.runIsolatedCommand).toHaveBeenCalledTimes(before+(stage==='execution'?1:0));
+    expect(store.read().state.tasks['inspect-a']?.status).toBe('failed');
+  }
+});
+
+it('requires execution history and binds recovery events to the exact legacy outcome',async()=>{
+  const prepared=await reviewed();await expect(recoverTaskEvidence(project,prepared.run.id,'inspect-a',{store:runs})).rejects.toThrow('no execution history');
+  const {view,store,result}=await legacyCutoff(),ownerId=randomUUID();
+  await expect(store.appendBatch([{change:{type:'started',ownerId}},{change:{type:'task_recovery_started',taskId:'inspect-a',outcomeId:randomUUID()}}])).rejects.toThrow('cutoff attempt');
+  expect(store.read()).toEqual(result.execution);
+  const rows:string[]=[];await runOrchestrationCommand('run',['status',view.run.id],{cwd:project,store:runs,write:line=>rows.push(line)});expect(rows.join('')).toContain('run recover-evidence '+view.run.id+' inspect-a');
+  const outcome=[...result.execution.events].reverse().find(e=>e.change.type==='task_finished')!;
+  await store.appendBatch([{change:{type:'started',ownerId}},{change:{type:'task_recovery_started',taskId:'inspect-a',outcomeId:outcome.id}}]);
+  const output=result.execution.state.tasks['inspect-a']!.output!;
+  await expect(store.append({type:'task_finished',taskId:'inspect-a',status:'review_required',output:{...output,status:'partial'}})).rejects.toThrow('cannot accept');
+  const recovered=await store.append({type:'task_finished',taskId:'inspect-a',status:'failed',output});await store.append({type:'finished',ownerId,status:'failed'});
+  await expect(store.appendBatch([{change:{type:'started',ownerId}},{change:{type:'task_recovery_started',taskId:'inspect-a',outcomeId:recovered.id}}])).rejects.toThrow('one recovery');
+});
+
+it('rejects malformed recovery commands and unknown or non-cutoff tasks without side effects',async()=>{
+  const {view,store}=await legacyCutoff(),before=store.read();
+  for(const args of [['recover-evidence'],['recover-evidence',view.run.id],['recover-evidence',view.run.id,'inspect-a','extra'],['recover-evidence',view.run.id,'inspect-a','--max-output-tokens','2'],['recover-evidence',view.run.id,'missing']]){
+    const lines:string[]=[];expect(await runOrchestrationCommand('run',[...args,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)})).toBe(2);expect(JSON.parse(lines[0]!).error.code).toBe('invalid');
+  }
+  expect(store.read()).toEqual(before);expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
 });
 
 it('keeps malformed controller output recoverable only through an explicit command without resetting budget or clock',async()=>{

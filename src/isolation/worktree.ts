@@ -42,13 +42,17 @@ async function disabledFilters(project:string,signal?:AbortSignal):Promise<strin
   return keys.flatMap(key=>['-c',key+'=','-c',key.replace(/\.(clean|smudge|process)$/,'.required')+'=false']);
 }
 
+/** Recovery must read the original baseline and may never create a replacement. */
+export function readPinnedWorktreeBase(root:string,project:string,planHash:string):string {
+  privateDirectory(root);const v=readJson(join(root,'workspace-base.json'));shape(v,['version','project','planHash','commit','hash']);const {hash,...body}=v;
+  if(v.version!==1||v.project!==project||v.planHash!==planHash||typeof v.commit!=='string'||!/^[a-f0-9]{40,64}$/.test(v.commit)||hash!==digest(canonicalJson(body)))unavailable('Workspace source differs from this reviewed run.');
+  return v.commit as string;
+}
 /** One pinned source revision per run; ignored credentials and untracked source are never copied. */
 export async function pinWorktreeBase(root: string, project: string, sourcePlan: string, planHash: string, signal?: AbortSignal): Promise<string> {
   privateDirectory(root); const file = join(root, 'workspace-base.json');
   if (fs.existsSync(file)) {
-    const v = readJson(file); shape(v, ['version', 'project', 'planHash', 'commit', 'hash']); const { hash, ...body } = v;
-    if (v.version !== 1 || v.project !== project || v.planHash !== planHash || typeof v.commit !== 'string' || !/^[a-f0-9]{40,64}$/.test(v.commit) || hash !== digest(canonicalJson(body))) unavailable('Workspace source differs from this reviewed run.');
-    return v.commit as string;
+    return readPinnedWorktreeBase(root,project,planHash);
   }
   const top = (await worktreeGit(project, ['rev-parse', '--show-toplevel'], signal)).trim();
   if (canonicalPath(top) !== project) unavailable('Isolated execution requires the canonical Git repository root.');

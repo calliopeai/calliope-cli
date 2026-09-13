@@ -10,5 +10,6 @@ export * from './execution-store.js';
 export * from './verification.js';
 export * from './coordinator.js';
 export * from './coordinator-actions.js';
+export * from './recovery.js';
 export * from './execution-cli.js';
 export type {CoordinatorProgress} from './progress.js';

@@ -17,7 +17,7 @@ import {RunStore} from './store.js';
 import {prepareAgentExecution} from './execution.js';
 import {ExecutionStore} from './execution-store.js';
 import {agentStopped} from './execution-journal.js';
-import {collectTaskOutput,readCollectedArtifact,checkArtifactSnapshot,workerSummary} from './verification.js';
+import {collectTaskOutput,collectStoppedTaskOutput,readCollectedArtifact,checkArtifactSnapshot,workerSummary} from './verification.js';
 import {OrchestrationError,type ProjectTask,type ProjectPlan} from './types.js';
 import {analyzePlan} from './validation.js';
 import {agentPreference,type CoordinatorProgress} from './progress.js';
@@ -113,6 +113,11 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       });
       throwIfCancelled(child.signal);assertRun();
       if(result.reason!=='completed'){
+        if(result.reason==='length'&&workspace){
+          const executorOutputs=await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log});
+          const output=await collectStoppedTaskOutput(store,task,{...childOptions(child.signal),workspace,executorOutputs});
+          await finish('failed',output,true);return;
+        }
         const status=result.reason==='budget'?'denied':result.reason==='cancelled'?'cancelled':'failed';await finish(status,incompleteOutput(store,task,status,`Worker stopped: ${result.reason}.`));return;
       }
       const executorOutputs=workspace?await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log}):undefined;

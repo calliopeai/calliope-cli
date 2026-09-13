@@ -68,6 +68,13 @@ export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,co
   else output.unresolvedRisks=[...risks.slice(0,99),'Natural-language acceptance criteria still require human review.'];
   return{output,status:complete?'completed':failed?'failed':'review_required'};
 }
+/** Retain only independently collected files/receipts, never truncated worker claims. */
+export async function collectStoppedTaskOutput(store:ExecutionStore,task:ProjectTask,options:RunActionOptions&{workspace:WorkerWorktree;executorOutputs:Map<string,string>}):Promise<TaskOutput> {
+  const {output}=await collectTaskOutput(store,task,'',options);
+  return {...output,status:'failed',summary:'Worker output was truncated; retained workspace evidence was collected independently.',
+    unresolvedRisks:[...output.unresolvedRisks.slice(0,99),'The incomplete worker report was not accepted as success.'],
+    recommendedNextAction:'Review the retained patch and verification receipts before a bounded retry; increase --max-output-tokens if needed for the worker report.'};
+}
 /** Retain completed process evidence even when cancellation stops later collection. */
 export async function recordExecutorArtifact(store:ExecutionStore,task:ProjectTask,id:string,content:string):Promise<void> {
   if(!task.isolation?.commands.some(c=>c.artifactId===id))throw new OrchestrationError('invalid','Executor result is not declared by this task.');
