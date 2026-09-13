@@ -3,10 +3,12 @@ import type {LLMProvider} from '../types.js';
 import type {RunPlanContext,ExecutionInspection} from './coordinator-types.js';
 import {readRunAccounting,type RunAccounting} from './accounting.js';
 import type {ExecutionStore} from './execution-store.js';
+import {linkedGoalAccounting,type GoalAccounting} from '../goals/accounting.js';
 
-export interface CoordinatorProgress {context:RunPlanContext;execution:ExecutionInspection;manifest?:RunManifest;accounting?:RunAccounting}
+export interface CoordinatorProgress {context:RunPlanContext;execution:ExecutionInspection;manifest?:RunManifest;accounting?:RunAccounting;goalAccounting?:GoalAccounting}
 export function coordinatorProgress(store:ExecutionStore,execution=store.read()):CoordinatorProgress {
-  return{context:store.context(execution),execution,manifest:store.manifest,accounting:readRunAccounting(store,execution)};
+  const goalAccounting=linkedGoalAccounting(store,execution);
+  return{context:store.context(execution),execution,manifest:store.manifest,accounting:readRunAccounting(store,execution),...(goalAccounting?{goalAccounting}:{})};
 }
 
 export function agentPreference(plan:ProjectPlan,agentId:string):{provider?:LLMProvider;model?:string|null} {

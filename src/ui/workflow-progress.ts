@@ -5,7 +5,7 @@ import {approvalDisplayText} from '../approvals/request.js';
 export type WorkflowHudMode='agents'|'workflows'|'off';
 export interface WorkflowRow {id:string;label:string;active:boolean}
 export interface WorkflowSnapshot {
-  id:string;revision:string;accountingRevision?:string;status:string;summary:string;agents:WorkflowRow[];
+  id:string;revision:string;accountingRevision?:string;goalAccountingRevision?:string;status:string;summary:string;agents:WorkflowRow[];
 }
 const dollars=(nanos:number)=>nanos>0&&nanos<100000?'<$0.0001':'$'+(nanos/1e9).toFixed(4);
 const cycleHudCache=new Map<string,{revision:string;label:string}>();
@@ -21,7 +21,7 @@ function cycleHud(progress:CoordinatorProgress):string {
 const clean=(text:string)=>approvalDisplayText(text).replace(/[\r\n\t]/g,' ');
 /** Presentation only: completion and attempts come from the verified execution projection. */
 export function workflowSnapshot(progress:CoordinatorProgress):WorkflowSnapshot {
-  const {context,execution,accounting}=progress;
+  const {context,execution,accounting,goalAccounting}=progress;
   const plan=context.plan,state=execution.state,tasks=Object.values(state.tasks);
   const complete=tasks.filter(task=>task.status==='completed').length,review=tasks.filter(task=>task.status==='review_required').length;
   const agents=plan.agents.map(agent=>{
@@ -38,11 +38,12 @@ export function workflowSnapshot(progress:CoordinatorProgress):WorkflowSnapshot 
   });
   const s=state.supervision,supervision=s?` · ${plan.supervision!.principle} · controller ${s.phase} ${s.rounds}/${plan.supervision!.maxRounds}${s.halt?' · '+s.halt.reason:''}`:'';
   const balance=accounting?.status==='available'?` · accounted ${dollars(accounting.run.accounted.costNanos)}/${dollars(accounting.run.limit.costNanos)} · left ${accounting.run.remaining.tokens} tok · pending ${accounting.run.requests.pending}, unknown ${accounting.run.requests.unknown}${accounting.exceeded?' · reservation exceeded':''}`:accounting?' · budget unavailable':` · limit $${plan.limits.costBudgetUsd}`;
-  return{id:context.id,revision:state.revision,...(accounting?{accountingRevision:accounting.status==='available'?accounting.revision:'unavailable'}:{}),status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${balance}${supervision}${cycleHud(progress)} · ${plan.goal}`),agents};
+  const whole=goalAccounting?.status==='available'?` · goal accounted ${dollars(goalAccounting.accounted!.costNanos)}/${dollars(goalAccounting.limit.costNanos)} incl. planning/reviews`:goalAccounting?' · goal budget unavailable':'';
+  return{id:context.id,revision:state.revision,...(goalAccounting?{goalAccountingRevision:goalAccounting.status==='unavailable'?'unavailable':goalAccounting.revision}:{}),...(accounting?{accountingRevision:accounting.status==='available'?accounting.revision:'unavailable'}:{}),status:state.status,summary:clean(`Run ${context.id.slice(0,8)} · ${state.status} · ${complete}/${tasks.length} done${review?' · '+review+' review':''}${balance}${whole}${supervision}${cycleHud(progress)} · ${plan.goal}`),agents};
 }
 export function retainWorkflows(previous:WorkflowSnapshot[],next:WorkflowSnapshot):WorkflowSnapshot[] {
   const prior=previous.find(value=>value.id===next.id);
-  if(prior?.revision===next.revision&&prior.accountingRevision===next.accountingRevision)return previous;
+  if(prior?.revision===next.revision&&prior.accountingRevision===next.accountingRevision&&prior.goalAccountingRevision===next.goalAccountingRevision)return previous;
   return[...previous.filter(value=>value.id!==next.id),next].slice(-3);
 }
 export function workflowLines(workflows:WorkflowSnapshot[],mode:WorkflowHudMode,maxAgents=6):string[] {

@@ -6,19 +6,21 @@ import {SessionPolicyError} from '../session-management/index.js';
 import {ExecutionLimitError} from '../execution/index.js';
 import {OrchestrationError} from '../orchestration/index.js';
 import {GoalStore} from './store.js';
+import {inspectGoalMetrics} from './metrics.js';
 import {startGoal,approveGoal,resumeGoal,inspectGoal,cancelGoal,reviseGoal,type GoalOptions,type GoalResult} from './actions.js';
 import type {GoalLimits,GoalTeam} from './types.js';
 import {validateGoalTeam} from './team.js';
 import {loadGoalRouting} from './routing.js';
 import {goalSupervisionFlags,supervisionFlags} from './supervised-cli.js';
 
-export const GOAL_USAGE='calliope orchestrate <goal> [--brain] [--tokens N] [--cost USD] [--time-ms N] [--provider NAME] [--model ID] [--worker-provider NAME --worker-model ID] [--reviewer-provider NAME --reviewer-model ID] [--attempts 1..4] [--planning-repairs 0..2] [--routing smart --routing-policy project.json] [--supervise --isolation-image sha256:ID --principle speed|robustness|stability|security|performance|cost] [--controller-provider NAME --controller-model ID] [--supervision-reviewer-provider NAME --supervision-reviewer-model ID] [--supervision-rounds N --supervision-stall-rounds N --supervision-output-tokens N] [--controller-effort LEVEL --supervision-reviewer-effort LEVEL] [--json] | orchestrate status|proposal|replay|resume|cancel <goal-id> | orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] | orchestrate revise <goal-id> <plan.json> | orchestrate list';
+export const GOAL_USAGE='calliope orchestrate <goal> [--brain] [--tokens N] [--cost USD] [--time-ms N] [--provider NAME] [--model ID] [--worker-provider NAME --worker-model ID] [--reviewer-provider NAME --reviewer-model ID] [--attempts 1..4] [--planning-repairs 0..2] [--routing smart --routing-policy project.json] [--supervise --isolation-image sha256:ID --principle speed|robustness|stability|security|performance|cost] [--controller-provider NAME --controller-model ID] [--supervision-reviewer-provider NAME --supervision-reviewer-model ID] [--supervision-rounds N --supervision-stall-rounds N --supervision-output-tokens N] [--controller-effort LEVEL --supervision-reviewer-effort LEVEL] [--json] | orchestrate status|proposal|replay|metrics|resume|cancel <goal-id> | orchestrate approve <goal-id> <proposal-hash> [--allow-mutations] | orchestrate revise <goal-id> <plan.json> | orchestrate list';
 export type GoalCommandOptions=GoalOptions&{cwd?:string;write?:(text:string)=>void};
 const numeric={tokens:'tokenBudget',cost:'costBudgetNanos','time-ms':'timeBudgetMs','planning-tokens':'planningTokens','planning-cost':'planningCostNanos','planning-time-ms':'planningTimeMs','max-output-tokens':'maxOutputTokens','max-agents':'maxAgents','max-tasks':'maxTasks','max-depth':'maxDepth','max-concurrent':'maxConcurrent'} as const;
 const stringFlags=Object.fromEntries([...Object.keys(numeric),...supervisionFlags,'provider','model','planner-provider','planner-model','worker-provider','worker-model','reviewer-provider','reviewer-model','attempts','planning-repairs','routing','routing-policy'].map(key=>[key,{type:'string' as const}]));
-const actions=['plan','list','status','proposal','replay','resume','cancel','approve','revise'];
+const actions=['plan','list','status','proposal','replay','metrics','resume','cancel','approve','revise'];
 export function formatGoal(value:GoalResult,action='status'):string {
   const {goal,status,execution}=value,m=goal.manifest,lines=[`Goal ${m.id} · ${status}`,m.goal,`Total limit: ${m.limits.tokenBudget} tokens · $${m.limits.costBudgetNanos/1e9} · deadline ${new Date(m.deadline).toISOString()}`,`Planning: ${goal.state.planningSpend?.tokens??'unknown'} tokens charged · execution ${goal.state.execution?.runId??'not allocated'}`];
+  const a=value.accounting;if(a)lines.push(a.status==='available'?`Whole goal accounted: $${a.accounted!.costNanos/1e9} · ${a.accounted!.tokens} tokens · includes planning and all reviews/retries · goal headroom $${a.remaining!.costNanos/1e9} (run limits still apply)`:'Whole goal accounting unavailable; inspect the linked budgets.');
   if(m.workspace.allowedTools.some(t=>t==='brain_search'||t==='brain_entity'))lines.push('Brain: read-only project retrieval within each agent source scope.');
   if(m.routing)lines.push('Routing: Smart · reviewed role pools; explicit pins preserved.',JSON.stringify(m.routing));
   if(m.planningRepair)lines.push(`Planning repair: at most ${m.planningRepair.maxRetries} retries per stage within the original shared planning allowance and deadline.`);
@@ -76,10 +78,11 @@ export async function runGoalCommand(args:string[],options:GoalCommandOptions={}
       return planned.exitCode;
     }
     goalId=p[0]!;
+    if(action==='metrics'){const metrics=await inspectGoalMetrics(cwd,goalId,opts);emit('orchestration.goal.metrics',metrics,`Goal ${goalId} metrics\nMechanically verified tasks: ${metrics.tasks?.mechanicallyVerified??'unavailable'} / ${metrics.tasks?.total??'unknown'}\nHuman-accepted tasks: ${metrics.tasks?.humanAccepted??'unavailable'}\nCost per verified task: ${metrics.costPerVerifiedTask.value===null?'unavailable':'$'+metrics.costPerVerifiedTask.value/1e9}\n${metrics.costPerVerifiedTask.reason}\n${metrics.limitations}`);return 0;}
     if(action==='approve'){const pending=await inspectGoal(cwd,goalId,opts);emit('orchestration.goal.review',pending,formatGoal(pending,'proposal'));return report(await approveGoal(cwd,goalId,p[1]!,opts));}
     if(action==='resume')return report(await resumeGoal(cwd,goalId,opts));
     if(action==='revise')return report(await reviseGoal(cwd,goalId,p[1]!,opts));
-    if(action==='cancel'){const cancelled=await cancelGoal(cwd,goalId,opts);emit('orchestration.goal.cancelled',{status:'cancellation-requested',goal:cancelled.goal,execution:cancelled.execution,owner:goals.owner(goalId)},formatGoal(cancelled));return 0;}
+    if(action==='cancel'){const cancelled=await cancelGoal(cwd,goalId,opts);emit('orchestration.goal.cancelled',{status:'cancellation-requested',goal:cancelled.goal,execution:cancelled.execution,accounting:cancelled.accounting,owner:goals.owner(goalId)},formatGoal(cancelled));return 0;}
     const inspected=await inspectGoal(cwd,goalId,opts);report(inspected);return 0;
   }catch(error){
     const cancelled=options.signal?.aborted||isCancellation(error),denied=error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied',invalid=error instanceof OrchestrationError&&error.code==='invalid';

@@ -10,7 +10,7 @@ import {clearModelCache} from '../src/model-detection.js';
 import {projectBudgetPath} from '../src/budget.js';
 import {ReservationLedger} from '../src/execution/index.js';
 import {RunStore,ExecutionStore,replayExecution,controlExecution} from '../src/orchestration/index.js';
-import {GoalStore,runGoalCommand,resumeGoal,reviseGoal} from '../src/goals/index.js';
+import {GoalStore,runGoalCommand,resumeGoal,reviseGoal,inspectGoalMetrics} from '../src/goals/index.js';
 import * as commands from '../src/isolation/process.js';
 import {workflowSnapshot,workflowLines} from '../src/ui/workflow-progress.js';
 import {handleCommand,type CommandContext} from '../src/ui/commands.js';
@@ -51,12 +51,24 @@ it('connects the public CLI through planning, exact approval, isolated retries, 
   expect(done.execution.state.tasks['inspect-a'].attempts).toBe(2);expect(done.execution.state.supervision.rounds).toBe(2);expect(hud.some(row=>row.includes('reviewing round'))).toBe(true);expect(hud.some(row=>row.includes('worker-toy'))).toBe(true);expect(hud.some(row=>row.includes('robustness'))).toBe(true);
   const execution=done.goal.state.execution,run=await runs.read(execution.runId,project),saved=new ExecutionStore(join(runs.root,execution.runId),run.manifest).read();expect(replayExecution(saved.header,run.manifest,saved.events)).toEqual(saved.state);
   const ledger=new ReservationLedger(join(runs.root,execution.runId,'budget')).read(project);expect(ledger.manifest.createdAt).toBe(Date.parse(goal.manifest.createdAt));expect(ledger.manifest.deadline).toBe(execution.deadline);
+  expect(done.accounting).toMatchObject({version:1,status:'available',accounted:{tokens:90,costNanos:117000},usageComplete:true,phases:{planning:{accounted:{tokens:10,costNanos:13000}},execution:{accounted:{tokens:80,costNanos:104000}}}});
+  expect(hud.some(row=>row.includes('goal accounted'))).toBe(true);
+  expect(requests.filter(r=>r.context.kind==='controller-review').at(-1)!.context.goalAccounting).toMatchObject({accounted:{costNanos:104000},usageComplete:false});
+  const metrics=await inspectGoalMetrics(project,id,options());expect(metrics.tasks).toEqual({total:1,mechanicallyVerified:1,humanAccepted:0,unverified:0,successRate:1});expect(metrics.costPerVerifiedTask).toMatchObject({value:117000,numerator:117000,denominator:1});expect(metrics.checks).toMatchObject({passed:3,total:4,passRate:0.75});expect(metrics.recovery).toMatchObject({samples:1,meanMs:expect.any(Number),openFailures:0});expect(metrics.attempts).toMatchObject({started:2,finishedOutcomes:2,failedOutcomes:1});
+  expect(await runGoalCommand(['metrics',id,'--json'],options())).toBe(0);expect(JSON.parse(lines.at(-1)!)).toMatchObject({version:1,type:'orchestration.goal.metrics',action:'metrics',data:metrics});expect(new ReservationLedger(join(runs.root,execution.runId,'budget')).read(project)).toEqual(ledger);
   const count=requests.length;expect((await resumeGoal(project,id,{goals:new GoalStore(goals.root),store:new RunStore(runs.root)})).status).toBe('completed');expect(await runGoalCommand(['replay',id,'--json'],options())).toBe(0);expect(requests).toHaveLength(count);expect(git('status','--porcelain')).toBe('');
   for(const line of lines){const event=JSON.parse(line);expect(event.version).toBe(1);expect(event.type).toMatch(/^orchestration\.goal/);}expect(commands.assertLocalIsolationImage).toHaveBeenCalledTimes(1);
 });
 it('shows supervision and exact commands before REPL approval and preserves individual permission gates',async()=>{
   const seen:string[]=[];expect(await runGoalCommand(['Public toy goal.',...flags()],{...options(),source:'repl',approve:async decision=>{seen.push(decision.request.tool);if(decision.request.tool==='orchestration_goal_approve'){expect(lines.at(-1)).toContain('controller deepseek:controller-toy');expect(lines.at(-1)).toContain('execution reviewer deepseek:reviewer-toy');expect(lines.at(-1)).toContain('check.js');expect(lines.at(-1)).toContain(goalImage);}return 'allow';}}),lines.at(-1)).toBe(0);
   expect(seen).toContain('orchestration_goal_approve');expect(seen).toContain('write_file');expect(seen).toContain('shell');expect(lines.at(-1)).toContain('completed');
+});
+it('includes admitted child tasks and review overhead once in whole-goal metrics',async()=>{
+  const p=supervisedGoalPlan(),child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';child.tokenBudget=10000;child.costBudgetUsd=0.02;child.preference={provider:'deepseek',model:'worker-toy'};task.id='child-task';task.agentId='child';task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
+  decide=async context=>context.round===1?{...keepGoing(context),action:'decompose',hypothesis:'A second task supplies independent evidence.',expectedMetric:{name:'verified tasks',direction:'increase'},children:{version:1,parentId:'coordinator',agents:[child],tasks:[task]}}:keepGoing(context);
+  const first=await start(),id=first.manifest.id;expect(await runGoalCommand(['approve',id,first.proposal!.hash,'--allow-mutations','--json'],options()),lines.at(-1)).toBe(0);
+  const metrics=await inspectGoalMetrics(project,id,options());expect(metrics.tasks).toMatchObject({total:2,mechanicallyVerified:2});expect(metrics.costPerVerifiedTask).toMatchObject({value:58500,numerator:117000,denominator:2});expect(metrics.accounting).toMatchObject({status:'available',accounted:{tokens:90,costNanos:117000},phases:{execution:{pendingChildGrants:0}}});
+  const goal=goals.read(id),ledger=new ReservationLedger(join(runs.root,goal.state.execution!.runId,'budget')).read(project);expect(ledger.projection.childGrants).toHaveLength(1);expect(ledger.manifest.accounts).toHaveLength(3);expect(ledger.projection.version).toBe(3);expect(requests).toHaveLength(9);expect(metrics.recovery).toMatchObject({samples:0,meanMs:null});
 });
 it('keeps a missing-image goal resumable without allocating or spending planning budget',async()=>{
   vi.mocked(commands.assertLocalIsolationImage).mockRejectedValueOnce(new Error('Prepare the exact local image.'));

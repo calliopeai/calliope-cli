@@ -13,6 +13,8 @@ import {GoalStore,signed,newGoalManifest,plannerPlan,allocatePlan,startGoal,appr
 import {handleCommand,type CommandContext} from '../src/ui/commands.js';
 import {initBrain,ingestBrainFile,BrainStore} from '../src/brain/index.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
+import {inspectGoalMetrics} from '../src/goals/metrics.js';
+import * as verification from '../src/orchestration/verification.js';
 
 let root:string,project:string,runs:RunStore,goals:GoalStore,created:GoalInspection|undefined,requests:any[],proposed:unknown;
 let respond:(task:any,body:any,signal:AbortSignal)=>Promise<Response>;
@@ -51,6 +53,7 @@ it('repairs an inherited retry violation through the SDK, keeps rejected bytes a
   expect(result.goal.proposal!.source).toEqual({kind:'agent',runId:h.run.run.id,artifactId:'proposal',artifactHash:artifacts[1].sha256,eventId:artifacts[1].source.eventId});
   const feedback=JSON.parse(requests[1].body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')).content).previousAttempts[0];expect(feedback.summary).toContain('agents[1].escalationPolicy.maxRetries');expect(feedback.summary).toContain('Actual 1; limit 0');
   expect(h.goal.state.planningSpend?.tokens).toBe(20);const ledger=new ReservationLedger(join(runs.root,h.run.run.id,'budget')).read(project);expect(ledger.manifest.createdAt).toBe(Date.parse(h.goal.manifest.createdAt));expect(ledger.manifest.deadline).toBe(h.goal.state.planning!.deadline);
+  expect(result.accounting).toMatchObject({status:'available',accounted:{tokens:20,costNanos:26000},phases:{planning:{requests:{settled:2}},execution:{status:'not-allocated'}}});
   expect(replayExecution(h.header,h.run.manifest,h.events)).toEqual(h.state);
   expect((await resumeGoal(project,h.goal.manifest.id,{goals:new GoalStore(goals.root),store:new RunStore(runs.root)})).goal.proposal).toEqual(result.goal.proposal);expect(requests).toHaveLength(2);
 });
@@ -130,8 +133,10 @@ it('plans through the SDK, requires exact proposal approval, executes verified w
 it('denies execution mutations by default and a later explicit bounded retry uses the same allocation',async()=>{
   const first=await start(),id=first.goal.manifest.id,denied=await approveGoal(project,id,first.goal.proposal!.hash,options());
   expect(denied.status).toBe('denied');expect(fs.existsSync(join(project,'a/report.txt'))).toBe(false);
+  const blocked=await inspectGoalMetrics(project,id,options());expect(blocked.tasks).toMatchObject({mechanicallyVerified:0,unverified:3});expect(blocked.attempts!.deniedOutcomes).toBeGreaterThan(0);expect(blocked.costPerVerifiedTask.value).toBeNull();
   const allocation=denied.goal.state.execution!;for(const agent of ['a','b'])await controlExecution(project,allocation.runId,'agent-retry',agent,{store:runs});
   const done=await resumeGoal(project,id,{...options(),approve:async()=> 'allow'});expect(done.status).toBe('completed');expect(done.goal.state.execution).toEqual(allocation);
+  const recovered=await inspectGoalMetrics(project,id,options());expect(recovered.tasks).toMatchObject({mechanicallyVerified:3});expect(recovered.attempts!.deniedOutcomes).toBeGreaterThan(0);expect(recovered.recovery!.samples).toBe(0);
 });
 it('freezes malformed planner output and permits a human correction without another planning request',async()=>{
   proposed='{';await expect(start()).rejects.toThrow(/valid JSON/);const id=created!.manifest.id,failed=goals.read(id,project);expect(failed.state).toMatchObject({status:'failed',planningFrozen:true,planningSpend:{tokens:10}});
@@ -160,6 +165,7 @@ it('revokes linked worker authority and direct retry or acceptance after explici
   const first=await start(),id=first.goal.manifest.id;let ready!:()=>void;const began=new Promise<void>(resolve=>{ready=resolve;});respond=async(_task,_body,signal)=>{ready();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
   const pending=approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'}),settled=pending.then(value=>value.status,()=> 'cancelled');await began;await cancelGoal(project,id,options());expect(await settled).toBe('cancelled');
   const saved=await inspectGoal(project,id,options());expect(saved.status).toBe('cancelled');expect(saved.execution!.state.status).toBe('cancelled');expect(goals.owner(id)).toBeNull();
+  const metric=await inspectGoalMetrics(project,id,options());expect(metric.tasks).toMatchObject({mechanicallyVerified:0,unverified:3});expect(metric.attempts!.cancelledOutcomes).toBeGreaterThan(0);expect(metric.costPerVerifiedTask.value).toBeNull();
   await expect(controlExecution(project,saved.goal.state.execution!.runId,'retry','inspect-a',{store:runs})).rejects.toThrow(/revoked/);
   expect(saved.goal.state.execution!.tokens+saved.goal.state.planningSpend!.tokens).toBeLessThanOrEqual(saved.goal.manifest.limits.tokenBudget);
 });
@@ -185,7 +191,7 @@ it('streams versioned goal and child events, reviews the exact plan and keeps he
 });
 it('rejects malformed command flags before creating or spending and reports cancellation and policy exits',async()=>{
   const lines:string[]=[],opts={...options(),cwd:project,write:(line:string)=>lines.push(line)};
-  for(const args of [[],['--unknown'],['goal','--tokens','0'],['goal','--cost','1e2'],['goal','--cost','-1'],['goal','--cost','0.1234567891'],['goal','--time-ms','no'],['goal','--max-output-tokens','100000001'],['goal','--tokens','9007199254740992'],['goal','--allow-mutations'],['status'],['status','id','--tokens','2'],['approve','id'],['list','extra'],['list','--max-output-tokens','1'],['goal\x00'],['goal','--provider','invalid']]){
+  for(const args of [[],['--unknown'],['goal','--tokens','0'],['goal','--cost','1e2'],['goal','--cost','-1'],['goal','--cost','0.1234567891'],['goal','--time-ms','no'],['goal','--max-output-tokens','100000001'],['goal','--tokens','9007199254740992'],['goal','--allow-mutations'],['status'],['metrics'],['metrics','id','extra'],['metrics','id','--allow-mutations'],['status','id','--tokens','2'],['approve','id'],['list','extra'],['list','--max-output-tokens','1'],['goal\x00'],['goal','--provider','invalid']]){
     lines.length=0;expect(await runGoalCommand([...args,'--json'],opts),JSON.stringify(args)).toBe(2);expect(JSON.parse(lines.at(-1)!).error.code).toBe('invalid');
   }
   expect(created).toBeUndefined();expect(fetch).not.toHaveBeenCalled();
@@ -218,6 +224,7 @@ it('resumes a durable allocation after interruption without replacing its run ID
   const first=await start(),id=first.goal.manifest.id;
   await expect(approveGoal(project,id,first.goal.proposal!.hash,{...options(),onGoalEvent:event=>{if(event.change.type==='execution_allocated')throw new Error('Interrupted after allocation.');}})).rejects.toThrow(/Interrupted/);
   const allocated=goals.read(id);expect(allocated.state.status).toBe('approved');expect(fs.existsSync(join(runs.root,allocated.state.execution!.runId))).toBe(false);
+  const metric=await inspectGoalMetrics(project,id,options());expect(metric.accounting).toMatchObject({status:'partial',accounted:null,knownCharges:{tokens:10,costNanos:13000},phases:{execution:{status:'unavailable'}}});expect(metric.evidence.status).toBe('unavailable');expect(metric.costPerVerifiedTask.value).toBeNull();expect(fs.existsSync(join(runs.root,allocated.state.execution!.runId))).toBe(false);
   const done=await resumeGoal(project,id,{...options(),approve:async()=> 'allow'});expect(done.status).toBe('completed');expect(done.goal.state.execution).toEqual(allocated.state.execution);expect(done.goal.manifest.deadline).toBe(first.goal.manifest.deadline);
 });
 it('fails closed for a partially created execution directory and never allocates another budget',async()=>{
@@ -236,6 +243,33 @@ it('reports later human acceptance from the linked execution without creating fr
   const p=plan();for(const task of p.tasks)task.acceptanceChecks=[];proposed=p;const first=await start(),id=first.goal.manifest.id,partial=await approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'});
   expect(partial.status).toBe('partial');for(const task of p.tasks)await controlExecution(project,partial.goal.state.execution!.runId,'accept',task.id,{store:runs});
   const completed=await resumeGoal(project,id,options());expect(completed.status).toBe('completed');expect(completed.goal.state.status).toBe('partial');expect(requests).toHaveLength(7);
+  const metrics=await inspectGoalMetrics(project,id,options());expect(metrics.tasks).toEqual({total:3,mechanicallyVerified:0,humanAccepted:3,unverified:0,successRate:0});expect(metrics.costPerVerifiedTask).toMatchObject({value:null,denominator:0});expect(metrics.evidence.status).toBe('no-mechanical-result');expect(requests).toHaveLength(7);
+});
+it('verifies whole-goal cost against final artifacts and refuses changed bytes or policy denial',async()=>{
+  const first=await start(),id=first.goal.manifest.id,done=await approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'}),count=requests.length;
+  const metric=await inspectGoalMetrics(project,id,options());expect(metric.tasks).toMatchObject({total:3,mechanicallyVerified:3,humanAccepted:0,successRate:1});expect(metric.costPerVerifiedTask).toMatchObject({numerator:91000,denominator:3,value:91000/3});
+  const allocation=done.goal.state.execution!,ledger=new ReservationLedger(join(runs.root,allocation.runId,'budget')),before=ledger.read(project),file=join(project,'a/report.txt'),bytes=fs.readFileSync(file);
+  fs.writeFileSync(file,'changed after collection');const changed=await inspectGoalMetrics(project,id,options());expect(changed.evidence.status).toBe('unavailable');expect(changed.costPerVerifiedTask.value).toBeNull();expect(changed.tasks).toMatchObject({mechanicallyVerified:2,unverified:1,successRate:null});fs.writeFileSync(file,bytes);
+  config.set('policy',{command:'exit 17'});const rows:string[]=[];expect(await runGoalCommand(['metrics',id,'--json'],{...options(),cwd:project,write:l=>rows.push(l)})).toBe(3);expect(JSON.parse(rows.at(-1)!).error.code).toBe('policy-denied');expect(ledger.read(project)).toEqual(before);expect(requests).toHaveLength(count);
+});
+it('retains unknown planner usage without presenting a final cost per verified task',async()=>{
+  respond=async(task,body)=>{const response=reply(task,body);if(task.id!=='propose')return response;const value=await response.json() as any;delete value.usage;return json(value);};
+  const first=await start(),id=first.goal.manifest.id;await approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'});
+  const metric=await inspectGoalMetrics(project,id,options());expect(metric.accounting).toMatchObject({status:'available',usageComplete:false,phases:{planning:{requests:{unknown:1},usageComplete:false},execution:{requests:{settled:6},usageComplete:true}}});
+  expect(metric.tasks).toMatchObject({mechanicallyVerified:3,successRate:1});expect(metric.costPerVerifiedTask).toMatchObject({value:null,denominator:3,reason:expect.stringContaining('unresolved usage')});expect(metric.costPerVerifiedTask.numerator).toBeGreaterThan(78000);expect(requests).toHaveLength(7);
+});
+it('invalidates goal measurements when budget or already-read artifact evidence changes during inspection',async()=>{
+  const first=await start(),id=first.goal.manifest.id,done=await approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'}),ledger=new ReservationLedger(join(runs.root,done.goal.state.execution!.runId,'budget')),read=verification.readCollectedArtifact;let changed=false;
+  vi.spyOn(verification,'readCollectedArtifact').mockImplementation(async(...args)=>{const bytes=await read(...args);if(!changed){changed=true;const saved=ledger.read(project),r={...Object.values(saved.projection.requests)[0]!.reservation,id:randomUUID()};delete r.attribution;await ledger.reserve(project,saved.projection.manifestHash,r);await ledger.settle(project,saved.projection.manifestHash,{requestId:r.id,outcome:'success',usage:{inputTokens:0,outputTokens:0}});}return bytes;});
+  const raced=await inspectGoalMetrics(project,id,options());expect(raced.costPerVerifiedTask).toMatchObject({value:null,reason:expect.stringContaining('changed during inspection')});expect(raced.evidence.status).toBe('verified');
+  vi.restoreAllMocks();const file=join(project,'a/report.txt'),original=fs.readFileSync(file);let reads=0;
+  vi.spyOn(verification,'readCollectedArtifact').mockImplementation(async(...args)=>{const bytes=await read(...args);if(++reads===2)fs.writeFileSync(file,'changed after the earlier read');return bytes;});
+  const altered=await inspectGoalMetrics(project,id,options());expect(altered.evidence.status).toBe('unavailable');expect(altered.costPerVerifiedTask.value).toBeNull();expect(altered.tasks?.mechanicallyVerified).toBe(2);fs.writeFileSync(file,original);expect(requests).toHaveLength(7);
+});
+it('cancels artifact inspection without dispatching or mutating goal and budget history',async()=>{
+  const first=await start(),id=first.goal.manifest.id,done=await approveGoal(project,id,first.goal.proposal!.hash,{...options(),approve:async()=> 'allow'}),ledger=new ReservationLedger(join(runs.root,done.goal.state.execution!.runId,'budget')),before=ledger.read(project),goal=goals.read(id),controller=new AbortController(),read=verification.readCollectedArtifact;
+  vi.spyOn(verification,'readCollectedArtifact').mockImplementation(async(...args)=>{const bytes=await read(...args);controller.abort();return bytes;});
+  const rows:string[]=[];expect(await runGoalCommand(['metrics',id,'--json'],{...options(),cwd:project,signal:controller.signal,write:l=>rows.push(l)})).toBe(130);expect(JSON.parse(rows.at(-1)!).error.code).toBe('cancelled');expect(ledger.read(project)).toEqual(before);expect(goals.read(id)).toEqual(goal);expect(requests).toHaveLength(7);
 });
 it('rejects invalid embedding output caps before creating a goal or allocating its execution',async()=>{
   await expect(startGoal(project,'Toy.',{...options(),maxOutputTokens:NaN})).rejects.toThrow(/cap/);expect(created).toBeUndefined();const first=await start();await expect(approveGoal(project,first.goal.manifest.id,first.goal.proposal!.hash,{...options(),maxOutputTokens:0})).rejects.toThrow(/cap/);expect(goals.read(first.goal.manifest.id).state.execution).toBeNull();

@@ -13,12 +13,13 @@ import type {CoordinatorOptions,ExecutionEvent,ExecutionInspection,ProjectPlan,R
 import {GoalStore} from './store.js';
 import {newGoalManifest,plannerPlan,allocatePlan,proposePlan,type GoalConfiguration} from './contracts.js';
 import {validateGoalProposal} from './validation.js';
+import {readGoalAccounting,type GoalAccounting} from './accounting.js';
 import type {GoalInspection,GoalEvent,GoalAllocation,GoalOwner,GoalStatus,PlanningSpend,GoalProposal} from './types.js';
 
 export interface GoalOptions extends Omit<CoordinatorOptions,'onEvent'>,GoalConfiguration {
   goals?:GoalStore;onGoalEvent?:(event:GoalEvent)=>void;onRunEvent?:(event:ExecutionEvent)=>void;onCreated?:(goal:GoalInspection)=>void;
 }
-export interface GoalResult {version:1;type:'orchestration.goal';goal:GoalInspection;status:GoalStatus;execution:ExecutionInspection|null;owners:{goal:ReturnType<GoalStore['owner']>;execution:ReturnType<ExecutionStore['owner']>};interrupted:boolean;exitCode:number}
+export interface GoalResult {version:1;type:'orchestration.goal';goal:GoalInspection;status:GoalStatus;execution:ExecutionInspection|null;accounting:GoalAccounting;owners:{goal:ReturnType<GoalStore['owner']>;execution:ReturnType<ExecutionStore['owner']>};interrupted:boolean;exitCode:number}
 const goalStore=(options:GoalOptions)=>new GoalStore(options.goals?.root,options.onGoalEvent);
 function runStore(goal:GoalInspection,options:GoalOptions):RunStore {if(options.store&&options.store.root!==goal.manifest.runsRoot)throw new OrchestrationError('conflict','Goal is bound to its original run store.');return options.store??new RunStore(goal.manifest.runsRoot);}
 const outcome=(error:unknown)=>isCancellation(error)?'cancelled':error instanceof SessionPolicyError||error instanceof ExecutionLimitError||error instanceof OrchestrationError&&error.code==='policy-denied'?'denied':'failed';
@@ -36,7 +37,7 @@ async function result(cwd:string,id:string,options:GoalOptions):Promise<GoalResu
     if(inspected.view.run.status==='cancelled')status='cancelled';
   }
   const interrupted=status==='planning'&&!owners.goal?.alive||execution?.state.status==='running'&&!owners.execution?.alive;
-  return{version:1,type:'orchestration.goal',goal,status,execution,owners,interrupted,exitCode:code(status)};
+  return{version:1,type:'orchestration.goal',goal,status,execution,accounting:readGoalAccounting(goal,goals,undefined,options.signal),owners,interrupted,exitCode:code(status)};
 }
 export async function inspectGoal(cwd:string,id:string,options:GoalOptions={}):Promise<GoalResult>{throwIfCancelled(options.signal);return result(cwd,id,options);}
 interface GoalContext {goals:GoalStore;owner:GoalOwner;signal:AbortSignal;assert:()=>GoalInspection;options:GoalOptions}

@@ -1,6 +1,7 @@
 import {taskSmartSelection,recordAgentRoute} from '../orchestration/routing.js';
 import {supervisionProposalHash} from './approval.js';
 import {readRunAccounting} from '../orchestration/accounting.js';
+import {linkedGoalAccounting} from '../goals/accounting.js';
 import {projectImprovementHistory,improvementFeedback} from '../improvement/index.js';
 import {randomUUID} from 'node:crypto';
 import {canonicalJson,digest} from '../approvals/index.js';
@@ -51,7 +52,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,requestAttribution:1},controller.signal,undefined,check);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
     const current=store.read(),accounting=readRunAccounting(store,current);
-    const {content,metrics}=buildControllerContext({role,round,plan,improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,context,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
+    const {content,metrics}=buildControllerContext({role,round,plan,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,context,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
     const reasoningEffort=policy.reasoningEffort?.[role];
     log.policyEvent({tool:'controller',source:'controller-context',decision:'allow',reason:JSON.stringify({...metrics,role,round,reasoningEffort}),durationMs:0});
     const messages:{current:Message[]}={current:[{role:'system',content:controllerInstructions(policy)},{role:'user',content}]};
