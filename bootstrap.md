@@ -109,6 +109,8 @@ expiring operator-reviewed billing evidence and auditable estimate headroom.
 full-context admission when live discovery omits pricing, limits or capabilities.
 [OpenRouter admission](docs/openrouter-admission.md) covers tier/cache estimates,
 reservation-bound price filters, historical capture limits and upstream account checks.
+[DeepSeek reasoning](docs/deepseek-reasoning.md) preserves bounded opaque thinking
+state across tool turns, streaming, retries and private session recovery.
 
 ```
 src/

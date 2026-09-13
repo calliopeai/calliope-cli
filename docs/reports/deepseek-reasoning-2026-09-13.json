@@ -1,0 +1,67 @@
+{
+  "version": 1,
+  "passed": true,
+  "provider": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "tool-result-replay",
+  "reasoningReplayVersion": 1,
+  "capturedRequests": 4,
+  "offlineReplayRequests": 0,
+  "fixture": "Fixed public echo request and Hello π tool result; manually reviewed decoded requests and responses.",
+  "probeReservationCapUsd": 0.01,
+  "probeReservedUsd": 0.0084576,
+  "followupReservedUsd": 36.173220376,
+  "cumulativeReservedUsd": 87.769950617,
+  "captures": [
+    {
+      "file": "deepseek-tool-result-replay-json-2.json",
+      "sha256": "a33e543fcf7a5768f2df1bd0b34f4d0d8d72d768a1510d5b0adf57ab74a65f6d",
+      "bytes": 6879,
+      "stream": false,
+      "capturedAt": "2026-09-13T23:19:33.292Z",
+      "turns": [
+        {
+          "reservationId": "32264895-a222-42bf-9b52-b71e8542a7aa",
+          "reservedNanoUsd": 2114400,
+          "usage": {
+            "inputTokens": 348,
+            "outputTokens": 61
+          }
+        },
+        {
+          "reservationId": "b2815ea1-ddbe-4d82-a473-2ff5008e929d",
+          "reservedNanoUsd": 2114400,
+          "usage": {
+            "inputTokens": 423,
+            "outputTokens": 114
+          }
+        }
+      ]
+    },
+    {
+      "file": "deepseek-tool-result-replay-stream-2.json",
+      "sha256": "0c0fc86e5782e450aa5c1ce084636b50bdac4220ccc58ee2c7bfecf806ad986d",
+      "bytes": 45517,
+      "stream": true,
+      "capturedAt": "2026-09-13T23:19:35.593Z",
+      "turns": [
+        {
+          "reservationId": "21cd94f6-3c3c-48c2-bb3b-cb9e335d9b8a",
+          "reservedNanoUsd": 2114400,
+          "usage": {
+            "inputTokens": 348,
+            "outputTokens": 71
+          }
+        },
+        {
+          "reservationId": "842cea68-c5a1-4c34-ae64-28936feb1b2e",
+          "reservedNanoUsd": 2114400,
+          "usage": {
+            "inputTokens": 433,
+            "outputTokens": 48
+          }
+        }
+      ]
+    }
+  ]
+}

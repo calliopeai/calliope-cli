@@ -145,6 +145,7 @@ export function validateSemanticCapture(value) {
       "gateway",
       "maxPrice",
       "routingBoundsVersion",
+      "reasoningReplayVersion",
     ],
     ["kind", "capturedAt", "sourceOrigin", "sdkVersions"],
   );
@@ -310,7 +311,31 @@ export function validateSemanticCapture(value) {
     new Set(value.turns.map((t) => t.reservationId)).size !== value.turns.length
   )
     throw new Error("Semantic turns must have independent reservations");
+  if(value.provenance.reasoningReplayVersion!==undefined &&
+    (value.provenance.reasoningReplayVersion!==1||!verifiedDeepSeekReasoningReplay(value)))
+    throw new Error("Invalid DeepSeek reasoning replay provenance");
   return value;
+}
+
+// Read only the opaque field from the bounded recorded response, never infer it.
+function recordedDeepSeekReasoning(capture) {
+  try {
+    const wire=Buffer.from(capture.turns[0].exchange.body,"base64").toString("utf8");
+    if(!capture.stream){const value=JSON.parse(wire).choices?.[0]?.message?.reasoning_content;return typeof value==='string'?value:undefined;}
+    let reasoning;
+    for(const line of wire.split(/\r?\n/))if(line.startsWith('data:')&&line.slice(5).trim()!=='[DONE]'){
+      const value=JSON.parse(line.slice(5)).choices?.[0]?.delta?.reasoning_content;
+      if(value===null||value===undefined)continue;if(typeof value!=='string')return undefined;reasoning=(reasoning??'')+value;
+    }
+    return reasoning;
+  }catch{return undefined;}
+}
+function verifiedDeepSeekReasoningReplay(capture) {
+  if(capture.backend!=='deepseek'||capture.scenario!=='tool-result-replay')return false;
+  const reasoning=recordedDeepSeekReasoning(capture);
+  const messages=JSON.parse(Buffer.from(capture.turns[1].exchange.request.body,'base64').toString()).messages;
+  const assistants=messages?.filter(m=>m.role==='assistant');
+  return typeof reasoning==='string'&&assistants?.length===1&&assistants[0].reasoning_content===reasoning;
 }
 
 /** Serial caller only: adapters use global fetch. Each turn owns one reservation. */
@@ -477,7 +502,7 @@ export async function runSemanticProbe({
       reservation.finish(outcome);
     }
   }
-  const capture = validateSemanticCapture({
+  const draft = {
     version: 1,
     kind: "provider-semantic",
     probeVersion,
@@ -494,14 +519,16 @@ export async function runSemanticProbe({
       ...(maxPrice ? { maxPrice, routingBoundsVersion: 1 } : {}),
     },
     turns,
-  });
+  };
+  if(verifiedDeepSeekReasoningReplay(draft))draft.provenance.reasoningReplayVersion=1;
+  const capture=validateSemanticCapture(draft);
   return { outcome: "captured", capture };
 }
 
 /** Never opens a socket. Reconstructs both turns using actual adapter results. */
 export async function replaySemanticCapture(capture, adapters) {
   validateSemanticCapture(capture);
-  let index = 0;
+  let index = 0, historicalReasoningOmission=false;
   // Historical captures used input/output instead of the API's prompt/completion
   // keys. Retain their bytes and replay model semantics, never treat those old
   // controls as spend evidence or reproduce the broken controls on a live call.
@@ -517,13 +544,20 @@ export async function replaySemanticCapture(capture, adapters) {
       init.method !== "POST"
     )
       throw new Error("Unexpected semantic replay request");
+    const actualRequest=JSON.parse(String(init.body)),recordedRequest=JSON.parse(Buffer.from(exchange.request.body,"base64").toString());
+    if(capture.backend==='deepseek'&&capture.scenario==='tool-result-replay'&&index===2&&capture.provenance.reasoningReplayVersion===undefined){
+      const previous=recordedRequest.messages.filter(m=>m.role==='assistant'),reasoning=recordedDeepSeekReasoning(capture);
+      if(previous.length===1&&!Object.hasOwn(previous[0],'reasoning_content')&&reasoning!==undefined){
+        const assistants=actualRequest.messages.filter(m=>m.role==='assistant');
+        if(assistants.length!==1||assistants[0].reasoning_content!==reasoning)throw new Error('Current adapter did not restore the exact recorded DeepSeek reasoning');
+        // Historical wire bytes omitted this field. Compare the remaining request
+        // only after verifying the current adapter restored the original response.
+        delete assistants[0].reasoning_content;historicalReasoningOmission=true;
+      }
+    }
     if (
-      canonicalRequest(JSON.parse(String(init.body)), capture.backend, legacyRouting) !==
-      canonicalRequest(
-        JSON.parse(Buffer.from(exchange.request.body, "base64").toString()),
-        capture.backend,
-        legacyRouting,
-      )
+      canonicalRequest(actualRequest, capture.backend, legacyRouting) !==
+      canonicalRequest(recordedRequest,capture.backend,legacyRouting)
     )
       throw new Error(
         "Semantic replay request body differs from captured toy request",
@@ -575,7 +609,7 @@ export async function replaySemanticCapture(capture, adapters) {
   )
     throw new Error("Semantic adapter replay disagrees with captured evidence");
   // Replay is not a new live capture. Preserve the original provenance and bytes.
-  return { ...result, capture: structuredClone(capture) };
+  return { ...result, ...(historicalReasoningOmission?{historicalReasoningOmission:true}:{}), capture: structuredClone(capture) };
 }
 
 function canonical(value) {
