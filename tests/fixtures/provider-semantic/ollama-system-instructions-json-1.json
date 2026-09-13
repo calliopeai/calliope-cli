@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "ollama",
+  "model": "devstral:latest",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:35.249Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "3cb3286d-2921-4fbc-a778-36e2982bc616",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/chat",
+          "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBmaXJzdCB3b3JkIG9mIHlvdXIgZXhhY3QgcmVwbHkgbXVzdCBiZSBIZWxsby4ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkZvbGxvdyBib3RoIHN5c3RlbSBkaXJlY3RpdmVzLiJ9LHsicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuIn1dLCJzdHJlYW0iOmZhbHNlLCJvcHRpb25zIjp7Im51bV9wcmVkaWN0IjoxMjh9fQ==",
+          "sha256": "f5605228f52d6b22300d159b0923e45c2aa4fcfc23ff74f6d6954214ea14342a"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsImNyZWF0ZWRfYXQiOiIyMDI2LTA5LTEzVDAwOjE2OjM1LjIzMTM4MVoiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjoiSGVsbG8gz4AifSwiZG9uZSI6dHJ1ZSwiZG9uZV9yZWFzb24iOiJzdG9wIiwidG90YWxfZHVyYXRpb24iOjEyODY0OTQ1NTgzLCJsb2FkX2R1cmF0aW9uIjoxMjM4ODgxNzMzMywicHJvbXB0X2V2YWxfY291bnQiOjQ1LCJwcm9tcHRfZXZhbF9kdXJhdGlvbiI6MzU1NTk3MDAwLCJldmFsX2NvdW50IjozLCJldmFsX2R1cmF0aW9uIjoxMTQ1MDEwMDB9",
+        "sha256": "4f0b4247cf42516f198e83e44d8f43905a27ac273c0bdd82013de2bed78f8b48",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 45,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

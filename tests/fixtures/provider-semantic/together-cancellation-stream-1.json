@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "together",
+  "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:22.093Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "335dc6d6-b491-48f9-8569-1aa7d3e13ea8",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1ldGEtbGxhbWEvTGxhbWEtMy4zLTcwQi1JbnN0cnVjdC1UdXJibyIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjoxMjgsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+          "sha256": "c399c13301705c018947378bbbce776759fded485f2148b8a807aa12f2650364"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream;charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6InAxM2V2YU4tNFlOQ2I0LWEzYTJmNjc4Yjg2MzcxMzkiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MjU4NTgxLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwidGV4dCI6IkhlbGxvIiwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGwsInNlZWQiOm51bGwsImRlbHRhIjp7InRva2VuX2lkIjo5OTA2LCJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IkhlbGxvIn19XSwibW9kZWwiOiJtZXRhLWxsYW1hL0xsYW1hLTMuMy03MEItSW5zdHJ1Y3QtVHVyYm8iLCJ1c2FnZSI6bnVsbH0KCg==",
+        "sha256": "29567c313a3698df4ede36ab7c7e1a72292f39650e1c50218f2d93a2790a03bf",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 316,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

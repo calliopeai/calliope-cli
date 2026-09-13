@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "mistral",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:53.583Z",
+    "sourceOrigin": "https://api.mistral.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "e0c266ce-45ac-45da-b016-2b227bed96cd",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6MTI4fQ==",
+          "sha256": "977d8a1a482ff68ff669c12da1808800f9841a7f2af6c967494a153e54eea3d7"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJvYmplY3QiOiJlcnJvciIsIm1lc3NhZ2UiOiJJbnZhbGlkIG1vZGVsOiBjYWxsaW9wZS1jb25mb3JtYW5jZS1taXNzaW5nLW1vZGVsIiwidHlwZSI6ImludmFsaWRfbW9kZWwiLCJwYXJhbSI6bnVsbCwiY29kZSI6IjE1MDAiLCJyYXdfc3RhdHVzX2NvZGUiOjQwMH0=",
+        "sha256": "2e0174dccf1e1cbe592178b12b426f9cfe2df8441d1ee41ab9e6e0d5d9ba6d34",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

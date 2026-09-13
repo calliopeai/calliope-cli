@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "cerebras",
+  "model": "gpt-oss-120b",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:18:04.577Z",
+    "sourceOrigin": "https://api.cerebras.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "42f85b64-28bd-4c89-afdd-3538ee20f82f",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC1vc3MtMTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjoxMjh9",
+          "sha256": "7f0dfb814ca35b7f24ed67f258f1e892c79ede485aa844ac1c19fe88ede1c895"
+        },
+        "status": 402,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJtZXNzYWdlIjoiUGF5bWVudCByZXF1aXJlZCB0byBhY2Nlc3MgdGhpcyByZXNvdXJjZS4gVmlzaXQgeW91ciBiaWxsaW5nIHRhYi4iLCJ0eXBlIjoicGF5bWVudF9yZXF1aXJlZF9lcnJvciIsInBhcmFtIjoicXVvdGEiLCJjb2RlIjoicGF5bWVudF9yZXF1aXJlZCJ9",
+        "sha256": "9fb7e78a7419ca9e70fb4defdf6d41c4da6428c51369b178a2d3b352e487fdb5",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 402,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

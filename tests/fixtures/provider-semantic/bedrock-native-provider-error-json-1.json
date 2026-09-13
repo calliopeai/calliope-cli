@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-native",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:22:47.271Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "cec11ea1-48df-4eac-ad87-f33dcbd747f4",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/model/calliope-conformance-missing-model/converse",
+          "body": "eyJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0ZXh0IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XX1dLCJpbmZlcmVuY2VDb25maWciOnsibWF4VG9rZW5zIjoxMjh9fQ==",
+          "sha256": "900a1b2925ddaa9cf8774340b0c532763859a4c50627b4c837b8eb13aeab9852"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJtZXNzYWdlIjoiVGhlIHByb3ZpZGVkIG1vZGVsIGlkZW50aWZpZXIgaXMgaW52YWxpZC4ifQ==",
+        "sha256": "50fbd124bb73fc37132aacf0e753670bb2360e3a2c0842c593c09e2f3fb78ef7",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-chat",
+  "model": "gpt-4.1-nano",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:18:01.731Z",
+    "sourceOrigin": "https://api.openai.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "3e1d9e60-61e9-475c-b99b-e30902169ae6",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC00LjEtbmFubyIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfY29tcGxldGlvbl90b2tlbnMiOjEyOH0=",
+          "sha256": "93cc075ba6a7e717087f950181d76a7dbedbf6a69b8c173b3d65f7f1d2f2987e"
+        },
+        "status": 429,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "ewogICAgImVycm9yIjogewogICAgICAgICJtZXNzYWdlIjogIllvdSBoYXZlIG5vIGNyZWRpdHMgcmVtYWluaW5nLiBBZGQgY3JlZGl0cyB0byBjb250aW51ZSB1c2luZyB0aGUgQVBJIGF0IGh0dHBzOi8vcGxhdGZvcm0ub3BlbmFpLmNvbS9zZXR0aW5ncy9vcmdhbml6YXRpb24vYmlsbGluZy8uIiwKICAgICAgICAidHlwZSI6ICJpbnN1ZmZpY2llbnRfcXVvdGEiLAogICAgICAgICJwYXJhbSI6IG51bGwsCiAgICAgICAgImNvZGUiOiAiY3JlZGl0X2JhbGFuY2VfZXhoYXVzdGVkIgogICAgfQp9Cg==",
+        "sha256": "23e8ca3925c70e8ae7d69cdbbf0d418ced372632868df81515bfece393f5b639",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 429,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

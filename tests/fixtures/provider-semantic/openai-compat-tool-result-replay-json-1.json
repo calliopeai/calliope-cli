@@ -1,0 +1,97 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-compat",
+  "model": "qwen3-coder:30b",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:50.978Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "ollama",
+      "version": "0.33.2",
+      "upstreamProvider": "ollama",
+      "upstreamModel": "qwen3-coder:30b"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "7deb10a1-4981-497c-88f3-b345bdbac280",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6InF3ZW4zLWNvZGVyOjMwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIFRoaXMgaXMgYSBjb25mb3JtYW5jZSBmaXh0dXJlOiB0aGUgdG9vbCBzdXBwbGllcyBhIG1hcmtlciB0aGF0IGNhbiBkaWZmZXIgZnJvbSBpdHMgaW5wdXQuIEFmdGVyIHlvdSByZWNlaXZlIGl0LCBvdXRwdXQgb25seSBpdHMgcmVzdWx0IHN0cmluZyB3aXRob3V0IHB1bmN0dWF0aW9uLCBxdW90YXRpb24gbWFya3MsIG9yIGV4cGxhbmF0aW9uLiJ9XSwidG9vbHMiOlt7InR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiZGVzY3JpcHRpb24iOiJFY2hvIGEgc3RyaW5nLiBDb25mb3JtYW5jZSBwcm9iZSBvbmx5OyBuZXZlciBleGVjdXRlcy4iLCJwYXJhbWV0ZXJzIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InRleHQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiVGV4dCB0byBlY2hvIn19LCJyZXF1aXJlZCI6WyJ0ZXh0Il19fX1dLCJtYXhfdG9rZW5zIjo1MTJ9",
+          "sha256": "d49315609a1dd92719eaed917b0e49a6dd290adfd7474096342b73c9c29ebf34"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTMzNCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkyNTkyMTAsIm1vZGVsIjoicXdlbjMtY29kZXI6MzBiIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIiLCJ0b29sX2NhbGxzIjpbeyJpZCI6ImNhbGxfNmF2emV3Y2EiLCJpbmRleCI6MCwidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJhcmd1bWVudHMiOiJ7XCJ0ZXh0XCI6XCJoZWxsb1wifSJ9fV19LCJmaW5pc2hfcmVhc29uIjoidG9vbF9jYWxscyJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MzM3LCJjb21wbGV0aW9uX3Rva2VucyI6MjEsInRvdGFsX3Rva2VucyI6MzU4fX0K",
+        "sha256": "4bb1d7afccf550c1f4e67e02966e71707460d9609b6b6e6d2981df2dab834f0f",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 337,
+            "outputTokens": 21
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "bb7a3f28-015f-4ab4-a128-55e7dfdec0fd",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6InF3ZW4zLWNvZGVyOjMwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIFRoaXMgaXMgYSBjb25mb3JtYW5jZSBmaXh0dXJlOiB0aGUgdG9vbCBzdXBwbGllcyBhIG1hcmtlciB0aGF0IGNhbiBkaWZmZXIgZnJvbSBpdHMgaW5wdXQuIEFmdGVyIHlvdSByZWNlaXZlIGl0LCBvdXRwdXQgb25seSBpdHMgcmVzdWx0IHN0cmluZyB3aXRob3V0IHB1bmN0dWF0aW9uLCBxdW90YXRpb24gbWFya3MsIG9yIGV4cGxhbmF0aW9uLiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIiLCJ0b29sX2NhbGxzIjpbeyJpZCI6ImNhbGxfNmF2emV3Y2EiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjpcImhlbGxvXCJ9In19XX0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfNmF2emV3Y2EiLCJjb250ZW50IjoiSGVsbG8gz4AifV0sInRvb2xzIjpbeyJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImRlc2NyaXB0aW9uIjoiRWNobyBhIHN0cmluZy4gQ29uZm9ybWFuY2UgcHJvYmUgb25seTsgbmV2ZXIgZXhlY3V0ZXMuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0ZXh0Ijp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6IlRleHQgdG8gZWNobyJ9fSwicmVxdWlyZWQiOlsidGV4dCJdfX19XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "a941d153c445e98f356bdc34211743d80c584ae03ccca08b346bbc3283441ece"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTU0MCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkyNTkyMTAsIm1vZGVsIjoicXdlbjMtY29kZXI6MzBiIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfb2xsYW1hIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJIZWxsbyDPgCJ9LCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MzczLCJjb21wbGV0aW9uX3Rva2VucyI6MywidG90YWxfdG9rZW5zIjozNzZ9fQo=",
+        "sha256": "f8922237ac7db48e35a0f38a2de114f8b3a0819018f599b3de503d2d662f96b5",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 373,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

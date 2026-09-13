@@ -172,6 +172,7 @@ async function chatGoogleLegacy(
         }
       }
 
+      throwIfCancelled(signal);
       return {
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -299,6 +300,7 @@ async function chatGoogleGenAI(
     if (isCancellation(error)) throw error;
     throw error;
   }
+  throwIfCancelled(signal);
   return {
     content,
     toolCalls: toolCalls.length ? toolCalls : undefined,

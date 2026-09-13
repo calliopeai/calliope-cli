@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "mistral",
+  "model": "mistral-large-2512",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:30:21.560Z",
+    "sourceOrigin": "https://api.mistral.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "6763a1dc-093e-4012-affb-c308a5eee9cc",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1pc3RyYWwtbGFyZ2UtMjUxMiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIFRoaXMgaXMgYSBjb25mb3JtYW5jZSBmaXh0dXJlOiB0aGUgdG9vbCBzdXBwbGllcyBhIG1hcmtlciB0aGF0IGNhbiBkaWZmZXIgZnJvbSBpdHMgaW5wdXQuIEFmdGVyIHlvdSByZWNlaXZlIGl0LCBvdXRwdXQgb25seSBpdHMgcmVzdWx0IHN0cmluZyB3aXRob3V0IHB1bmN0dWF0aW9uLCBxdW90YXRpb24gbWFya3MsIG9yIGV4cGxhbmF0aW9uLiJ9XSwidG9vbHMiOlt7InR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiZGVzY3JpcHRpb24iOiJFY2hvIGEgc3RyaW5nLiBDb25mb3JtYW5jZSBwcm9iZSBvbmx5OyBuZXZlciBleGVjdXRlcy4iLCJwYXJhbWV0ZXJzIjp7InR5cGUiOiJvYmplY3QiLCJwcm9wZXJ0aWVzIjp7InRleHQiOnsidHlwZSI6InN0cmluZyIsImRlc2NyaXB0aW9uIjoiVGV4dCB0byBlY2hvIn19LCJyZXF1aXJlZCI6WyJ0ZXh0Il19fX1dLCJtYXhfdG9rZW5zIjo1MTJ9",
+          "sha256": "0b2feaaa7ad667bde020d85446e55a988cebd8498e7c25b30dc6a914ec91bd67"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImVkOTdkNzY2MGQ5ZTQ2NDRiMWZkMzU2ODQ2ODhmODAxIiwiY3JlYXRlZCI6MTc4OTI1OTQyMCwibW9kZWwiOiJtaXN0cmFsLWxhcmdlLTI1MTIiLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjoxMjMsInRvdGFsX3Rva2VucyI6MTMzLCJjb21wbGV0aW9uX3Rva2VucyI6MTAsInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZWRfdG9rZW5zIjowfSwic2VydmljZV90aWVyIjoic3RhbmRhcmQifSwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIiwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwidG9vbF9jYWxscyI6W3siaWQiOiIxZ2tqQTJtbGYiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjogXCJoZWxsb1wifSJ9LCJpbmRleCI6MH1dLCJjb250ZW50IjoiIn19XX0=",
+        "sha256": "f4c32d565e1049743ab803e6bc3a5f2204e296372988b3b78c09ad224d821155",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 123,
+            "outputTokens": 10
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "80ffbab9-a44c-4196-a8e8-a7660ae9d949",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im1pc3RyYWwtbGFyZ2UtMjUxMiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIFRoaXMgaXMgYSBjb25mb3JtYW5jZSBmaXh0dXJlOiB0aGUgdG9vbCBzdXBwbGllcyBhIG1hcmtlciB0aGF0IGNhbiBkaWZmZXIgZnJvbSBpdHMgaW5wdXQuIEFmdGVyIHlvdSByZWNlaXZlIGl0LCBvdXRwdXQgb25seSBpdHMgcmVzdWx0IHN0cmluZyB3aXRob3V0IHB1bmN0dWF0aW9uLCBxdW90YXRpb24gbWFya3MsIG9yIGV4cGxhbmF0aW9uLiJ9LHsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIiLCJ0b29sX2NhbGxzIjpbeyJpZCI6IjFna2pBMm1sZiIsInR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiYXJndW1lbnRzIjoie1widGV4dFwiOlwiaGVsbG9cIn0ifX1dfSx7InJvbGUiOiJ0b29sIiwidG9vbF9jYWxsX2lkIjoiMWdrakEybWxmIiwiY29udGVudCI6IkhlbGxvIM+AIn1dLCJ0b29scyI6W3sidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJkZXNjcmlwdGlvbiI6IkVjaG8gYSBzdHJpbmcuIENvbmZvcm1hbmNlIHByb2JlIG9ubHk7IG5ldmVyIGV4ZWN1dGVzLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidGV4dCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJUZXh0IHRvIGVjaG8ifX0sInJlcXVpcmVkIjpbInRleHQiXX19fV0sIm1heF90b2tlbnMiOjUxMn0=",
+          "sha256": "1610d828c7ba4ee91efcfc028210f4c4688a92ac79ed5d1ee04aa28c2454923a"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6Ijg4NTMzYzEyZDI2MTRmY2E5MmRiZjNjMDEzODZjN2I0IiwiY3JlYXRlZCI6MTc4OTI1OTQyMSwibW9kZWwiOiJtaXN0cmFsLWxhcmdlLTI1MTIiLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjoxMzcsInRvdGFsX3Rva2VucyI6MTQwLCJjb21wbGV0aW9uX3Rva2VucyI6MywicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjB9LCJzZXJ2aWNlX3RpZXIiOiJzdGFuZGFyZCJ9LCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24iLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZmluaXNoX3JlYXNvbiI6InN0b3AiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJ0b29sX2NhbGxzIjpudWxsLCJjb250ZW50IjoiSGVsbG8gz4AifX1dfQ==",
+        "sha256": "d066a3ab0600f7d9f8b75c1baa1712ba22f5467cf2d772442a6ecd6da5c8c776",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 137,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

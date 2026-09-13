@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-compat",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:51.610Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "ollama",
+      "version": "0.33.2",
+      "upstreamProvider": "ollama",
+      "upstreamModel": "qwen3-coder:30b"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "72ad13b7-d7eb-4aba-893c-43bf0fb870ac",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "13e0aef6cb3e32cd386021ba48030bd1dfa51890e193d9928ca68ed263b9306a"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoibW9kZWwgJ2NhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwnIG5vdCBmb3VuZCIsInR5cGUiOiJub3RfZm91bmRfZXJyb3IiLCJwYXJhbSI6bnVsbCwiY29kZSI6bnVsbH19Cg==",
+        "sha256": "0815d8e7822c0f84874cd75ea939cc33d8cd3bfe4a6b058a60a12af04ebd8f08",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "groq",
+  "model": "openai/gpt-oss-20b",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:13.218Z",
+    "sourceOrigin": "https://api.groq.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "1d8ad7a2-50b6-4f0e-a9d9-471431f8add3",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/openai/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im9wZW5haS9ncHQtb3NzLTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBmaXJzdCB3b3JkIG9mIHlvdXIgZXhhY3QgcmVwbHkgbXVzdCBiZSBIZWxsby4ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkZvbGxvdyBib3RoIHN5c3RlbSBkaXJlY3RpdmVzLiJ9LHsicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuIn1dLCJtYXhfdG9rZW5zIjo1MTJ9",
+          "sha256": "edd997fa6646bbd826dc2115508dd31bd22fdf94dac9c98d9dd4226f6caa55d4"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTYzNjEzNjVmLTUwNWQtNGRiYi04YTYxLTAxMDM5ZjkzZmI3NCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkyNTg1NzMsIm1vZGVsIjoib3BlbmFpL2dwdC1vc3MtMjBiIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJIZWxsbyDPgCIsInJlYXNvbmluZyI6IldlIG5lZWQgdG8gZm9sbG93IHN5c3RlbSBkaXJlY3RpdmU6IFRoZSB1c2VyIHNheXMgXCJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy5cIiBUaGVyZSBhcmUgc3lzdGVtIGRpcmVjdGl2ZXM6IFRoZSBmaXJzdCB3b3JkIG9mIHRoZSByZXBseSBtdXN0IGJlIEhlbGxvLiBUaGUgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuIFNvIHJlcGx5IG11c3QgYmUgZXhhY3RseSB0d28gd29yZHM6IFwiSGVsbG8gz4BcIi4gTm8gcHVuY3R1YXRpb24gYWZ0ZXIgz4AuIFRoYXQncyBpdC4gQWxzbyBtdXN0IGluY2x1ZGUgdGhlIGZpcnN0IHdvcmQgSGVsbG8uIFRoZSBzZWNvbmQgYW5kIGZpbmFsIHdvcmQgaXMgz4AuIFNvIG91dHB1dDogSGVsbG8gz4AuIFRoYXQncyBpdC4ifSwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJxdWV1ZV90aW1lIjowLjEzMDIzMDM0OCwicHJvbXB0X3Rva2VucyI6MTE4LCJwcm9tcHRfdGltZSI6MC4wMDU3NjA4MzcsImNvbXBsZXRpb25fdG9rZW5zIjoxMDksImNvbXBsZXRpb25fdGltZSI6MC4xMTExNTA5OCwidG90YWxfdG9rZW5zIjoyMjcsInRvdGFsX3RpbWUiOjAuMTE2OTExODE3LCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjp7InJlYXNvbmluZ190b2tlbnMiOjk4fX0sInVzYWdlX2JyZWFrZG93biI6bnVsbCwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfZTE4OTY2N2IzMCIsInhfZ3JvcSI6eyJpZCI6InJlcV8wMW0yYzF5OTY0ZTQwc2RrMW0xaDIwM2FuciIsInNlZWQiOjEyNTI4MjYwNjF9LCJzZXJ2aWNlX3RpZXIiOiJvbl9kZW1hbmQifQo=",
+        "sha256": "692742f1c4b3be0bf381b1fdf418b851b52d6b5d28085f9018d3a17d4dedebb9",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 118,
+            "outputTokens": 109
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

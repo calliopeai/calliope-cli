@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "fireworks",
+  "model": "accounts/fireworks/models/nemotron-lightning-3p5-30b-a3b",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:19:52.976Z",
+    "sourceOrigin": "https://api.fireworks.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "d918ccdb-3835-4b5d-9997-c6b07e067221",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/inference/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImFjY291bnRzL2ZpcmV3b3Jrcy9tb2RlbHMvbmVtb3Ryb24tbGlnaHRuaW5nLTNwNS0zMGItYTNiIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IlJlcGx5IHdpdGggZXhhY3RseTogSGVsbG8gz4AifV0sIm1heF90b2tlbnMiOjUxMiwic3RyZWFtIjp0cnVlLCJzdHJlYW1fb3B0aW9ucyI6eyJpbmNsdWRlX3VzYWdlIjp0cnVlfX0=",
+          "sha256": "4919f5dfea5fd1a102c8793e19a83ac379ba26294ad1543e7008dda4e042c7b4"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLTdiNDQ1YTg0NDBjMDQwZDA4NjQ3Y2ZkNzMyODMyNjQ2Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTI1ODc5MywibW9kZWwiOiJhY2NvdW50cy9maXJld29ya3MvbW9kZWxzL25lbW90cm9uLWxpZ2h0bmluZy0zcDUtMzBiLWEzYiIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyb2xlIjoiYXNzaXN0YW50In0sImZpbmlzaF9yZWFzb24iOm51bGwsInJhd19vdXRwdXQiOm51bGx9XSwidXNhZ2UiOm51bGx9CgpkYXRhOiB7ImlkIjoiY2hhdGNtcGwtN2I0NDVhODQ0MGMwNDBkMDg2NDdjZmQ3MzI4MzI2NDYiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzg5MjU4NzkzLCJtb2RlbCI6ImFjY291bnRzL2ZpcmV3b3Jrcy9tb2RlbHMvbmVtb3Ryb24tbGlnaHRuaW5nLTNwNS0zMGItYTNiIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJlYXNvbmluZ19jb250ZW50IjoiSGVyZSJ9LCJmaW5pc2hfcmVhc29uIjpudWxsLCJyYXdfb3V0cHV0IjpudWxsfV0sInVzYWdlIjpudWxsfQoK",
+        "sha256": "4f4d1c7188658fa8620eb9ceae76891a7bb1eb18bc837c9439afd37790ed2c68",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 576,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

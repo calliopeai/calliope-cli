@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "groq",
+  "model": "openai/gpt-oss-20b",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:14.071Z",
+    "sourceOrigin": "https://api.groq.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "50500137-dc02-4b07-bf10-3c4c7e98b6c0",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/openai/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im9wZW5haS9ncHQtb3NzLTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIEFmdGVyIGl0cyByZXN1bHQgaXMgc3VwcGxpZWQsIHJlcGx5IHdpdGggdGhhdCByZXN1bHQgZXhhY3RseS4gRG8gbm90IGludmVudCB0aGUgdG9vbCByZXN1bHQuIn1dLCJ0b29scyI6W3sidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJkZXNjcmlwdGlvbiI6IkVjaG8gYSBzdHJpbmcuIENvbmZvcm1hbmNlIHByb2JlIG9ubHk7IG5ldmVyIGV4ZWN1dGVzLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidGV4dCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJUZXh0IHRvIGVjaG8ifX0sInJlcXVpcmVkIjpbInRleHQiXX19fV0sIm1heF90b2tlbnMiOjUxMn0=",
+          "sha256": "f1395554b01bac32bf1013d672b692a11ef0ce6787b1000c51b0a52946f66565"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTY5Y2VlMjIwLWVhYWUtNDY4OC1iYmMyLTBiZjExMzgyNzY2YyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkyNTg1NzMsIm1vZGVsIjoib3BlbmFpL2dwdC1vc3MtMjBiIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsInJlYXNvbmluZyI6IldlIG11c3QgY2FsbCB0aGUgZnVuY3Rpb24gZWNobyB3aXRoIHRleHQ9XCJoZWxsb1wiLiBUaGVuIHJlcGx5IHdpdGggdGhhdCByZXN1bHQgZXhhY3RseS4gU28gd2UgbXVzdCBjYWxsIHRoZSBmdW5jdGlvbi4gVGhlbiBhZnRlciBpdCdzIHJlc3VsdCBpcyBzdXBwbGllZCwgd2UgcmVwbHkgd2l0aCB0aGF0IHJlc3VsdCBleGFjdGx5LiBXZSBjYW5ub3QgaW52ZW50IHRoZSB0b29sIHJlc3VsdC4gU28gd2UgY2FsbC4iLCJ0b29sX2NhbGxzIjpbeyJpZCI6ImZjX2FiNWJiM2UxLWJhNGEtNDVkZC05ZmYxLTIxZmEyMmZjYWY2MCIsInR5cGUiOiJmdW5jdGlvbiIsImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiYXJndW1lbnRzIjoie1widGV4dFwiOlwiaGVsbG9cIn0ifX1dfSwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIn1dLCJ1c2FnZSI6eyJxdWV1ZV90aW1lIjowLjAzMTI3MTA1NywicHJvbXB0X3Rva2VucyI6MTU2LCJwcm9tcHRfdGltZSI6MC4wMDc1Nzc1NSwiY29tcGxldGlvbl90b2tlbnMiOjczLCJjb21wbGV0aW9uX3RpbWUiOjAuMDc1MzU3MTY1LCJ0b3RhbF90b2tlbnMiOjIyOSwidG90YWxfdGltZSI6MC4wODI5MzQ3MTUsImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6NTF9fSwidXNhZ2VfYnJlYWtkb3duIjpudWxsLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF9kNmRlMzdlNmJlIiwieF9ncm9xIjp7ImlkIjoicmVxXzAxbTJjMXk5djVlOXBhNnBhZ3hlYnBnMGd0Iiwic2VlZCI6NjgyNzkwMDAwfSwic2VydmljZV90aWVyIjoib25fZGVtYW5kIn0K",
+        "sha256": "c8962c95ccc88266afd9e637ab2b7c78339b0c532552cb67e50dca65a9aff574",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 156,
+            "outputTokens": 73
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "8ccbd4a5-5e5a-4af9-bbf5-d4ea000868a0",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/openai/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im9wZW5haS9ncHQtb3NzLTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJDYWxsIGVjaG8gZXhhY3RseSBvbmNlIHdpdGggdGV4dD1cImhlbGxvXCIuIEFmdGVyIGl0cyByZXN1bHQgaXMgc3VwcGxpZWQsIHJlcGx5IHdpdGggdGhhdCByZXN1bHQgZXhhY3RseS4gRG8gbm90IGludmVudCB0aGUgdG9vbCByZXN1bHQuIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IiIsInRvb2xfY2FsbHMiOlt7ImlkIjoiZmNfYWI1YmIzZTEtYmE0YS00NWRkLTlmZjEtMjFmYTIyZmNhZjYwIiwidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJhcmd1bWVudHMiOiJ7XCJ0ZXh0XCI6XCJoZWxsb1wifSJ9fV19LHsicm9sZSI6InRvb2wiLCJ0b29sX2NhbGxfaWQiOiJmY19hYjViYjNlMS1iYTRhLTQ1ZGQtOWZmMS0yMWZhMjJmY2FmNjAiLCJjb250ZW50IjoiSGVsbG8gz4AifV0sInRvb2xzIjpbeyJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImRlc2NyaXB0aW9uIjoiRWNobyBhIHN0cmluZy4gQ29uZm9ybWFuY2UgcHJvYmUgb25seTsgbmV2ZXIgZXhlY3V0ZXMuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoib2JqZWN0IiwicHJvcGVydGllcyI6eyJ0ZXh0Ijp7InR5cGUiOiJzdHJpbmciLCJkZXNjcmlwdGlvbiI6IlRleHQgdG8gZWNobyJ9fSwicmVxdWlyZWQiOlsidGV4dCJdfX19XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "9c521009f17ccf3cc857bc86354319d679e6bfa4447d133e7aa7aa1fde02fb93"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLWI0NTNlNTQxLTliYzItNDVkOC1iMzhjLTZiYTNjY2Q3M2MzNyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsImNyZWF0ZWQiOjE3ODkyNTg1NzQsIm1vZGVsIjoib3BlbmFpL2dwdC1vc3MtMjBiIiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJIZWxsbyDPgCIsInJlYXNvbmluZyI6IlRoZSB1c2VyIHdhbnRzOiBcIkNhbGwgZWNobyBleGFjdGx5IG9uY2Ugd2l0aCB0ZXh0PVwiaGVsbG9cIi4gQWZ0ZXIgaXRzIHJlc3VsdCBpcyBzdXBwbGllZCwgcmVwbHkgd2l0aCB0aGF0IHJlc3VsdCBleGFjdGx5LiBEbyBub3QgaW52ZW50IHRoZSB0b29sIHJlc3VsdC5cIlxuXG5XZSBkaWQgY2FsbCBlY2hvIHdpdGggdGV4dD1oZWxsby4gVGhlIHRvb2wgcmV0dXJuZWQgXCJIZWxsbyDPgFwiLiBUaGUgdXNlciBzYXlzIHRvIHJlcGx5IHdpdGggdGhhdCByZXN1bHQgZXhhY3RseS4gU28gd2Ugc2hvdWxkIG91dHB1dCBcIkhlbGxvIM+AXCIuIFRoZSB0b29sIHJldHVybmVkIHRoYXQuIFdlIG11c3QgcmVwbHkgd2l0aCB0aGF0IHJlc3VsdCBleGFjdGx5LiBTbyB3ZSBvdXRwdXQgdGhhdCBzdHJpbmcuIn0sImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoic3RvcCJ9XSwidXNhZ2UiOnsicXVldWVfdGltZSI6MC4wNzI3MjM4ODMsInByb21wdF90b2tlbnMiOjE4MSwicHJvbXB0X3RpbWUiOjAuMDA5MTg2Njk2LCJjb21wbGV0aW9uX3Rva2VucyI6OTgsImNvbXBsZXRpb25fdGltZSI6MC4xMDM2MTQyMTIsInRvdGFsX3Rva2VucyI6Mjc5LCJ0b3RhbF90aW1lIjowLjExMjgwMDkwOCwiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6eyJyZWFzb25pbmdfdG9rZW5zIjo4N319LCJ1c2FnZV9icmVha2Rvd24iOm51bGwsInN5c3RlbV9maW5nZXJwcmludCI6ImZwXzhiNDFlZmM5YTMiLCJ4X2dyb3EiOnsiaWQiOiJyZXFfMDFtMmMxeWEzM2VkNDhuMThrMmRwc3RxOTgiLCJzZWVkIjoxNTYwMjk0MTc2fSwic2VydmljZV90aWVyIjoib25fZGVtYW5kIn0K",
+        "sha256": "4b804fafdca9ba1bfb2f937166f4597314b59c6f39d492fe190096808427426b",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 181,
+            "outputTokens": 98
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

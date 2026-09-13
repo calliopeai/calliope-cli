@@ -348,6 +348,8 @@ export async function chatOpenAICompatible(
         if (choice.finish_reason) finishReason = normalizeFinishReason(choice.finish_reason);
       }
 
+      // The SDK's async iterator can end normally after an abort.
+      throwIfCancelled(signal);
       // Convert tool call deltas to tool calls
       const toolCalls = Object.values(toolCallDeltas)
         .filter(tc => tc.id && tc.name)

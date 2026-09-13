@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Capture and replay real cancellation, provider errors, system instructions and tool-result conversations under persistent budgets; enforce the extended product release gate. Fix cancelled streams reported as success, preserve modern OpenAI token-limit fields, and accept Bedrock's null terminal discovery cursor (#305).
+
 - Add a private project/global brain with a versioned journal, SQLite search and graph indexes, source provenance, human review/reversal, freshness checks, safe transfers and verified run ingestion; expose matching CLI/REPL commands and stable local JSON (#302).
 
 - Add auditable recursive improvement cycles, measured outcome feedback and HUD status; provide persistent proposal holds, exact-hash execution approval and strategy withdrawal while preserving isolated evidence, original budgets and deadlines (#301).

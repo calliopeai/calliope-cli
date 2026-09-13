@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "google",
+  "model": "gemini-2.5-flash-lite",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:14:21.003Z",
+    "sourceOrigin": "https://generativelanguage.googleapis.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "1957a98c-cae5-4489-8739-ea4397cd5cdc",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1beta/models/gemini-2.5-flash-lite:streamGenerateContent",
+          "body": "eyJjb250ZW50cyI6W3sicGFydHMiOlt7InRleHQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJyb2xlIjoidXNlciJ9XSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJtYXhPdXRwdXRUb2tlbnMiOjEyOH19",
+          "sha256": "df8eb223658ff834eb496f63e6ff6b74b7e7f435e938d5d926ff8732c523ed84"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "ZGF0YTogeyJjYW5kaWRhdGVzIjogW3siY29udGVudCI6IHsicGFydHMiOiBbeyJ0ZXh0IjogIkhlbGxvIM+AIn1dLCJyb2xlIjogIm1vZGVsIn0sImZpbmlzaFJlYXNvbiI6ICJTVE9QIiwiaW5kZXgiOiAwfV0sInVzYWdlTWV0YWRhdGEiOiB7InByb21wdFRva2VuQ291bnQiOiA3LCJjYW5kaWRhdGVzVG9rZW5Db3VudCI6IDIsInRvdGFsVG9rZW5Db3VudCI6IDksInByb21wdFRva2Vuc0RldGFpbHMiOiBbeyJtb2RhbGl0eSI6ICJURVhUIiwidG9rZW5Db3VudCI6IDd9XSwic2VydmljZVRpZXIiOiAic3RhbmRhcmQifSwibW9kZWxWZXJzaW9uIjogImdlbWluaS0yLjUtZmxhc2gtbGl0ZSIsInJlc3BvbnNlSWQiOiAiM09xbGFyNnZOTnZBcXRzUDVhZjJ5QWsifQ0KDQo=",
+        "sha256": "5f27b8cb9755f6520c303493f93d5561c46690910888ef98e4238eee4ecf00b6",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 380,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

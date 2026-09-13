@@ -12,8 +12,11 @@ const { values } = parseArgs({ options: {
 const directory = new URL('../../tests/fixtures/provider-wire/', import.meta.url);
 const captures = readdirSync(directory).filter(file => file.endsWith('.json'))
   .map(file => JSON.parse(readFileSync(new URL(file, directory), 'utf8')));
+const semanticDirectory = new URL('../../tests/fixtures/provider-semantic/', import.meta.url);
+const semanticCaptures = readdirSync(semanticDirectory).filter(file => file.endsWith('.json'))
+  .map(file => JSON.parse(readFileSync(new URL(file, semanticDirectory), 'utf8')));
 const availability = Object.fromEntries(BACKENDS.map(backend => [backend.id, credentialStatus(backend, { ...config, hasAWSCredentials })]));
-const report = createReadiness(captures, availability);
+const report = createReadiness(captures, availability, new Date(), semanticCaptures);
 const json = JSON.stringify(report, null, 2) + '\n';
 if (values.output) writeFileSync(values.output, json, { flag: 'wx', mode: 0o600 });
 if (values.json) process.stdout.write(json);

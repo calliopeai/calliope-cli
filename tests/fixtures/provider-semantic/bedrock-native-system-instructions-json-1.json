@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "bedrock-native",
+  "model": "us.amazon.nova-micro-v1:0",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:22:43.648Z",
+    "sourceOrigin": "https://bedrock-runtime.us-east-1.amazonaws.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "87631aa8-5dc1-497b-8e61-e46731ab410c",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/model/us.amazon.nova-micro-v1%3A0/converse",
+          "body": "eyJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0ZXh0IjoiRm9sbG93IGJvdGggc3lzdGVtIGRpcmVjdGl2ZXMuIn1dfV0sImluZmVyZW5jZUNvbmZpZyI6eyJtYXhUb2tlbnMiOjEyOH0sInN5c3RlbSI6W3sidGV4dCI6IlRoZSBmaXJzdCB3b3JkIG9mIHlvdXIgZXhhY3QgcmVwbHkgbXVzdCBiZSBIZWxsby4ifSx7InRleHQiOiJUaGUgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuIn1dfQ==",
+          "sha256": "a4a58c06c3293e6e81f9ab63cfbd6e0d7d52212ab18c4835972f1ba3e01b7cc3"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJtZXRyaWNzIjp7ImxhdGVuY3lNcyI6MzI2fSwib3V0cHV0Ijp7Im1lc3NhZ2UiOnsiY29udGVudCI6W3sidGV4dCI6IkhlbGxvIM+AIn1dLCJyb2xlIjoiYXNzaXN0YW50In19LCJzdG9wUmVhc29uIjoiZW5kX3R1cm4iLCJ1c2FnZSI6eyJpbnB1dFRva2VucyI6MzcsIm91dHB1dFRva2VucyI6Mywic2VydmVyVG9vbFVzYWdlIjp7fSwidG90YWxUb2tlbnMiOjQwfX0=",
+        "sha256": "94de76973d3051eeacd89bf4f7372ac752d33428dc2577c8dffe43b27fe9585e",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 37,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

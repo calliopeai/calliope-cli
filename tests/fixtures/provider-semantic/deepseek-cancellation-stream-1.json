@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "deepseek",
+  "model": "deepseek-flash",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:14:26.073Z",
+    "sourceOrigin": "https://api.deepseek.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "9143945b-4dc2-40e9-bbf3-24dfe9768b0d",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/chat/completions",
+          "body": "eyJtb2RlbCI6ImRlZXBzZWVrLWZsYXNoIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IlJlcGx5IHdpdGggZXhhY3RseTogSGVsbG8gz4AifV0sIm1heF90b2tlbnMiOjUxMiwic3RyZWFtIjp0cnVlLCJzdHJlYW1fb3B0aW9ucyI6eyJpbmNsdWRlX3VzYWdlIjp0cnVlfX0=",
+          "sha256": "feccf768656e064c55af58e3327e5d5d1b094bec977e4cc78a6c2ad3e4a51741"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6IjE4YjZmMjVhLTc1MTktNGFjNi05NTIyLWNmZWZmMzU3YjU0MyIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNTg0NjUsIm1vZGVsIjoiZGVlcHNlZWstZmxhc2giLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJhZWI1NjQwMWNhNzRlMTI3ODIxYzRmOTEyNmRjYjY2OSIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6bnVsbCwicmVhc29uaW5nX2NvbnRlbnQiOiIifSwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGx9XSwidXNhZ2UiOm51bGx9Cgo=",
+        "sha256": "7c7e2b32cd9691f2e64fa29bdc507577797850c147d556913b78bce882afc851",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 329,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

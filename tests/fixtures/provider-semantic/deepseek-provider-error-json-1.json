@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "deepseek",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:52.606Z",
+    "sourceOrigin": "https://api.deepseek.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "61d87f3b-42d2-4444-8f87-798d08cf9570",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6MTI4fQ==",
+          "sha256": "977d8a1a482ff68ff669c12da1808800f9841a7f2af6c967494a153e54eea3d7"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/octet-stream"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiVGhlIHN1cHBvcnRlZCBBUEkgbW9kZWwgbmFtZXMgYXJlIGRlZXBzZWVrLWZsYXNoLCBkZWVwc2Vlay12NC1wcm8sIGJ1dCB5b3UgcGFzc2VkIGNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwuIiwidHlwZSI6ImludmFsaWRfcmVxdWVzdF9lcnJvciIsInBhcmFtIjpudWxsLCJjb2RlIjoiaW52YWxpZF9yZXF1ZXN0X2Vycm9yIn19",
+        "sha256": "a63481bfacd3402a05397bf4a560412a62c57386be61eee133872617ecd08083",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

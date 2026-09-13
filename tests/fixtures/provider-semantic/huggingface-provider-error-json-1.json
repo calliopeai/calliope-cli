@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "huggingface",
+  "model": "calliope/conformance-missing-model:together",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:24:11.225Z",
+    "sourceOrigin": "https://router.huggingface.co",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "huggingface-router",
+      "version": "v1",
+      "upstreamProvider": "together",
+      "upstreamModel": "calliope/conformance-missing-model"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "9f103a85-7206-4a7b-8b52-2a9bd00ce5a4",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlL2NvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWw6dG9nZXRoZXIiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6NTEyfQ==",
+          "sha256": "4073c6493c838d70db3d545b9b9be9b2e350edb1b3b79761f61300a3fdafa3c2"
+        },
+        "status": 400,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiVGhlIHJlcXVlc3RlZCBtb2RlbCAnY2FsbGlvcGUvY29uZm9ybWFuY2UtbWlzc2luZy1tb2RlbCcgZG9lcyBub3QgZXhpc3QuIiwidHlwZSI6ImludmFsaWRfcmVxdWVzdF9lcnJvciIsInBhcmFtIjoibW9kZWwiLCJjb2RlIjoibW9kZWxfbm90X2ZvdW5kIn19",
+        "sha256": "1dc34cf085fa6d571de8c718a959d623051f7ed14f0936063be556e7bef358a2",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 400,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

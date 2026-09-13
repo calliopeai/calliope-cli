@@ -13,7 +13,7 @@ with no Node.js required — see
 
 ## Why Calliope
 
-- **Any backend, live-discovered.** 13 providers — Anthropic, OpenAI, Google, AWS Bedrock, Ollama, OpenRouter, Together, Groq, Fireworks, Mistral, AI21, Hugging Face, LiteLLM, plus any OpenAI-compatible server. No hardcoded model lists: models and capabilities are discovered from each provider's API, so new models work the day they ship.
+- **Any backend, live-discovered.** Hosted providers, local runtimes, and OpenAI-compatible servers share the same workflow. Models and capabilities are discovered from provider APIs; unsupported or unknown behavior stays explicit. See the [provider matrix and real-wire evidence](docs/provider-conformance.md).
 - **Built for models you run yourself.** Ollama and self-hosted OpenAI-compatible servers are first-class targets, not checkboxes. Run fully air-gapped.
 - **Sandbox-first execution.** Shell and code tools run inside macOS Seatbelt or Docker sandboxes (`auto`/`native`/`docker`/`off`). Blocklists are advisory; the sandbox is the boundary.
 - **Safety rails that survive long sessions.** Circuit breakers, iteration budgets, git-based checkpoints with `/restore`, and automatic context compaction.

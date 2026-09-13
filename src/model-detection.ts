@@ -1067,7 +1067,7 @@ async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
       profileModels.push({ id: profile.inferenceProfileId, name: profile.inferenceProfileName || profile.inferenceProfileId,
         description: 'Bedrock inference profile', capabilities: { streaming: shared('streaming'), vision: shared('vision') } });
     }
-    if (data.nextToken === undefined || data.nextToken === '') break;
+    if (data.nextToken == null || data.nextToken === '') break;
     if (typeof data.nextToken !== 'string' || data.nextToken.length > 2048 || seen.has(data.nextToken)) throw new ModelDiscoveryError('Invalid Bedrock discovery cursor');
     seen.add(data.nextToken); nextToken = data.nextToken;
     if (page === 19) throw new ModelDiscoveryError('Bedrock discovery page budget exceeded');

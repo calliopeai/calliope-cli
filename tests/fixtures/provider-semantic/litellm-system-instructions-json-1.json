@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "litellm",
+  "model": "conformance-together",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:26:26.608Z",
+    "sourceOrigin": "http://127.0.0.1:39431",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "litellm",
+      "version": "1.100.1",
+      "upstreamProvider": "together",
+      "upstreamModel": "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "5bbe4ca0-1a8c-4c3d-a436-32affb654f24",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNvbmZvcm1hbmNlLXRvZ2V0aGVyIiwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIGZpcnN0IHdvcmQgb2YgeW91ciBleGFjdCByZXBseSBtdXN0IGJlIEhlbGxvLiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoiRm9sbG93IGJvdGggc3lzdGVtIGRpcmVjdGl2ZXMuIn0seyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBzZWNvbmQgYW5kIGZpbmFsIHdvcmQgbXVzdCBiZSDPgC4gU2VwYXJhdGUgdGhlIHR3byB3b3JkcyB3aXRoIG9uZSBzcGFjZTsgYWRkIG5vdGhpbmcgZWxzZS4ifV0sIm1heF90b2tlbnMiOjUxMn0=",
+          "sha256": "ca79e91367841fe116236e44d00d688dbeffd39313249c964637d8ae94e058cb"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6InAxM2kyR1ctZmRObW4tYTNhMzA1MzgzZmU2YjE1ZSIsImNyZWF0ZWQiOjE3ODkyNTkxODYsIm1vZGVsIjoiY29uZm9ybWFuY2UtdG9nZXRoZXIiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24iLCJjaG9pY2VzIjpbeyJmaW5pc2hfcmVhc29uIjoic3RvcCIsImluZGV4IjowLCJtZXNzYWdlIjp7ImNvbnRlbnQiOiJIZWxsbyDPgCIsInJvbGUiOiJhc3Npc3RhbnQifSwicHJvdmlkZXJfc3BlY2lmaWNfZmllbGRzIjp7InNlZWQiOjQzOTE3MzUwMDkzODYwMjcwMDB9fV0sInVzYWdlIjp7ImNvbXBsZXRpb25fdG9rZW5zIjozLCJwcm9tcHRfdG9rZW5zIjo3NywidG90YWxfdG9rZW5zIjo4MCwiY2FjaGVkX3Rva2VucyI6MH0sInByb21wdCI6W119",
+        "sha256": "17916251cee5b6fbba5ba5c242e895fb8434a0553c72221ec7cee075f32e93c7",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 77,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

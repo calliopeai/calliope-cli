@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-compat",
+  "model": "devstral:latest",
+  "scenario": "system-instructions",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:30:32.068Z",
+    "sourceOrigin": "http://localhost:11434",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "gateway": {
+      "name": "ollama",
+      "version": "0.33.2",
+      "upstreamProvider": "ollama",
+      "upstreamModel": "devstral:latest"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "17e6d994-f043-4a1e-b8ac-a3c1baf6dd76",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImRldnN0cmFsOmxhdGVzdCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBmaXJzdCB3b3JkIG9mIHlvdXIgZXhhY3QgcmVwbHkgbXVzdCBiZSBIZWxsby4ifSx7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkZvbGxvdyBib3RoIHN5c3RlbSBkaXJlY3RpdmVzLiJ9LHsicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuIn1dLCJtYXhfdG9rZW5zIjoxMjh9",
+          "sha256": "2c5b33f1dd00bc9282e85564ad3db8a0bca99ead18df5d122aeb152d7d93e11f"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJpZCI6ImNoYXRjbXBsLTI3Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwiY3JlYXRlZCI6MTc4OTI1OTQzMiwibW9kZWwiOiJkZXZzdHJhbDpsYXRlc3QiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF9vbGxhbWEiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IkhlbGxvIM+AIn0sImZpbmlzaF9yZWFzb24iOiJzdG9wIn1dLCJ1c2FnZSI6eyJwcm9tcHRfdG9rZW5zIjo0NSwiY29tcGxldGlvbl90b2tlbnMiOjMsInRvdGFsX3Rva2VucyI6NDh9fQo=",
+        "sha256": "7f60e3d9cb80c2e16656c3c76f136966623ddd11c71ea6e515b5900f289f2092",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 45,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

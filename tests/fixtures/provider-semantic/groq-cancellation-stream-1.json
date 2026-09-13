@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "groq",
+  "model": "openai/gpt-oss-20b",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:14.565Z",
+    "sourceOrigin": "https://api.groq.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "a47c73d7-d08c-40da-9447-1802c993cc41",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/openai/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Im9wZW5haS9ncHQtb3NzLTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjo1MTIsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+          "sha256": "4938bef5ae3b9a967ce8c05338719874531bbd2581531d692fe0aaf8140dc5ce"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLWQwMzY2MTc0LWY2MjYtNDEyNC05NzU5LThmZWZkYTAwYzQzZCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3ODkyNTg1NzQsIm1vZGVsIjoib3BlbmFpL2dwdC1vc3MtMjBiIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZnBfODRiYjM1OTc3ZCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IiJ9LCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6bnVsbH1dLCJ4X2dyb3EiOnsiaWQiOiJyZXFfMDFtMmMxeWFuNWV2dzljZ3pqeTEwbjh6NnQiLCJzZWVkIjoxNDc4NjgyMTczfX0KCg==",
+        "sha256": "e9b1cf18417303ef3af75755e0ddacaa3e401d7d2eed4d658b8150009f39b785",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 352,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

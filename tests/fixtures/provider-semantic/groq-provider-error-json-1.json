@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "backend": "groq",
+  "model": "calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:16:53.028Z",
+    "sourceOrigin": "https://api.groq.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "adb4ee8a-4944-44f6-a783-a91c64464e51",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/openai/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImNhbGxpb3BlLWNvbmZvcm1hbmNlLW1pc3NpbmctbW9kZWwiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6MTI4fQ==",
+          "sha256": "977d8a1a482ff68ff669c12da1808800f9841a7f2af6c967494a153e54eea3d7"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiVGhlIG1vZGVsIGBjYWxsaW9wZS1jb25mb3JtYW5jZS1taXNzaW5nLW1vZGVsYCBkb2VzIG5vdCBleGlzdCBvciB5b3UgZG8gbm90IGhhdmUgYWNjZXNzIHRvIGl0LiIsInR5cGUiOiJpbnZhbGlkX3JlcXVlc3RfZXJyb3IiLCJjb2RlIjoibW9kZWxfbm90X2ZvdW5kIn19Cg==",
+        "sha256": "1db4b86a79364e54bdbf25e23b634a0f67c04b88bb75a76e7fd8f82d82290f69",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

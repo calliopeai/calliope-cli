@@ -10,6 +10,7 @@ import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import * as config from '../config.js';
+import { throwIfCancelled } from '../cancellation.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, ImageContent, MessageContent } from '../types.js';
 import { normalizeFinishReason, getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
 
@@ -737,6 +738,7 @@ async function chatBedrockStreaming(
     reader.releaseLock();
   }
 
+  throwIfCancelled(signal);
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,

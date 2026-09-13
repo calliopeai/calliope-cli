@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "fireworks",
+  "model": "accounts/fireworks/models/calliope-conformance-missing-model",
+  "scenario": "provider-error",
+  "stream": false,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:19:53.761Z",
+    "sourceOrigin": "https://api.fireworks.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "c2be1130-5635-42a6-a0d5-08c08ce206bb",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/inference/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImFjY291bnRzL2ZpcmV3b3Jrcy9tb2RlbHMvY2FsbGlvcGUtY29uZm9ybWFuY2UtbWlzc2luZy1tb2RlbCIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjo1MTJ9",
+          "sha256": "4c417d36df96a9648818cc8787ba554ee317a7c9e5a3162890762328bfcc61a7"
+        },
+        "status": 404,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "eyJlcnJvciI6eyJtZXNzYWdlIjoiTW9kZWwgbm90IGZvdW5kLCBpbmFjY2Vzc2libGUsIGFuZC9vciBub3QgZGVwbG95ZWQiLCJwYXJhbSI6Im1vZGVsIiwiY29kZSI6Ik5PVF9GT1VORCIsInR5cGUiOiJlcnJvciJ9LCJyZXF1ZXN0X2lkIjoiY2hhdGNtcGwtZDUyOTU0Yjc4Yzc3NGI0M2JjNzlhZmRlYjRmODg0MWYifQ==",
+        "sha256": "00a3bc9a6aa13afb37d8c3eb5b52a2e591e2c58d7f9f966fb600514b17c9c35f",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "provider-error",
+        "httpStatus": 404,
+        "adapterRejected": true
+      }
+    }
+  ]
+}

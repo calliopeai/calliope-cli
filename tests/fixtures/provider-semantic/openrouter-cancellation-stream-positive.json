@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openrouter",
+  "model": "google/gemini-2.5-flash-lite",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-13T00:24:05.638Z",
+    "sourceOrigin": "https://openrouter.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "maxPrice": {
+      "input": 0.1,
+      "output": 0.4
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "e7850229-4f54-4a02-a927-0256c163f953",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/api/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Imdvb2dsZS9nZW1pbmktMi41LWZsYXNoLWxpdGUiLCJtZXNzYWdlcyI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X3Rva2VucyI6NTEyLCJzdHJlYW0iOnRydWUsInN0cmVhbV9vcHRpb25zIjp7ImluY2x1ZGVfdXNhZ2UiOnRydWV9LCJwcm92aWRlciI6eyJhbGxvd19mYWxsYmFja3MiOmZhbHNlLCJtYXhfcHJpY2UiOnsiaW5wdXQiOjAuMSwib3V0cHV0IjowLjR9fX0=",
+          "sha256": "7cc563649c1727d8fc8199843f6b89f677ab57982a0ba4f058842799f5a26f63"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "ZGF0YTogeyJpZCI6Imdlbi0xNzg5MjU5MDQ0LTlsV2NTd3RHZXdiS1F1T2Nja3dGIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc4OTI1OTA0NCwibW9kZWwiOiJnb29nbGUvZ2VtaW5pLTIuNS1mbGFzaC1saXRlIiwicHJvdmlkZXIiOiJHb29nbGUiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IkhlbGxvIiwicm9sZSI6ImFzc2lzdGFudCJ9LCJmaW5pc2hfcmVhc29uIjpudWxsLCJuYXRpdmVfZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoK",
+        "sha256": "79f54955ab6633f9467a5cb42881016aaad1f88f498136d7e71a51ded54a4333",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 285,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}
