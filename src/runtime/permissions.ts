@@ -9,7 +9,7 @@ import { checkToolBoundary } from '../tools.js';
 import { cancellable, isCancellation, throwIfCancelled } from '../cancellation.js';
 import { permissionReason, type PermissionDecision, type PermissionLayer } from './types.js';
 
-const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files']);
+const PLAN_TOOLS = new Set(['think', 'ask_question', 'create_plan', 'read_file', 'list_files', 'brain_search', 'brain_entity']);
 export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git', 'execute_code', 'configure', 'session_branch', 'session_import', 'orchestration_prepare', 'orchestration_approve', 'orchestration_cancel', 'orchestration_budget']);
 for(const tool of ['orchestration_execute','orchestration_retry','orchestration_accept','orchestration_agent_stop','orchestration_spawn'])MUTATING_TOOLS.add(tool);
 for(const tool of ['orchestration_goal_plan','orchestration_goal_approve','orchestration_goal_resume','orchestration_goal_cancel','orchestration_goal_revise'])MUTATING_TOOLS.add(tool);

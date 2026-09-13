@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
+import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
 import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath } from './types.js';
 
@@ -71,13 +72,17 @@ export function executionToolDenial(manifest: ExecutionManifest, agentId: string
   checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;
   if (now >= Math.min(manifest.deadline,account.deadline)) return 'Agent deadline expired.';
   if (!account.allowedTools.includes(call.name)) return 'Tool is outside the declared agent authority.';
-  if (['think','ask_question','create_plan'].includes(call.name)) return undefined;
+  if (['think','ask_question','create_plan',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
   if (!['read_file','write_file','edit_file','list_files'].includes(call.name)) return 'This tool requires containment that enforces the agent path and network grants; execution is unavailable.';
   const arg = call.arguments.path ?? (call.name === 'list_files' ? '.' : undefined);
   if (typeof arg !== 'string' || !arg || arg.length > 4096) return 'Tool requires a bounded path inside the agent scope.';
-  const absolute = resolve(cwd,arg), canonical = canonicalPath(absolute), rel = relative(manifest.project.root,canonical) || '.';
-  if (canonical !== absolute || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) return 'Tool path resolves outside the project or through a symlink alias.';
   const access = call.name === 'write_file' || call.name === 'edit_file' ? 'write' : 'read';
+  return executionPathDenial(manifest,account,arg,access);
+}
+/** Shared source-path boundary, independent of which read-only tool consumes the file. */
+export function executionPathDenial(manifest: ExecutionManifest, account: ExecutionAccount, arg: string, access: 'read' | 'write'): string | undefined {
+  const absolute = resolve(manifest.project.root,arg), canonical = canonicalPath(absolute), rel = relative(manifest.project.root,canonical) || '.';
+  if (canonical !== absolute || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) return 'Tool path resolves outside the project or through a symlink alias.';
   if (!permits(account.allowedPaths,rel,access)) return `Tool path is outside the agent ${access} scope.`;
   return undefined;
 }

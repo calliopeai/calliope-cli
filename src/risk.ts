@@ -234,6 +234,8 @@ export function assessShellRisk(command: string): RiskAssessment {
 const TOOL_BASE_RISK: Record<string, RiskLevel> = {
   think: 'none',
   read_file: 'none',
+  brain_search: 'none',
+  brain_entity: 'none',
   list_files: 'none',
   write_file: 'medium',
   shell: 'low', // Will be overridden by command analysis
@@ -299,6 +301,9 @@ function getRiskReason(toolName: string, level: RiskLevel): string {
   switch (toolName) {
     case 'think':
       return 'Pure reasoning, no side effects';
+    case 'brain_search':
+    case 'brain_entity':
+      return 'Read-only project knowledge within reviewed source scope';
     case 'read_file':
       return 'Read-only file access';
     case 'list_files':

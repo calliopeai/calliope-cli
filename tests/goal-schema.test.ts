@@ -97,3 +97,20 @@ it('rejects aliases, foreign project stores, malformed owner records and proposa
   fs.writeFileSync(join(directory,'unexpected.txt'),'toy');expect(()=>store.writeProposal(proposal,spend)).toThrow(/damaged/);fs.unlinkSync(join(directory,'unexpected.txt'));
   for(let n=0;n<64;n++)fs.writeFileSync(join(directory,n.toString(16).padStart(64,'0')+'.json'),'{}',{mode:0o600});expect(()=>store.writeProposal(proposal,spend)).toThrow(/retention/);
 });
+
+it('captures optional Brain grants in the existing hash and preserves default planner contracts',async()=>{
+  const old=plannerPlan(manifest),enabled=resign({...manifest,workspace:{...manifest.workspace,allowedTools:[...manifest.workspace.allowedTools,'brain_search','brain_entity']}}),plan=plannerPlan(enabled);
+  expect(enabled.version).toBe(manifest.version);expect(enabled.hash).not.toBe(manifest.hash);
+  expect(plan.agents[0]!.allowedTools).toEqual(expect.arrayContaining(['brain_search','brain_entity']));
+  expect(plan.agents[0]!.inputs.find(i=>i.id==='project-knowledge')!.value).toContain('untrusted retained evidence');
+  plan.workspace.allowedTools=plan.workspace.allowedTools.filter(t=>!t.startsWith('brain_'));
+  for(const a of plan.agents){a.allowedTools=a.allowedTools.filter(t=>!t.startsWith('brain_'));a.inputs=a.inputs.filter(i=>i.id!=='project-knowledge');a.inputs.find(i=>i.id==='allowed-tools')!.value=old.agents[0]!.inputs.find(i=>i.id==='allowed-tools')!.value;}
+  expect(JSON.stringify(plan)).toBe(JSON.stringify(old));
+  const scoped={allowedTools:['read_file','brain_search'],allowedPaths:[{path:'a',access:'read' as const}]};
+  const m=newGoalManifest(project,'Public memory.',manifest.runsRoot,{brain:true,workspace:scoped});expect(m.workspace.allowedTools).toEqual(['read_file','brain_search','brain_entity']);expect(scoped.allowedTools).toHaveLength(2);
+  expect(newGoalManifest(project,'Default.',manifest.runsRoot,{brain:false}).workspace.allowedTools).not.toContain('brain_search');
+  expect(()=>newGoalManifest(project,'Malformed.',manifest.runsRoot,{brain:'yes' as any})).toThrow();
+  const store=new GoalStore(join(root,'brain-goals'));store.create(m);expect(new GoalStore(store.root).read(m.id).manifest.workspace).toEqual(m.workspace);
+  expect(formatGoal({goal:store.read(m.id),status:'created'} as any)).toContain('Brain: read-only');
+  for(const action of ['resume','status','replay']){const lines:string[]=[];expect(await runGoalCommand([action,m.id,'--brain','--json'],{cwd:project,goals:store,write:line=>lines.push(line)})).toBe(2);expect(JSON.parse(lines[0]!).version).toBe(1);}
+});

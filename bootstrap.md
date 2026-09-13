@@ -94,6 +94,8 @@ with captured controller/reviewer choices, local-image admission and exact-plan 
 measured outcomes and persistent proposal approval/withdrawal controls from that history.
 [Project brain and knowledge graph](docs/project-brain.md) adds private versioned knowledge,
 portable SQLite indexes, provenance, human corrections, safe transfers and source-policy checks.
+[Agent knowledge retrieval](docs/agent-knowledge.md) adds opt-in read-only planner/worker
+tools with inherited source scopes and recorded evidence.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.

@@ -10,3 +10,5 @@ export * from './transfer.js';
 export * from './run-ingest.js';
 export * from './cli.js';
 export * from './presentation.js';
+export * from './tools.js';
+export * from './tool-query.js';

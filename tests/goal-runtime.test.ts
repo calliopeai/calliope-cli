@@ -11,6 +11,7 @@ import {ReservationLedger} from '../src/execution/index.js';
 import {RunStore,ExecutionStore,analyzePlan,changePreparedRun,executeReviewedRun,replayExecution,validateExecutionEvent,controlExecution,prepareAgentExecution,type ProjectPlan} from '../src/orchestration/index.js';
 import {GoalStore,signed,newGoalManifest,plannerPlan,allocatePlan,startGoal,approveGoal,resumeGoal,inspectGoal,cancelGoal,reviseGoal,runGoalCommand,formatGoal,type GoalOptions,type GoalInspection} from '../src/goals/index.js';
 import {handleCommand,type CommandContext} from '../src/ui/commands.js';
+import {initBrain,ingestBrainFile,BrainStore} from '../src/brain/index.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 
 let root:string,project:string,runs:RunStore,goals:GoalStore,created:GoalInspection|undefined,requests:any[],proposed:unknown;
@@ -248,4 +249,31 @@ it('opts into Smart routing through CLI/REPL arguments and persists actual plann
   fs.writeFileSync(join(project,'routing.json'),'invalid later file contents must not change the captured policy');
   const pending=goals.read(m.id),done=await approveGoal(project,m.id,pending.proposal!.hash,{...options(),approve:async()=> 'allow'});expect(done.status).toBe('completed');expect(Object.values(done.execution!.state.routes!).every(r=>r.route.profile==='cost')).toBe(true);
   const before=requests.length,replay:string[]=[];expect(await runGoalCommand(['replay',m.id,'--json'],{cwd:project,goals:new GoalStore(goals.root),store:new RunStore(runs.root),write:line=>replay.push(line)})).toBe(0);expect(requests).toHaveLength(before);expect(JSON.parse(replay[0]!).data.execution.state.routes).toEqual(done.execution!.state.routes);
+});
+
+it('retrieves persisted project knowledge through planner and worker tools only after opt-in, then replays without inference',async()=>{
+  await initBrain(project,{confirmation:'none'});for(const dir of ['a','b']){fs.writeFileSync(join(project,dir,'design.md'),'Use portable SQLite for project history.');await ingestBrainFile(project,dir+'/design.md',{confirmation:'none'});}
+  const brain=new BrainStore(project),before=brain.read();
+  proposed.workspace.allowedTools.push('brain_search','brain_entity');for(const a of proposed.agents)a.allowedTools.push('brain_search','brain_entity');
+  for(const t of proposed.tasks)t.acceptanceChecks![0]!.expected='portable SQLite';
+  respond=async(task,body)=>{
+    expect(body.tools.map((t:any)=>t.function.name)).toContain('brain_search');
+    const evidence=body.messages.find((m:any)=>m.role==='tool'&&m.tool_call_id==='knowledge-'+task.id);
+    if(!evidence)return completion('Consult project evidence.',[{id:'knowledge-'+task.id,type:'function',function:{name:'brain_search',arguments:JSON.stringify({query:'portable SQLite'})}}]);
+    const knowledge=JSON.parse(evidence.content);expect(knowledge.type).toBe('project-knowledge');expect(knowledge.revision).toBe(before.state.revision);
+    const detail=body.messages.find((m:any)=>m.role==='tool'&&m.tool_call_id==='detail-'+task.id);
+    if(!detail)return completion('Inspect the cited design.',[{id:'detail-'+task.id,type:'function',function:{name:'brain_entity',arguments:JSON.stringify({query:knowledge.entities[0].id})}}]);
+    const excerpt=JSON.parse(detail.content).sources[0].excerpt;expect(excerpt).toContain('portable SQLite');
+    if(task.id==='propose'){expect(knowledge.entities).toHaveLength(2);return reply(task,body);}
+    expect(knowledge.entities).toHaveLength(task.id==='verify'?2:1);
+    if(!body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='write-'+task.id))return completion('Apply the retrieved design.',[{id:'write-'+task.id,type:'function',function:{name:'write_file',arguments:JSON.stringify({path:task.outputs[0].path,content:'public toy '+excerpt})}}]);
+    return completion('Recorded evidence derived from project knowledge.');
+  };
+  const lines:string[]=[];const plannedCode=await runGoalCommand(['Use the recorded project design.','--brain','--json'],{...options(),cwd:project,write:line=>lines.push(line)});expect(plannedCode,JSON.stringify(lines)).toBe(5);
+  const planned=JSON.parse(lines.at(-1)!).data;expect(planned.goal.manifest.workspace.allowedTools).toContain('brain_search');expect(planned.goal.proposal.plan.workspace.allowedTools).toContain('brain_entity');
+  expect(requests).toHaveLength(3);const done=await approveGoal(project,planned.goal.manifest.id,planned.goal.proposal.hash,{...options(),approve:async()=> 'allow'});expect(done.status,JSON.stringify(done.execution!.state)).toBe('completed');
+  for(const t of Object.values(done.execution!.state.tasks)){expect(t.output!.testEvidence).toHaveLength(1);expect(fs.readFileSync(join(project,t.output!.changedFiles[0]!),'utf8')).toContain('portable SQLite');}
+  const count=requests.length,replay:string[]=[];expect(count).toBe(15);
+  expect(await runGoalCommand(['replay',planned.goal.manifest.id,'--json'],{cwd:project,goals:new GoalStore(goals.root),store:new RunStore(runs.root),write:line=>replay.push(line)})).toBe(0);
+  expect(JSON.parse(replay[0]!).data.execution.state).toEqual(done.execution!.state);expect(requests).toHaveLength(count);expect(brain.read()).toEqual(before);
 });

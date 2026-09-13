@@ -5,13 +5,14 @@ import type { Tool, ToolCall, Message } from '../types.js';
 import type { RouteCandidate } from '../routing/index.js';
 import type { ProviderAttemptBudget } from '../providers/types.js';
 import { throwIfCancelled } from '../cancellation.js';
-import { executionToolDenial, accountLineage, checkExecutionIdentity, integer,assertExecutionStoreOutsideProject } from './authority.js';
+import { executionToolDenial, executionPathDenial, accountLineage, checkExecutionIdentity, integer,assertExecutionStoreOutsideProject } from './authority.js';
 import { ReservationLedger, requestCostNanos } from './ledger.js';
 import { ExecutionLimitError, type ExecutionManifest } from './types.js';
 import {getBudgetCaps,projectBudgetPath} from '../budget.js';
 import {ProjectSpendLedger} from './project-spend.js';
 import {providerQuote,costCapNanos} from './quote.js';
 import {effectiveExecutionManifest} from './child-grants.js';
+import {BRAIN_TOOLS,BRAIN_TOOL_NAMES,type BrainToolContext} from '../brain/tools.js';
 import {readBillingEvidence} from './billing.js';
 
 export interface AgentExecution {
@@ -56,7 +57,15 @@ export class ExecutionGuard {
   }
   tools(tools:Tool[]):Tool[] {
     const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
-    return tools.filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files'].includes(tool.name));
+    return [...tools.filter(t=>!BRAIN_TOOL_NAMES.includes(t.name as typeof BRAIN_TOOL_NAMES[number])),...BRAIN_TOOLS].filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files',...BRAIN_TOOL_NAMES].includes(tool.name));
+  }
+  brainContext():BrainToolContext {
+    return {assertActive:signal=>this.assertActive(signal),sourceDenial:source=>{
+      const locator=source.locator;
+      if(locator.path&&!locator.projectKey)return 'Knowledge file locator lacks a project binding.';
+      if(locator.projectKey&&locator.projectKey!==this.manifest.project.key)return 'Knowledge source belongs to another project.';
+      return executionPathDenial(this.manifest,accountLineage(this.manifest,this.agentId)[0]!,locator.projectKey===this.manifest.project.key?locator.path??'.':'.','read');
+    }};
   }
   assertActive(signal?:AbortSignal):void {
     throwIfCancelled(signal);this.assertAuthority?.();this.workspace?.assertIdentity();checkExecutionIdentity(this.manifest,this.cwd);
