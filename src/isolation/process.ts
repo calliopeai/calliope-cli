@@ -8,6 +8,23 @@ import type { CommandEvidence, VerificationCommand } from './contracts.js';
 
 const OUTPUT_BYTES = 65536;
 export interface ReadMount { source: string; target: string }
+
+/** Read-only admission check; never pull, create or run an image while planning. */
+export async function assertLocalIsolationImage(image:string,signal?:AbortSignal):Promise<void> {
+  throwIfCancelled(signal);
+  if(!/^sha256:[a-f0-9]{64}$/.test(image))throw new Error('Verification requires a pinned local image ID.');
+  const controller=new AbortController(),abort=()=>controller.abort();
+  signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
+  const timer=setTimeout(abort,5000);
+  try {
+    const child=spawn('docker',['--host','unix:///var/run/docker.sock','image','inspect','--format','{{.Id}} {{.Os}}',image],{env:{PATH:process.env.PATH??'/usr/local/bin:/usr/bin:/bin'},stdio:['ignore','pipe','pipe'],detached:detachedProcess});
+    const stopped=bindProcessCancellation(child,controller.signal);let bytes=Buffer.alloc(0);
+    child.stderr.resume();child.stdout.on('data',chunk=>{if(bytes.length+chunk.length>512)controller.abort();else bytes=Buffer.concat([bytes,chunk]);});
+    const code=await new Promise<number|null>(resolve=>{child.once('error',()=>resolve(null));child.once('close',resolve);});
+    await stopped;throwIfCancelled(signal);
+    if(code!==0||controller.signal.aborted||bytes.toString().trim()!==`${image} linux`)throw new Error('The pinned verification image is unavailable from the local Docker daemon or is not Linux. Prepare that exact image before resuming; Calliope will not pull it.');
+  } finally {clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+}
 export function containerArguments(image: string, name: string, argv: string[], mounts: ReadMount[]): string[] {
   if (!/^sha256:[a-f0-9]{64}$/.test(image) || !/^calliope-check-[a-f0-9-]{36}$/.test(name) || !argv.length || argv.length>64 || argv.some(a=>typeof a!=='string'||!a.length||a.length>8192||/[\x00-\x1f\x7f]/.test(a)) ||
       mounts.some(m => !m.source.startsWith('/') || /[,\x00-\x1f]/.test(m.source) || !/^\/project(?:\/[^,\x00-\x1f]*)?$/.test(m.target)||m.target.split('/').includes('..')))

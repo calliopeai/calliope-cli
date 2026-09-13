@@ -7,3 +7,5 @@ export * from './contracts.js';
 export * from './actions.js';
 export * from './cli.js';
 export * from './team.js';
+export * from './supervised.js';
+export * from './supervised-cli.js';

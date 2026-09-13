@@ -244,6 +244,8 @@ Conversation
   /improve history|propose|run|rollback [--run <id>]  Bounded improvement cycles
   /orchestrate <goal>        Plan, review and run within one goal budget
   /orchestrate <goal> --worker-provider NAME --worker-model ID --reviewer-provider NAME --reviewer-model ID --attempts 1..4
+  /orchestrate <goal> --supervise --isolation-image sha256:ID --principle robustness
+    --controller-provider NAME --controller-model ID [--supervision-reviewer-provider NAME --supervision-reviewer-model ID]
   /orchestrate status|proposal|replay|resume|cancel <id>  Inspect or control a goal
   /orchestrate approve <id> <hash>  Review and approve the exact proposal
   /orchestrate revise <id> <plan>   Correct a proposal before execution

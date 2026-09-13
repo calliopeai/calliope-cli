@@ -5,7 +5,9 @@ Calliope validates its structure, provenance, scopes and remaining allowance;
 execution requires human approval of the exact proposal hash. Workers then use
 the [coordinator](coordinator-execution.md), shared runtime and normal tool policy.
 Use [mixed-model teams](mixed-model-teams.md) for independent planner, reviewer
-and worker choices, bounded attempts and the live workflow HUD.
+and worker choices, bounded attempts and the live workflow HUD. Add
+[`--supervise`](continuous-supervision.md#start-from-a-goal) with a pinned local
+verification image for an isolated work → verify → review → retry/replan loop.
 
 ```sh
 calliope orchestrate "Inspect the parser and propose a focused fix" \
@@ -60,8 +62,10 @@ prices still require live discovery before provider admission.
 
 Repeat `--read-path` and/or `--write-path` to constrain project-relative scope.
 Without these flags the goal permits the project root, with read/list/think and
-write/edit tools. The planner receives only the read portion. Shell, network,
-custom tools and dynamic child creation are unavailable to these workers.
+write/edit tools. The planner receives only the read portion. Without
+`--supervise`, shell, network, custom tools and dynamic child creation are unavailable to these workers. Supervised goals add inherited shell authority
+only for declared isolated executor checks; worker-selected shell remains
+unavailable. The read-only planner never receives shell or mutation tools.
 
 The private goal manifest fixes the project identity, scopes, preferences, total
 allowance and absolute deadline before planning starts. One planner allocation
@@ -87,7 +91,7 @@ Goal records live in `~/.calliope-cli/goals/GOAL_ID/` by default:
 
 | Record | Version and purpose |
 |---|---|
-| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256; v2 adds captured team settings |
+| `manifest.json` | v1: original identity, goal, run-store path, scopes, preferences, limits, deadline and SHA-256; v2 adds captured team settings; v3 adds captured isolation and supervision settings |
 | `history.json` | v1: append-only logical event history and integrity hash |
 | `proposals/HASH.json` | v1: immutable validated plan, plan hash, source and inference marker |
 | `owner.json` | v1: process ownership lease, reclaimed only after confirmed process exit |
@@ -153,6 +157,8 @@ commands exit 0 when inspection succeeds. Execution returns 0 complete, 4 partia
 5 review required, 3 policy/budget denial, 130 cancellation, 2 invalid input or
 1 failure. Cancellation control exits 0 once its request is durably recorded.
 
-Goal decomposition now feeds the fixed-graph coordinator. Dynamic `/agents spawn`,
-isolated shell/network workers, the project brain, controlled improvement and
-remaining release/security gates continue under #254.
+Goal plans feed the coordinator. Opt-in [continuous supervision](continuous-supervision.md)
+adds isolated verification and bounded automatic child admission; manual
+[child admission](child-admission.md), [improvement cycles](improvement-cycles.md)
+and the [project brain](project-brain.md) share its retained evidence. Remaining
+release gates are tracked under #254.

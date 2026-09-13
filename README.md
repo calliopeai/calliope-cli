@@ -57,6 +57,12 @@ Planning exits 5 for review; the [goal workflow](docs/goal-planning.md) document
 scope limits, approval, recovery and the JSON contract. `/orchestrate` presents
 the proposed plan and approval dialog in the REPL.
 
+Add [`--supervise --isolation-image sha256:ID`](docs/continuous-supervision.md#start-from-a-goal)
+to propose an isolated work → verify → review → retry/replan loop. Choose separate
+controller, worker and optional execution-reviewer models; the existing HUD shows
+roles, task attempts and bounded supervision rounds. Planning remains read-only
+and execution requires approval of the exact plan.
+
 Execute a reviewed project task graph with bounded agents:
 
 ```bash
@@ -81,6 +87,7 @@ calliope kg graph
 The [project brain](docs/project-brain.md) preserves source provenance, supports
 human review and reversal, tracks stale documents, and links verified run evidence.
 Use `/brain` and `/kg` for the same controls in the REPL.
+
 
 ## Configuration
 

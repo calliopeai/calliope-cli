@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Connect CLI/REPL goal planning to opt-in isolated supervision, with independent controller/reviewer models, bounded optimization controls, local-image admission before inference, exact-plan approval and unchanged recovery/accounting (#312).
+
 - Complete seven available-provider replay/usage evidence gaps with ten real captures; retain prior failures and enforce the unchanged release gate (#310).
 
 - Use one exact certificate identity across installer and CI attestation verification; reject incompatible GitHub CLI identity flags (#308).

@@ -17,11 +17,11 @@ export function validateGoalTeam(value:unknown):GoalTeam {
 
 /** Normalize before hashing/review. Human revisions may deliberately select individual workers. */
 export function applyGoalTeam(plan:ProjectPlan,manifest:GoalManifest,source:ProposalSource):void {
-  const team=manifest.team;if(!team)return;
+  const team=manifest.team;if(!team&&!manifest.supervision)return;
   for(const agent of plan.agents){
-    const preference=agent.parentId===null?manifest.preference:team.workers;
+    const preference=agent.parentId===null?manifest.supervision?.controller??manifest.preference:manifest.supervision&&agent.id===plan.supervision?.reviewerId?manifest.supervision.reviewer:team?.workers;
     if(preference&&(source.kind==='agent'||agent.preference.provider==='auto'&&!agent.preference.model))agent.preference={...preference};
-    if(team.maxAttempts!==undefined){
+    if(team?.maxAttempts!==undefined){
       // A human may lower the retry allowance, but never expand the captured limit.
       agent.escalationPolicy.maxRetries=source.kind==='agent'?team.maxAttempts-1:Math.min(agent.escalationPolicy.maxRetries,team.maxAttempts-1);
     }
