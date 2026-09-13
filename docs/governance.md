@@ -83,15 +83,65 @@ for any breaking change.
 
 ### Hash chain (tamper evidence)
 
-Each line's `hash` is `sha256(prev_hash + canonicalJSON(line-without-chain-fields))`,
-where the canonical form sorts object keys recursively so it is independent of
-key order. `prev_hash` is the previous line's `hash` (empty string for the first
-line). This forms a chain: **any** edit, reordering, insertion, or deletion
-changes a `hash` and breaks the link at that point. No signing keys are needed —
-this proves *integrity*, not authorship.
+Each line's `hash` is SHA-256 of the UTF-8 encoding of
+`prev_hash + canonicalJSON(body)`, where `body` is the parsed event with only the
+top-level `hash` and `prev_hash` fields removed. The previous hash is its lowercase
+64-character hexadecimal string, not decoded digest bytes; the first is `""`.
+There is no delimiter or trailing newline in the hash input.
 
-Verify a trace with [`replay`](#replay); it recomputes the chain and reports
-either `Hash chain: OK` or `Hash chain: BROKEN at line N`.
+Canonicalization version 1 is explicitly ECMAScript JSON, not a claim of RFC 8785
+conformance:
+
+- Objects: recursively sort keys by UTF-16 code-unit order (`Object.keys(x).sort()`),
+  render each key with `JSON.stringify`, join key/value pairs with commas and
+  colons, and wrap in braces. Numeric-looking keys are sorted as strings here.
+- Arrays: preserve order, canonicalize elements, join with commas, wrap in brackets.
+- Strings, booleans, null and finite numbers: ECMAScript `JSON.stringify` spelling,
+  with no added whitespace or Unicode normalization. Numbers use binary64 semantics:
+  negative zero becomes `0`; `1e-7` and `1e+21` use those exponent spellings, while
+  `1e20` becomes `100000000000000000000`. Lone surrogates are escaped, not emitted
+  as invalid UTF-8. The writer JSON-round-trips payloads before hashing, so optional
+  undefined object fields are absent and values are exactly those written to disk.
+
+Whitespace and object insertion order in the JSONL text are not authenticated;
+its parsed values are. Unrecomputed edits, reordered records and interior deletions
+break the chain. **An unanchored chain cannot detect suffix deletion or a complete
+rewrite with recomputed hashes, and does not prove authorship.** Keep the terminal
+hash and event count in a separately trusted location to detect those changes.
+
+### Independent verification
+
+`scripts/verify-runlog.mjs` uses only Node built-ins, imports no Calliope modules,
+loads no credentials and makes no network requests. It is also included in the
+npm package. Run it from a reviewed checkout or the installed package directory:
+
+```sh
+node scripts/verify-runlog.mjs trace.jsonl --json
+node scripts/verify-runlog.mjs trace.jsonl --json \
+  --expected-head <trusted-final-sha256> --expected-count <trusted-event-count>
+```
+
+Both anchor fields must be supplied together. Capture them when accepting the
+original trace, then retain them separately; extracting a new anchor from a suspect
+trace does not establish trust. Without anchors, the result says `anchored: false`.
+The verifier requires schema `v: 1`, sequence numbers starting at zero, valid event
+metadata, UTF-8 JSONL and a final newline; malformed/torn/blank records are not
+silently discarded. Unknown additive event names/payload fields remain hash-covered.
+Its limits are 64 MiB/file, 1 MiB/line, 100,000 events and nesting depth 64. Empty,
+oversized and non-finite-number inputs fail. SIGINT/SIGTERM cancels verification.
+
+JSON output has `version: 1`, `type: "runlog-verification"`, `ok`, `anchored`,
+verified `events` and `head`, plus a bounded reason/line on evidence failure.
+Read/argument/cancellation failures return the same version/type/ok envelope and
+reason, without echoing event content. Exits: 0 verified, 4 invalid evidence or
+anchor mismatch, 1 unreadable/invalid invocation, 130 cancelled. Verification is
+read-only. The fixed Unicode/number vector and actual writer/restart tests in
+`tests/runlog-independent.test.ts` can be used by another implementation.
+
+`calliope replay` remains the human-readable inspection command. Its older
+unanchored result only checks internal hash continuity; it cannot make the stronger
+anchored completeness claim. Release artifact signatures are a separate mechanism,
+covered by [release integrity](release-integrity.md).
 
 ---
 

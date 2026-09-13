@@ -1,75 +1,48 @@
 name: Publish to npm
-
 on:
   release:
     types: [published]
+  # Dispatch on an existing version TAG, never a branch. No version mutation.
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version bump type (patch, minor, major) or specific version'
-        required: false
-        default: 'patch'
-      publish_current:
-        description: 'Publish the current package.json version without bumping'
-        required: false
-        type: boolean
-        default: false
-
+permissions:
+  contents: read
+concurrency:
+  group: npm-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  checks:
+    uses: ./.github/workflows/release-checks.yml
   publish:
+    needs: checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
       id-token: write
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
+          ref: ${{ needs.checks.outputs.sha }}
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Clean git state
-        if: github.event_name == 'workflow_dispatch'
-        run: |
-          git checkout -- .
-          git clean -fd
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Bump version (manual dispatch)
-        if: github.event_name == 'workflow_dispatch' && !inputs.publish_current
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version ${{ github.event.inputs.version }} -m "Release v%s"
-          git push --follow-tags
-
-      - name: Get version
+          package-manager-cache: false
+      - name: Recheck publisher source identity
         id: version
+        run: node scripts/release/source.mjs
+      - run: npm ci
+      - name: Publish exact tagged source with provenance
+        env:
+          PRERELEASE: ${{ steps.version.outputs.prerelease }}
         run: |
-          V=$(node -p "require('./package.json').version")
-          echo "version=$V" >> $GITHUB_OUTPUT
-          case "$V" in
-            *-*) echo "prerelease=true"  >> $GITHUB_OUTPUT ;;
-            *)   echo "prerelease=false" >> $GITHUB_OUTPUT ;;
-          esac
-
-      - name: Publish to npm
-        run: |
-          if [ "${{ steps.version.outputs.prerelease }}" = "true" ]; then
-            npm publish --access public --tag alpha
+          if [ "$PRERELEASE" = true ]; then
+            npm publish --provenance --access public --tag alpha
           else
-            npm publish --access public
+            npm publish --provenance --access public
           fi
-
       - name: Trigger desktop rebuild
         if: steps.version.outputs.prerelease == 'false'
         run: |

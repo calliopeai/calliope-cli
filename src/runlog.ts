@@ -8,8 +8,9 @@
  * `seq`uence number, an ISO `ts`, the event `type`, a type-specific payload, and
  * a tamper-evidence hash chain: `prev_hash` (the previous line's hash) and `hash`
  * (sha256 of `prev_hash` + the canonical JSON of the line body). No signing keys
- * are needed — any edit, reorder, insertion, or deletion breaks the chain at that
- * line, which `verifyChain` reports. See docs/governance.md.
+ * are needed. Unrecomputed edits and interior changes break the chain; detecting
+ * suffix deletion or a complete rewrite requires a trusted terminal hash/count.
+ * This is not proof of authorship. See docs/governance.md.
  *
  * Writes are buffered and appended asynchronously (ordered via an internal
  * promise chain); fsync is not forced per line, so logging never blocks the agent

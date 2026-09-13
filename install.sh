@@ -1,179 +1,72 @@
-#!/bin/bash
-#
-# Calliope CLI Installer
-# https://calliope.ai
-#
-# Usage:
-#   curl -fsSL https://calliope.ai/install.sh | bash
-#
-
-set -e
-
-# Colors
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-RED='\033[0;31m'
-DIM='\033[2m'
-BOLD='\033[1m'
-NC='\033[0m' # No Color
-
-echo ""
-echo -e "${CYAN}${BOLD}  ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗${NC}"
-echo -e "${CYAN} ██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝${NC}"
-echo -e "${CYAN} ██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ${NC}"
-echo -e "${CYAN} ██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ${NC}"
-echo -e "${CYAN} ╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗${NC}"
-echo -e "${CYAN}  ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝${NC}"
-echo ""
-echo -e "${DIM}  The Muse of Digital Eloquence${NC}"
-echo ""
-
-# Detect OS
-detect_os() {
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        echo "macos"
-    elif [[ -f /etc/debian_version ]]; then
-        echo "debian"
-    elif [[ -f /etc/redhat-release ]]; then
-        echo "redhat"
-    elif [[ -f /etc/arch-release ]]; then
-        echo "arch"
-    elif [[ -f /etc/alpine-release ]]; then
-        echo "alpine"
-    else
-        echo "linux"
-    fi
+#!/usr/bin/env bash
+# Verified standalone Calliope AI CLI installation. Node/npm/Bun are not required.
+# Requires curl, GitHub CLI (gh auth login), and sha256sum or shasum.
+# CALLIOPE_VERSION=vX.Y.Z selects a release; CALLIOPE_INSTALL_DIR selects its destination.
+set -euo pipefail
+umask 077
+REPO=calliopeai/calliope-cli
+SIGNER="$REPO/.github/workflows/release-binaries.yml"
+scratch=''
+staged=''
+cleanup() {
+  [ -z "$staged" ] || rm -f -- "$staged"
+  [ -z "$scratch" ] || rm -rf -- "$scratch"
 }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+fail() { printf 'error: %s\n' "$*" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
+for tool in curl gh; do have "$tool" || fail "$tool is required; see docs/release-integrity.md."; done
+have sha256sum || have shasum || fail 'sha256sum or shasum is required.'
 
-# Install Node.js
-install_node() {
-    local os=$(detect_os)
-    echo -e "${YELLOW}Node.js not found. Installing Node.js 20...${NC}"
-    echo ""
+os="$(uname -s)"; arch="$(uname -m)"
+case "$os" in Darwin) os=darwin;; Linux) os=linux;; *) fail 'Only macOS and Linux are supported.';; esac
+case "$arch" in arm64|aarch64) arch=arm64;; x86_64|amd64) arch=x64;; *) fail 'Only arm64 and x64 are supported.';; esac
 
-    case $os in
-        macos)
-            if command -v brew &> /dev/null; then
-                echo -e "${DIM}Installing via Homebrew...${NC}"
-                brew install node@20
-                brew link node@20 --force --overwrite 2>/dev/null || true
-            else
-                echo -e "${DIM}Installing via official installer...${NC}"
-                # Download and run the official pkg installer
-                curl -fsSL https://nodejs.org/dist/v20.10.0/node-v20.10.0.pkg -o /tmp/node.pkg
-                sudo installer -pkg /tmp/node.pkg -target /
-                rm /tmp/node.pkg
-            fi
-            ;;
-        debian)
-            echo -e "${DIM}Installing via NodeSource...${NC}"
-            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-            sudo apt-get install -y nodejs
-            ;;
-        redhat)
-            echo -e "${DIM}Installing via NodeSource...${NC}"
-            curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-            sudo yum install -y nodejs
-            ;;
-        arch)
-            echo -e "${DIM}Installing via pacman...${NC}"
-            sudo pacman -Sy --noconfirm nodejs npm
-            ;;
-        alpine)
-            echo -e "${DIM}Installing via apk...${NC}"
-            sudo apk add --no-cache nodejs npm
-            ;;
-        *)
-            echo -e "${RED}Could not detect package manager.${NC}"
-            echo "Please install Node.js 18+ manually: https://nodejs.org/"
-            exit 1
-            ;;
-    esac
+tag="${CALLIOPE_VERSION:-}"
+if [ -z "$tag" ]; then tag="$(gh api "repos/$REPO/releases/latest" --jq .tag_name)" || fail 'Cannot resolve the latest release.'; fi
+[ "${#tag}" -le 128 ] && [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] || fail 'Expected a version tag such as v3.2.0 or v3.2.0-alpha.1.'
+commit="$(gh api "repos/$REPO/commits/$tag" --jq .sha)" || fail 'Cannot resolve the release commit.'
+[[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail 'Invalid release commit.'
+asset="calliope-${tag#v}-${os}-${arch}"
+base="https://github.com/$REPO/releases/download/$tag"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/calliope-install.XXXXXXXX")"
 
-    # Verify installation
-    if command -v node &> /dev/null; then
-        echo -e "${GREEN}✓${NC} Node.js $(node -v) installed"
-    else
-        echo -e "${RED}Node.js installation failed.${NC}"
-        echo "Please install manually: https://nodejs.org/"
-        exit 1
-    fi
+fetch() {
+  curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+    --connect-timeout 10 --max-time 180 --retry 0 --max-filesize "$3" \
+    "$base/$1" --output "$2" || fail "Download failed: $1. Nothing was installed."
 }
-
-# Check for Node.js
-check_node() {
-    if ! command -v node &> /dev/null; then
-        install_node
-        return
-    fi
-
-    # Check Node.js version
-    NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -lt 18 ]; then
-        echo -e "${YELLOW}Node.js 18+ required (found v$(node -v))${NC}"
-        install_node
-        return
-    fi
-
-    echo -e "${GREEN}✓${NC} Node.js $(node -v) detected"
+verify() {
+  gh attestation verify "$1" --bundle "$2" --repo "$REPO" \
+    --signer-workflow "$SIGNER" --source-ref "refs/tags/$tag" --source-digest "$commit" \
+    --cert-identity "https://github.com/$SIGNER@refs/tags/$tag" \
+    --deny-self-hosted-runners >/dev/null || fail 'Provenance verification failed. Nothing was installed.'
 }
+printf 'Verifying Calliope AI CLI %s (%s-%s)\n' "$tag" "$os" "$arch"
+fetch checksums.txt "$scratch/checksums.txt" 32768
+fetch checksums.txt.sigstore.json "$scratch/checksums.txt.sigstore.json" 1048576
+verify "$scratch/checksums.txt" "$scratch/checksums.txt.sigstore.json"
+expected="$(awk -v asset="$asset" '$2 == asset { if (NF != 2) exit 1; count++; hash=$1 } END { if (count != 1) exit 1; print hash }' "$scratch/checksums.txt")" || fail 'Missing or duplicate checksum entry.'
+[[ "$expected" =~ ^[0-9a-f]{64}$ ]] || fail 'Invalid checksum entry.'
+fetch "$asset" "$scratch/binary" 536870912
+fetch "$asset.sigstore.json" "$scratch/binary.sigstore.json" 1048576
+if have sha256sum; then actual="$(sha256sum "$scratch/binary" | awk '{print $1}')"; else actual="$(shasum -a 256 "$scratch/binary" | awk '{print $1}')"; fi
+[ "$actual" = "$expected" ] || fail 'Binary checksum mismatch. Nothing was installed.'
+verify "$scratch/binary" "$scratch/binary.sigstore.json"
 
-# Check for npm
-check_npm() {
-    if ! command -v npm &> /dev/null; then
-        echo -e "${RED}Error: npm is not installed.${NC}"
-        exit 1
-    fi
-    echo -e "${GREEN}✓${NC} npm $(npm -v) detected"
-}
-
-# Install Calliope CLI
-install_calliope() {
-    echo ""
-    echo -e "${CYAN}Installing @calliopelabs/cli...${NC}"
-    echo ""
-
-    # Use sudo for global install (except macOS with Homebrew node)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS: check if npm prefix is user-writable
-        if [ -w "$(npm config get prefix)/lib/node_modules" ] 2>/dev/null; then
-            npm install -g @calliopelabs/cli
-        else
-            sudo npm install -g @calliopelabs/cli
-        fi
-    else
-        # Linux: always use sudo for system node
-        sudo npm install -g @calliopelabs/cli
-    fi
-
-    if [ $? -eq 0 ]; then
-        echo ""
-        echo -e "${GREEN}✓ Calliope CLI installed successfully!${NC}"
-        echo ""
-        echo -e "Run ${CYAN}calliope${NC} to start."
-        echo ""
-        echo -e "${DIM}Quick start:${NC}"
-        echo -e "  ${CYAN}calliope${NC}              # Start interactive session"
-        echo -e "  ${CYAN}calliope --setup${NC}      # Configure API keys"
-        echo -e "  ${CYAN}calliope -g${NC}           # God mode (no prompts)"
-        echo ""
-        echo -e "${DIM}Set your API key:${NC}"
-        echo -e "  export ANTHROPIC_API_KEY=sk-ant-..."
-        echo ""
-        echo -e "Documentation: ${CYAN}https://docs.calliope.ai/cli/${NC}"
-        echo ""
-    else
-        echo -e "${RED}Installation failed.${NC}"
-        echo "Please try: npm install -g @calliopelabs/cli"
-        exit 1
-    fi
-}
-
-# Main
-echo -e "${CYAN}Installing Calliope CLI...${NC}"
-echo ""
-
-check_node
-check_npm
-install_calliope
+install_dir="${CALLIOPE_INSTALL_DIR:-}"
+if [ -z "$install_dir" ]; then
+  if [ -w /usr/local/bin ]; then install_dir=/usr/local/bin; else install_dir="$HOME/.local/bin"; fi
+fi
+case "$install_dir" in /*) ;; *) fail 'CALLIOPE_INSTALL_DIR must be an absolute path.';; esac
+[ ! -d "$install_dir/calliope" ] || fail 'The destination is a directory.'
+mkdir -p -- "$install_dir"
+staged="$(mktemp "$install_dir/.calliope.XXXXXXXX")"
+cp -- "$scratch/binary" "$staged"
+chmod 755 "$staged"
+mv -f -- "$staged" "$install_dir/calliope"
+staged=''
+printf 'Installed verified Calliope AI CLI to %s/calliope\n' "$install_dir"
+case ":$PATH:" in *":$install_dir:"*) ;; *) printf 'Add %s to PATH, then run calliope --setup.\n' "$install_dir";; esac

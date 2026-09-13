@@ -23,6 +23,7 @@ RUN npm ci
 # Compile TypeScript → dist/
 COPY tsconfig.json ./
 COPY src/ ./src/
+COPY scripts/verify-runlog.mjs ./scripts/verify-runlog.mjs
 RUN npm run build
 
 # Prune to production dependencies only
@@ -44,13 +45,17 @@ WORKDIR /app
 # Copy compiled output and production node_modules from builder
 COPY --from=builder --chown=calliope:calliope /build/dist ./dist
 COPY --from=builder --chown=calliope:calliope /build/node_modules ./node_modules
+COPY --from=builder --chown=calliope:calliope /build/scripts ./scripts
 COPY --chown=calliope:calliope package.json ./
 
 # Install the CLI globally so `calliope` is on PATH
-RUN npm install -g . && \
-    chown -R calliope:calliope /usr/local/lib/node_modules /usr/local/bin/calliope 2>/dev/null || true
+RUN npm install -g . --ignore-scripts && \
+    chown -R calliope:calliope /usr/local/lib/node_modules /usr/local/bin/calliope
 
 USER calliope
+
+# Fail the image build if the installed CLI cannot start as its runtime user.
+RUN calliope --version && calliope doctor --json
 
 # Config persistence: mount a volume here to keep settings across container restarts
 VOLUME ["/home/calliope/.config/calliope"]
