@@ -9,6 +9,7 @@ import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, t
 import {validateChildGrant,applyChildGrant,assertChildCapacity,effectiveExecutionManifest} from './child-grants.js';
 import {validateQuoteEvidence} from './billing.js';
 import {recoverDeadWriterLock} from './writer-recovery.js';
+import {validateRequestAttribution} from './attribution.js';
 
 export const MAX_RESERVATION_EVENTS = 10000, MAX_RESERVATION_BYTES = 16 * 1024 * 1024;
 const unavailable = () => new ExecutionLimitError('unavailable','Execution budget history is unavailable or damaged; preserve it and restore a verified backup. No request was authorized.');
@@ -19,7 +20,7 @@ export function requestCostNanos(input: number, output: number, inputPrice: numb
   const nanos = input * Math.ceil(inputPrice * 1000) + output * Math.ceil(outputPrice * 1000); integer(nanos); return nanos;
 }
 function reservation(value: unknown): asserts value is RequestReservation {
-  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits','quoteEvidence']);
+  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits','quoteEvidence','attribution']);
   if (!uuid(value.id) || !hex(value.target)) invalid(); identifier(value.agentId);
   if (typeof value.provider !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value.provider) || typeof value.model !== 'string' || !value.model || value.model.length > 256 || /[\x00-\x1f\x7f]/.test(value.model)) invalid();
   integer(value.inputTokens,1,100000000); integer(value.outputTokens,1,100000000); integer(value.costNanos);
@@ -29,17 +30,20 @@ function reservation(value: unknown): asserts value is RequestReservation {
     if(value.provider!==p.provider||value.model!==p.model||value.target!==p.target||value.inputTokens<proof.count.inputTokens||value.inputTokens>proof.count.inputTokens*2+1024||Number(value.inputPrice)<p.prices.input||Number(value.outputPrice)<p.prices.output)invalid();
   }
   if(value.limits!==undefined){shape(value.limits,[],['tokens','costNanos']);for(const cap of Object.values(value.limits))integer(cap);}
+  if(value.attribution!==undefined)validateRequestAttribution(value.attribution);
 }
 function settlement(value: unknown): asserts value is RequestSettlement {
   shape(value,['requestId','outcome'],['usage']); if (!uuid(value.requestId) || !['success','error','cancelled','invalid-usage'].includes(String(value.outcome))) invalid();
   if (value.usage !== undefined) { shape(value.usage,['inputTokens','outputTokens']); integer(value.usage.inputTokens,0,100000000); integer(value.usage.outputTokens,0,100000000); }
 }
 function validateEvent(value: unknown): asserts value is ReservationEvent {
-  shape(value,['version','id','at','previous','change','hash']); if (![1,2].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
-  shape(value.change,['type'],['reservation','settlement','grant']);if(value.version!==(value.change.type==='child_grant'?2:1))invalid();
+  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
+  shape(value.change,['type'],['reservation','settlement','grant']);
   if (value.change.type === 'reserve') { shape(value.change,['type','reservation']); reservation(value.change.reservation); }
   else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); }
   else if(value.change.type==='child_grant'){shape(value.change,['type','grant']);validateChildGrant(value.change.grant);}else invalid();
+  const change=value.change as unknown as ReservationEvent['change'];
+  if(value.version!==reservationVersion(change))invalid();
   const {hash,...body} = value; if (hash !== digest(canonicalJson(body))) throw unavailable();
 }
 /** Pure replay includes unresolved reservations in every ancestor's spend. */
@@ -66,7 +70,8 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
         lineage.some(a => state.accounts[a.id]!.tokens + tokens > a.tokenBudget || state.accounts[a.id]!.costNanos + next.costNanos > a.costBudgetNanos))
         throw new ExecutionLimitError('budget','Request reservation exceeds the available agent, ancestor or run budget.');
       if(state.childGrants?.length)assertChildCapacity(manifest,state,next.agentId,tokens,next.costNanos);
-      apply(next.agentId,tokens,next.costNanos); state.requests[next.id] = {reservation:structuredClone(next),state:'pending'};
+      apply(next.agentId,tokens,next.costNanos); state.requests[next.id] = {reservation:structuredClone(next),state:'pending',...(next.attribution?{accounted:{tokens,costNanos:next.costNanos}}:{})};
+      if(next.attribution)state.version=3;
     } else {
       const result = event.change.settlement, entry = state.requests[result.requestId];
       if (!entry || entry.state !== 'pending') throw new ExecutionLimitError('conflict','Request was already settled or was never reserved.');
@@ -76,8 +81,9 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
         const r = entry.reservation, usage = result.usage, cost = requestCostNanos(usage.inputTokens,usage.outputTokens,r.inputPrice,r.outputPrice);
         if (usage.inputTokens > r.inputTokens || usage.outputTokens > r.outputTokens || cost > r.costNanos) {
           entry.state = 'exceeded'; state.exceeded = true;
+          if(entry.accounted)entry.accounted={tokens:Math.max(usage.inputTokens+usage.outputTokens,r.inputTokens+r.outputTokens),costNanos:Math.max(cost,r.costNanos)};
           apply(r.agentId,Math.max(usage.inputTokens+usage.outputTokens,r.inputTokens+r.outputTokens)-(r.inputTokens+r.outputTokens),Math.max(cost,r.costNanos)-r.costNanos);
-        } else { entry.state = 'settled'; apply(r.agentId,usage.inputTokens+usage.outputTokens-r.inputTokens-r.outputTokens,cost-r.costNanos); }
+        } else { entry.state = 'settled';if(entry.accounted)entry.accounted={tokens:usage.inputTokens+usage.outputTokens,costNanos:cost}; apply(r.agentId,usage.inputTokens+usage.outputTokens-r.inputTokens-r.outputTokens,cost-r.costNanos); }
       }
     }
     state.revision = event.hash;
@@ -85,6 +91,9 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
   return state;
 }
 interface Journal { version:1; manifest:ExecutionManifest; events:ReservationEvent[]; hash:string }
+function reservationVersion(change:ReservationEvent['change']):ReservationEvent['version'] {
+  return change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
+}
 function decode(raw: string): Journal {
   let value: unknown; try { value = JSON.parse(raw); } catch { throw unavailable(); }
   shape(value,['version','manifest','events','hash']); if (value.version !== 1 || !Array.isArray(value.events) || value.events.length > MAX_RESERVATION_EVENTS || !hex(value.hash)) throw unavailable();
@@ -155,7 +164,7 @@ export class ReservationLedger {
       // Leave enough room to settle every pending reservation.
       const pending=Object.values(current.requests).filter(r=>r.state==='pending').length;
       if(journal.events.length+(change.type!=='settle'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
-      const body={version:change.type==='child_grant'?2 as const:1 as const,id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
+      const body={version:reservationVersion(change),id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
       const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=replayReservations(journal.manifest,events),output=encode(journal.manifest,events);
       temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd);
       const effective=effectiveExecutionManifest(journal.manifest,next);

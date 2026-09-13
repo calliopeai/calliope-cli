@@ -19,3 +19,27 @@ it('bounds recursive feedback and labels unavailable cost attribution',()=>{
   const feedback=improvementFeedback({version:1,kind:'improvement.history',runId:'run',revision:'revision',cycles} as ImprovementHistory);
   expect(feedback.total).toBe(8);expect(feedback.cycles.map(c=>c.id)).toEqual(['4','5','6','7']);expect(feedback.cycles.at(-1)!.withdrawn).toBe(true);expect(feedback.limits).toContain('cost is unavailable');expect(feedback.cycles[0]!.expectedMetric.state).toBe('proposed');
 });
+
+function priced(costNanos:number,attempt=1):CycleOutcome {
+  const v=outcome();v.attempt=attempt;v.accounting={status:'available',source:{version:1,kind:'task',taskId:v.taskId,attempt,eventId:'start',eventHash:'hash',sessionId:'session'},agentId:'worker',accounted:{tokens:10,costNanos},requestIds:['request'],requests:{settled:1,pending:0,unknown:0,exceeded:0},closed:true,usageComplete:true};return v;
+}
+it('compares attributed worker charges without claiming whole-goal cost or invoices',()=>{
+  const before=priced(100000),after=priced(150000,2),cost=cycleMetrics([before],[after],['task']).at(-1)!;
+  expect(cost).toMatchObject({name:'provider-accounted-cost',unit:'nano-usd',before:100000,after:150000,delta:50000,comparable:true});expect(cost.reason).toContain('excludes planning');expect(cost.reason).toContain('not an invoice');
+  const history={version:2,kind:'improvement.history',runId:'run',revision:'revision',cycles:[],accounting:{version:1,status:'available',revision:'budget',scope:'worker-attempts',basis:'reservations-and-settlements'}} as ImprovementHistory;
+  const feedback=improvementFeedback(history);expect(feedback.version).toBe(2);expect(feedback.accounting).toEqual(history.accounting);expect(feedback.limits).toContain('excludes planning');
+});
+it('keeps incomplete charges visible but not comparable and leaves legacy costs unavailable',()=>{
+  const before=priced(100000),after=priced(150000,2);if(after.accounting?.status!=='available')throw Error('Fixture');after.accounting.usageComplete=false;
+  expect(cycleMetrics([before],[after],['task']).at(-1)).toMatchObject({before:100000,after:150000,comparable:false,delta:null,reason:expect.stringContaining('incomplete')});
+  after.accounting=null;expect(cycleMetrics([before],[after],['task']).at(-1)).toMatchObject({before:100000,after:null,comparable:false});
+  expect(cycleMetrics([before],[],['task']).at(-1)).toMatchObject({after:null,comparable:false});
+  expect(cycleMetrics([outcome()],[outcome()],['task'])).toHaveLength(3);
+  const zero=priced(0);if(zero.accounting?.status==='available'){zero.accounting.requestIds=[];zero.accounting.requests.settled=0;}expect(cycleMetrics([zero],[zero],['task']).at(-1)).toMatchObject({before:0,after:0,delta:0,comparable:true});
+});
+it('refuses costs for changed populations, foreign attempts or review scopes',()=>{
+  const before=priced(100000),after=priced(150000,2);
+  expect(cycleMetrics([before],[after],['child']).at(-1)?.comparable).toBe(false);
+  if(after.accounting?.status!=='available')throw Error('Fixture');after.accounting.source={...after.accounting.source,kind:'task',taskId:'task',attempt:1};expect(cycleMetrics([before],[after],['task']).at(-1)).toMatchObject({after:null,comparable:false});
+  after.accounting.source={version:1,kind:'supervision',eventId:'start',eventHash:'hash',sessionId:'session',role:'controller',round:1};expect(cycleMetrics([before],[after],['task']).at(-1)).toMatchObject({after:null,comparable:false});
+});

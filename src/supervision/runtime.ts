@@ -1,5 +1,6 @@
 import {taskSmartSelection,recordAgentRoute} from '../orchestration/routing.js';
 import {supervisionProposalHash} from './approval.js';
+import {readRunAccounting} from '../orchestration/accounting.js';
 import {projectImprovementHistory,improvementFeedback} from '../improvement/index.js';
 import {randomUUID} from 'node:crypto';
 import {canonicalJson,digest} from '../approvals/index.js';
@@ -47,9 +48,10 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
   const timer=setInterval(observe,100),deadline=setTimeout(observe,Math.max(0,agentDeadline-Date.now()));
   try {
     check();
-    await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash},controller.signal,undefined,check);
+    const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,requestAttribution:1},controller.signal,undefined,check);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
-    const {content,metrics}=buildControllerContext({role,round,plan,improvements:improvementFeedback(projectImprovementHistory(store.manifest,store.read(),context)),tasks:store.read().state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
+    const current=store.read(),accounting=readRunAccounting(store,current);
+    const {content,metrics}=buildControllerContext({role,round,plan,improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,context,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
     const reasoningEffort=policy.reasoningEffort?.[role];
     log.policyEvent({tool:'controller',source:'controller-context',decision:'allow',reason:JSON.stringify({...metrics,role,round,reasoningEffort}),durationMs:0});
     const messages:{current:Message[]}={current:[{role:'system',content:controllerInstructions(policy)},{role:'user',content}]};
@@ -59,7 +61,8 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const smart=agent.routing?taskSmartSelection(agent.routing,view.events):undefined;
     const route=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:false,reasoningEffort},signal:controller.signal});log.routingDecision(route);
     if(!route.selected)throw new RoutingUnavailableError(route);if(!route.selected.maxOutputTokens)throw new ExecutionLimitError('budget','Controller model has no discovered output limit.');
-    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,route.selected.maxOutputTokens),assertAuthority:check};
+    const attribution={version:1 as const,kind:'supervision' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,role,round};
+    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,route.selected.maxOutputTokens),assertAuthority:check,attribution};
     new ExecutionGuard(execution,context.project.root).assertActive(controller.signal);
     const result=await runTurn({smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agentId,session.id,decision,controller.signal,check)}:{}),cwd:context.project.root,sessionId:session.id,execution,reasoningEffort,provider:preference.provider,model:preference.model,messages,prompt:'Review the recorded outcomes and return one bounded decision.',tools:()=>[],onToolStart:()=>{throw new SessionPolicyError();},beforeTool:()=>{throw new SessionPolicyError();},maxIterations:1,maxRetries:0,parallel:false,mode:options.mode,confirmation:'mutating',signal:controller.signal,runlog:log,onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;}});
     check();if(result.reason!=='completed')throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`Controller stopped: ${result.reason}.`);

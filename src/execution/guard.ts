@@ -14,9 +14,11 @@ import {providerQuote,costCapNanos} from './quote.js';
 import {effectiveExecutionManifest} from './child-grants.js';
 import {BRAIN_TOOLS,BRAIN_TOOL_NAMES,type BrainToolContext} from '../brain/tools.js';
 import {readBillingEvidence} from './billing.js';
+import {validateRequestAttribution,type RequestAttribution} from './attribution.js';
 
 export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
+  attribution?:RequestAttribution;
   /** Trusted coordinator ownership/revocation check; may only narrow authority. */
   assertAuthority?: () => void;
   /** Supplied by the coordinator; policy and money remain bound to the source project. */
@@ -32,7 +34,9 @@ export class ExecutionGuard {
   private readonly assertAuthority?:()=>void;
   readonly filesRoot:string;
   private readonly workspace?:AgentExecution['workspace'];
+  private readonly attribution?:RequestAttribution;
   constructor(execution:AgentExecution,private readonly cwd:string) {
+    this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution);
     this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();this.workspace=execution.workspace;this.workspace?.assertIdentity();
     const saved=execution.ledger.read(cwd);
     assertExecutionStoreOutsideProject(saved.manifest.project.root,dirname(execution.ledger.root));
@@ -95,7 +99,7 @@ export class ExecutionGuard {
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
         let state;
-        try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits},signal);}
+        try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})},signal);}
         catch(error){await projectLedger.settle(id,0);throw error;}
         onEvent?.({requestId:id,stage:'reserved',revision:state.revision,...state.spent});
         this.assertActive(signal);

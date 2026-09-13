@@ -2,12 +2,16 @@ import type {ExecutionEvent,ExecutionInspection,RunPlanContext} from '../orchest
 import type {RunManifest} from '../orchestration/types.js';
 import {cycleMetrics} from './metrics.js';
 import type {CycleEventRef,CycleOutcome,ImprovementCycle,ImprovementHistory} from './types.js';
+import type {RequestAccounting} from '../orchestration/request-accounting.js';
 
 const ref=(e:ExecutionEvent):CycleEventRef=>({id:e.id,hash:e.hash,at:e.at,sequence:e.sequence});
 /** Pure projection of an already validated ExecutionStore inspection; never performs work. */
-export function projectImprovementHistory(manifest:RunManifest,execution:ExecutionInspection,context:RunPlanContext):ImprovementHistory {
+export function projectImprovementHistory(manifest:RunManifest,execution:ExecutionInspection,context:RunPlanContext,accounting?:RequestAccounting):ImprovementHistory {
   const history:ImprovementHistory={version:1,kind:'improvement.history',runId:manifest.id,revision:execution.state.revision,cycles:[]};
   const policy=context.plan.supervision;if(!policy)return history;
+  if(accounting?.status==='available'&&accounting.executionRevision!==execution.state.revision)accounting=undefined;
+  const attributed=execution.events.some(e=>'requestAttribution'in e.change&&e.change.requestAttribution===1);
+  if(attributed){history.version=2;history.accounting={version:1,status:accounting?.status??'unavailable',revision:accounting?.status==='available'?accounting.revision:null,scope:'worker-attempts',basis:'reservations-and-settlements'};}
   const events=new Map<string,ExecutionEvent>(),outcomes=new Map<string,CycleOutcome>(),starts=new Map<string,ExecutionEvent>();
   const taskCycles=new Map<string,string>(),agentCycles=new Map<string,string>(),previous=new Map<string,string>();
   const pending=new Map<string,{cycle:ImprovementCycle;attempts:Map<string,number>}>();
@@ -20,7 +24,8 @@ export function projectImprovementHistory(manifest:RunManifest,execution:Executi
     else if(c.type==='task_finished'){
       const start=starts.get(c.taskId),count=tools.get(c.taskId),attempt=start?.change.type==='task_started'?start.change.attempt:0;
       const outcome:CycleOutcome={taskId:c.taskId,attempt,status:c.status,event:ref(event),checks:structuredClone(c.output.checks),artifacts:structuredClone(c.output.artifacts),risks:[...c.output.unresolvedRisks],
-        durationMs:start?Date.parse(event.at)-Date.parse(start.at):null,toolCalls:count?.calls??0,toolFailures:count?.failures??0};
+        durationMs:start?Date.parse(event.at)-Date.parse(start.at):null,toolCalls:count?.calls??0,toolFailures:count?.failures??0,
+        ...(attributed?{accounting:accounting?.status==='available'&&start?structuredClone(accounting.groups[start.id]??null):null}:{})};
       outcomes.set(event.id,outcome);
       for(const {cycle,attempts} of pending.values())if(cycle.application&&!cycle.withdrawal&&attempts.get(c.taskId)===attempt&&!cycle.results.some(r=>r.taskId===c.taskId))cycle.results.push(outcome);
     }else if(c.type==='task_accepted'){
@@ -34,7 +39,7 @@ export function projectImprovementHistory(manifest:RunManifest,execution:Executi
       const targets=decision.action==='decompose'?decision.children.tasks.map(t=>t.id):[decision.taskId];
       const baseline=decision.evidence.map(id=>outcomes.get(id)).filter((v):v is CycleOutcome=>!!v&&(decision.action==='decompose'||v.taskId===decision.taskId));
       const parent=decision.action==='decompose'?agentCycles.get(decision.children.parentId):taskCycles.get(decision.taskId);
-      const cycle:ImprovementCycle={version:1,id:event.id,runId:manifest.id,round:c.round,principle:policy.principle,parentCycleId:parent??null,previousCycleId:decision.action==='decompose'?null:previous.get(decision.taskId)??null,status:'proposed',
+      const cycle:ImprovementCycle={version:attributed?2:1,id:event.id,runId:manifest.id,round:c.round,principle:policy.principle,parentCycleId:parent??null,previousCycleId:decision.action==='decompose'?null:previous.get(decision.taskId)??null,status:'proposed',
         trigger:{reason:decision.reason,events:decision.evidence.map(id=>ref(events.get(id)!))},hypothesis:{text:decision.hypothesis,state:'proposed'},proposedChange:structuredClone(decision),expectedMetric:{...decision.expectedMetric,state:'proposed'},
         budget:{deadline:execution.header.deadline,limits:structuredClone(context.plan.limits),accounts:cycleAccounts(decision.action==='decompose'?{...context,plan:{...context.plan,agents:[...context.plan.agents,...decision.children.agents.filter(a=>!context.plan.agents.some(existing=>existing.id===a.id))],tasks:[...context.plan.tasks,...decision.children.tasks.filter(t=>!context.plan.tasks.some(existing=>existing.id===t.id))]}}:context,targets,policy.controllerId,policy.reviewerId)},
         approval:{proposal:reviewRequest,approval:null,execution:'pending',planHash:manifest.planHash,approvalRevision:execution.header.approvalRevision,production:'not-approved'},withdrawal:null,application:null,targetTaskIds:targets,baseline,results:[],metrics:[],risks:[],

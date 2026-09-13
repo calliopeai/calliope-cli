@@ -2,8 +2,9 @@
 
 The workflow HUD and `run status|replay --json` show a version-1 accounting
 snapshot from the run's existing reservation ledger. Execution results include
-the same `accounting` field. Existing headless envelope and execution event
-versions remain unchanged. This feature does not change model selection or
+the same `accounting` field. Headless envelope versions remain unchanged;
+[attributed start events](request-attribution.md) have their own version.
+This feature does not change model selection or
 request admission; Smart routing remains an explicit mode.
 
 The HUD shows accounted dollars against the limit, remaining tokens and counts
@@ -24,6 +25,9 @@ Available accounting includes:
 - Each balance's `limit`, `accounted`, `remaining` (tokens and integer nano-dollars),
   original absolute `deadline`, and `requests` counts by `pending`, `settled`,
   `unknown`, and `exceeded` state.
+- New attributed runs also include a versioned `attribution` report, separating
+  worker attempts from controller/reviewer turns. Missing or inconsistent bindings
+  make those costs unavailable while valid aggregate balances remain visible.
 
 The snapshots are read independently; their revisions identify the observed
 records, not a cross-journal atomic transaction. Pending child grants can appear

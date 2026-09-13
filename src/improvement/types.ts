@@ -7,15 +7,16 @@ export interface CycleOutcome {
   taskId:string;attempt:number;status:Exclude<TaskStatus,'pending'|'running'>;event:CycleEventRef;
   checks:CheckEvidence[];artifacts:CollectedArtifact[];risks:string[];
   durationMs:number|null;toolCalls:number;toolFailures:number;
+  accounting?:import('../orchestration/request-accounting.js').AttributedCharge|null;
 }
 export interface CycleMetric {
-  name:'acceptance-check-pass-rate'|'attempt-duration'|'tool-failure-rate';unit:'ratio'|'ms';
+  name:'acceptance-check-pass-rate'|'attempt-duration'|'tool-failure-rate'|'provider-accounted-cost';unit:'ratio'|'ms'|'nano-usd';
   before:number|null;after:number|null;delta:number|null;comparable:boolean;
   reason:string;direction:'increase'|'decrease';
 }
-/** Derived exclusively from the append-only execution history, at a named revision. */
+/** Derived from validated append-only execution and request histories at named revisions. */
 export interface ImprovementCycle {
-  version:1;id:string;runId:string;round:number;principle:OptimizationPrinciple;
+  version:1|2;id:string;runId:string;round:number;principle:OptimizationPrinciple;
   parentCycleId:string|null;previousCycleId:string|null;
   status:'proposed'|'running'|'verified'|'failed'|'partial'|'cancelled'|'withdrawn';
   trigger:{reason:string;events:CycleEventRef[]};
@@ -31,5 +32,6 @@ export interface ImprovementCycle {
   source:{manifestHash:string;executionRevision:string;decision:CycleEventRef};
 }
 export interface ImprovementHistory {
-  version:1;kind:'improvement.history';runId:string;revision:string;cycles:ImprovementCycle[];
+  version:1|2;kind:'improvement.history';runId:string;revision:string;cycles:ImprovementCycle[];
+  accounting?:{version:1;status:'available'|'unavailable';revision:string|null;scope:'worker-attempts';basis:'reservations-and-settlements'};
 }

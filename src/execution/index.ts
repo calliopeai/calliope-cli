@@ -8,3 +8,4 @@ export * from './quote.js';
 export * from './billing.js';
 export * from './child-grants.js';
 export * from './writer-recovery.js';
+export * from './attribution.js';

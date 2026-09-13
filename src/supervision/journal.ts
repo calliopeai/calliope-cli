@@ -17,9 +17,10 @@ export function supervisionEvidence(events:ExecutionEvent[]):{ids:string[];hash:
 }
 export function validateSupervisionChange(value:unknown,plan:ProjectPlan):SupervisionChange {
   if(!plan.supervision)fail('Supervision events require a reviewed supervision policy.');
-  shape(value,['type'],['round','role','agentId','sessionId','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','source','proposalHash']);
+  shape(value,['type'],['round','role','agentId','sessionId','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','source','proposalHash','requestAttribution']);
+  if(value.requestAttribution!==undefined&&(value.type!=='supervision_started'||value.requestAttribution!==1))fail('Invalid supervision request attribution.');
   if(value.type==='supervision_started'||value.type==='supervision_decided'){
-    shape(value,['type','round','role','agentId','sessionId',...(value.type==='supervision_started'?['evidenceIds','evidenceHash']:['decision'])]);
+    shape(value,['type','round','role','agentId','sessionId',...(value.type==='supervision_started'?['evidenceIds','evidenceHash']:['decision'])],value.type==='supervision_started'?['requestAttribution']:[]);
     integer(value.round,1,plan.supervision.maxRounds);
     if(!['controller','reviewer'].includes(String(value.role))||value.agentId!==(value.role==='controller'?plan.supervision.controllerId:plan.supervision.reviewerId))fail('Controller event does not match its reviewed agent.');
     text(value.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(value.sessionId))fail('Invalid controller session.');

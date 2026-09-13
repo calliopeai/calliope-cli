@@ -11,10 +11,12 @@ const dollars=(nanos:number)=>nanos>0&&nanos<100000?'<$0.0001':'$'+(nanos/1e9).t
 const cycleHudCache=new Map<string,{revision:string;label:string}>();
 function cycleHud(progress:CoordinatorProgress):string {
   if(!progress.manifest||!progress.context.plan.supervision)return '';
-  const prior=cycleHudCache.get(progress.context.id);if(prior?.revision===progress.execution.state.revision)return prior.label;
-  const cycles=projectImprovementHistory(progress.manifest,progress.execution,progress.context).cycles,last=cycles.at(-1),check=last?.metrics.find(m=>m.name==='acceptance-check-pass-rate'&&m.comparable);
-  const label=last?` · improvement ${cycles.length} ${last.status}${check?' · checks '+Math.round(check.before!*100)+'→'+Math.round(check.after!*100)+'%':''}`:'';
-  cycleHudCache.delete(progress.context.id);cycleHudCache.set(progress.context.id,{revision:progress.execution.state.revision,label});if(cycleHudCache.size>3)cycleHudCache.delete(cycleHudCache.keys().next().value!);return label;
+  const accounting=progress.accounting?.status==='available'?progress.accounting.attribution:undefined;
+  const revision=progress.execution.state.revision+':'+(accounting?.status==='available'?accounting.revision:'unavailable');
+  const prior=cycleHudCache.get(progress.context.id);if(prior?.revision===revision)return prior.label;
+  const cycles=projectImprovementHistory(progress.manifest,progress.execution,progress.context,accounting).cycles,last=cycles.at(-1),check=last?.metrics.find(m=>m.name==='acceptance-check-pass-rate'&&m.comparable),cost=last?.metrics.find(m=>m.name==='provider-accounted-cost'&&m.comparable);
+  const label=last?` · improvement ${cycles.length} ${last.status}${check?' · checks '+Math.round(check.before!*100)+'→'+Math.round(check.after!*100)+'%':''}${cost?' · attempt cost '+dollars(cost.before!)+'→'+dollars(cost.after!):''}`:'';
+  cycleHudCache.delete(progress.context.id);cycleHudCache.set(progress.context.id,{revision,label});if(cycleHudCache.size>3)cycleHudCache.delete(cycleHudCache.keys().next().value!);return label;
 }
 const clean=(text:string)=>approvalDisplayText(text).replace(/[\r\n\t]/g,' ');
 /** Presentation only: completion and attempts come from the verified execution projection. */

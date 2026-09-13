@@ -16,3 +16,4 @@ export type {CoordinatorProgress} from './progress.js';
 export {readRunAccounting,type RunAccounting,type AccountBalance} from './accounting.js';
 
 export type {RecordedAgentRoute} from './routing.js';
+export type {AttributedCharge,RequestAccounting} from './request-accounting.js';

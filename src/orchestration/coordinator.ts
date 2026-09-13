@@ -96,12 +96,14 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
     try {
       assertRun();const state=store.read().state;if(agentStopped(state,context,agent.id))throw cancellationError();
       const session=createSession(cwd,{activate:false}),log=RunLog.open(session.id);taskLog=log;let revision:string|null=null;
-      await store.append({type:'task_started',taskId:task.id,attempt:state.tasks[task.id]!.attempts+1,sessionId:session.id},child.signal);began=true;
+      const attempt=state.tasks[task.id]!.attempts+1;
+      const start=await store.append({type:'task_started',taskId:task.id,attempt,sessionId:session.id,requestAttribution:1},child.signal);began=true;
       await store.append({type:'agent_started',agentId:agent.id,taskId:task.id},child.signal);agentBegan=true;
       const workspace=await taskWorktree(store,task,{...childOptions(child.signal),runlog:log});
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
-      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,...(workspace?{workspace}:{})},tools=new ExecutionGuard(provisional,cwd).tools(getTools());
+      const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
+      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,attribution,...(workspace?{workspace}:{})},tools=new ExecutionGuard(provisional,cwd).tools(getTools());
       const smart=agent.routing?taskSmartSelection(agent.routing,store.read().events,task.id):undefined;
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
       if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=decision.selected.maxOutputTokens;
