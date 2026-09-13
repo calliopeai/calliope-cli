@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "kind": "native-supervised-goal-validation",
+  "issue": 314,
+  "sourceCommit": "c09cc45cbf8517f126bd44bf4ca05c30572b480c",
+  "startedAt": "2026-09-13T15:01:58.287Z",
+  "finishedAt": "2026-09-13T15:02:01.897Z",
+  "goalId": "ce710556-7e16-4458-8f22-459354c8615f",
+  "entrypoint": "runGoalCommand: ordinary orchestrate --supervise planner",
+  "provider": "anthropic",
+  "model": "claude-fable-5-1",
+  "discovery": "live native model discovery before dispatch",
+  "status": "provider-refusal",
+  "passed": false,
+  "fullGoalPath": false,
+  "proposalCreated": false,
+  "workerStarted": false,
+  "verificationStarted": false,
+  "sourceUnchanged": true,
+  "baselineTestFailed": true,
+  "hudUpdates": 53,
+  "budget": {
+    "ledgerVersion": 1,
+    "runId": "provider-followup-2026-09-11-02",
+    "totalCapUsd": 500,
+    "runCapUsd": 50,
+    "fixtureCapUsd": 2,
+    "additionalReservedNanoUsd": 372480000,
+    "retainedRunNanoUsd": 2438170776,
+    "retainedCumulativeNanoUsd": 54034901017,
+    "accounting": "Conservative retained reservations, not invoices."
+  },
+  "requests": [
+    {
+      "reservationId": "25ee8d28-bd51-4ed1-acd3-3a870959bbf1",
+      "at": "2026-09-13T15:01:59.922Z",
+      "model": "claude-fable-5-1",
+      "inputCount": 3680,
+      "inputReservation": 8384,
+      "outputReservation": 4096,
+      "reservedNanoUsd": 372480000,
+      "httpStatus": 200,
+      "finishReason": "refusal",
+      "usage": {
+        "inputTokens": 3717,
+        "outputTokens": 0
+      },
+      "contentBlocks": 0
+    }
+  ],
+  "provenance": {
+    "prompts": "Public synthetic clamp fixture only",
+    "responseContentStored": false,
+    "secretMaterialStored": false,
+    "privateCommandRecordsSha256": "2fc678066aee6181f3f37531006def61c23ff5eeb5c18806dec1c724d30ada31"
+  },
+  "limitation": "This attempt stopped at the native planner refusal. The earlier Fable/Haiku worker-controller smoke used a hand-authored graph; neither is evidence of a successful model-generated supervised goal."
+}

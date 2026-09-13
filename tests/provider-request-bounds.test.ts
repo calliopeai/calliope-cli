@@ -11,6 +11,7 @@ import * as bedrock from '../src/providers/bedrock.js';
 import * as config from '../src/config.js';
 import {chat} from '../src/providers/index.js';
 import {ExecutionLimitError} from '../src/execution/index.js';
+import {ProviderRefusalError,classifyError} from '../src/errors.js';
 const adapters={anthropic,google,openai,compat,ollama,bedrock};
 function withoutUsage(body:Buffer,type:string):Buffer {
   if(type==='application/vnd.amazon.eventstream') {
@@ -26,6 +27,16 @@ beforeEach(()=>{
   vi.stubEnv('AWS_ACCESS_KEY_ID','synthetic-access-key');vi.stubEnv('AWS_SECRET_ACCESS_KEY','synthetic-secret');
 });
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();vi.useRealTimers();});
+it.each([false,true])('retains refusal usage and never retries a refused native request (stream=%s)',async stream=>{
+  const wire=syntheticWire('anthropic','text',stream);
+  vi.stubGlobal('fetch',vi.fn(async()=>wireResponse(Buffer.from(wire.body.toString().replaceAll('end_turn','refusal')),wire.type)));
+  const reserve=vi.fn(async()=> 'refused-request'),settle=vi.fn(async()=>{}),retry=vi.fn(),events:any[]=[];
+  const pending=chat('anthropic',probeMessages('text'),[],'toy',stream?()=>{}:undefined,retry,{maxOutputTokens:13,attemptBudget:{reserve,settle},onStreamEvent:event=>events.push(event)});
+  if(stream){await expect(pending).rejects.toBeInstanceOf(ProviderRefusalError);expect(events.map(event=>event.state)).toEqual(['started','failed']);}
+  else expect(await pending).toMatchObject({finishReason:'error',errorCode:'refusal',usage:{inputTokens:7,outputTokens:3}});
+  expect(fetch).toHaveBeenCalledOnce();expect(reserve).toHaveBeenCalledOnce();expect(settle).toHaveBeenCalledExactlyOnceWith('refused-request','error',{inputTokens:7,outputTokens:3});expect(retry).not.toHaveBeenCalled();
+  expect(classifyError(new ProviderRefusalError())).toMatchObject({retryable:false,category:'invalid_request'});
+});
 for(const backend of BACKENDS)describe(backend.id,()=>{
   const model=backend.protocol==='responses'?'gpt-5-test':'toy-model';
   for(const stream of [false,true])for(const scenario of ['text','tool'] as const)it(`bounds ${scenario} output over ${stream?'stream':'JSON'}`,async()=>{

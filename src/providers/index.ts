@@ -5,7 +5,7 @@
  */
 
 import * as config from '../config.js';
-import { withRetry, StreamProtocolError } from '../errors.js';
+import { withRetry, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionLimitError } from '../execution/types.js';
 import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
@@ -282,6 +282,10 @@ export async function chat(
       throwIfCancelled(options?.signal);
       if (attemptBudget && providerTarget(actualProvider as HealthProvider).key !== target) throw new ExecutionLimitError('authority','Provider endpoint changed during budget admission.');
       const response = await cancellable(doChat(stream?.push), options?.signal);
+      if (stream && response.errorCode === 'refusal') {
+        await settle('error', response.usage);
+        throw new ProviderRefusalError();
+      }
       if (stream && response.finishReason === 'error') throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
       await settle(response.finishReason === 'error' ? 'error' : 'success', response.usage);
       stream?.finish('completed');

@@ -80,6 +80,8 @@ export interface LLMResponse {
   content: string;
   toolCalls?: ToolCall[];
   finishReason: 'stop' | 'tool_use' | 'length' | 'error';
+  /** Normalized terminal diagnostic; never provider response text. */
+  errorCode?: 'refusal';
   usage?: {
     inputTokens: number;
     outputTokens: number;

@@ -42,6 +42,10 @@ export class StreamInterruptedError extends Error {
 export class StreamProtocolError extends Error {
   constructor(message: string) { super(message); this.name = 'StreamProtocolError'; }
 }
+export const PROVIDER_REFUSAL_MESSAGE = 'Provider refused the request. Review the request and provider policy before continuing.';
+export class ProviderRefusalError extends Error {
+  constructor() { super(PROVIDER_REFUSAL_MESSAGE); this.name = 'ProviderRefusalError'; }
+}
 
 // ============================================================================
 // Error Classification
@@ -51,6 +55,9 @@ export class StreamProtocolError extends Error {
  * Classify an error and provide actionable suggestions
  */
 export function classifyError(error: unknown): ClassifiedError {
+  if (error instanceof ProviderRefusalError) return {
+    category: 'invalid_request', message: error.message, suggestion: 'Inspect the recorded refusal and the provider policy.', retryable: false,
+  };
   if (error instanceof Error && error.name === 'ExecutionLimitError') return {
     category: 'invalid_request', message: error.message, suggestion: 'Inspect the execution contract and budget history before retrying.', retryable: false,
   };
