@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** Independent v1 run-log verifier: only Node built-ins, no Calliope imports/state/network. */
-import { createReadStream } from "node:fs";
+import { createReadStream, realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { parseArgs } from "node:util";
@@ -133,10 +133,18 @@ export async function verifyRunLog(
     return fail("anchor-mismatch");
   return { ...result, ok: true };
 }
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
+function isEntrypoint() {
+  try {
+    // Node resolves linked package paths before setting import.meta.url.
+    return (
+      import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+    );
+  } catch {
+    // Importers using stdin/eval may have no filesystem entry point.
+    return false;
+  }
+}
+if (isEntrypoint()) {
   const signal = new AbortController();
   const abort = () =>
     signal.abort(new DOMException("Verification cancelled", "AbortError"));

@@ -3,6 +3,7 @@
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
 - Gate exact-tag npm/binary publication, attest and verify all standalone artifacts, require installer provenance, separate development image tags, and add independent anchored run-log verification. Bundle SQLite for standalone Brain/KG search (#223).
+- Preserve complete piped JSON on headless command exit, including standalone macOS binaries, and run the independent verifier through linked package paths (#223).
 
 - Capture and replay real cancellation, provider errors, system instructions and tool-result conversations under persistent budgets; enforce the extended product release gate. Fix cancelled streams reported as success, preserve modern OpenAI token-limit fields, and accept Bedrock's null terminal discovery cursor (#305).
 

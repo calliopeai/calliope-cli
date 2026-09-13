@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -74,6 +80,23 @@ it("makes terminal truncation detectable with a separately retained anchor", asy
         expectedCount: original.events,
       }),
     ).toMatchObject({ ok: false, reason: "anchor-mismatch" });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it("runs the independent CLI through a linked package directory", async () => {
+  const { root, file } = await fixture();
+  try {
+    const linked = join(root, "linked-scripts");
+    symlinkSync(new URL("../scripts/", import.meta.url), linked, "dir");
+    const result = spawnSync(
+      process.execPath,
+      [join(linked, "verify-runlog.mjs"), file, "--json"],
+      { encoding: "utf8" },
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).not.toBe("");
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: true, events: 2 });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

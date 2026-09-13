@@ -139,6 +139,12 @@ export function registerProcessHandlers(): void {
   });
 }
 
+/** Let pending pipe writes finish instead of truncating headless JSON at exit. */
+function completeCommand(exitCode: number): void {
+  headlessCancellation = undefined;
+  process.exitCode = exitCode;
+}
+
 async function main(): Promise<void> {
   // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
   const [nodeMaj = 0] = process.versions.node.split('.').map(Number);
@@ -165,43 +171,43 @@ async function main(): Promise<void> {
   if (args[0] === 'doctor') {
     headlessCancellation = new AbortController();
     const { runDoctor } = await import('./doctor.js');
-    process.exit(await runDoctor(args.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runDoctor(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'permissions') {
     headlessCancellation = new AbortController();
     const { runPermissions } = await import('./approvals/index.js');
-    process.exit(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runPermissions(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'brain' || args[0] === 'kg') {
     headlessCancellation = new AbortController();
     const { runBrainCommand } = await import('./brain/index.js');
-    process.exit(await runBrainCommand(rawArgs.slice(1), { kg:args[0] === 'kg', signal:headlessCancellation.signal }));
+    return completeCommand(await runBrainCommand(rawArgs.slice(1), { kg:args[0] === 'kg', signal:headlessCancellation.signal }));
   }
 
   if (args[0] === 'improve') {
     headlessCancellation = new AbortController();
     const { runImprovementCommand } = await import('./improvement/index.js');
-    process.exit(await runImprovementCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runImprovementCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'orchestrate') {
     headlessCancellation = new AbortController();
     const { runGoalCommand } = await import('./goals/index.js');
-    process.exit(await runGoalCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runGoalCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'run' || args[0] === 'agents' || args[0] === 'tasks') {
     headlessCancellation = new AbortController();
     const { runOrchestrationCommand } = await import('./orchestration/index.js');
-    process.exit(await runOrchestrationCommand(args[0], rawArgs.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runOrchestrationCommand(args[0], rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'session') {
     headlessCancellation = new AbortController();
     const { runSessionCommand } = await import('./session-management/cli.js');
-    process.exit(await runSessionCommand(args.slice(1), { signal: headlessCancellation.signal }));
+    return completeCommand(await runSessionCommand(args.slice(1), { signal: headlessCancellation.signal }));
   }
 
   // Handle `replay` before setup/config gates: an audit trail needs no provider.
@@ -210,7 +216,7 @@ async function main(): Promise<void> {
     // First non-flag arg after `replay` is the path or session id.
     const target = args.slice(1).find((a) => !a.startsWith('-'));
     const code = runReplay(target, { json: args.includes('--json') });
-    process.exit(code);
+    return completeCommand(code);
   }
 
   // Handle `cost` subcommand — spend + tool-usage report over the audit run
@@ -219,7 +225,7 @@ async function main(): Promise<void> {
   if (args[0] === 'cost') {
     const { runCost } = await import('./cost.js');
     const code = await runCost(args.slice(1));
-    process.exit(code);
+    return completeCommand(code);
   }
 
   // Handle `acp` subcommand — run as an Agent Client Protocol agent over stdio
@@ -230,7 +236,7 @@ async function main(): Promise<void> {
   if (args[0] === 'acp') {
     const { runAcpAgent } = await import('./acp.js');
     const code = await runAcpAgent();
-    process.exit(code);
+    return completeCommand(code);
   }
 
   // Handle --upgrade
@@ -376,7 +382,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
     });
-    process.exit(exitCode);
+    return completeCommand(exitCode);
   } else {
     // Use new ink-based UI
     const { startInkCLI } = await import('./ui/index.js');

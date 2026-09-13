@@ -6,7 +6,7 @@ Both publication workflows use `release-checks.yml`: TypeScript, full tests, cov
 
 ## Standalone binaries
 
-`release-binaries.yml` builds and smoke-tests all four targets on matching hosted runners: macOS arm64/x64 and Linux arm64/x64. Each executable must report its version, produce doctor JSON, initialize a project brain, ingest a public fixture and find it through SQLite search from a fresh working directory. Node installations use SQLite WASM; standalone builds bundle sql.js's JavaScript/asm engine so they require no SQLite sidecar file.
+`release-binaries.yml` builds and smoke-tests all four targets on matching hosted runners: macOS arm64/x64 and Linux arm64/x64. Each executable must report its version, produce complete doctor and large replay JSON, preserve failure/denial exit codes, initialize a project brain, ingest a public fixture and find it through SQLite search from a fresh working directory. Completed headless commands set their exit code and let pending pipe writes drain before termination. Node installations use SQLite WASM; standalone builds bundle sql.js's JavaScript/asm engine so they require no SQLite sidecar file.
 
 The workflow generates [GitHub build attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) for every binary. It then downloads all four, checks their hashes and signed provenance, creates a complete `checksums.txt`, and attests that manifest. No release upload occurs until the complete set verifies. Uploads refuse to overwrite existing assets; after a partial upload, inspect retained CI artifacts and the release before deciding how to recover. A rerun does not silently replace earlier evidence.
 
