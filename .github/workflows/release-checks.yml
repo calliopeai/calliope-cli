@@ -1,0 +1,61 @@
+name: Release checks
+on:
+  workflow_call:
+    inputs:
+      preview:
+        type: boolean
+        default: false
+    outputs:
+      version:
+        value: ${{ jobs.checks.outputs.version }}
+      tag:
+        value: ${{ jobs.checks.outputs.tag }}
+      sha:
+        value: ${{ jobs.checks.outputs.sha }}
+      ref:
+        value: ${{ jobs.checks.outputs.ref }}
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      tag: ${{ steps.source.outputs.tag }}
+      sha: ${{ steps.source.outputs.sha }}
+      ref: ${{ steps.source.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Verify immutable source identity
+        id: source
+        env:
+          PREVIEW: ${{ inputs.preview }}
+        run: |
+          if [ "$PREVIEW" = true ]; then
+            node scripts/release/source.mjs --preview
+          else
+            node scripts/release/source.mjs
+          fi
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm test -- --maxWorkers=2
+      - run: npm run test:coverage -- --maxWorkers=2
+      - run: npm run test:conformance
+      - name: Mandatory publication evidence
+        if: ${{ !inputs.preview }}
+        run: npm run test:conformance:release
+      - run: npm run build
+      - run: npm run bench
+        env:
+          CALLIOPE_BENCH_CI: '1'
+      - run: node dist/bin.js doctor --json
+      - name: Require a clean source tree
+        run: test -z "$(git status --porcelain)"

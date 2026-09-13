@@ -8,7 +8,7 @@
  *
  * Prerequisite: `npm run build` (produces dist/bin.js, the bundle entrypoint).
  *
- * ── How the two known bundling hazards are handled ──────────────────────────
+ * ── How the known bundling hazards are handled ──────────────────────────
  *
  * 1. react-devtools-core. Ink's reconciler dynamically imports ./devtools.js
  *    under `DEV=true`; that file statically imports the OPTIONAL, uninstalled
@@ -28,6 +28,12 @@
  *    getCurrentVersion() consults first (undefined — and thus a no-op — for the
  *    normal `node dist/bin.js` build).
  *
+ * 3. SQLite WASM. The Node engine locates sql-wasm.wasm on disk, which is not
+ * present next to a standalone executable. The sql.js alias selects its bundled
+ * JavaScript/asm build for binaries, preserving SQLite/FTS without sidecar files.
+ * Node installations retain WASM. Release smoke tests initialize and search a
+ * real project brain from an unrelated directory on every native target.
+ *
  * ── Cross-compilation ───────────────────────────────────────────────────────
  * Bun 1.3's `Bun.build({ compile: { target, outfile }, plugins, define })`
  * cross-compiles to any of the four supported targets in-process (it downloads
@@ -37,6 +43,7 @@
  */
 
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 import { dirname, join, basename } from 'node:path';
 import {
   existsSync,
@@ -56,6 +63,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
 const entrypoint = join(repoRoot, 'dist', 'bin.js');
 const stub = join(__dirname, 'stubs', 'react-devtools-core.js');
+// The asm build is the same SQLite engine in self-contained JavaScript. Node
+// installs retain the faster WASM path; standalone binaries have no sidecar files.
+const sqliteAsm = createRequire(import.meta.url).resolve('sql.js/dist/sql-asm.js');
 const outDir = join(__dirname, 'dist');
 
 if (!existsSync(entrypoint)) {
@@ -112,6 +122,7 @@ const stubReactDevtools = {
   name: 'stub-react-devtools-core',
   setup(build) {
     build.onResolve({ filter: /^react-devtools-core$/ }, () => ({ path: stub }));
+    build.onResolve({ filter: /^sql\.js$/ }, () => ({ path: sqliteAsm }));
   },
 };
 

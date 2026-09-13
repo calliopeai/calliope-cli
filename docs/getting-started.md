@@ -17,17 +17,22 @@ calliope --version
 
 ## Install as a single binary
 
-> Available from **v3.0.0** stable releases. No Node.js, npm, or Bun required —
+> No Node.js, npm, or Bun required —
 > one self-contained executable per platform (macOS arm64/x64, Linux arm64/x64).
 
-**curl installer** (detects your OS/arch, verifies the SHA-256, installs to
+**Verified installer** (requires authenticated GitHub CLI and curl; verifies signed
+provenance and SHA-256 before installing to
 `/usr/local/bin` or `~/.local/bin`):
 
 ```
-curl -fsSL https://raw.githubusercontent.com/calliopeai/calliope-cli/main/packaging/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/calliopeai/calliope-cli/main/install.sh | bash
 ```
 
-**Homebrew** (macOS):
+Historical binaries without attestations are refused. The 3.2 release remains blocked
+by provider evidence; see [release integrity](release-integrity.md) for prerequisites,
+preview artifacts and independent verification.
+
+**Homebrew** (macOS, separate tap distribution):
 
 ```
 brew install calliopeai/tap/calliope
@@ -35,7 +40,8 @@ brew install calliopeai/tap/calliope
 
 **Manual** — download the asset for your platform from the
 [latest release](https://github.com/calliopeai/calliope-cli/releases/latest)
-(`calliope-<version>-<os>-<arch>`), verify it against `checksums.txt`, then:
+(`calliope-<version>-<os>-<arch>`) and its `.sigstore.json` bundle, verify its
+[provenance and signed checksums](release-integrity.md#standalone-binaries), then:
 
 ```
 chmod +x calliope-*-darwin-arm64 && sudo mv calliope-*-darwin-arm64 /usr/local/bin/calliope

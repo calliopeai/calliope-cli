@@ -33,7 +33,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "scripts/verify-runlog.mjs"
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/bin.js",
