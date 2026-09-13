@@ -251,7 +251,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       if (safetyFailed) await safetyBranch;
       throwIfCancelled(signal);
       try { return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(call, chunk), {
-      ...options.toolOptions, ...(guard?{authority:guard.check,fs:agentFiles(guard,options.execution!.agentId,call,signal)}:{}), signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
+      ...options.toolOptions, ...(guard?{authority:guard.check,brain:{...guard.brainContext(),runlog,mode:options.mode},fs:agentFiles(guard,options.execution!.agentId,call,signal)}:{}), signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
     }); } catch (error) {
         throwIfCancelled(signal);
         if (isCancellation(error)) throw error;

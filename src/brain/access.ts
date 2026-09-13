@@ -23,6 +23,8 @@ import { text } from './validation.js';
 export interface BrainOptions extends SessionActionOptions {
   scope?: 'project' | 'global';
   base?: string;
+  /** Trusted caller may narrow retained-source visibility beyond current project policy. */
+  authorizeSource?: (source: BrainSource) => void | Promise<void>;
 }
 export const brainStore = (cwd: string, options: BrainOptions = {}) =>
   new BrainStore(cwd, options.scope, options.base);
@@ -193,6 +195,8 @@ export class BrainAccess {
     throwIfCancelled(this.options.signal);
     const source = this.sources[id];
     if (!source) throw new BrainError('invalid', 'Knowledge source is missing.');
+    await this.options.authorizeSource?.(source);
+    throwIfCancelled(this.options.signal);
     if (
       sanitizeBrainText(source.content) !== source.content ||
       sanitizeBrainText(source.name) !== source.name

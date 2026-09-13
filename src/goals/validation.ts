@@ -9,7 +9,7 @@ import {validateGoalTeam} from './team.js';
 import {validateGoalRouting,applyGoalRouting} from './routing.js';
 import {validateGoalSupervision,validateSupervisedGoalPlan} from './supervised.js';
 
-export const GOAL_TOOLS=['think','read_file','list_files','write_file','edit_file'];
+export const GOAL_TOOLS=['think','read_file','list_files','write_file','edit_file','brain_search','brain_entity'];
 export const MAX_GOAL_EVENTS=10000,MAX_GOAL_BYTES=16*1024*1024,MAX_GOAL_EVENT_BYTES=16384;
 export const signed=<T extends object>(body:T):T&{hash:string}=>({...body,hash:digest(canonicalJson(body))});
 export function verifyHash(value:Record<string,unknown>):void {const {hash,...body}=value;if(!hex(hash)||digest(canonicalJson(body))!==hash)fail('Goal record hash is invalid.');}

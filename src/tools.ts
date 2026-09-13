@@ -411,6 +411,8 @@ export interface FsDelegate {
  * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
+  /** Only supplied by a reviewed execution guard; absent for ordinary sessions. */
+  brain?: import('./brain/tools.js').BrainToolContext;
   authority?: (call:ToolCall,cwd:string)=>string|undefined;
   auditPermission?: (event: PolicyEventPayload) => void;
   signal?: AbortSignal;
@@ -494,6 +496,16 @@ export async function executeTool(
   }
 
   throwIfCancelled(signal);
+  if (name === 'brain_search' || name === 'brain_entity') {
+    if (!options?.brain || !options.authority) return {toolCallId:id,result:'Project knowledge retrieval requires an explicit reviewed agent tool grant.',isError:true};
+    const {queryBrainTool} = await import('./brain/tool-query.js');
+    try { return {toolCallId:id,result:await queryBrainTool(toolCall,cwd,options.brain,signal)}; }
+    catch(error) {
+      throwIfCancelled(signal); if(isCancellation(error))throw error;
+      const {BrainError}=await import('./brain/types.js');
+      return {toolCallId:id,result:error instanceof BrainError?JSON.stringify({version:1,type:'project-knowledge',error:{code:error.code,message:error.message}}):'Project knowledge retrieval failed; inspect the local audit and source permissions.',isError:true};
+    }
+  }
   // Handle plugin tools
   if (isPluginTool(name)) {
     return cancellable(executePluginTool(toolCall, cwd), signal);

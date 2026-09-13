@@ -47,8 +47,9 @@ appear in `entity --json`. Terminal source previews stop at 3,000 characters.
 records retain their originating project boundary; opening another project does
 not grant access to those source paths. Use an explicit export/import to share
 reviewed knowledge. Human notes without file references are portable global
-knowledge. No brain content is automatically injected into worker prompts or
-added to an agent's allowed tools.
+knowledge. No brain content is automatically injected into worker prompts.
+[Agent knowledge retrieval](agent-knowledge.md) adds read-only tools only through
+explicit `orchestrate --brain` or reviewed per-agent tool grants.
 
 Mutations require the shared permission resolver. Headless defaults deny missing
 confirmation; `--allow-mutations` supplies operator consent but still runs current
