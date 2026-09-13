@@ -1,3 +1,4 @@
+import {coordinatorProgress} from './progress.js';
 import {join} from 'node:path';
 import {authorizeSessionAction} from '../session-management/index.js';
 import {throwIfCancelled} from '../cancellation.js';
@@ -19,7 +20,7 @@ export async function inspectExecution(cwd:string,runId:string,options:RunAction
 export async function controlExecution(cwd:string,runId:string,action:'retry'|'accept'|'agent-stop'|'agent-retry'|'controller-retry',target:string,options:RunActionOptions&Pick<CoordinatorOptions,'onProgress'>={}) {
   const initial=await inspectExecution(cwd,runId,options);if(!initial.execution)throw new OrchestrationError('unavailable','Run has no execution history.');
   const {view,store}=initial,agentAction=action.startsWith('agent-'),context=store.context(initial.execution);
-  const finish=()=>{const execution=store.read();options.onProgress?.({context:store.context(execution),execution,manifest:view.manifest});return execution;};
+  const finish=()=>{const execution=store.read();options.onProgress?.(coordinatorProgress(store,execution));return execution;};
   const goalAuthority=view.manifest.version===2&&action!=='agent-stop'?(await import('../goals/index.js')).goalRunAuthority(view.manifest,(options.store??new RunStore()).root):undefined;
   const assertAuthority=()=>{store.assertApproval(initial.execution!.header);goalAuthority?.assertActive();const authority=inspectSpawnAuthority(store,new ReservationLedger(join(store.root,'..','budget')));if(action==='accept'&&authority.pending.length)throw new OrchestrationError('conflict','Recover pending child admission before accepting the run.');};
   if(action==='controller-retry'?context.plan.supervision?.controllerId!==target:agentAction?!context.plan.agents.some(a=>a.id===target):!context.plan.tasks.some(t=>t.id===target))throw new OrchestrationError('invalid','Unknown execution task or agent.');

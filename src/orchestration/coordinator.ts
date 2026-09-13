@@ -1,3 +1,4 @@
+import {readRunAccounting,type RunAccounting} from './accounting.js';
 import {taskSmartSelection,recordAgentRoute} from './routing.js';
 import {join,relative,resolve,isAbsolute} from 'node:path';
 import {randomUUID} from 'node:crypto';
@@ -22,7 +23,7 @@ import {agentStopped,requiresProposalValidation} from './execution-journal.js';
 import {collectTaskOutput,collectStoppedTaskOutput,readCollectedArtifact,checkArtifactSnapshot,workerSummary} from './verification.js';
 import {OrchestrationError,type ProjectTask,type ProjectPlan} from './types.js';
 import {analyzePlan} from './validation.js';
-import {agentPreference,type CoordinatorProgress} from './progress.js';
+import {agentPreference,coordinatorProgress,type CoordinatorProgress} from './progress.js';
 export {agentPreference} from './progress.js';
 import {inspectSpawnAuthority} from '../spawning/authority.js';
 import type {RunActionOptions} from './actions.js';
@@ -38,7 +39,7 @@ export interface CoordinatorOptions extends RunActionOptions {
   onEvent?:(event:ExecutionEvent)=>void;
   onProgress?:(progress:CoordinatorProgress)=>void;
 }
-export interface CoordinatorResult {version:2;type:'orchestration.execution';runId:string;status:ExecutionStatus;execution:ExecutionInspection;exitCode:number}
+export interface CoordinatorResult {version:2;type:'orchestration.execution';runId:string;status:ExecutionStatus;execution:ExecutionInspection;exitCode:number;accounting:RunAccounting}
 const exitCode=(status:ExecutionStatus)=>status==='completed'?0:status==='partial'?4:status==='denied'?3:status==='cancelled'?130:1;
 
 function incompleteOutput(store:ExecutionStore,task:ProjectTask,status:TaskOutput['status'],message:string):TaskOutput {
@@ -71,12 +72,12 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   await authorizeSessionAction(cwd,'orchestration_execute',{path:cwd,runId,planHash:view.manifest.planHash,revision:view.run.revision,resume:!!options.resume},options);
   const rootAuthority=await prepareAgentExecution(cwd,runId,view.analysis.coordinatorId,outputCap,{...options,store:runs});
   let eventCursor=0;
-  const notifyEvents=(events:ExecutionEvent[])=>{for(const event of events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution,manifest:view.manifest});}};
+  const notifyEvents=(events:ExecutionEvent[])=>{for(const event of events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}if(options.onProgress){const execution=store.read();options.onProgress(coordinatorProgress(store,execution));}};
   const budget=rootAuthority.ledger.read(cwd).manifest,store=new ExecutionStore(join(runs.root,runId),view.manifest,event=>{if(event.sequence>eventCursor+1)notifyEvents(store.read().events);else notifyEvents([event]);});
   if(store.exists()&&!options.resume)throw new OrchestrationError('conflict','Run already has execution history; inspect it and resume explicitly.');
   store.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(budget.createdAt).toISOString(),deadline:budget.deadline},options.signal);
   eventCursor=store.read().events.length;
-  if(options.onProgress){const execution=store.read();options.onProgress({context:store.context(execution),execution,manifest:view.manifest});}
+  if(options.onProgress){const execution=store.read();options.onProgress(coordinatorProgress(store,execution));}
   const lease=store.acquire(),controller=new AbortController(),children=new Map<string,AbortController>(),active=new Map<string,Promise<void>>();let stopReason:'cancelled'|'denied'|'failed'|undefined;
   const stop=(reason:'cancelled'|'denied'|'failed')=>{stopReason??=reason;controller.abort();};
   const abort=()=>stop('cancelled');options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
@@ -189,6 +190,6 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       if(finished.length)break;
     }
     if(store.read().state.ownerId)throw new OrchestrationError('unavailable','Coordinator could not record every child outcome. Preserve its history and inspect interrupted tasks before resuming.');
-    const execution=store.read();return{version:2,type:'orchestration.execution',runId,status:execution.state.status,execution,exitCode:exitCode(execution.state.status)};
+    const execution=store.read();return{version:2,type:'orchestration.execution',runId,status:execution.state.status,execution,accounting:readRunAccounting(store,execution),exitCode:exitCode(execution.state.status)};
   }finally{clearInterval(timer);clearTimeout(deadline);controller.abort();await Promise.allSettled([...active.values()]);options.signal?.removeEventListener('abort',abort);lease.release();}
 }

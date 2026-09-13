@@ -1,3 +1,4 @@
+import {coordinatorProgress} from '../orchestration/progress.js';
 import {cancellableDelay,throwIfCancelled,isCancellation,cancellationError} from '../cancellation.js';
 import {canonicalJson} from '../approvals/index.js';
 import {executeReviewedRun,type CoordinatorOptions} from '../orchestration/coordinator.js';
@@ -15,7 +16,7 @@ export async function executeSpawn(cwd:string,admission:SpawnAdmission,options:C
   const stopChildren=async()=>{if(cancelled)return;cancelled=true;await store.appendBatch(roots.map(agent=>({change:{type:'agent_stop',agentId:agent.id}})));};
   try {
     while(true){
-      const view=store.read();options.onProgress?.({context:store.context(view),execution:view});for(const event of view.events.slice(cursor))options.onEvent?.(event);cursor=view.events.length;
+      const view=store.read();options.onProgress?.(coordinatorProgress(store,view));for(const event of view.events.slice(cursor))options.onEvent?.(event);cursor=view.events.length;
       const tasks=admission.proposal.tasks.map(task=>view.state.tasks[task.id]!),owner=store.owner();
       if(options.signal?.aborted){await stopChildren();if(!tasks.some(task=>task.status==='running')||!owner?.alive||Date.now()>=view.header.deadline)throw cancellationError();}
       else if(tasks.every(task=>!['pending','running'].includes(task.status))||(!owner?.alive&&resumed)||Date.now()>=view.header.deadline){

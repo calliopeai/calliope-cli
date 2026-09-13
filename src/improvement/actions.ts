@@ -1,3 +1,4 @@
+import {coordinatorProgress} from '../orchestration/progress.js';
 import * as fs from 'node:fs';
 import {join} from 'node:path';
 import {canonicalJson,digest} from '../approvals/index.js';
@@ -69,6 +70,6 @@ export async function withdrawImprovement(cwd:string,runId:string|undefined,cycl
     const before=current.store.read();if(before.state.ownerId||before.state.revision!==current.execution!.state.revision)throw new OrchestrationError('conflict','Execution changed or is active; inspect or stop it before rollback.');
     await current.store.append({type:'supervision_withdrawn',decisionId:cycleId,source:options.source==='repl'?'repl':'cli'},options.signal,undefined,lease.check);
   }finally{lease.release();}
-  const next=await inspectImprovements(cwd,cycle.runId,options);options.onProgress?.({context:next.store.context(next.execution!),execution:next.execution!,manifest:next.view.manifest});
+  const next=await inspectImprovements(cwd,cycle.runId,options);options.onProgress?.(coordinatorProgress(next.store,next.execution!));
   return{cycle:next.history.cycles.find(c=>c.id===cycleId)!,alreadyWithdrawn:false};
 }
