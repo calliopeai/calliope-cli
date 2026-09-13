@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import * as config from '../src/config.js';
 import { getAvailableModels, getDiscoveredModels, getModelInfo, clearModelCache, resolveModelAlias } from '../src/model-detection.js';
-import { ModelDiscoveryError, anthropicMetadata, compatibleMetadata, validateModels, price } from '../src/models/index.js';
+import { ModelDiscoveryError, anthropicMetadata, compatibleMetadata, openRouterPricing, validateModels, price } from '../src/models/index.js';
 import { selectRoute } from '../src/routing/index.js';
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -112,6 +112,31 @@ it('keeps missing and zero OpenRouter prices distinct and honors tool/vision met
   const models = await getAvailableModels('openrouter', { throwOnError: true });
   expect(models.find(model => model.id === 'vendor/unknown')).toMatchObject({ pricing: { input: undefined, output: undefined }, capabilities: { tools: false, vision: false } });
   expect(models.find(model => model.id === 'vendor/free')).toMatchObject({ pricing: { input: 0, output: 0 }, capabilities: { tools: true, vision: true } });
+});
+
+it('routes with conservative OpenRouter context-tier and cache-write rates from live discovery', async () => {
+  vi.mocked(fetch).mockImplementation(async () => json({ data: [{ id: 'vendor/tiered', context_length: 1000000,
+    top_provider: { max_completion_tokens: 8000 }, supported_parameters: ['tools'],
+    pricing: { prompt: '0.00001', completion: '0.00005', input_cache_read: '0.000001', web_search: '0.01',
+      overrides: [{ min_prompt_tokens: 200000, prompt: '0.00002', completion: '0.000075', input_cache_write: '0.000025' }] } }] }));
+  const route = await selectRoute({ provider: 'openrouter', model: 'vendor/tiered', requirements: { tools: true } });
+  expect(route.selected).toMatchObject({ model: 'vendor/tiered', price: { input: 25, output: 75 }, contextLength: 1000000 });
+});
+
+it.each([null, [], 'bad', { prompt: '0' }, { prompt: '0', completion: -1 },
+  ...[null, {}, Array(101).fill({}), [null], [[]], [{}], [{ min_prompt_tokens: -1 }], [{ min_prompt_tokens: 1.5 }],
+    [{ min_prompt_tokens: 5, prompt: 'bad' }], [{ min_prompt_tokens: 5, completion: null }], [{ min_prompt_tokens: 5, request: '0.1' }]]
+    .map(overrides => ({ prompt: '0', completion: '0', overrides })),
+  ...['request', 'image', 'internal_reasoning', 'future_fee'].map(key => ({ prompt: '0', completion: '0', [key]: '0.1' })),
+  { prompt: '0', completion: '0', input_cache_write: 'Infinity' }, { prompt: '0', completion: '0', web_search: '' },
+])('does not authorize spend from malformed or unaccounted OpenRouter pricing %#', pricing => {
+  expect(openRouterPricing(pricing)).toEqual({ input: undefined, output: undefined });
+});
+
+it('keeps inherited tier rates and permits explicit zero non-token fees', () => {
+  expect(openRouterPricing({ prompt: '0.000001', completion: '0.000002', request: '0', image: 0,
+    overrides: [{ min_prompt_tokens: 0, input_cache_read: '0.000003' }, { min_prompt_tokens: 100, completion: '0.000001' }] }))
+    .toEqual({ input: 3, output: 2 });
 });
 
 it('uses Ollama show capabilities and actual num_ctx overrides', async () => {

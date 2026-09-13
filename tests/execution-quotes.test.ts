@@ -32,3 +32,16 @@ it('freezes ordinary capped requests on invalid usage without letting them recov
   const budget=projectAttemptBudget(project,randomUUID(),route,[],[],false,10),attempt={provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10};
   const id=await budget.reserve(attempt);await expect(budget.settle(id,'success',{inputTokens:-1,outputTokens:0})).rejects.toMatchObject({code:'budget'});expect(loadProjectSpend(project).spentUsd).toBe(0.00102);await expect(budget.reserve(attempt)).rejects.toMatchObject({code:'budget'});
 });
+
+it('binds OpenRouter prices to admission and retains a failed reservation across restart',async()=>{
+  route.provider='openrouter';route.price={input:25,output:75};config.set('budget',{maxCostPerProject:0.026});
+  const runId=randomUUID(),budget=projectAttemptBudget(project,runId,route,[],[],false,10);
+  expect(budget.priceCeiling).toEqual({input:25,output:75});expect(Object.isFrozen(budget.priceCeiling)).toBe(true);
+  route.price.input=0;
+  const attempt={provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10,priceCeiling:budget.priceCeiling};
+  for(const priceCeiling of [undefined,{input:0,output:75},{input:25,output:1}])
+    await expect(budget.reserve({...attempt,priceCeiling})).rejects.toMatchObject({code:'authority'});
+  const id=await budget.reserve(attempt);await budget.settle(id,'error');expect(loadProjectSpend(project).spentUsd).toBe(0.02575);
+  route.price.input=25;const restarted=projectAttemptBudget(project,runId,route,[],[],false,10);
+  await expect(restarted.reserve(attempt)).rejects.toMatchObject({code:'budget'});
+});

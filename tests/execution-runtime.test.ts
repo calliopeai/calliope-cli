@@ -36,6 +36,15 @@ it('executes a bounded request using live metadata and records reservation/usage
   expect(JSON.stringify(saved.events)).not.toContain('Use the public toy');
   const trace=readRunLog(log.filePath);expect(verifyChain(trace).ok).toBe(true);expect(trace.some(e=>e.type==='policy_event'&&JSON.stringify(e).includes('execution-budget'))).toBe(true);
 });
+it('carries live OpenRouter tier rates through the agent ledger and actual SDK request',async()=>{
+  config.setProviderCred('openrouter',{apiKey:'synthetic',baseUrl:'https://execution.invalid/v1'});
+  metadata={id:'toy',context_length:900,top_provider:{max_completion_tokens:100},supported_parameters:['tools'],
+    pricing:{prompt:'0.000001',completion:'0.000002',overrides:[{min_prompt_tokens:500,prompt:'0.000002',completion:'0.000003',input_cache_write:'0.0000025'}]}};
+  ledger.create(manifest);const result=await runTurn(options({provider:'openrouter'}));expect(result.reason).toBe('completed');
+  expect(requests).toHaveLength(1);expect(requests[0].provider).toEqual({allow_fallbacks:false,require_parameters:true,max_price:{prompt:2.5,completion:3,request:0,image:0}});
+  const saved=ledger.read(project);expect(Object.values(saved.projection.requests)[0]?.reservation).toMatchObject({inputTokens:900,outputTokens:100,inputPrice:2.5,outputPrice:3,costNanos:2550000});
+  expect(saved.projection.spent.costNanos).toBe(26500);
+});
 it('prevents simultaneous turns from spending the same remaining capacity',async()=>{
   manifest.accounts[1]!.tokenBudget=1000;ledger.create(manifest);let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});respond=async()=>{await held;return completion();};
   const work=[runTurn(options()),runTurn(options())];const denied=await Promise.race(work);expect(denied.reason).toBe('budget');expect(requests).toHaveLength(1);release();

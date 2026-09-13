@@ -72,6 +72,7 @@ async function manufacture(backend: any, scenario: string, stream = false) {
     scenario,
     stream,
     maxOutputTokens: 64,
+    ...(backend.id === 'openrouter' ? { maxPrice: { input: 1, output: 2 } } : {}),
     originalFetch: source,
     reserve,
     sdkVersions,
@@ -227,6 +228,22 @@ it("counts only the observed semantic checks and keeps usage and basic coverage 
   expect(report.adapters[0].checks["tool-result-replay"]).toBe("unavailable");
   expect(report.adapters[0].checks.usage).toBe("unavailable");
   expect(report.productGateReady).toBe(false);
+});
+it('versions corrected OpenRouter routing evidence and rejects altered wire ceilings',async()=>{
+  const backend=BACKENDS.find(b=>b.id==='openrouter')!;
+  const {result}=await manufacture(backend,'system-instructions');const capture=result.capture;
+  expect(capture.provenance.routingBoundsVersion).toBe(1);
+  const replayed=await replaySemanticCapture(capture,adapters);expect(replayed.capture).toEqual(capture);expect(replayed.capture).not.toBe(capture);
+  for(const routingBoundsVersion of [0,2,null])expect(()=>validateSemanticCapture({...capture,provenance:{...capture.provenance,routingBoundsVersion}})).toThrow(/version/);
+  const noPrices=structuredClone(capture);delete noPrices.provenance.maxPrice;expect(()=>validateSemanticCapture(noPrices)).toThrow(/version/);
+  for(const patch of [{max_price:{input:1,output:2}},{allow_fallbacks:true},{require_parameters:false}]){
+    const changed=structuredClone(capture),exchange=changed.turns[0].exchange;
+    const request=JSON.parse(Buffer.from(exchange.request.body,'base64').toString());Object.assign(request.provider,patch);
+    const bytes=Buffer.from(JSON.stringify(request));exchange.request.body=bytes.toString('base64');exchange.request.sha256=digest(bytes);
+    expect(()=>validateSemanticCapture(changed)).toThrow(/Routing bound/);
+  }
+  const reserve=vi.fn();await expect(runSemanticProbe({adapters,backend,model:'toy',scenario:'system-instructions',reserve,sdkVersions})).rejects.toThrow(/routing price/);
+  expect(reserve).not.toHaveBeenCalled();
 });
 
 it("rejects credential values in decoded bodies without modifying captured evidence", async () => {

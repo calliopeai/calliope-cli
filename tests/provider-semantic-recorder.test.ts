@@ -199,7 +199,8 @@ it("binds OpenRouter price ceilings to the recorded request and disables server 
   });
   expect(sent.provider).toEqual({
     allow_fallbacks: false,
-    max_price: { input: 0.1, output: 0.4 },
+    require_parameters: true,
+    max_price: { prompt: 0.1, completion: 0.4, request: 0, image: 0 },
   });
   expect(
     JSON.parse(

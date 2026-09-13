@@ -18,6 +18,7 @@ import { chatAnthropic, countAnthropicInput, assertAnthropicEffort } from './ant
 import { chatGoogle } from './google.js';
 import { chatOpenAI } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
+import { openRouterBounds } from './openrouter-bounds.js';
 import { chatOllama } from './ollama.js';
 import { chatBedrock } from './bedrock.js';
 
@@ -162,6 +163,11 @@ export async function chat(
   const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+  if (bounded && actualProvider === 'openrouter') {
+    const ceiling = attemptBudget ? attemptBudget.priceCeiling : options?.priceCeiling;
+    openRouterBounds(ceiling);
+    limits.priceCeiling = Object.freeze({ ...ceiling! });
+  }
   if (limits.reasoningEffort !== undefined && actualProvider !== 'anthropic')
     throw new ExecutionLimitError('authority', 'Explicit reasoning effort is supported only by the native Anthropic adapter.');
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
@@ -255,7 +261,7 @@ export async function chat(
         limits.inputCount=await cancellable(countAnthropicInput(messages,backendTools,actualModel,!!onToken,options?.signal,limits),options?.signal);
         if(providerTarget(actualProvider as HealthProvider).key!==target)throw new ExecutionLimitError('authority','Provider endpoint changed during token counting.');
       }
-      ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!,...(limits.inputCount?{inputCount:limits.inputCount}:{})}) : undefined;
+      ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!,...(limits.inputCount?{inputCount:limits.inputCount}:{}),...(limits.priceCeiling?{priceCeiling:limits.priceCeiling}:{})}) : undefined;
     }
     catch (error) {
       throwIfCancelled(options?.signal);

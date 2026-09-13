@@ -14,6 +14,13 @@ let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedg
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-authority-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);for(const name of ['a','b'])fs.mkdirSync(join(project,name));manifest=executionManifest(project);ledger=new ReservationLedger(join(root,'budget'));});
 afterEach(()=>{config.resetConfig();saveHooks([]);vi.restoreAllMocks();fs.rmSync(root,{recursive:true,force:true});});
 const guard=(agentId='a')=>{ledger.create(manifest);return new ExecutionGuard({ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens:100},project);};
+it('rejects changed OpenRouter transport prices before writing an agent reservation',async()=>{
+  const budget=guard().budget({provider:'openrouter',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),
+    capabilities:{chat:true},contextLength:900,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'},[],[],false);
+  const attempt={provider:'openrouter' as const,model:'toy',target:'a'.repeat(64),maxOutputTokens:100};
+  for(const priceCeiling of [undefined,{input:0,output:2},{input:1,output:0}])await expect(budget.reserve({...attempt,priceCeiling})).rejects.toMatchObject({code:'authority'});
+  expect(ledger.read(project).events).toHaveLength(0);
+});
 it('validates bounded inherited authority and rejects malformed or expanded contracts',()=>{
   expect(validateExecutionManifest(manifest)).toEqual(manifest);
   for(const mutate of [(m:any)=>m.version=2,(m:any)=>m.extra=true,(m:any)=>m.deadline+=86400000,(m:any)=>m.accounts[1].parentId='a',(m:any)=>m.accounts[1].allowedTools.push('shell'),(m:any)=>m.accounts[1].allowedPaths[0].path='../escape',(m:any)=>m.accounts[1].costBudgetNanos=10000001,(m:any)=>m.accounts[2].id='a']){
