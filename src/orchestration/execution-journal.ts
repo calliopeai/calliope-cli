@@ -88,7 +88,7 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest,header
   return value as unknown as ExecutionEvent;
 }
 export const artifactSetHash=(artifacts:CollectedArtifact[])=>digest(canonicalJson(artifacts));
-export function agentStopped(state:ExecutionProjection,manifest:RunPlanContext,agentId:string):boolean {
+export function agentStopped(state:ExecutionProjection,manifest:Pick<RunPlanContext,'plan'>,agentId:string):boolean {
   let current=manifest.plan.agents.find(a=>a.id===agentId);for(let n=0;current&&n<256;n++){if(state.stoppedAgents.includes(current.id)||Object.values(state.tasks).some(t=>t.agentId===current!.id&&t.escalation))return true;current=manifest.plan.agents.find(a=>a.id===current!.parentId);}return false;
 }
 export function requiresProposalValidation(manifest:RunManifest):boolean {return manifest.version===2&&manifest.goal?.phase==='planning'&&manifest.plan.agents.some(a=>a.parentId===null&&a.inputs.some(i=>i.id==='planning-repair'));}

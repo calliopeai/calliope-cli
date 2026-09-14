@@ -6,6 +6,8 @@
 
 - Preserve DeepSeek reasoning metadata across JSON/streaming tool conversations and session recovery; isolate it from other adapters and reject malformed or oversized protocol state without automatic retries (#338).
 
+- Expose executor-derived retry and child-parent availability in controller/reviewer context, tied to the current execution revision and original bounds (#342).
+
 - Bind supervision reviewer approve/reject/revise replies to the exact controller draft, accept one bounded JSON code block, and retain legacy decision meanings and role-specific errors (#336).
 
 - Account for complete goals across planning, execution, retries, reviews and children; add policy-checked `orchestrate metrics` with verified task costs, recorded recovery/check observations and explicit unavailable evidence (#334).

@@ -58,6 +58,21 @@ afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.useRealTi
 async function reviewed(p=plan()){fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const view=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,view.run.id,'approved',{store:runs});}
 const execute=(id:string,extra={})=>executeReviewedRun(project,id,{store:runs,approve:async()=> 'allow',...extra});
 
+it.each(['stop','decompose'])('exposes denied-parent availability to both review roles and enforces policy after %s',async action=>{
+  const p=plan();p.agents[1]!.maxChildDepth=1;p.agents[1]!.maxChildCount=1;const reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';reviewer.maxChildDepth=0;reviewer.maxChildCount=0;p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
+  const child=structuredClone(p.agents[1]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=8000;child.costBudgetUsd=0.1;
+  const task=structuredClone(p.tasks[0]!);task.id='child-task';task.agentId='child';task.outputs[0]!.id='child-report';task.outputs[0]!.path='a/child.txt';task.outputs[1]!.id='child-patch';task.outputs[2]!.id='child-tests';task.acceptanceChecks![0]!.artifactId='child-report';task.acceptanceChecks![1]!.artifactId='child-tests';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';
+  const transport=fetch;vi.stubGlobal('fetch',async(input,init)=>{const response=await transport(input,init),body=await response.clone().json();if(body.model==='worker-toy'&&body.choices[0].message.tool_calls){body.choices[0].message.tool_calls[0].function={name:'read_file',arguments:JSON.stringify({path:'package.json'})};return json(body);}return response;});
+  const roles:string[]=[];decide=async context=>{
+    roles.push(context.role);expect(context.availability.version).toBe(1);expect(context.availability.executionRevision).toMatch(/^[a-f0-9]{64}$/);expect(context.availability.childParents.find((a:any)=>a.id==='a')).toMatchObject({status:'blocked',reason:'This agent or an ancestor is stopped or escalated.'});expect(context.availability.retryTasks[0].status).toBe('blocked');
+    if(context.role==='reviewer')return{version:1,verdict:'approve',draftHash:context.draftHash,reason:'Review of the supplied draft.'};
+    return action==='stop'?{...keepGoing(context),action:'stop',reason:'Operator inspection is required for the denied task.'}:{...keepGoing(context),action:'decompose',hypothesis:'This intentionally ignores the blocked-parent snapshot.',expectedMetric:{name:'verified tasks',direction:'increase'},children:{version:1,parentId:'a',agents:[child],tasks:[task]}};
+  };
+  const view=await reviewed(p),result=await execute(view.run.id);expect(roles).toEqual(['controller','reviewer']);expect(result.status).toBe(action==='stop'?'denied':'failed');expect(result.execution.state.tasks['inspect-a']!.status).toBe('denied');expect(result.execution.state.graph?.admissions??[]).toHaveLength(0);expect(result.execution.events.filter(e=>e.change.type==='task_started')).toHaveLength(1);expect(commands.runIsolatedCommand).not.toHaveBeenCalled();expect(fs.existsSync(join(project,'a/child.txt'))).toBe(false);
+  if(action==='decompose')expect(result.execution.state.supervision?.halt?.reason).toContain('no child admission');
+  const before=requests.length,rows:any[]=[];expect(await runOrchestrationCommand('run',['replay',view.run.id,'--json'],{cwd:project,store:new RunStore(runs.root),write:text=>rows.push(JSON.parse(text))})).toBe(0);expect(rows.at(-1).version).toBe(2);expect(requests.length).toBe(before);
+});
+
 it('applies explicit reviewer approval to the exact replan, retains verification evidence and replays after restart',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1,0];
   decide=async context=>context.role==='reviewer'?'Review notes.\n```json\n'+JSON.stringify({version:1,verdict:'approve',draftHash:context.draftHash,reason:'The original receipt supports the current bounded draft.'})+'\n```\nNo additional authority is requested.':context.round===1?retry(context):keepGoing(context);
@@ -81,7 +96,7 @@ it.each(['reject','stale','ambiguous'])('does not retry a failed worker after a 
 });
 it('cancels an in-flight reviewer before a verdict can authorize another worker attempt',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];const aborter=new AbortController();
-  decide=async(context,signal)=>{if(context.role==='controller')return retry(context);aborter.abort();throw signal.reason;};
+  decide=async(context,signal)=>{expect(context.availability.retryTasks[0].status).toBe('possible');if(context.role==='controller')return retry(context);aborter.abort();throw signal.reason;};
   const view=await reviewed(p),result=await execute(view.run.id,{signal:aborter.signal});expect(result.status).toBe('cancelled');expect(result.execution.events.filter(e=>e.change.type==='task_reset')).toHaveLength(0);expect(result.execution.state.supervision?.halt?.outcome).toBe('cancelled');
 });
 it('rejects a truncated reviewer verdict while retaining usage and the original failed task',async()=>{

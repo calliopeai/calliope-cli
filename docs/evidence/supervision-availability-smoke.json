@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "kind": "offline-controller-availability-inspection",
+  "passed": true,
+  "nativeRecursiveScenarioPassed": false,
+  "newProviderRequests": 0,
+  "sourceRunId": "599c7dd5-1f68-43dc-b97a-d1d6d626842b",
+  "sourceStudy": "../reports/native-supervision-2026-09-14.json",
+  "originalNativeArchiveManifestSha256": "65d3240edf93eb0fb2421763a5e68a25fff4b21c519987bc631f11cf777bf7a3",
+  "inspectedHistoryUnchanged": true,
+  "inspectorReportSha256": "4e73c1d5d1ef63b4450d0dfad241cdee1067ef8a9d5bf6909d469ea1101314bb",
+  "observations": [
+    {
+      "role": "controller",
+      "eventId": "1b900b05-bda4-4c36-9c16-f5e9ad9cc413",
+      "eventHash": "61cc982c018568b15afd21fb1e69f70b5308937518b4a2c11495d813e7b3e907",
+      "originalContextSha256": "4c4b7fc6a1966a805fb3f12682b93cfd953f528c1448c16218a4c5233535dff0",
+      "executionRevision": "61cc982c018568b15afd21fb1e69f70b5308937518b4a2c11495d813e7b3e907",
+      "observedAt": 1789344588652,
+      "blockedParent": {
+        "id": "worker",
+        "status": "blocked",
+        "reason": "This agent or an ancestor is stopped or escalated.",
+        "remainingChildren": 1,
+        "remainingDepth": 1,
+        "deadline": 1789346376196
+      },
+      "retry": {
+        "id": "fix",
+        "actions": [
+          "replan"
+        ],
+        "status": "blocked",
+        "reason": "Supervised retry requires a failed, unconsumed task with attempts remaining."
+      },
+      "remainingCapacity": {
+        "agents": 1,
+        "tasks": 1
+      }
+    },
+    {
+      "role": "reviewer",
+      "eventId": "8ce17703-2f7c-45b3-a077-5a7404dc339e",
+      "eventHash": "6b0c537f94f9df6559cb14a922b28c502f6450ac6d59856f85d4708b9a57e88e",
+      "originalContextSha256": "2b121f0b643b223ce15004b1ee8025bcc7635faafe254a3ce82de0911e933513",
+      "executionRevision": "6b0c537f94f9df6559cb14a922b28c502f6450ac6d59856f85d4708b9a57e88e",
+      "observedAt": 1789344609907,
+      "blockedParent": {
+        "id": "worker",
+        "status": "blocked",
+        "reason": "This agent or an ancestor is stopped or escalated.",
+        "remainingChildren": 1,
+        "remainingDepth": 1,
+        "deadline": 1789346376196
+      },
+      "retry": {
+        "id": "fix",
+        "actions": [
+          "replan"
+        ],
+        "status": "blocked",
+        "reason": "Supervised retry requires a failed, unconsumed task with attempts remaining."
+      },
+      "remainingCapacity": {
+        "agents": 1,
+        "tasks": 1
+      }
+    }
+  ],
+  "limitations": [
+    "The new availability is derived offline from original validated execution snapshots; it was not present in the old model request.",
+    "Original native decompose approvals and the executor refusal remain unchanged. No native child admission or nested recovery is claimed.",
+    "Passing preliminary state checks does not authorize mutation or replace current budget, scope, evidence and policy checks."
+  ]
+}
