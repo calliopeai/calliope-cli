@@ -4,6 +4,7 @@ import type {TaskState} from '../orchestration/coordinator-types.js';
 import type {SupervisionDecision,SupervisionPolicy,SupervisionProjection,SupervisionRole} from './types.js';
 import type {improvementFeedback} from '../improvement/feedback.js';
 import type {reviewEvidence} from './evidence.js';
+import type {SupervisionAvailability} from './availability.js';
 
 /** Hashes identify omitted data; they never replace acceptance checks or authorize work. */
 function reference(text:string) {return{bytes:Buffer.byteLength(text),sha256:digest(text)};}
@@ -14,6 +15,7 @@ function input(value:AgentInput) {
 export interface ControllerContextInput {
   role:SupervisionRole;round:number;plan:ProjectPlan;tasks:Record<string,TaskState>;
   improvements?:ReturnType<typeof improvementFeedback>;
+  availability?:SupervisionAvailability;
   goalAccounting?:import('../goals/accounting.js').GoalAccounting;
   outcomes:Awaited<ReturnType<typeof reviewEvidence>>;draft?:SupervisionDecision|null;
   budget:{deadline:number;spent:unknown;accounts:unknown};strategies:SupervisionProjection['strategies'];
@@ -31,6 +33,7 @@ export function buildControllerContext(value:ControllerContextInput) {
   const content=JSON.stringify({version:1,kind:'controller-review',role:value.role,round:value.round,principle:policy!.principle,policy,
     plan:{...plan,agents:plan.agents.map(a=>({...a,inputs:a.inputs.map(input)})),tasks:plan.tasks.map(t=>({...t,inputs:t.inputs.map(input)}))},
     planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft,draftHash:digest(canonicalJson(value.draft))}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),
+    ...(value.availability?{availability:value.availability}:{}),
     omissions:'Long text inputs and worker prose are referenced by hash; task outputs are represented by outcomes. Acceptance criteria and authority are complete. Stop if omitted data is needed to decide safely.'});
   const bytes=Buffer.byteLength(content);
   if(bytes>1024*1024)throw new OrchestrationError('limit','Controller context exceeds 1 MiB; reduce the reviewed graph.');
@@ -47,6 +50,7 @@ export function controllerInstructions(policy:SupervisionPolicy,role:Supervision
     'Continue asks the executor to check acceptance and advance; it never declares completion. Stop when unsafe effects, insufficient evidence or exhausted authority prevent safe progress. Preserve all reviewed acceptance criteria, scopes, accounts, retry limits, budgets and original deadlines.',
     'Use the reviewed optimization principle and recorded improvement measurements to choose the next bounded hypothesis. Comparisons are observations, not proof of causality; missing or non-comparable measurements cannot establish improvement.',
     'The reviewer independently evaluates the draft against the recorded evidence. Executor receipts report observed process results; worker prose cannot establish a pass. Omitted or truncated data is not evidence of absence.',
+    'Use the executor availability snapshot when present. Never propose or approve an action marked blocked; revise or stop instead. Possible is preliminary, not authorization: remaining evidence, scopes, budgets, grants and current policy still apply. A denied or escalated parent is not permission to delegate around that denial.',
   ];
   if(policy.allowedActions.some(a=>a==='retry'||a==='replan'))instructions.push('For retry or replan, the only additional JSON fields are taskId, hypothesis and expectedMetric:{name,direction:"increase"|"decrease"}. Put current failed-task event IDs in evidence and verify process cleanup from the recorded receipts; do not add evidence or cleanup fields.');
   if(policy.allowedActions.includes('replan'))instructions.push('Replan additionally requires strategy.');

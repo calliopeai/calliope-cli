@@ -28,6 +28,7 @@ import {SpawnProposalStore} from '../spawning/store.js';
 import {supervisionEvidence} from './journal.js';
 import {parseSupervisionReply} from './reply.js';
 import {buildControllerContext,controllerInstructions} from './context.js';
+import {supervisionAvailability} from './availability.js';
 import {reviewEvidence,retryEvidence} from './evidence.js';
 import type {SupervisionRole,SupervisionProjection} from './types.js';
 
@@ -51,12 +52,12 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     check();
     const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,requestAttribution:1},controller.signal,undefined,check);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
-    const current=store.read(),accounting=readRunAccounting(store,current);
-    const {content,metrics}=buildControllerContext({role,round,plan,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,context,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
+    const current=store.read(),reviewContext=store.context(current),reviewPlan=reviewContext.plan,accounting=readRunAccounting(store,current),availability=supervisionAvailability(reviewPlan,current,Date.now());
+    const {content,metrics}=buildControllerContext({role,round,plan:reviewPlan,availability,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,reviewContext,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
     const reasoningEffort=policy.reasoningEffort?.[role];
     log.policyEvent({tool:'controller',source:'controller-context',decision:'allow',reason:JSON.stringify({...metrics,role,round,reasoningEffort}),durationMs:0});
     const messages:{current:Message[]}={current:[{role:'system',content:controllerInstructions(policy,role)},{role:'user',content}]};
-    if(plan.agents.some(a=>a.routing))messages.current[0]!.content+='\nSmart routing: proposed children must inherit or narrow their parent childRouting policy, or the parent routing policy when childRouting is absent. Copy the policy into every child routing field. Explicit child model pins and further childRouting grants must stay within that delegation authority. Your own inference pool does not replace the declared worker delegation pool.';
+    if(reviewPlan.agents.some(a=>a.routing))messages.current[0]!.content+='\nSmart routing: proposed children must inherit or narrow their parent childRouting policy, or the parent routing policy when childRouting is absent. Copy the policy into every child routing field. Explicit child model pins and further childRouting grants must stay within that delegation authority. Your own inference pool does not replace the declared worker delegation pool.';
     messages.current[0]!.content+='\n'+formatRepositoryInstructions(loadRepositoryInstructions(context.project.root));
     const preference=resolvePreferences(context.project.root,{turn:agentPreference(plan,agentId)});
     const smart=agent.routing?taskSmartSelection(agent.routing,view.events):undefined;
@@ -68,7 +69,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const result=await runTurn({smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agentId,session.id,decision,controller.signal,check)}:{}),cwd:context.project.root,sessionId:session.id,execution,reasoningEffort,provider:preference.provider,model:preference.model,messages,prompt:role==='reviewer'?'Review the supplied controller draft and return one explicit reviewer verdict bound to draftHash.':'Review the recorded outcomes and return one bounded decision.',tools:()=>[],onToolStart:()=>{throw new SessionPolicyError();},beforeTool:()=>{throw new SessionPolicyError();},maxIterations:1,maxRetries:0,parallel:false,mode:options.mode,confirmation:'mutating',signal:controller.signal,runlog:log,onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;}});
     check();if(result.reason!=='completed')throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
     const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;
-    const decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan,evidenceIds:new Set(evidence.ids)});
+    const decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan:reviewPlan,evidenceIds:new Set(evidence.ids)});
     await store.append({type:'supervision_decided',round,role,agentId,sessionId:session.id,decision},controller.signal,undefined,check);
   }catch(error){throw authorityError??error;}
   finally{clearInterval(timer);clearTimeout(deadline);options.signal?.removeEventListener('abort',abort);await log.flush();}
