@@ -1,0 +1,435 @@
+{
+  "version": 1,
+  "recordedAt": "2026-09-14T00:11:29.535322+00:00",
+  "issue": 336,
+  "kind": "native-supervision-study",
+  "recursiveScenarioPassed": false,
+  "reviewerProtocolObserved": true,
+  "codeGates": "/docs/reviewer-verdicts.md",
+  "routing": "Smart is opt-in; all native models in this study are explicitly pinned.",
+  "nativeRequestCount": 16,
+  "observedTokens": 108236,
+  "retainedReservationNanoUsd": 5594010400,
+  "budget": {
+    "followupLimitNanoUsd": 50000000000,
+    "cumulativeLimitNanoUsd": 500000000000,
+    "followupRetainedNanoUsd": 41767230776,
+    "cumulativeRetainedNanoUsd": 93363961017,
+    "reservations": 872
+  },
+  "experiments": [
+    {
+      "id": "336a",
+      "scope": "planning and execution",
+      "goalId": "838abb63-0888-4a66-9591-52e093130a58",
+      "runId": null,
+      "recursiveScenarioPassed": false,
+      "observation": "Planning stopped at the 6144-token output limit; paid-request cap prevented repair. No worker ran. Two later internal failed reservations were wrapper policy rejections, not extra wire requests.",
+      "requests": [
+        {
+          "id": "f16e6075-8aff-457c-b174-5b0ba2330106",
+          "phase": "plan",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-13T23:34:33.964Z",
+          "httpStatus": 200,
+          "finishReason": "tool_use",
+          "inputCount": 6145,
+          "inputReservation": 13314,
+          "outputReservation": 6144,
+          "reservedNanoUsd": 573480000,
+          "actualTokens": 6415
+        },
+        {
+          "id": "091ec53b-229d-48ec-93c8-41347374718c",
+          "phase": "plan",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-13T23:34:40.422Z",
+          "httpStatus": 200,
+          "finishReason": "max_tokens",
+          "inputCount": 6909,
+          "inputReservation": 14842,
+          "outputReservation": 6144,
+          "reservedNanoUsd": 604040000,
+          "actualTokens": 13053
+        }
+      ],
+      "nativeRequestCount": 2,
+      "observedTokens": 19468,
+      "retainedReservationNanoUsd": 1177520000,
+      "externalReservationCapNanoUsd": 5000000000,
+      "privateEvidence": {
+        "archive": "failed-838abb63-0888-4a66-9591-52e093130a58",
+        "manifestSha256": "eedfd175cecb9c79ce3588cb0696ffc59037b4727308294f45baedf76402d7ae"
+      }
+    },
+    {
+      "id": "336b",
+      "scope": "planning and execution",
+      "goalId": "c2efc8e2-01c6-4fcf-95f8-07d8f010cdc8",
+      "runId": "ff482734-4060-4e8c-a72f-771acb590031",
+      "recursiveScenarioPassed": false,
+      "observation": "Planning needed an explicitly recorded operator correction. Worker output truncated; executor retained empty patch and real failed check. Controller proposed decomposition, but the old reviewer reply was fenced legacy continue plus prose. It failed parsing and never authorized a child.",
+      "requests": [
+        {
+          "id": "8ec25425-4b05-4301-af18-1ac715cdfee4",
+          "phase": "plan",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-13T23:40:25.662Z",
+          "httpStatus": 200,
+          "finishReason": "tool_use",
+          "inputCount": 5173,
+          "inputReservation": 11370,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 637000000,
+          "actualTokens": 5490
+        },
+        {
+          "id": "27319039-b7a0-4f32-b113-970a76048eb1",
+          "phase": "plan",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-13T23:40:32.226Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 5933,
+          "inputReservation": 12890,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 667400000,
+          "actualTokens": 10147
+        },
+        {
+          "id": "fd1a4054-0265-4771-ba0a-b6bf98e258c9",
+          "phase": "approve",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-13T23:46:19.960Z",
+          "httpStatus": 200,
+          "finishReason": "length",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 2048,
+          "reservedNanoUsd": 317030400,
+          "actualTokens": 3455
+        },
+        {
+          "id": "ee565ef8-fb31-4249-99a7-440da07a6dd9",
+          "phase": "approve",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-13T23:46:30.769Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 5403,
+          "inputReservation": 11830,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 390200000,
+          "actualTokens": 6991
+        },
+        {
+          "id": "5ee8acba-e44b-4da0-8bf5-5d034e50d5ba",
+          "phase": "approve",
+          "provider": "anthropic",
+          "model": "claude-haiku-4-5-20251001",
+          "at": "2026-09-13T23:46:51.881Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 4549,
+          "inputReservation": 10122,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 35604000,
+          "actualTokens": 4957
+        }
+      ],
+      "nativeRequestCount": 5,
+      "observedTokens": 31040,
+      "retainedReservationNanoUsd": 2047234400,
+      "externalReservationCapNanoUsd": 5000000000,
+      "privateEvidence": {
+        "archive": "failed-execution-ff482734-4060-4e8c-a72f-771acb590031",
+        "manifestSha256": "7b1a57f685e566ad631dc53eae04e85f5722491eb7a28975d2ea0363c5dbfb46"
+      }
+    },
+    {
+      "id": "336c",
+      "scope": "execution of operator-reviewed native draft",
+      "goalId": null,
+      "runId": "f1a0c003-b1b6-4016-ade2-2ef7838ca701",
+      "recursiveScenarioPassed": false,
+      "observation": "The worker completed the original task on its first attempt, changing clamp and diagnosis files in isolation. The clamp check passed. Fable continued and Haiku explicitly approved the exact draft hash. No child or nested retry ran; the recursive scenario assertion failed.",
+      "requests": [
+        {
+          "id": "591de0eb-9ab6-417a-b204-6d131bb1499b",
+          "phase": "execute",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-14T00:06:00.158Z",
+          "httpStatus": 200,
+          "finishReason": "tool_calls",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 324403200,
+          "actualTokens": 3368
+        },
+        {
+          "id": "c1c8046b-d2cb-4d4a-8d54-1d0e36e3faa4",
+          "phase": "execute",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-14T00:06:10.267Z",
+          "httpStatus": 200,
+          "finishReason": "tool_calls",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 324403200,
+          "actualTokens": 10188
+        },
+        {
+          "id": "8e4e1038-2494-4af0-821b-c22b70f9f617",
+          "phase": "execute",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-14T00:06:39.464Z",
+          "httpStatus": 200,
+          "finishReason": "tool_calls",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 324403200,
+          "actualTokens": 10437
+        },
+        {
+          "id": "082358fb-e71c-436d-ae4d-8e538472d4e7",
+          "phase": "execute",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-14T00:06:41.072Z",
+          "httpStatus": 200,
+          "finishReason": "stop",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 324403200,
+          "actualTokens": 12300
+        },
+        {
+          "id": "18a1f46e-aca7-4915-a4c9-513c491748fe",
+          "phase": "execute",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-14T00:06:50.641Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 4697,
+          "inputReservation": 10418,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 361960000,
+          "actualTokens": 4973
+        },
+        {
+          "id": "f997dbf8-74c0-4635-9e62-f4d28e619804",
+          "phase": "execute",
+          "provider": "anthropic",
+          "model": "claude-haiku-4-5-20251001",
+          "at": "2026-09-14T00:06:56.417Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 3513,
+          "inputReservation": 8050,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 31460000,
+          "actualTokens": 3651
+        }
+      ],
+      "nativeRequestCount": 6,
+      "observedTokens": 44917,
+      "retainedReservationNanoUsd": 1691032800,
+      "externalReservationCapNanoUsd": 5000000000,
+      "privateEvidence": {
+        "archive": "observed-f1a0c003-b1b6-4016-ade2-2ef7838ca701",
+        "manifestSha256": "c485b28a1b2edec7a701b2c9cb08147595b6ae5054872b389fcddbffc09dfba8"
+      },
+      "planOrigin": {
+        "goalId": "c2efc8e2-01c6-4fcf-95f8-07d8f010cdc8",
+        "kind": "operator-corrected-native-draft",
+        "sha256": "b8be92772fd0f2d5664de6663ccf4dcedbfab1b9723749d6bafde6319e6a9d0e"
+      },
+      "nativePlanningRequests": 0,
+      "offlineInspection": {
+        "requests": 0,
+        "historyUnchanged": true,
+        "sourceUnchanged": true,
+        "reviewerProof": {
+          "round": 1,
+          "eventId": "d50b2907-ad35-4b26-946d-09162b83acce",
+          "sessionId": "session_1789344416121_30e5959b-9882-4c81-a87e-539aaed38eb6",
+          "draftHash": "2684d206096faacb69703d66419169d799925359660ec21056236091a190f042",
+          "replySha256": "ca7c69b9403b915f838fbe05f78af86e114c437bc613d329b9d377bbec517ca3",
+          "verdict": "approve",
+          "action": "continue"
+        },
+        "artifactProof": [
+          {
+            "id": "fix-tests",
+            "sha256": "0e8cfb4a93c1c89031c13ed6fdd435d51dd7ba36f1199c47625216ca5d76b391",
+            "eventId": "c9c2b34d-4201-4a5a-aeae-a0c23fee3af7",
+            "bytes": 732
+          },
+          {
+            "id": "clamp-src",
+            "sha256": "1668600427a6527e9cc16c5e553b43113c3d8f7b1c0fa70e5c3ad6ee8e390c55",
+            "eventId": "47ffcd93-4d47-4890-9321-538801432a3b",
+            "bytes": 85
+          },
+          {
+            "id": "fix-patch",
+            "sha256": "2f8d3a73824d43c51892b73141ba94dc94ce7fb42e2b7fd5f0b98849f49efaee",
+            "eventId": "9945620b-2511-449b-8cec-12f18c159d98",
+            "bytes": 510
+          }
+        ],
+        "hud": {
+          "executionUpdates": 1029,
+          "rendered": true
+        }
+      },
+      "accounting": {
+        "scope": "this execution only; prior planning/study costs excluded",
+        "accounted": {
+          "tokens": 44917,
+          "costNanos": 135678700
+        },
+        "requests": {
+          "pending": 0,
+          "settled": 6,
+          "unknown": 0,
+          "exceeded": 0
+        }
+      }
+    },
+    {
+      "id": "336d",
+      "scope": "execution of operator-reviewed native draft",
+      "goalId": null,
+      "runId": "599c7dd5-1f68-43dc-b97a-d1d6d626842b",
+      "recursiveScenarioPassed": false,
+      "observation": "Worker attempted read_file on package.json outside its allowed paths and was denied. Fable proposed decomposition and Haiku approved the exact draft hash, but executor admission refused the escalated parent. No child, retry or verification command ran.",
+      "requests": [
+        {
+          "id": "abebf4a5-5fa5-4038-960a-2206866a226d",
+          "phase": "execute",
+          "provider": "deepseek",
+          "model": "deepseek-flash",
+          "at": "2026-09-14T00:09:37.924Z",
+          "httpStatus": 200,
+          "finishReason": "tool_calls",
+          "inputCount": null,
+          "inputReservation": 1048576,
+          "outputReservation": 8192,
+          "reservedNanoUsd": 324403200,
+          "actualTokens": 3983
+        },
+        {
+          "id": "5f83a5b5-8ce3-4c48-89ff-d78d0acee27d",
+          "phase": "execute",
+          "provider": "anthropic",
+          "model": "claude-fable-5-1",
+          "at": "2026-09-14T00:09:48.956Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 3727,
+          "inputReservation": 8478,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 323160000,
+          "actualTokens": 5407
+        },
+        {
+          "id": "d37dcd48-da25-455e-bc22-aabff4f60d57",
+          "phase": "execute",
+          "provider": "anthropic",
+          "model": "claude-haiku-4-5-20251001",
+          "at": "2026-09-14T00:10:10.221Z",
+          "httpStatus": 200,
+          "finishReason": "end_turn",
+          "inputCount": 3313,
+          "inputReservation": 7650,
+          "outputReservation": 3072,
+          "reservedNanoUsd": 30660000,
+          "actualTokens": 3421
+        }
+      ],
+      "nativeRequestCount": 3,
+      "observedTokens": 12811,
+      "retainedReservationNanoUsd": 678223200,
+      "externalReservationCapNanoUsd": 5000000000,
+      "privateEvidence": {
+        "archive": "observed-599c7dd5-1f68-43dc-b97a-d1d6d626842b",
+        "manifestSha256": "65d3240edf93eb0fb2421763a5e68a25fff4b21c519987bc631f11cf777bf7a3"
+      },
+      "planOrigin": {
+        "goalId": "c2efc8e2-01c6-4fcf-95f8-07d8f010cdc8",
+        "kind": "operator-staged-native-draft",
+        "parentSha256": "b8be92772fd0f2d5664de6663ccf4dcedbfab1b9723749d6bafde6319e6a9d0e",
+        "sha256": "cfd5de61aaa6db5a857c511e3ee105bd39aefe33afa3ee51e05b31a3e453a760"
+      },
+      "nativePlanningRequests": 0,
+      "offlineInspection": {
+        "requests": 0,
+        "historyUnchanged": true,
+        "sourceUnchanged": true,
+        "reviewerProof": {
+          "round": 1,
+          "eventId": "785523d8-b2a2-49b9-ae10-983371144275",
+          "sessionId": "session_1789344609901_9c8a2b90-14c9-4c54-93ae-c5c8dd8f02c4",
+          "draftHash": "4d5015213db8688fde4c986ed8b601f1ac702fc9c7f502d04224a65927872b6a",
+          "replySha256": "1b73966889bb2a1aa19c43a1cd7c09a90675e4b5470afba68bf4b7e4c6fbec31",
+          "verdict": "approve",
+          "action": "decompose"
+        },
+        "artifactProof": [],
+        "hud": {
+          "executionUpdates": 448,
+          "rendered": true
+        }
+      },
+      "accounting": {
+        "scope": "this execution only; prior planning/study costs excluded",
+        "accounted": {
+          "tokens": 12811,
+          "costNanos": 169036600
+        },
+        "requests": {
+          "pending": 0,
+          "settled": 3,
+          "unknown": 0,
+          "exceeded": 0
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "This deliberately staged fixture is protocol evidence, not a general model reliability benchmark.",
+    "Native child admission and nested recovery are not established by this study and remain open.",
+    "Automatic native planning did not pass. Operator changes and original failures remain preserved.",
+    "The runtime normalizes hash-bound approval, then applies independent execution policy. A model approval cannot bypass an escalated parent.",
+    "Retained reservations are conservative budget charges, not vendor invoices; failed and unknown reservations were not reset.",
+    "No xAI or OpenRouter paid requests. No more paid probes in this validation batch.",
+    "Full provider publication conformance remains unsatisfied: 16 missing wire cells and 33 semantic cells."
+  ],
+  "localChecks": {
+    "testsPassed": 5424,
+    "testsSkipped": 6,
+    "testFiles": 207,
+    "conformancePassed": 538,
+    "conformanceSkipped": 2,
+    "cleanDistFilesMatched": 1072,
+    "sourceAndCleanSdkDockerSmoke": true,
+    "legacyNativeReplayUnchanged": true,
+    "knownKeyScanMatches": 0,
+    "networkUseInOfflineInspections": 0
+  }
+}

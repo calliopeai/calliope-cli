@@ -25,7 +25,7 @@ it('removes repeated transcripts while retaining exact acceptance, scopes, limit
 it('keeps short inputs, prior strategies, reviewer drafts and pending task state; rejects oversized contracts',()=>{
   const v=fixture();v.plan.tasks[0]!.inputs=[{id:'note',kind:'text',value:'brief reference'}];v.outcomes[0]!.summary='brief claim';v.tasks.pending={...Object.values(v.tasks)[0]!,id:'pending',output:null};
   v.draft={version:1,action:'continue',reason:'Inspect checks.',evidence:[eventId]};v.role='reviewer';v.strategies={a:{decisionId:eventId,strategy:'Retain boundary checks.',evidence:[eventId]}};
-  const c=JSON.parse(buildControllerContext(v).content);expect(c.draft).toEqual(v.draft);expect(c.strategies).toEqual(v.strategies);expect(c.tasks.pending).not.toHaveProperty('outputReference');expect(c.outcomes[0].summary).toBe('brief claim');
+  const c=JSON.parse(buildControllerContext(v).content);expect(c.draft).toEqual(v.draft);expect(c.draftHash).toBe(digest(canonicalJson(v.draft)));expect(c.strategies).toEqual(v.strategies);expect(c.tasks.pending).not.toHaveProperty('outputReference');expect(c.outcomes[0].summary).toBe('brief claim');
   v.plan.goal='x'.repeat(1024*1024);expect(()=>buildControllerContext(v)).toThrow('1 MiB');
 });
 it('exposes continue/stop independently and renders only permitted optional decision shapes',()=>{
