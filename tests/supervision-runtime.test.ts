@@ -58,6 +58,45 @@ afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.useRealTi
 async function reviewed(p=plan()){fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const view=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,view.run.id,'approved',{store:runs});}
 const execute=(id:string,extra={})=>executeReviewedRun(project,id,{store:runs,approve:async()=> 'allow',...extra});
 
+it('applies explicit reviewer approval to the exact replan, retains verification evidence and replays after restart',async()=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1,0];
+  decide=async context=>context.role==='reviewer'?'Review notes.\n```json\n'+JSON.stringify({version:1,verdict:'approve',draftHash:context.draftHash,reason:'The original receipt supports the current bounded draft.'})+'\n```\nNo additional authority is requested.':context.round===1?retry(context):keepGoing(context);
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');
+  expect(result.execution.events.filter(e=>e.change.type==='task_finished').map(e=>e.change.type==='task_finished'&&e.change.status)).toEqual(['failed','completed']);
+  const decisions=result.execution.events.filter(e=>e.change.type==='supervision_decided'&&e.change.role==='reviewer');expect(decisions.map(e=>e.change.type==='supervision_decided'&&e.change.decision.action)).toEqual(['replan','continue']);
+  expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(2);expect(result.execution.events.some(e=>e.change.type==='supervision_applied'&&e.change.decisionId===decisions[0]!.id)).toBe(true);expect(fs.existsSync(join(project,'a/report.txt'))).toBe(false);
+  const count=requests.length,restarted=new ExecutionStore(join(runs.root,view.run.id),view.manifest).read();expect(replayExecution(restarted.header,view.manifest,restarted.events)).toEqual(restarted.state);
+  const rows:any[]=[];expect(await runOrchestrationCommand('run',['replay',view.run.id,'--json'],{cwd:project,store:new RunStore(runs.root),write:s=>rows.push(JSON.parse(s))})).toBe(0);expect(rows.at(-1).version).toBe(2);expect(requests).toHaveLength(count);
+});
+it.each(['reject','stale','ambiguous'])('does not retry a failed worker after a %s reviewer reply',async kind=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];
+  decide=async context=>{
+    if(context.role==='controller')return retry(context);
+    const verdict={version:1,verdict:kind==='reject'?'reject':'approve',draftHash:kind==='stale'?'0'.repeat(64):context.draftHash,reason:'Stop for operator inspection.'};
+    const block='```json\n'+JSON.stringify(verdict)+'\n```';return kind==='ambiguous'?block+'\n'+block:verdict;
+  };
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).not.toBe('completed');expect(result.execution.state.supervision?.halt?.outcome).toBe(kind==='reject'?'stop':'failed');
+  expect(result.execution.events.filter(e=>e.change.type==='task_reset')).toHaveLength(0);expect(result.execution.events.filter(e=>e.change.type==='task_started')).toHaveLength(1);expect(fs.existsSync(join(project,'a/report.txt'))).toBe(false);
+  if(kind!=='reject')expect(result.execution.state.supervision?.halt?.reason).toContain('Reviewer');
+});
+it('cancels an in-flight reviewer before a verdict can authorize another worker attempt',async()=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];const aborter=new AbortController();
+  decide=async(context,signal)=>{if(context.role==='controller')return retry(context);aborter.abort();throw signal.reason;};
+  const view=await reviewed(p),result=await execute(view.run.id,{signal:aborter.signal});expect(result.status).toBe('cancelled');expect(result.execution.events.filter(e=>e.change.type==='task_reset')).toHaveLength(0);expect(result.execution.state.supervision?.halt?.outcome).toBe('cancelled');
+});
+it('rejects a truncated reviewer verdict while retaining usage and the original failed task',async()=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];
+  decide=async context=>context.role==='reviewer'?{version:1,verdict:'approve',draftHash:context.draftHash,reason:'The draft is bounded.'}:retry(context);
+  const transport=fetch;vi.stubGlobal('fetch',async(input,init)=>{const response=await transport(input,init),body=await response.clone().json();if(body.model==='reviewer-toy'){body.choices[0].finish_reason='length';return json(body);}return response;});
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.execution.state.supervision?.halt).toMatchObject({outcome:'failed',reason:'Reviewer stopped: length.'});expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(1);
+  const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(Object.values(ledger.projection.requests).filter(r=>r.reservation.agentId==='reviewer').map(r=>r.state)).toEqual(['settled']);
+});
+it('denies model-requested tools from a reviewer even when its JSON verdict approves the draft',async()=>{
+  const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];
+  decide=async context=>{if(context.role==='controller')return retry(context);controllerTool=true;return{version:1,verdict:'approve',draftHash:context.draftHash,reason:'The draft is bounded.'};};
+  const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).toBe('denied');expect(result.execution.state.supervision?.halt?.outcome).toBe('denied');expect(fs.existsSync(join(project,'forbidden.txt'))).toBe(false);expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(1);
+});
+
 it('uses reviewed limits for ID-only worker, controller and reviewer discovery with replayable reservations',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
   const original=fetch;vi.stubGlobal('fetch',vi.fn(async(input,init)=>new Request(input,init).url.endsWith('/models')?json({data:['worker-toy','controller-toy','reviewer-toy'].map(id=>({id}))}):original(input,init)));
