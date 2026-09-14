@@ -5,6 +5,7 @@ import type {SupervisionDecision,SupervisionPolicy,SupervisionProjection,Supervi
 import type {improvementFeedback} from '../improvement/feedback.js';
 import type {reviewEvidence} from './evidence.js';
 import type {SupervisionAvailability} from './availability.js';
+import {supervisionDraftEffect} from './effects.js';
 
 /** Hashes identify omitted data; they never replace acceptance checks or authorize work. */
 function reference(text:string) {return{bytes:Buffer.byteLength(text),sha256:digest(text)};}
@@ -32,7 +33,7 @@ export function buildControllerContext(value:ControllerContextInput) {
   });
   const content=JSON.stringify({version:1,kind:'controller-review',role:value.role,round:value.round,principle:policy!.principle,policy,
     plan:{...plan,agents:plan.agents.map(a=>({...a,inputs:a.inputs.map(input)})),tasks:plan.tasks.map(t=>({...t,inputs:t.inputs.map(input)}))},
-    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft,draftHash:digest(canonicalJson(value.draft))}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),
+    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft,draftHash:digest(canonicalJson(value.draft)),draftEffect:supervisionDraftEffect(value.draft,value.plan,new Set(outcomes.map(o=>o.eventId)))}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),
     ...(value.availability?{availability:value.availability}:{}),
     omissions:'Long text inputs and worker prose are referenced by hash; task outputs are represented by outcomes. Acceptance criteria and authority are complete. Stop if omitted data is needed to decide safely.'});
   const bytes=Buffer.byteLength(content);
@@ -51,8 +52,10 @@ export function controllerInstructions(policy:SupervisionPolicy,role:Supervision
     'Use the reviewed optimization principle and recorded improvement measurements to choose the next bounded hypothesis. Comparisons are observations, not proof of causality; missing or non-comparable measurements cannot establish improvement.',
     'The reviewer independently evaluates the draft against the recorded evidence. Executor receipts report observed process results; worker prose cannot establish a pass. Omitted or truncated data is not evidence of absence.',
     'Use the executor availability snapshot when present. Never propose or approve an action marked blocked; revise or stop instead. Possible is preliminary, not authorization: remaining evidence, scopes, budgets, grants and current policy still apply. A denied or escalated parent is not permission to delegate around that denial.',
+    'Use draftEffect when reviewing the exact draft. This description grants no authority and never overrides an independent rejection or executor check.',
   ];
-  if(policy.allowedActions.some(a=>a==='retry'||a==='replan'))instructions.push('For retry or replan, the only additional JSON fields are taskId, hypothesis and expectedMetric:{name,direction:"increase"|"decrease"}. Put current failed-task event IDs in evidence and verify process cleanup from the recorded receipts; do not add evidence or cleanup fields.');
+  if(policy.allowedActions.some(a=>a==='retry'||a==='replan'))instructions.push('For retry or replan, the only additional JSON fields are taskId, hypothesis and expectedMetric:{name,direction:"increase"|"decrease"}. Put current failed-task event IDs in evidence and verify process cleanup from the recorded receipts; do not add evidence or cleanup fields.',
+    'Retry and replan request one attempt of taskId without creating agents or tasks; future work mentioned in strategy prose is not scheduled by that decision. Agent/task count limits constrain new admissions, while maxConcurrent bounds scheduling. A full graph can still permit an existing task retry.');
   if(policy.allowedActions.includes('replan'))instructions.push('Replan additionally requires strategy.');
   if(policy.allowedActions.includes('decompose'))instructions.push('Decompose requires children:{version:1,parentId,agents,tasks}, hypothesis, expectedMetric:{name,direction:"increase"|"decrease"}. Children obey the full reviewed agent/task contracts and remaining depth/count/budgets; existing failed tasks remain required.');
   return instructions.join('\n');

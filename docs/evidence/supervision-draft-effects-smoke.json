@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "passed": true,
+  "kind": "offline-derivation-from-native-failure",
+  "nativeRunId": "88f2b462-c2e5-4f02-bf98-e87acd347915",
+  "originalRuntimeCommit": "5783962b83af0d5d7323158d5f358f167fb57798",
+  "reviewerEventId": "66a95f74-7ba0-48dc-8186-60ac490d5ee7",
+  "originalReplySha256": "6f4c58f648971d45dc4fd4ec297757fc893732806772b135b0e5c19120bec808",
+  "originalReplyContainedDraftEffect": false,
+  "originalRejectedAction": "replan",
+  "originalFinalAction": "stop",
+  "nativeNestedRecovery": false,
+  "originalFailurePreserved": true,
+  "derivedDraftEffect": {
+    "version": 1,
+    "draftHash": "2b6b4e3110b1f71aa7958ea44d89ff427e3b62fbeb3a9558f79e0f2ba40762f3",
+    "action": "replan",
+    "retryTaskIds": [
+      "diagnose"
+    ],
+    "newAgentIds": [],
+    "newTaskIds": [],
+    "maxConcurrent": 1,
+    "summary": "Requests one new attempt of the named existing task; creates no agents or tasks. Other tasks are not retried by this decision. Strategy text guides that attempt; references to later work do not schedule later actions."
+  },
+  "concurrencyAlreadyRecorded": 1,
+  "retryWasAvailable": true,
+  "remainingAgentCapacity": 0,
+  "providerRequests": 0,
+  "historyAndBudgetUnchanged": true
+}

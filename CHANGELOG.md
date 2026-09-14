@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Describe the exact effect of supervision drafts so reviewers distinguish existing-task retries from new child admissions and future strategy prose; retain independent rejection and all executor gates (#344).
+
 - Add operator-reviewed full-context metadata for bounded calls to providers with incomplete live discovery; preserve live rejections, original budgets, revocation checks and replayable reservation evidence (#337).
 
 - Preserve DeepSeek reasoning metadata across JSON/streaming tool conversations and session recovery; isolate it from other adapters and reject malformed or oversized protocol state without automatic retries (#338).

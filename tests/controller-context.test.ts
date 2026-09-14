@@ -6,6 +6,8 @@ import {verifiedPlan} from './helpers/coordinator-run.js';
 const image='sha256:'+'a'.repeat(64),hash='b'.repeat(64),eventId=randomUUID();
 function fixture():ControllerContextInput {
   const plan=verifiedPlan();plan.version=4;plan.supervision={version:1,controllerId:'coordinator',maxRounds:2,maxStalledRounds:1,maxOutputTokens:512,principle:'robustness',allowedActions:[]};
+  plan.workspace.isolation={version:1,image};
+  for(const task of plan.tasks){task.outputs.push({id:task.id+'-patch',kind:'patch',description:'Retained candidate patch.'});task.isolation={patchArtifactId:task.id+'-patch',commands:[]};}
   plan.tasks[0]!.inputs=[{id:'source',kind:'text',value:'untrusted source '.repeat(1000)},{id:'path',kind:'file',value:'a/input.txt'}];
   const output:any={version:1,taskId:plan.tasks[0]!.id,summary:'untrusted prose '.repeat(1000),artifacts:[],checks:[]};
   return{role:'controller',round:1,plan,tasks:{[output.taskId]:{id:output.taskId,agentId:'a',status:'completed',attempts:1,sessionId:'session',output,escalation:null,artifactIds:[],changedFiles:[],mutations:false}},outcomes:[{eventId,taskId:output.taskId,status:'completed',summary:output.summary,checks:[],risks:['Unresolved risk must remain.'],artifacts:[]}],budget:{deadline:123,spent:{tokens:50},accounts:{a:{tokens:50}}},strategies:{}};
@@ -22,11 +24,11 @@ it('removes repeated transcripts while retaining exact acceptance, scopes, limit
   expect(c.tasks[value.outcomes[0]!.taskId].outputReference.eventId).toBe(eventId);expect(c.tasks[value.outcomes[0]!.taskId].output).toBeUndefined();
   expect(c.outcomes[0].summaryOmitted.sha256).toBe(digest(value.outcomes[0]!.summary!));expect(result.metrics.bytes).toBeLessThan(Buffer.byteLength(JSON.stringify(value))/3);
 });
-it('keeps short inputs, prior strategies, reviewer drafts and pending task state; rejects oversized contracts',()=>{
+it('keeps short inputs, prior strategies, reviewer drafts and pending task state; rejects oversized review context',()=>{
   const v=fixture();v.plan.tasks[0]!.inputs=[{id:'note',kind:'text',value:'brief reference'}];v.outcomes[0]!.summary='brief claim';v.tasks.pending={...Object.values(v.tasks)[0]!,id:'pending',output:null};
   v.draft={version:1,action:'continue',reason:'Inspect checks.',evidence:[eventId]};v.role='reviewer';v.strategies={a:{decisionId:eventId,strategy:'Retain boundary checks.',evidence:[eventId]}};
   const c=JSON.parse(buildControllerContext(v).content);expect(c.draft).toEqual(v.draft);expect(c.draftHash).toBe(digest(canonicalJson(v.draft)));expect(c.strategies).toEqual(v.strategies);expect(c.tasks.pending).not.toHaveProperty('outputReference');expect(c.outcomes[0].summary).toBe('brief claim');
-  v.plan.goal='x'.repeat(1024*1024);expect(()=>buildControllerContext(v)).toThrow('1 MiB');
+  v.outcomes[0]!.risks=['x'.repeat(1024*1024)];expect(()=>buildControllerContext(v)).toThrow('1 MiB');
 });
 it('exposes continue/stop independently and renders only permitted optional decision shapes',()=>{
   const policy=fixture().plan.supervision!;let text=controllerInstructions(policy);
