@@ -98,6 +98,8 @@ with captured controller/reviewer choices, local-image admission and exact-plan 
 or revision to the current draft without changing execution authority or legacy decisions.
 [Executor availability](docs/supervision-availability.md) gives both review roles
 versioned state/deadline/capacity checks without granting execution authority.
+[Draft effects](docs/supervision-draft-effects.md) bind descriptive retry/admission scope
+to the exact reviewer draft, distinguishing future strategy prose from scheduled actions.
 [Improvement cycles](docs/improvement-cycles.md) derives auditable nested experiments,
 measured outcomes and persistent proposal approval/withdrawal controls from that history.
 [Project brain and knowledge graph](docs/project-brain.md) adds private versioned knowledge,

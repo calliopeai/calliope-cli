@@ -96,7 +96,7 @@ it.each(['reject','stale','ambiguous'])('does not retry a failed worker after a 
 });
 it('cancels an in-flight reviewer before a verdict can authorize another worker attempt',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';verificationExits=[1];const aborter=new AbortController();
-  decide=async(context,signal)=>{expect(context.availability.retryTasks[0].status).toBe('possible');if(context.role==='controller')return retry(context);aborter.abort();throw signal.reason;};
+  decide=async(context,signal)=>{expect(context.availability.retryTasks[0].status).toBe('possible');if(context.role==='controller')return retry(context);expect(context.draftEffect).toMatchObject({retryTaskIds:['inspect-a'],newAgentIds:[],newTaskIds:[]});aborter.abort();throw signal.reason;};
   const view=await reviewed(p),result=await execute(view.run.id,{signal:aborter.signal});expect(result.status).toBe('cancelled');expect(result.execution.events.filter(e=>e.change.type==='task_reset')).toHaveLength(0);expect(result.execution.state.supervision?.halt?.outcome).toBe('cancelled');
 });
 it('rejects a truncated reviewer verdict while retaining usage and the original failed task',async()=>{
@@ -449,6 +449,29 @@ it('retires an applied strategy without rewriting results, restores its predeces
   const after=await inspectImprovements(project,view.run.id,{store:runs});expect(after.execution!.state.supervision?.strategies['inspect-a']?.decisionId).toBe(first!.id);expect(after.execution!.state.tasks).toEqual(result.execution.state.tasks);
   expect(after.history.cycles[1]!.results).toEqual(second!.results);expect(after.history.cycles[1]!.status).toBe('withdrawn');expect(ledger.read(project).projection.spent).toEqual(spent);expect(requests).toHaveLength(calls);
   await withdrawImprovement(project,view.run.id,first!.id,{store:runs,approve:async()=> 'allow'});expect((await inspectImprovements(project,view.run.id,{store:runs})).execution!.state.supervision?.strategies).toEqual({});
+});
+
+it.each(['approve','reject'] as const)('keeps a child replan sequential at full graph capacity when its reviewer chooses %s',async verdict=>{
+  const p=plan();p.limits.maxAgents=4;p.limits.maxTasks=2;p.limits.maxConcurrent=1;p.supervision!.maxStalledRounds=3;
+  p.agents[1]!.maxChildDepth=1;p.agents[1]!.maxChildCount=1;
+  const reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';reviewer.maxChildDepth=0;reviewer.maxChildCount=0;p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
+  const child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=8000;child.costBudgetUsd=0.1;
+  task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
+  verificationExits=[1,1,0,0];
+  decide=async context=>{
+    if(context.role==='reviewer'){
+      expect(context.draftEffect.draftHash).toBe(context.draftHash);
+      if(context.round===2){expect(context.availability.remainingCapacity).toEqual({agents:0,tasks:0});expect(context.availability.retryTasks.find((t:any)=>t.id==='child-task').status).toBe('possible');expect(context.draftEffect).toMatchObject({action:'replan',retryTaskIds:['child-task'],newAgentIds:[],newTaskIds:[],maxConcurrent:1});}
+      return{version:1,verdict:context.round===2?verdict:'approve',draftHash:context.draftHash,reason:'Independent review of the exact current action.'};
+    }
+    expect(context).not.toHaveProperty('draftEffect');
+    return context.round===1?{...keepGoing(context),action:'decompose',hypothesis:'Collect diagnostic evidence.',expectedMetric:{name:'verified tasks',direction:'increase'},children:{version:1,parentId:'a',agents:[child],tasks:[task]}}:context.round===2?{...retry(context),taskId:'child-task',strategy:'Retry the child alone; after it passes, propose a separate original-task retry.'}:context.round===3?retry(context):keepGoing(context);
+  };
+  const view=await reviewed(p),result=await execute(view.run.id),finished=result.execution.events.filter(e=>e.change.type==='task_finished');
+  expect(result.status).toBe(verdict==='approve'?'completed':'failed');expect(finished.map(e=>e.change.type==='task_finished'&&e.change.status)).toEqual(verdict==='approve'?['failed','failed','completed','completed']:['failed','failed']);
+  expect(result.execution.state.graph!.admissions).toHaveLength(1);expect(result.execution.state.graph!.plan.limits).toEqual(p.limits);
+  const history=await inspectImprovements(project,view.run.id,{store:runs});if(verdict==='approve'){expect(history.history.cycles[1]!.parentCycleId).toBe(history.history.cycles[0]!.id);expect(history.history.cycles[1]!.status).toBe('verified');}
+  const calls=requests.length,store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),fresh=store.read();expect(replayExecution(fresh.header,view.manifest,fresh.events)).toEqual(result.execution.state);expect(requests).toHaveLength(calls);
 });
 
 it('links recursive improvements to the admitting cycle without claiming comparable metrics for new tasks',async()=>{
