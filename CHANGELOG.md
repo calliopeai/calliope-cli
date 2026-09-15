@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Show the latest journaled supervision health evidence in compact workflow and agent HUD rows, including sampled providers, latency/error rate, quarantine, unavailable history, and legacy absence (#356).
+
 - Bind a sanitized provider-health snapshot to every controller and reviewer request, retain the exact evidence in replayable execution events and improvement cycles, and represent unreadable local history explicitly (#354).
 
 - Scope supervised retry feedback to the worker's authoritative task outcomes while retaining cross-task controller evidence in the run journal (#352).
