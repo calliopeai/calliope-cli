@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "backend": "cerebras",
+  "model": "qwen-3.8-27b",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-15T21:52:19.945Z",
+    "sourceOrigin": "https://api.cerebras.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "e0014a8f-119c-4ebe-9b95-a821d2026cf2"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLTBkMmVmODY3LWQ2MWQtNGNhZS04ZjFhLTExMzEwODE3MDJhNCIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJzdG9wIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IlxuXG5IZWxsbyDPgCIsInJlYXNvbmluZyI6IldlIG5lZWQgYW5zd2VyIHVzZXIgYXNrcyBcIlJlcGx5IHdpdGggZXhhY3RseTogSGVsbG8gz4BcIi4gTmVlZCBmaW5hbCBleGFjdGx5IEhlbGxvIM+ALiBObyBleHRyYS5cbiIsInJvbGUiOiJhc3Npc3RhbnQifX1dLCJjcmVhdGVkIjoxNzg5NTA5MTM5LCJtb2RlbCI6InF3ZW4tMy44LTI3YiIsInN5c3RlbV9maW5nZXJwcmludCI6ImZwXzgyOWU4YzhlNTAyMGZkMjMwZmYwIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uIiwidXNhZ2UiOnsidG90YWxfdG9rZW5zIjo4NiwiY29tcGxldGlvbl90b2tlbnMiOjI4LCJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjp7InJlYXNvbmluZ190b2tlbnMiOjI0fSwicHJvbXB0X3Rva2VucyI6NTgsInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZWRfdG9rZW5zIjowLCJpbWFnZV90b2tlbnMiOjB9fSwidGltZV9pbmZvIjp7ImNyZWF0ZWQiOjE3ODk1MDkxMzkuODk2MTE4NiwicXVldWVfdGltZSI6MC4wMDAyNjY2OSwicHJvbXB0X3RpbWUiOjAuMDAyNDU4ODE0LCJjb21wbGV0aW9uX3RpbWUiOjAuMDMwNDUyNTM4LCJ0b3RhbF90aW1lIjowLjAzNDgxMzg4MDkyMDQxMDE1Nn19",
+      "sha256": "f92a9b045c2d27ec91c6efaf145ab7d1d41d9a04d0dfc8df66a64cc3ab59e8d9"
+    }
+  ],
+  "expected": {
+    "content": "\n\nHello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 58,
+      "outputTokens": 28
+    },
+    "tools": []
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "limitNanoUsd": 500000000,
+  "reservations": [
+    {
+      "id": "f26e7ccd-1d63-4a31-8a53-98f67bd91577",
+      "at": "2026-09-15T21:51:51.305Z",
+      "reservedNanoUsd": 1294160,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.25,
+      "outputRate": 0.69,
+      "status": "failed",
+      "runId": "cerebras-20260915"
+    },
+    {
+      "id": "e0014a8f-119c-4ebe-9b95-a821d2026cf2",
+      "at": "2026-09-15T21:52:19.504Z",
+      "reservedNanoUsd": 1294160,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.25,
+      "outputRate": 0.69,
+      "status": "captured",
+      "runId": "cerebras-20260915-qwen"
+    },
+    {
+      "id": "2764f76d-544f-40d0-8a7c-a4dbe7beb0a5",
+      "at": "2026-09-15T21:52:37.694Z",
+      "reservedNanoUsd": 1294160,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.25,
+      "outputRate": 0.69,
+      "status": "captured",
+      "runId": "cerebras-20260915-text-stream"
+    },
+    {
+      "id": "5036b094-38a1-4ede-b3e4-bf1c02e043ca",
+      "at": "2026-09-15T21:52:39.166Z",
+      "reservedNanoUsd": 1294160,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.25,
+      "outputRate": 0.69,
+      "status": "captured",
+      "runId": "cerebras-20260915-tool-json"
+    },
+    {
+      "id": "5a30b55e-9b44-46ad-9077-51ced5670b8f",
+      "at": "2026-09-15T21:52:40.689Z",
+      "reservedNanoUsd": 1294160,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.25,
+      "outputRate": 0.69,
+      "status": "captured",
+      "runId": "cerebras-20260915-tool-stream"
+    }
+  ],
+  "runs": [
+    {
+      "id": "cerebras-20260915",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "cerebras-20260915-qwen",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "cerebras-20260915-text-stream",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "cerebras-20260915-tool-json",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "cerebras-20260915-tool-stream",
+      "limitNanoUsd": 50000000
+    }
+  ]
+}

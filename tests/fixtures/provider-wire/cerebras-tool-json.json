@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "backend": "cerebras",
+  "model": "qwen-3.8-27b",
+  "scenario": "tool",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-15T21:52:39.666Z",
+    "sourceOrigin": "https://api.cerebras.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "5036b094-38a1-4ede-b3e4-bf1c02e043ca"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "eyJpZCI6ImNoYXRjbXBsLTI5YWE2OTMyLWViMDYtNGFmNy05MTViLTMwYjExZGEwNzFmZCIsImNob2ljZXMiOlt7ImZpbmlzaF9yZWFzb24iOiJ0b29sX2NhbGxzIiwiaW5kZXgiOjAsIm1lc3NhZ2UiOnsiY29udGVudCI6IlxuXG4iLCJyZWFzb25pbmciOiJVc2VyIGFza3MgdG8gY2FsbCBlY2hvIGV4YWN0bHkgb25jZSB3aXRoIHRoZSB0ZXh0IFwiaGVsbG9cIiwgYW5kIG5vdCB0byB3cml0ZSBhbnkgcHJvc2UuIFRoZXJlZm9yZSwgdGhlIHJlc3BvbnNlIHNob3VsZCBpbmNsdWRlIG9ubHkgdGhlIHRvb2wgY2FsbC5cbiIsInRvb2xfY2FsbHMiOlt7ImZ1bmN0aW9uIjp7Im5hbWUiOiJlY2hvIiwiYXJndW1lbnRzIjoie1widGV4dFwiOiBcImhlbGxvXCJ9In0sInR5cGUiOiJmdW5jdGlvbiIsImlkIjoiOThhMmU1ZGEyIn1dLCJyb2xlIjoiYXNzaXN0YW50In19XSwiY3JlYXRlZCI6MTc4OTUwOTE1OSwibW9kZWwiOiJxd2VuLTMuOC0yN2IiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF84MjllOGM4ZTUwMjBmZDIzMGZmMCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbiIsInVzYWdlIjp7InRvdGFsX3Rva2VucyI6MzkxLCJjb21wbGV0aW9uX3Rva2VucyI6NTksImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MzN9LCJwcm9tcHRfdG9rZW5zIjozMzIsInByb21wdF90b2tlbnNfZGV0YWlscyI6eyJjYWNoZWRfdG9rZW5zIjowLCJpbWFnZV90b2tlbnMiOjB9fSwidGltZV9pbmZvIjp7ImNyZWF0ZWQiOjE3ODk1MDkxNTkuNTQ3MzE2MywicXVldWVfdGltZSI6MC4wMDI3NzczMjgsInByb21wdF90aW1lIjowLjAwODc4MzIzMSwiY29tcGxldGlvbl90aW1lIjowLjA1MzE0ODEyOSwidG90YWxfdGltZSI6MC4wNjY0OTk0NzE2NjQ0Mjg3MX19",
+      "sha256": "69fb972bb7f95457ceee9fc6b66a87299564d561ee450fe65387c020b34647a5"
+    }
+  ],
+  "expected": {
+    "content": "\n\n",
+    "finishReason": "tool_use",
+    "usage": {
+      "inputTokens": 332,
+      "outputTokens": 59
+    },
+    "tools": [
+      {
+        "name": "echo",
+        "arguments": {
+          "text": "hello"
+        }
+      }
+    ]
+  }
+}
