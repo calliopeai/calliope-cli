@@ -728,6 +728,9 @@ async function getOllamaModels(): Promise<ModelInfo[]> {
         name: model.name,
         description: `Size: ${formatSize(model.size)}${model.details?.parameter_size ? ` (${model.details.parameter_size})` : ''}`,
         contextLength,
+        // Ollama does not expose a separate output limit. Bound generation by
+        // the live context window so execution admission can remain fail-closed.
+        maxOutputTokens: contextLength === undefined ? undefined : Math.min(contextLength, 8192),
       });
     }
 

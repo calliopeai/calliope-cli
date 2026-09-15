@@ -90,7 +90,7 @@ describe('getAvailableModels - ollama /api/show model_info', () => {
 
     const models = await getAvailableModels('ollama');
     expect(models).toHaveLength(1);
-    expect(models[0].contextLength).toBe(32768);
+    expect(models[0]).toMatchObject({ contextLength: 32768, maxOutputTokens: 8192 });
   });
 
   it('should read context length from model_info.context_window key', async () => {
