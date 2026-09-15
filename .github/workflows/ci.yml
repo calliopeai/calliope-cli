@@ -28,7 +28,8 @@ jobs:
         run: npm run build
 
       - name: Run tests
-        run: npm test
+        # Keep worker contention bounded; the release gate uses the same limit.
+        run: npm test -- --maxWorkers=2
 
       - name: Check types
         run: npx tsc --noEmit
