@@ -42,7 +42,7 @@ const reservation = reserveProbe(resolve(values.ledger), { maxCostUsd: Number(va
 let outcome = 'failed';
 globalThis.fetch = recorder.fetch;
 try {
-  const result = await invoke(adapters, backend, values.model, probeMessages(values.scenario), values.scenario === 'tool' ? [TOOL] : [], values.stream ? () => {} : undefined, signal, { maxOutputTokens: maxOutput, priceCeiling });
+  const result = await invoke(adapters, backend, values.model, probeMessages(values.scenario), values.scenario === 'tool' ? [TOOL] : [], values.stream ? () => {} : undefined, signal, { maxOutputTokens: maxOutput, priceCeiling, reasoningEffort: backend.id === 'openai-responses' ? 'low' : undefined });
   const sdkVersions = Object.fromEntries(['openai', '@anthropic-ai/sdk', '@google/genai'].map(name => [name, JSON.parse(readFileSync(new URL(`../../node_modules/${name}/package.json`, import.meta.url), 'utf8')).version]));
   const capture = validateCapture({ version: 1, backend: backend.id, model: values.model, scenario: values.scenario, stream: values.stream,
     provenance: { kind: 'captured', capturedAt: new Date().toISOString(), sourceOrigin: recorder.sourceOrigin(), sdkVersions,
