@@ -10,6 +10,7 @@ import {integer} from './authority.js';
 import {requestCostNanos} from './ledger.js';
 import {ProjectSpendLedger} from './project-spend.js';
 import {readBillingEvidence,assertBillingCurrent,validateInputCount,validateQuoteEvidence,fullContextTerms,type BillingEvidence,type InputCount,type QuoteEvidence} from './billing.js';
+import {estimateTotalTokens} from '../summarization.js';
 
 export function costCapNanos(value:number):number {
   if(!Number.isFinite(value)||value<0)throw new ExecutionLimitError('budget','Configured cost cap is invalid.');
@@ -34,7 +35,12 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     if(capabilities.chat!==true || tools.length&&capabilities.tools!==true || streaming&&capabilities.streaming!==true)
       throw new ExecutionLimitError('authority','Live discovery did not confirm the required model capabilities.');
     // The full discovered input capacity is a conservative bound, not a tokenizer estimate.
-    let inputTokens=route.contextLength;const outputTokens=maxOutputTokens;
+    const local=route.provider==='ollama'||route.provider==='litellm'||route.provider==='openai-compat';
+    // Local servers expose a context window but no billable input reservation;
+    // reserve the measured request size so token budgets remain meaningful.
+    const contextLimit=route.contextLength??0;
+    let inputTokens=local?Math.min(contextLimit,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):contextLimit;
+    const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');
 
@@ -46,7 +52,6 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       inputTokens=Math.min(inputTokens!,count.inputTokens*2+1024);
       quoteEvidence={version:1,profileHash:billing.hash,profile:structuredClone(billing.profile),count:structuredClone(count),multiplier:2,slackTokens:1024};
     }
-    const local=route.provider==='ollama'||route.provider==='litellm'||route.provider==='openai-compat';
     const inputPrice=billing?Math.max(billing.profile.prices.input,route.price?.input??0):route.price?.input??(local?0:undefined);
     const outputPrice=billing?Math.max(billing.profile.prices.output,route.price?.output??0):route.price?.output??(local?0:undefined);
     if(inputPrice===undefined||outputPrice===undefined||!Number.isFinite(inputPrice)||!Number.isFinite(outputPrice)||inputPrice<0||outputPrice<0)
