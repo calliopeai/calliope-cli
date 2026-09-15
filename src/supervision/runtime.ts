@@ -77,14 +77,11 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
       // decision. A truncated controller may stop only when every recorded check
       // already passed; missing or failed evidence remains a hard failure.
       if(!(mechanicallyComplete&&result.reason==='length'))throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
-      final=JSON.stringify({version:1,action:'stop',reason:'All recorded acceptance checks passed; controller output was truncated.',evidence:evidence.ids});
+      // Use the persisted snapshot captured by supervision_started; this is the
+      // exact set the journal will validate when the decision is appended.
+      final=JSON.stringify({version:1,action:'stop',reason:'All recorded acceptance checks passed; controller output was truncated.',evidence:s.evidenceIds});
     }
-    let decision;
-    try { decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan:reviewPlan,evidenceIds:new Set(evidence.ids)}); }
-    catch(error) {
-      if(!mechanicallyComplete)throw error;
-      decision={version:1,action:'stop',reason:'All recorded acceptance checks passed; controller decision was malformed.',evidence:evidence.ids} as const;
-    }
+    const decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan:reviewPlan,evidenceIds:new Set(s.evidenceIds)});
     await store.append({type:'supervision_decided',round,role,agentId,sessionId:session.id,decision},controller.signal,undefined,check);
   }catch(error){throw authorityError??error;}
   finally{clearInterval(timer);clearTimeout(deadline);options.signal?.removeEventListener('abort',abort);await log.flush();}
