@@ -10,6 +10,15 @@ export interface WorkerPreviousAttempt {
   checks:{id:string;passed:boolean}[];risks:string[];
 }
 
+/** Keep controller-wide evidence in the journal while exposing only this task's outcomes to its worker. */
+export function workerRetryEvidenceIds(previousAttempts:WorkerPreviousAttempt[],strategyEvidence?:string[]):string[] {
+  const outcomes=previousAttempts.map(attempt=>attempt.eventId);
+  if(!outcomes.length||strategyEvidence===undefined)return outcomes;
+  const cited=new Set(strategyEvidence),selected=outcomes.filter(id=>cited.has(id));
+  if(!selected.length)throw new OrchestrationError('conflict','Supervision retry evidence does not include an authoritative outcome for this task.');
+  return selected;
+}
+
 /** Bind model-facing attempt state to the executor's current journal projection. */
 export function workerAttemptContext(plan:ProjectPlan,task:ProjectTask,inspection:ExecutionInspection):{attempt:WorkerAttemptDescriptor;previousAttempts:WorkerPreviousAttempt[]} {
   const state=inspection.state.tasks[task.id],agent=plan.agents.find(value=>value.id===task.agentId);

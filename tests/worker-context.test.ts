@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {workerAttemptContext} from '../src/orchestration/index.js';
+import {workerAttemptContext,workerRetryEvidenceIds} from '../src/orchestration/index.js';
 import {coordinatorRun} from './helpers/coordinator-run.js';
 
 const roots:string[]=[];
@@ -25,4 +25,15 @@ it('binds fresh worker attempt context to the current journal start and rejects 
   const excessive=structuredClone(store.read()),start=excessive.events.find(event=>event.change.type==='task_started')! as any;
   excessive.events.push({...structuredClone(start),id:randomUUID(),sequence:start.sequence+1,change:{...start.change,attempt:2,sessionId:'session-2'}},{...structuredClone(start),id:randomUUID(),sequence:start.sequence+2,change:{...start.change,attempt:3,sessionId:'session-3'}});excessive.state.tasks[task.id]!.attempts=3;excessive.state.tasks[task.id]!.sessionId='session-3';
   expect(()=>workerAttemptContext(view.manifest.plan,task,excessive)).toThrow('exceeds the reviewed retry limit');
+});
+
+it('limits retry feedback to authoritative outcomes for the current task',()=>{
+  const attempts=[
+    {eventId:'current-1',status:'failed' as const,summary:'first',checks:[],risks:[]},
+    {eventId:'current-2',status:'failed' as const,summary:'recovered',checks:[],risks:[]},
+  ];
+  expect(workerRetryEvidenceIds(attempts)).toEqual(['current-1','current-2']);
+  expect(workerRetryEvidenceIds(attempts,['sibling','current-2','current-2'])).toEqual(['current-2']);
+  expect(()=>workerRetryEvidenceIds(attempts,['sibling'])).toThrow('does not include an authoritative outcome for this task');
+  expect(workerRetryEvidenceIds([],['sibling'])).toEqual([]);
 });

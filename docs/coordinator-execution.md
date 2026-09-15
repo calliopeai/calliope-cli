@@ -129,6 +129,10 @@ present only on retries and carries the same event IDs. Evidence recovery can
 append a corrected outcome without creating another attempt; in that case the
 descriptor selects the last authoritative outcome before the next task start.
 This context grants no additional attempts, tools, paths, budget or time.
+For a supervised retry, the controller's complete cross-task evidence remains in
+the journal, while worker feedback includes only cited authoritative outcomes for
+that same task. An unrelated outcome never grants its artifact paths to the
+worker, and a strategy with no matching task outcome fails closed before inference.
 
 ## Event and output schemas
 
