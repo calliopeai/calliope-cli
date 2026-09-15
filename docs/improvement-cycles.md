@@ -51,8 +51,13 @@ clock or refund spend.
 History is a deterministic projection of the existing private, hash-chained
 journals, not a second mutable database. Legacy histories and cycles retain
 `version: 1`; runs with [request attribution](request-attribution.md) use version 2
-and identify the observed budget revision. Each cycle's immutable ID is its final
-decision event ID. It includes:
+and identify the observed budget revision. Cycles whose review events carry
+sanitized [provider-health evidence](provider-health.md) use version 3 and retain
+the controller snapshot plus the reviewer snapshot when that separate role is
+configured. This records the aggregate operational evidence available to each
+decision without importing credentials, endpoint strings, provider text or new
+execution authority. Each cycle's immutable ID is its final decision event ID. It
+includes:
 
 - Trigger event IDs/hashes, principle, proposed hypothesis/change/metric.
 - Parent decomposition and previous attempt links, target tasks, original run
@@ -62,6 +67,8 @@ decision event ID. It includes:
 - Baseline and direct next-attempt outcomes, checks, artifact hashes, observed
   duration/tool results, unresolved risks, isolation image and rollback references.
 - Original manifest hash and the inspected execution revision.
+- Controller and optional reviewer provider-health snapshots, their observation
+  times, relevant-event counts and history hashes.
 
 Inspection validates journal ancestry, current artifact read permissions, retained
 artifact bytes and the pinned worktree base. Evidence reads are bounded to 64 MiB

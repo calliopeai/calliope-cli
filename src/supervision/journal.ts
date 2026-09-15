@@ -4,6 +4,7 @@ import {supervisionProposalHash} from './approval.js';
 import type {ProjectPlan,RunManifest} from '../orchestration/types.js';
 import type {ExecutionEvent,ExecutionProjection} from '../orchestration/coordinator-types.js';
 import {validateSupervisionDecision} from './contracts.js';
+import {validateSupervisionHealthEvidence} from './health.js';
 import type {SupervisionChange,SupervisionProjection,RetryReceipt} from './types.js';
 import type {SpawnProposal} from '../spawning/types.js';
 
@@ -17,16 +18,17 @@ export function supervisionEvidence(events:ExecutionEvent[]):{ids:string[];hash:
 }
 export function validateSupervisionChange(value:unknown,plan:ProjectPlan):SupervisionChange {
   if(!plan.supervision)fail('Supervision events require a reviewed supervision policy.');
-  shape(value,['type'],['round','role','agentId','sessionId','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','source','proposalHash','requestAttribution']);
+  shape(value,['type'],['round','role','agentId','sessionId','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','source','proposalHash','requestAttribution']);
   if(value.requestAttribution!==undefined&&(value.type!=='supervision_started'||value.requestAttribution!==1))fail('Invalid supervision request attribution.');
   if(value.type==='supervision_started'||value.type==='supervision_decided'){
-    shape(value,['type','round','role','agentId','sessionId',...(value.type==='supervision_started'?['evidenceIds','evidenceHash']:['decision'])],value.type==='supervision_started'?['requestAttribution']:[]);
+    shape(value,['type','round','role','agentId','sessionId',...(value.type==='supervision_started'?['evidenceIds','evidenceHash']:['decision'])],value.type==='supervision_started'?['health','requestAttribution']:[]);
     integer(value.round,1,plan.supervision.maxRounds);
     if(!['controller','reviewer'].includes(String(value.role))||value.agentId!==(value.role==='controller'?plan.supervision.controllerId:plan.supervision.reviewerId))fail('Controller event does not match its reviewed agent.');
     text(value.sessionId,128);if(!/^[a-zA-Z0-9_-]+$/.test(value.sessionId))fail('Invalid controller session.');
     if(value.type==='supervision_started'){
       array(value.evidenceIds,1024,1);
       if(value.evidenceIds.some(ref=>!uuid(ref))||new Set(value.evidenceIds).size!==value.evidenceIds.length||!hex(value.evidenceHash)||value.evidenceHash!==digest(canonicalJson(value.evidenceIds)))fail('Invalid controller evidence snapshot.');
+      if(value.health!==undefined)validateSupervisionHealthEvidence(value.health);
     }
   }else if(value.type==='supervision_applied'){
     shape(value,['type','round','decisionId','receipts']);integer(value.round,1,plan.supervision.maxRounds);

@@ -15,10 +15,12 @@ export function projectImprovementHistory(manifest:RunManifest,execution:Executi
   const events=new Map<string,ExecutionEvent>(),outcomes=new Map<string,CycleOutcome>(),starts=new Map<string,ExecutionEvent>();
   const taskCycles=new Map<string,string>(),agentCycles=new Map<string,string>(),previous=new Map<string,string>();
   const pending=new Map<string,{cycle:ImprovementCycle;attempts:Map<string,number>}>();
+  const health=new Map<string,import('../supervision/types.js').SupervisionHealthEvidence>();
   const tools=new Map<string,{calls:number;failures:number}>();let reviewRequest:CycleEventRef|null=null;
   for(const event of execution.events){
     const c=event.change;events.set(event.id,event);
     if(c.type==='started'&&c.proposalOnly)reviewRequest=ref(event);
+    if(c.type==='supervision_started'&&c.health)health.set(`${c.round}:${c.role}`,structuredClone(c.health));
     if(c.type==='task_started'){starts.set(c.taskId,event);tools.set(c.taskId,{calls:0,failures:0});}
     else if(c.type==='tool'&&c.stage==='finished'){const counts=tools.get(c.taskId);if(counts){counts.calls++;if(!c.success)counts.failures++;}}
     else if(c.type==='task_finished'){
@@ -39,13 +41,14 @@ export function projectImprovementHistory(manifest:RunManifest,execution:Executi
       const targets=decision.action==='decompose'?decision.children.tasks.map(t=>t.id):[decision.taskId];
       const baseline=decision.evidence.map(id=>outcomes.get(id)).filter((v):v is CycleOutcome=>!!v&&(decision.action==='decompose'||v.taskId===decision.taskId));
       const parent=decision.action==='decompose'?agentCycles.get(decision.children.parentId):taskCycles.get(decision.taskId);
-      const cycle:ImprovementCycle={version:attributed?2:1,id:event.id,runId:manifest.id,round:c.round,principle:policy.principle,parentCycleId:parent??null,previousCycleId:decision.action==='decompose'?null:previous.get(decision.taskId)??null,status:'proposed',
+      const controllerHealth=health.get(`${c.round}:controller`),reviewerHealth=health.get(`${c.round}:reviewer`),providerHealth=controllerHealth?{controller:controllerHealth,...(reviewerHealth?{reviewer:reviewerHealth}:{})}:undefined;
+      const cycle:ImprovementCycle={version:providerHealth?3:attributed?2:1,id:event.id,runId:manifest.id,round:c.round,principle:policy.principle,parentCycleId:parent??null,previousCycleId:decision.action==='decompose'?null:previous.get(decision.taskId)??null,status:'proposed',
         trigger:{reason:decision.reason,events:decision.evidence.map(id=>ref(events.get(id)!))},hypothesis:{text:decision.hypothesis,state:'proposed'},proposedChange:structuredClone(decision),expectedMetric:{...decision.expectedMetric,state:'proposed'},
         budget:{deadline:execution.header.deadline,limits:structuredClone(context.plan.limits),accounts:cycleAccounts(decision.action==='decompose'?{...context,plan:{...context.plan,agents:[...context.plan.agents,...decision.children.agents.filter(a=>!context.plan.agents.some(existing=>existing.id===a.id))],tasks:[...context.plan.tasks,...decision.children.tasks.filter(t=>!context.plan.tasks.some(existing=>existing.id===t.id))]}}:context,targets,policy.controllerId,policy.reviewerId)},
         approval:{proposal:reviewRequest,approval:null,execution:'pending',planHash:manifest.planHash,approvalRevision:execution.header.approvalRevision,production:'not-approved'},withdrawal:null,application:null,targetTaskIds:targets,baseline,results:[],metrics:[],risks:[],
         isolation:{mode:context.plan.workspace.isolation?'git-worktree':'unavailable',image:context.plan.workspace.isolation?.image??null},
         rollback:{kind:'retained-source-and-artifacts',manifestHash:manifest.hash,baselineEvents:baseline.map(o=>o.event),patches:baseline.flatMap(o=>o.artifacts.filter(a=>a.kind==='patch')),productionChanged:false,baseCommit:null},
-        source:{manifestHash:manifest.hash,executionRevision:execution.state.revision,decision:ref(event)}};
+        source:{manifestHash:manifest.hash,executionRevision:execution.state.revision,decision:ref(event)},...(providerHealth?{providerHealth}:{})};
       history.cycles.push(cycle);pending.set(cycle.id,{cycle,attempts:new Map(targets.map(id=>[id,(baseline.find(o=>o.taskId===id)?.attempt??0)+1]))});
     }else if(c.type==='supervision_proposed'||c.type==='supervision_approved'){
       const item=pending.get(c.decisionId);if(item)item.cycle.approval[c.type==='supervision_proposed'?'proposal':'approval']=ref(event);
@@ -72,6 +75,7 @@ export function projectImprovementHistory(manifest:RunManifest,execution:Executi
     cycle.metrics=cycleMetrics(cycle.baseline,cycle.results,cycle.targetTaskIds);
     cycle.risks=[...new Set([...cycle.baseline,...cycle.results].flatMap(o=>o.risks))];
   }
+  if(history.cycles.some(cycle=>cycle.version===3))history.version=3;
   return history;
 }
 

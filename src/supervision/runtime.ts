@@ -29,6 +29,7 @@ import {supervisionEvidence} from './journal.js';
 import {parseSupervisionReply} from './reply.js';
 import {buildControllerContext,controllerInstructions} from './context.js';
 import {supervisionAvailability} from './availability.js';
+import {supervisionHealthEvidence} from './health.js';
 import {reviewEvidence,retryEvidence} from './evidence.js';
 import type {SupervisionRole,SupervisionProjection} from './types.js';
 
@@ -50,10 +51,11 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
   const timer=setInterval(observe,100),deadline=setTimeout(observe,Math.max(0,agentDeadline-Date.now()));
   try {
     check();
-    const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,requestAttribution:1},controller.signal,undefined,check);
+    const health=supervisionHealthEvidence(plan,view.state);
+    const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,health,requestAttribution:1},controller.signal,undefined,check);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
     const current=store.read(),reviewContext=store.context(current),reviewPlan=reviewContext.plan,accounting=readRunAccounting(store,current),availability=supervisionAvailability(reviewPlan,current,Date.now());
-    const {content,metrics}=buildControllerContext({role,round,plan:reviewPlan,availability,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,reviewContext,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
+    const {content,metrics}=buildControllerContext({role,round,plan:reviewPlan,availability,providerHealth:health,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,reviewContext,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
     const reasoningEffort=policy.reasoningEffort?.[role];
     log.policyEvent({tool:'controller',source:'controller-context',decision:'allow',reason:JSON.stringify({...metrics,role,round,reasoningEffort}),durationMs:0});
     const messages:{current:Message[]}={current:[{role:'system',content:controllerInstructions(policy,role)},{role:'user',content}]};

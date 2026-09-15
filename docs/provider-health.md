@@ -135,3 +135,11 @@ then probe discovery and explicitly retry the provider or append a reset. For
 corrupt history, preserve a copy for diagnosis and restore a known-good local
 backup. Keep imports for comparing CI evidence; do not use them to replace local
 operational observations. Health records are not uploaded automatically.
+
+Continuous supervision reads these local records before each controller and
+reviewer request. The execution journal stores a reduced, endpoint-free snapshot
+of only the providers relevant to the reviewed plan, or an explicit unavailable
+marker if history cannot be read. This snapshot is evidence for a bounded
+hypothesis only; it cannot change pins, routing pools, quarantine policy, budgets,
+permissions or any other reviewed authority. See
+[continuous supervision](continuous-supervision.md#decisions-and-execution).

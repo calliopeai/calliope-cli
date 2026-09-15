@@ -9,7 +9,7 @@ import {newSupervision,validateSupervisionChange,replaySupervisionChange,supervi
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
 export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
-  return 'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+  return change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
 }
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
@@ -53,8 +53,8 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5,6].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution']);const c=value.change;
+  if(![1,2,3,4,5,6,7].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution']);const c=value.change;
   if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
   if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
@@ -102,7 +102,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
   const active=()=>{if(state.status!=='running'||!state.ownerId)conflict('Coordinator is not active.');};
   for(const event of events){
     validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
-    if(event.version===6)attributed=true;
+    if('requestAttribution'in event.change&&event.change.requestAttribution===1)attributed=true;
     const c=event.change,task='taskId' in c&&c.taskId?state.tasks[c.taskId]!:undefined;
     if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
     else if(c.type==='agent_routed'){
