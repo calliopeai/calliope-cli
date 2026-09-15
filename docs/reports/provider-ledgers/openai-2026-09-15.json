@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "limitNanoUsd": 500000000,
+  "reservations": [
+    {
+      "id": "94e6f761-b331-4f89-9c29-895a67dca88f",
+      "at": "2026-09-15T21:53:18.234Z",
+      "reservedNanoUsd": 2596000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.5,
+      "outputRate": 1.5,
+      "status": "failed",
+      "runId": "openai-20260915-text-json"
+    }
+  ],
+  "runs": [
+    {
+      "id": "openai-20260915-text-json",
+      "limitNanoUsd": 50000000
+    }
+  ]
+}
