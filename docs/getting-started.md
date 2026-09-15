@@ -80,17 +80,18 @@ Explain what src/index.ts does, then add error handling to the init function.
 ```
 
 Calliope reads the relevant files, proposes changes, and — outside plan mode —
-applies them, asking for confirmation on risky operations.
+applies them. Work and hybrid modes ask for confirmation on risky operations.
 
 ## Modes
 
-Calliope has three modes. It starts in `hybrid`.
+Calliope has four modes. It starts in `hybrid`.
 
 | Mode | Behavior |
 |------|----------|
 | `plan` | Chat and planning only; no tools run. Good for exploring. |
 | `hybrid` | Plans before complex work, then executes. Default. |
-| `work` | Executes directly. |
+| `work` | Executes directly and asks before risky or mutating tools. |
+| `auto` | Executes directly without per-tool prompts for this session. |
 
 Switch with `/mode <name>`, or press `Shift+Tab` to cycle. Start in plan mode
 when you want to think through an approach before any files change:
@@ -99,6 +100,11 @@ when you want to think through an approach before any files change:
 /mode plan
 How should I structure the auth module?
 ```
+
+Use `/mode auto` when you want the current interactive session to continue
+without approval prompts. `/auto on|off` and `/permissions off|on` control the
+same setting. Policy, project scope, sandbox and orchestration authority checks
+still apply.
 
 ## Key commands
 
@@ -147,6 +153,7 @@ as standing context. Create one and add notes:
     --config        show config path and status
     --reset         clear all configuration
 -g, --god-mode      run tools without confirmation prompts
+    --auto          start the interactive REPL in auto mode
     --headless      non-interactive mode (auto-detected when piped)
     --json          emit a JSON event stream (with --headless)
     --max-retries N retry failed tool calls N times in headless mode (default 3)

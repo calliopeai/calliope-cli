@@ -54,6 +54,7 @@ export const COMMAND_NAMES = [
   '/provider',
   '/doctor',
   '/permissions',
+  '/auto',
   '/tools',
   '/run',
   '/orchestrate',
@@ -129,6 +130,7 @@ export interface CommandContext {
   setProvider: (p: LLMProvider) => void;
   setModel: (m: string | undefined) => void;
   setMode: (m: Mode | ((prev: Mode) => Mode)) => void;
+  setConfirmMode: (enabled: boolean) => void;
   setMessages: (msgs: UIMessage[]) => void;
   setStats: (s: SessionStats) => void;
   setModalMode: (m: string) => void;
@@ -230,7 +232,7 @@ Model & Mode
   /doctor [providers|provider <name>]   Provider health; --probe checks discovery
   /defaults [save|reset]     Inspect or persist project model defaults
   /once --provider <name> -- <prompt>   Override one turn (also --model)
-  /mode [plan|hybrid|work]    Switch mode (Shift+Tab to cycle)
+  /mode [plan|hybrid|work|auto]  Switch execution mode (Shift+Tab cycles safe modes)
 
 Conversation
   /undo                       Undo the last change (up to 10 steps)
@@ -238,7 +240,8 @@ Conversation
   /checkout <id|name>         Switch conversation; workspace files stay in place
   /diff <id|name>             Compare another conversation with the current one
   /replay [revision]          Read recorded conversation without executing tools
-  /permissions [list|reset|revoke <id>]  Inspect or revoke saved approvals
+  /auto [on|off]              Run without prompts for this REPL session
+  /permissions [off|on|list|reset|revoke <id>]  Control prompts and saved approvals
   /brain init|status|ingest|search|entity|neighbors|path  Project knowledge
   /kg search|graph           Knowledge graph
   /improve history|propose|run|rollback [--run <id>]  Bounded improvement cycles
@@ -333,7 +336,25 @@ File references: @filename, ./path, /absolute/path`;
       handleToolOutputCommand(parts, ctx); break;
     }
 
+    case '/auto':
     case '/permissions': {
+      const setting = parts[1]?.toLowerCase();
+      const enableAuto = command === '/auto' && setting === 'on'
+        || command === '/permissions' && ['off', 'auto'].includes(setting ?? '');
+      const disableAuto = command === '/auto' && setting === 'off'
+        || command === '/permissions' && ['on', 'ask'].includes(setting ?? '');
+      if (enableAuto || disableAuto) {
+        if (enableAuto) ctx.setMode('work');
+        ctx.setConfirmMode(disableAuto);
+        ctx.addMessage('system', enableAuto
+          ? 'Auto mode ON — tool confirmation prompts are disabled for this REPL session. Project policy, scope, sandbox and orchestration authority still apply.'
+          : 'Auto mode OFF — tool confirmation prompts are enabled.');
+        break;
+      }
+      if (command === '/auto') {
+        ctx.addMessage('system', `Auto mode ${ctx.confirmMode ? 'OFF' : 'ON'}. Use /auto on or /auto off.`);
+        break;
+      }
       const { runPermissions } = await import('../approvals/index.js');
       await runPermissions(parts.slice(1), { cwd: getActiveProjectDir(ctx), sessionId: ctx.sessionRef.current?.id,
         store: ctx.approvals, signal: ctx.signal, write: text => ctx.addMessage('system', text.trimEnd()) });
@@ -364,13 +385,18 @@ File references: @filename, ./path, /absolute/path`;
     }
 
     case '/mode':
-      if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
+      if (parts[1] === 'auto') {
+        ctx.setMode('work');
+        ctx.setConfirmMode(false);
+        ctx.addMessage('system', 'Mode: ⚡ Auto — work mode with tool confirmation prompts disabled for this REPL session. Project policy, scope, sandbox and orchestration authority still apply.');
+      } else if (parts[1] && ['plan', 'hybrid', 'work'].includes(parts[1])) {
         const m = parts[1] as Mode;
         ctx.setMode(m);
+        ctx.setConfirmMode(true);
         ctx.addMessage('system', `Mode: ${MODE_CONFIG[m].icon} ${MODE_CONFIG[m].label} - ${MODE_CONFIG[m].description}`);
       } else {
         const currentConfig = MODE_CONFIG[ctx.mode];
-        ctx.addMessage('system', `Mode: ${currentConfig.icon} ${currentConfig.label}\nOptions: plan (\u{1F4CB}), hybrid (\u{1F504}), work (\u{1F527})\nUse Shift+Tab to cycle`);
+        ctx.addMessage('system', `Mode: ${ctx.confirmMode ? `${currentConfig.icon} ${currentConfig.label}` : '⚡ Auto'}\nOptions: plan (\u{1F4CB}), hybrid (\u{1F504}), work (\u{1F527}), auto (⚡)\nUse Shift+Tab to cycle safe modes`);
       }
       break;
 
@@ -407,7 +433,7 @@ File references: @filename, ./path, /absolute/path`;
 
     case '/status': {
       const imgInfo = getTerminalImageInfo();
-      let statusMsg = `${ctx.actualProvider}:${ctx.actualModel} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`;
+      let statusMsg = `${ctx.actualProvider}:${ctx.actualModel} | mode: ${ctx.confirmMode ? ctx.mode : 'auto'} | ${ctx.stats.messageCount} msgs | ${ctx.stats.inputTokens + ctx.stats.outputTokens} tokens | terminal: ${getImageModeLabel(imgInfo.mode)}${imgInfo.truecolor ? ' (truecolor)' : ''} ${imgInfo.width}cols`;
 
       // Add fleet status if active
       const fleetSt = fleetStatus();

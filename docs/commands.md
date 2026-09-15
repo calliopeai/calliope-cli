@@ -70,16 +70,22 @@ Override one turn, including its retries and tool continuations. Queued messages
 retain separate choices; these overrides never become saved defaults. See
 [Model preferences](model-preferences.md) for precedence, bounds and recovery.
 
-### `/mode [plan|hybrid|work]`
+### `/mode [plan|hybrid|work|auto]`
 Switch operating mode. With no argument, prints the current mode. Press
-`Shift+Tab` to cycle.
+`Shift+Tab` to cycle the confirmation-enabled modes.
 ```
 /mode plan
 /mode work
+/mode auto
 ```
 - `plan` — chat and planning only, no tools run
 - `hybrid` — plan before complex work, then execute (default)
-- `work` — execute directly
+- `work` — execute directly and ask before risky or mutating tools
+- `auto` — execute directly without per-tool prompts for the current session;
+  project policy, scope, sandbox and orchestration authority still apply
+
+`/auto on|off` is the short form. `/permissions off|on` controls the same
+session setting; the other `/permissions` subcommands inspect saved grants.
 
 ## Conversation
 

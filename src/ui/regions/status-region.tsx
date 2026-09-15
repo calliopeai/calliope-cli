@@ -20,6 +20,7 @@ export interface StatusRegionProps {
   contextTokens: number;
   breakerHealth?: 'ok' | 'warning' | 'tripped';
   smartRouteActive: boolean;
+  confirmMode: boolean;
   width: number;
 }
 
@@ -31,6 +32,7 @@ function StatusRegionInner({
   contextTokens,
   breakerHealth,
   smartRouteActive,
+  confirmMode,
   width,
 }: StatusRegionProps) {
   probeRender('status');
@@ -44,6 +46,7 @@ function StatusRegionInner({
       contextTokens={contextTokens}
       breakerHealth={breakerHealth}
       smartRouteActive={smartRouteActive}
+      confirmMode={confirmMode}
       width={width}
     />
   );

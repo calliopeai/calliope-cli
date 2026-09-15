@@ -63,7 +63,8 @@ const args = delimiter < 0 ? rawArgs : rawArgs.slice(0, delimiter);
 
 // Check for god-mode flag (skip all permission prompts)
 const skipPermissions = args.includes('--god-mode') ||
-                        args.includes('-g');
+                        args.includes('-g') ||
+                        args.includes('--auto');
 
 // Check for multi-agent orchestration mode
 
@@ -299,9 +300,9 @@ async function main(): Promise<void> {
   // Headless startup never opens interactive setup or writes banner text to JSON.
   if (useHeadless) return startCLI();
 
-  // Show warning if god-mode enabled
+  // Show warning if auto/god mode is enabled
   if (skipPermissions) {
-    console.log(`${colors.magenta}⚡ GOD MODE ENABLED${colors.reset}`);
+    console.log(`${colors.magenta}⚡ AUTO MODE ENABLED${colors.reset}`);
     console.log(`${colors.dim}   Tools execute without confirmation. Use wisely.${colors.reset}`);
     console.log();
   }
@@ -432,7 +433,8 @@ ${bold('OPTIONS')}
   --reset           Reset all configuration
 
   -g, --god-mode    Run tools without confirmation prompts
-                    Enables unrestricted autonomous execution
+                    Project policy, scope and sandbox rules still apply
+  --auto             Start the interactive REPL in auto mode (alias for --god-mode)
   --headless        Headless mode (JSON/text output, no TTY; auto-detected when piped)
   --json            Output JSON events (with --headless)
   --provider NAME  Select a provider for this invocation (or auto)

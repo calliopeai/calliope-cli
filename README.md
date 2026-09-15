@@ -32,6 +32,7 @@ Inside a session:
 
 ```
 /mode plan              think first — the agent proposes, you approve
+/mode auto              execute without per-tool approval prompts this session
 /model list             see live-discovered models for your provider
 /defaults save          save the current provider/model for this project
 /scope add ../lib       widen file access deliberately
