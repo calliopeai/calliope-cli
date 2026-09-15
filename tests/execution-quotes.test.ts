@@ -19,6 +19,10 @@ it('reserves discovered capacity, rounds cost bounds conservatively and refuses 
   expect(()=>providerQuote({...route,capabilities:{tools:false}},[],[{name:'read_file'} as any],false,10)).toThrow();expect(()=>providerQuote({...route,capabilities:{streaming:false}},[],[],true,10)).toThrow();
   expect(()=>providerQuote(route,[{role:'user',content:[{type:'image',data:'toy'} as any]}],[],false,10)).toThrow(/Multimodal/);
 });
+it('admits live local backends with explicit zero cost when discovery has no price field',()=>{
+  const local={...route,provider:'ollama' as const,price:undefined};
+  expect(providerQuote(local,[{role:'user',content:'public toy'}],[],false,10)).toMatchObject({inputPrice:0,outputPrice:0,costNanos:0});
+});
 it('rejects changed attempts and cancelled admission, and accounts for retries without crediting errors',async()=>{
   config.set('budget',{maxCostPerProject:0.003});const signal=new AbortController(),events:string[]=[];
   const budget=projectAttemptBudget(project,randomUUID(),route,[],[],false,10,signal.signal,(_id,stage)=>events.push(stage));

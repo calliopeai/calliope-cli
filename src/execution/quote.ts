@@ -46,8 +46,9 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       inputTokens=Math.min(inputTokens!,count.inputTokens*2+1024);
       quoteEvidence={version:1,profileHash:billing.hash,profile:structuredClone(billing.profile),count:structuredClone(count),multiplier:2,slackTokens:1024};
     }
-    const inputPrice=billing?Math.max(billing.profile.prices.input,route.price?.input??0):route.price?.input;
-    const outputPrice=billing?Math.max(billing.profile.prices.output,route.price?.output??0):route.price?.output;
+    const local=route.provider==='ollama'||route.provider==='litellm'||route.provider==='openai-compat';
+    const inputPrice=billing?Math.max(billing.profile.prices.input,route.price?.input??0):route.price?.input??(local?0:undefined);
+    const outputPrice=billing?Math.max(billing.profile.prices.output,route.price?.output??0):route.price?.output??(local?0:undefined);
     if(inputPrice===undefined||outputPrice===undefined||!Number.isFinite(inputPrice)||!Number.isFinite(outputPrice)||inputPrice<0||outputPrice<0)
       throw new ExecutionLimitError('budget','Live discovery did not provide bounded input/output prices; configure verified provider metadata before execution.');
     return {provider:route.provider,model:route.model,target:route.target,inputTokens:inputTokens!,outputTokens,inputPrice,outputPrice,costNanos:requestCostNanos(inputTokens!,outputTokens,inputPrice,outputPrice),...(quoteEvidence?{quoteEvidence}:{})};
