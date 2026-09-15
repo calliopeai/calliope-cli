@@ -209,8 +209,13 @@ events. Journal IDs, ancestry and hashes use the existing integrity checks.
 
 The HUD shows the optimization principle, controller phase, round/limit and halt
 reason alongside verified task counts. Active controller/reviewer rows are
-prioritized with active workers. `/agents hud workflows` collapses the display
-to one line per workflow; `/agents tree` and `/run status` expose full state.
+prioritized with active workers. The workflow row summarizes how many providers
+had request samples at the latest journaled review and flags quarantine or
+unavailable history. Each agent row shows that same review snapshot for its
+actual routed provider or inherited explicit preference: unmeasured, error rate
+and latency, quarantine reason, or unavailable. These labels are replayed
+observations, not a fresh probe or provider certification. `/agents hud workflows`
+collapses the display to one line per workflow; `/agents tree` and `/run status` expose full state.
 Cancellation propagates to the active review call and retains its reservation.
 
 This loop improves the strategy for the current reviewed run. Production-code

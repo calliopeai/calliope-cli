@@ -143,3 +143,6 @@ marker if history cannot be read. This snapshot is evidence for a bounded
 hypothesis only; it cannot change pins, routing pools, quarantine policy, budgets,
 permissions or any other reviewed authority. See
 [continuous supervision](continuous-supervision.md#decisions-and-execution).
+The orchestration HUD renders the latest journaled snapshot in its workflow and
+agent rows. HUD rendering performs no health-store read, discovery, inference or
+routing; replay therefore produces the same labels from the same event history.
