@@ -12,11 +12,71 @@
       "outputRate": 1.5,
       "status": "failed",
       "runId": "openai-20260915-text-json"
+    },
+    {
+      "id": "fe0c9b46-dedb-4a7c-8ebb-0150e900595c",
+      "at": "2026-09-15T21:59:03.098Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-gpt4omini"
+    },
+    {
+      "id": "0f6bb813-fb82-428b-bb5a-e847a9d89e9b",
+      "at": "2026-09-15T21:59:15.599Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-gpt4omini-textstream"
+    },
+    {
+      "id": "aef492e5-fb25-4f55-a5c4-7d0a4458a1fe",
+      "at": "2026-09-15T21:59:17.783Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-gpt4omini-tooljson"
+    },
+    {
+      "id": "16b19232-1536-491a-b7fe-671be9390733",
+      "at": "2026-09-15T21:59:19.858Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-gpt4omini-toolstream"
     }
   ],
   "runs": [
     {
       "id": "openai-20260915-text-json",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-gpt4omini",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-gpt4omini-textstream",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-gpt4omini-tooljson",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-gpt4omini-toolstream",
       "limitNanoUsd": 50000000
     }
   ]

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "backend": "openai-chat",
+  "model": "gpt-4o-mini",
+  "scenario": "text",
+  "stream": false,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-15T21:59:04.646Z",
+    "sourceOrigin": "https://api.openai.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    },
+    "budgetReservationId": "fe0c9b46-dedb-4a7c-8ebb-0150e900595c"
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "path": "/v1/chat/completions"
+      },
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "ewogICJpZCI6ICJjaGF0Y21wbC1FT1ZUNkNaUVE1U2IzdWpjMVFFZ3NPeTc4ZlpBbCIsCiAgIm9iamVjdCI6ICJjaGF0LmNvbXBsZXRpb24iLAogICJjcmVhdGVkIjogMTc4OTUwOTU0NCwKICAibW9kZWwiOiAiZ3B0LTRvLW1pbmktMjAyNC0wNy0xOCIsCiAgImNob2ljZXMiOiBbCiAgICB7CiAgICAgICJpbmRleCI6IDAsCiAgICAgICJtZXNzYWdlIjogewogICAgICAgICJyb2xlIjogImFzc2lzdGFudCIsCiAgICAgICAgImNvbnRlbnQiOiAiSGVsbG8gz4AiLAogICAgICAgICJyZWZ1c2FsIjogbnVsbCwKICAgICAgICAiYW5ub3RhdGlvbnMiOiBbXQogICAgICB9LAogICAgICAibG9ncHJvYnMiOiBudWxsLAogICAgICAiZmluaXNoX3JlYXNvbiI6ICJzdG9wIgogICAgfQogIF0sCiAgInVzYWdlIjogewogICAgInByb21wdF90b2tlbnMiOiAxMywKICAgICJjb21wbGV0aW9uX3Rva2VucyI6IDIsCiAgICAidG90YWxfdG9rZW5zIjogMTUsCiAgICAicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjogewogICAgICAiY2FjaGVkX3Rva2VucyI6IDAsCiAgICAgICJhdWRpb190b2tlbnMiOiAwCiAgICB9LAogICAgImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOiB7CiAgICAgICJyZWFzb25pbmdfdG9rZW5zIjogMCwKICAgICAgImF1ZGlvX3Rva2VucyI6IDAsCiAgICAgICJhY2NlcHRlZF9wcmVkaWN0aW9uX3Rva2VucyI6IDAsCiAgICAgICJyZWplY3RlZF9wcmVkaWN0aW9uX3Rva2VucyI6IDAKICAgIH0KICB9LAogICJzZXJ2aWNlX3RpZXIiOiAiZGVmYXVsdCIsCiAgInN5c3RlbV9maW5nZXJwcmludCI6ICJmcF9mZTk4MTUxOGYzIgp9Cg==",
+      "sha256": "aaf72fe3069e3551118f2e6fae0ec4977711afe9ca9030695dbb5bfdf0368661"
+    }
+  ],
+  "expected": {
+    "content": "Hello π",
+    "finishReason": "stop",
+    "usage": {
+      "inputTokens": 13,
+      "outputTokens": 2
+    },
+    "tools": []
+  }
+}

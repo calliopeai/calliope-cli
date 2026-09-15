@@ -1,0 +1,353 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-15T21:59:27.400Z",
+  "evidence": "historical real-wire captures; credential presence does not establish current access",
+  "adapterCount": 18,
+  "requiredWireCombinations": 72,
+  "capturedWireCombinations": 64,
+  "wireGateReady": false,
+  "productGateReady": false,
+  "missingWireCombinations": [
+    "openai-responses/text/json",
+    "openai-responses/text/stream",
+    "openai-responses/tool/json",
+    "openai-responses/tool/stream",
+    "xai/text/json",
+    "xai/text/stream",
+    "xai/tool/json",
+    "xai/tool/stream"
+  ],
+  "adapters": [
+    {
+      "id": "anthropic",
+      "provider": "anthropic",
+      "protocol": "anthropic",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:16:51.266Z"
+    },
+    {
+      "id": "google",
+      "provider": "google",
+      "protocol": "google",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:16:55.793Z"
+    },
+    {
+      "id": "openai-chat",
+      "provider": "openai",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-15T21:59:20.974Z"
+    },
+    {
+      "id": "openai-responses",
+      "provider": "openai",
+      "protocol": "responses",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "missing",
+        "text-stream": "missing",
+        "tool-json": "missing",
+        "tool-stream": "missing",
+        "cancellation": "missing",
+        "provider-error": "captured",
+        "usage": "missing",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-13T00:18:03.850Z"
+    },
+    {
+      "id": "ollama",
+      "provider": "ollama",
+      "protocol": "ollama",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:26:58.379Z"
+    },
+    {
+      "id": "bedrock-native",
+      "provider": "bedrock",
+      "protocol": "bedrock",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:30:23.654Z"
+    },
+    {
+      "id": "openrouter",
+      "provider": "openrouter",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:24:05.989Z"
+    },
+    {
+      "id": "together",
+      "provider": "together",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T02:12:34.725Z"
+    },
+    {
+      "id": "groq",
+      "provider": "groq",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:16:53.028Z"
+    },
+    {
+      "id": "fireworks",
+      "provider": "fireworks",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:19:53.761Z"
+    },
+    {
+      "id": "mistral",
+      "provider": "mistral",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T00:30:21.560Z"
+    },
+    {
+      "id": "deepseek",
+      "provider": "deepseek",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T23:19:35.593Z"
+    },
+    {
+      "id": "xai",
+      "provider": "xai",
+      "protocol": "chat",
+      "credentials": "missing",
+      "checks": {
+        "text-json": "unavailable",
+        "text-stream": "unavailable",
+        "tool-json": "unavailable",
+        "tool-stream": "unavailable",
+        "cancellation": "unavailable",
+        "provider-error": "unavailable",
+        "usage": "unavailable",
+        "system-instructions": "unavailable",
+        "tool-result-replay": "unavailable"
+      },
+      "lastCapturedAt": null
+    },
+    {
+      "id": "cerebras",
+      "provider": "cerebras",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "missing",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "missing",
+        "tool-result-replay": "missing"
+      },
+      "lastCapturedAt": "2026-09-15T21:52:41.593Z"
+    },
+    {
+      "id": "huggingface",
+      "provider": "huggingface",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T02:12:05.062Z"
+    },
+    {
+      "id": "litellm",
+      "provider": "litellm",
+      "protocol": "chat",
+      "credentials": "configured",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T02:12:54.819Z"
+    },
+    {
+      "id": "bedrock-compat",
+      "provider": "bedrock",
+      "protocol": "chat",
+      "credentials": "missing-endpoint",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T02:11:07.810Z"
+    },
+    {
+      "id": "openai-compat",
+      "provider": "openai-compat",
+      "protocol": "chat",
+      "credentials": "missing-endpoint",
+      "checks": {
+        "text-json": "captured",
+        "text-stream": "captured",
+        "tool-json": "captured",
+        "tool-stream": "captured",
+        "cancellation": "captured",
+        "provider-error": "captured",
+        "usage": "captured",
+        "system-instructions": "captured",
+        "tool-result-replay": "captured"
+      },
+      "lastCapturedAt": "2026-09-13T02:11:30.476Z"
+    }
+  ],
+  "retired": [
+    {
+      "provider": "ai21",
+      "status": "retired",
+      "includedInReleaseGate": false
+    }
+  ]
+}
