@@ -38,6 +38,7 @@ function StatusBarInner({
   contextTokens,
   breakerHealth,
   smartRouteActive,
+  confirmMode = true,
   width,
 }: {
   provider: string;
@@ -47,6 +48,7 @@ function StatusBarInner({
   contextTokens: number;
   breakerHealth?: 'ok' | 'warning' | 'tripped';
   smartRouteActive?: boolean;
+  confirmMode?: boolean;
   width?: number;
 }) {
   const termWidth = width || process.stdout.columns || 80;
@@ -85,7 +87,7 @@ function StatusBarInner({
     <Box flexDirection="column">
       <Separator />
       <Text dimColor wrap="truncate-end">
-        {modeConfig.icon} {modeConfig.label}
+        {confirmMode ? <>{modeConfig.icon} {modeConfig.label}</> : <Text color={accentColor}>⚡ Auto</Text>}
         {' │ '}
         {provider}:{displayModel}
         {' │ '}

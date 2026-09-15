@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Add first-class interactive auto mode with `/mode auto`, `/auto on|off` and `/permissions off|on`; show it in the HUD and correctly pass `--auto`/`--god-mode` into the Ink REPL while retaining policy, scope, sandbox and orchestration authority checks (#359).
+
 - Show the latest journaled supervision health evidence in compact workflow and agent HUD rows, including sampled providers, latency/error rate, quarantine, unavailable history, and legacy absence (#356).
 
 - Bind a sanitized provider-health snapshot to every controller and reviewer request, retain the exact evidence in replayable execution events and improvement cycles, and represent unreadable local history explicitly (#354).

@@ -90,7 +90,7 @@ function makeCircuitBreaker(): CircuitBreaker {
   return cb;
 }
 
-export function useChatController(initial?: ModelPreference): ChatController {
+export function useChatController(initial?: ModelPreference, skipPermissions = false): ChatController {
   const { exit } = useApp();
   const width = useTerminalWidth();
 
@@ -100,7 +100,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const conversationCursor = useRef<{ sessionId: string; revision: string | null } | null>(null);
   const transcript = useTranscriptState(sessionRef);
   const stats = useSessionStats();
-  const modelState = useModelState(initial);
+  const modelState = useModelState(initial, skipPermissions);
   const modal = useModalState();
   const approval = useApprovalState();
   const queue = useQueueState();
@@ -228,7 +228,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
   const buildAgentContext = useCallback((): AgentContext => ({
     provider, model, mode, confirmMode, autoRoute, actualProvider, actualModel,
     approvals: approval.store,
-    approve: (decision, signal) => decision.request ? approval.request(decision.request, signal) : Promise.resolve('reject'),
+    approve: (decision, signal) => !confirmMode ? Promise.resolve('allow')
+      : decision.request ? approval.request(decision.request, signal) : Promise.resolve('reject'),
     preferenceSources: modelState.sources,
     onCheckpoint: (messages, status) => {
       const cursor = conversationCursor.current;
@@ -327,7 +328,8 @@ export function useChatController(initial?: ModelPreference): ChatController {
     toolOutputs: transcript.toolOutputs,
     showToolOutput: output => { modal.setToolOutput(output); modal.setModalMode('tool-output'); },
     approvals: approval.store,
-    approve: (decision,signal) => decision.request ? approval.request(decision.request,signal) : Promise.resolve('reject'),
+    approve: (decision,signal) => !confirmMode ? Promise.resolve('allow')
+      : decision.request ? approval.request(decision.request,signal) : Promise.resolve('reject'),
     cancelActiveTurn: () => turnController.current.cancel(),
     provider, actualProvider, actualModel, model, mode, confirmMode,
     reloadDefaults: modelState.reload,
@@ -338,7 +340,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
     queuedMessages: queuedMessages.map(message => message.text), debugEnabled: isDebugEnabled(), modalMode: modal.modalMode,
     ledger: ledgerRef.current,
 
-    setProvider, setModel, setMode,
+    setProvider, setModel, setMode, setConfirmMode: modelState.setConfirmMode,
     setMessages,
     setStats: stats.setStats,
     setModalMode: modal.setModalMode as (m: string) => void,
@@ -364,13 +366,13 @@ export function useChatController(initial?: ModelPreference): ChatController {
     openProviderPicker: () => openProviderPickerRef.current?.(),
   }), [onWorkflowProgress,workflowHudMode,approval.store, approval.request, transcript.toolOutputs, provider, modelState.reload, actualProvider, actualModel, model, mode, confirmMode, messages, stats.stats, stats.setStats,
     stats.setContextTokens, loopActive, isProcessing, thinkingState, streamingResponse, queuedMessages,
-    modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode,
+    modal.modalMode, modal.setModalMode, modal.setToolOutput, modal.setAvailableModels, setProvider, setModel, setMode, modelState.setConfirmMode,
     setMessages, setLoopActive, loop.setLoopPrompt, loop.setLoopMaxIterations, loop.setLoopCompletionPromise,
     loop.setLoopIteration, addMessage, estimateContextTokens, runLoop, handleFleetInstruction]);
 
   const handleCommandWrapped = useCallback(async (cmd: string): Promise<void> => {
     const parts = cmd.trim().split(/\s+/);
-    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe')
+    const controlled = ['/provider', '/model', '/defaults', '/permissions', '/auto', '/new', '/resume', '/branch', '/checkout', '/diff', '/replay', '/export', '/import'].includes(parts[0]!.toLowerCase()) || parts[0] === '/doctor' && parts.includes('--probe')
       || parts[0]!.toLowerCase()==='/run'&&!!parts[1]&&!['list','status','replay','cancel'].includes(parts[1]!) || parts[0]!.toLowerCase()==='/agents'&&parts[1]==='retry'
       || parts[0]!.toLowerCase()==='/orchestrate'&&!['list','status','proposal','replay','cancel'].includes(parts[1]??'');
     try {
@@ -678,7 +680,7 @@ export function useChatController(initial?: ModelPreference): ChatController {
 
   const statusProps: StatusRegionProps = {
     provider: actualProvider, model: actualModel, mode, stats: stats.stats,
-    contextTokens: stats.contextTokens, breakerHealth: resolvedBreakerHealth, smartRouteActive, width,
+    contextTokens: stats.contextTokens, breakerHealth: resolvedBreakerHealth, smartRouteActive, confirmMode, width,
   };
 
   const inputProps: InputRegionProps = {

@@ -21,8 +21,9 @@ let firstSignal: AbortSignal | undefined;
 let vision = true;
 let requestWrite = false;
 let requestPath = 'approved.txt';
+let startAuto = false;
 const json = (value: unknown) => new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
-function Harness() { controller = useChatController(); return null; }
+function Harness() { controller = useChatController(undefined, startAuto); return null; }
 function stream(model: string) {
   if (requestWrite && requests.at(-1)?.messages.at(-1)?.role !== 'tool') {
     const chunks = [{ id: 'toy', model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'write', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: requestPath, content: 'approved' }) } }] }, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } }];
@@ -37,7 +38,7 @@ function stream(model: string) {
 beforeEach(() => {
   config.resetConfig(); clearModelCache(); resetRunLogs(); _resetModeTracking();
   root = realpathSync(mkdtempSync(join(tmpdir(), 'calliope-repl-turn-')));
-  requests = []; holdFirst = false; release = undefined; firstSignal = undefined; vision = true; requestWrite = false; requestPath = 'approved.txt';
+  requests = []; holdFirst = false; release = undefined; firstSignal = undefined; vision = true; requestWrite = false; requestPath = 'approved.txt'; startAuto = false;
   vi.spyOn(process, 'cwd').mockReturnValue(root);
   for (const provider of config.getProviderNames()) {
     const vars = config.getProviderEnvVars(provider);
@@ -299,6 +300,35 @@ it('pauses writes for the real approval UI, reuses session grants and asks again
   expect(controller.modal.pendingApproval?.id).toBe(nextId);
   controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'reject'); await next;
   expect(controller.transcript.messages.some(message => message.type === 'error')).toBe(false);
+});
+
+it('runs without approval prompts in startup or in-session auto mode and restores prompts in work mode', async () => {
+  requestWrite = true; startAuto = true; await mount();
+  await controller.input.onSubmitMessage('Write automatically at startup');
+  expect(controller.modal.pendingApproval).toBeNull();
+  expect(readFileSync(join(root, 'approved.txt'), 'utf8')).toBe('approved');
+  expect(controller.status.confirmMode).toBe(false);
+
+  await controller.input.onSubmitMessage('/mode work');
+  await vi.waitFor(() => expect(controller.status.confirmMode).toBe(true));
+  requestPath = 'asked.txt';
+  const asked = controller.input.onSubmitMessage('Ask before this write');
+  await vi.waitFor(() => expect(controller.modal.pendingApproval).toBeTruthy());
+  controller.modal.onApprovalAnswer!(controller.modal.pendingApproval!.id, 'reject');
+  await asked;
+  expect(existsSync(join(root, 'asked.txt'))).toBe(false);
+
+  await controller.input.onSubmitMessage('/permissions off');
+  await vi.waitFor(() => expect(controller.status.confirmMode).toBe(false));
+  requestPath = 'auto.txt';
+  await controller.input.onSubmitMessage('Write automatically in session');
+  expect(controller.modal.pendingApproval).toBeNull();
+  expect(readFileSync(join(root, 'auto.txt'), 'utf8')).toBe('approved');
+
+  await controller.input.onSubmitMessage('/permissions on');
+  await vi.waitFor(() => expect(controller.status.confirmMode).toBe(true));
+  await controller.input.onSubmitMessage('/mode auto');
+  await vi.waitFor(() => expect(controller.status.confirmMode).toBe(false));
 });
 
 it('persists project grants across controller restart and revokes them explicitly', async () => {

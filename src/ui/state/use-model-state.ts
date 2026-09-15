@@ -38,7 +38,7 @@ export interface ModelStateHook {
   reload: (cwd: string) => void;
 }
 
-export function useModelState(initial?: ModelPreference): ModelStateHook {
+export function useModelState(initial?: ModelPreference, skipPermissions = false): ModelStateHook {
   const [choice, setChoice] = useState(() => resolvePreferences(process.cwd(), { session: initial }));
   const { provider, model, sources, warnings } = choice;
   const setProvider: ModelStateHook['setProvider'] = useCallback(value => setChoice(previous => {
@@ -51,7 +51,7 @@ export function useModelState(initial?: ModelPreference): ModelStateHook {
     return { ...previous, model, sources: { ...previous.sources, model: model ? 'session' : null } };
   }), []);
   const [mode, setMode] = useState<Mode>('hybrid');            // Default to hybrid mode
-  const [confirmMode, setConfirmMode] = useState<boolean>(true); // Require confirmation for risky ops
+  const [confirmMode, setConfirmMode] = useState<boolean>(!skipPermissions); // Require confirmation for risky ops
   const [autoRoute, setAutoRoute] = useState<boolean>(false);    // Auto model routing
   const [smartRouteActive, setSmartRouteActive] = useState<boolean>(initialSmartRoute);
   const [breakerHealth, setBreakerHealth] = useState<BreakerHealth>('ok');
@@ -63,11 +63,11 @@ export function useModelState(initial?: ModelPreference): ModelStateHook {
   const reset = useCallback(() => {
     setChoice(resolvePreferences(process.cwd(), { session: initial }));
     setMode('hybrid');
-    setConfirmMode(true);
+    setConfirmMode(!skipPermissions);
     setAutoRoute(false);
     setSmartRouteActive(initialSmartRoute());
     setBreakerHealth('ok');
-  }, [initial]);
+  }, [initial, skipPermissions]);
 
   return {
     reload, sources, warnings, provider, setProvider,

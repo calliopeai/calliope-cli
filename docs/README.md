@@ -34,7 +34,7 @@ provider backends, and a small, tested command surface.
 | `/doctor` | Local provider health; `--probe` checks live discovery |
 | `/model [name]` | Browse or switch models |
 | `/provider [name]` | Switch provider |
-| `/mode [plan\|hybrid\|work]` | Switch operating mode |
+| `/mode [plan\|hybrid\|work\|auto]` | Switch operating mode |
 | `/loop "<prompt>"` | Run an autonomous agent loop |
 | `/compact` | Compress conversation context |
 | `/undo` | Revert the last change |

@@ -38,8 +38,8 @@ export interface ChatHandle {
   resetSession: () => void;
 }
 
-export function TerminalChat({ controllerRef, initialPreference }: { controllerRef?: MutableRefObject<ChatHandle | null>; initialPreference?: ModelPreference }) {
-  const c = useChatController(initialPreference);
+export function TerminalChat({ controllerRef, initialPreference, skipPermissions = false }: { controllerRef?: MutableRefObject<ChatHandle | null>; initialPreference?: ModelPreference; skipPermissions?: boolean }) {
+  const c = useChatController(initialPreference, skipPermissions);
 
   // Mount counter for the reset-without-remount assertion (no-op in production).
   useEffect(() => { probeMount('terminal-chat'); }, []);
@@ -68,12 +68,12 @@ export function TerminalChat({ controllerRef, initialPreference }: { controllerR
 // App Wrapper & Entry Point
 // ============================================================================
 
-function App({ initialPreference }: { initialPreference?: ModelPreference }) {
+function App({ initialPreference, skipPermissions }: { initialPreference?: ModelPreference; skipPermissions?: boolean }) {
   // The ErrorBoundary swaps in a fallback on a render crash; retrying clears its
   // error state, which remounts TerminalChat fresh — no remount key needed.
   return (
     <ErrorBoundary>
-      <TerminalChat initialPreference={initialPreference} />
+      <TerminalChat initialPreference={initialPreference} skipPermissions={skipPermissions} />
     </ErrorBoundary>
   );
 }
@@ -157,7 +157,7 @@ export async function startInkCLI(options: { skipPermissions?: boolean; initialP
   // Print banner BEFORE Ink starts - it stays fixed at the top
   await printBanner(options.initialPreference);
 
-  const { waitUntilExit } = render(<App initialPreference={options.initialPreference} />, {
+  const { waitUntilExit } = render(<App initialPreference={options.initialPreference} skipPermissions={options.skipPermissions} />, {
     patchConsole: true,  // Prevent console.log during session from mixing with Ink
   });
   await waitUntilExit();

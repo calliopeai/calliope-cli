@@ -51,15 +51,18 @@ endpoint. Models are discovered live from each provider's API — there are no
 hardcoded model lists, so new models appear as soon as the provider ships them.
 Browse the current provider's models with `/model`. See [Providers](./providers.md).
 
-## Modes: plan, hybrid, work
+## Modes: plan, hybrid, work, auto
 
-Three operating modes control how much the agent does on its own:
+Four operating modes control how much the agent does on its own:
 
 - `plan` — inspect the project and propose a plan; read-only tools can run.
 - `hybrid` — plan before complex work, then execute (default).
-- `work` — execute directly.
+- `work` — execute directly and confirm risky or mutating tools.
+- `auto` — execute directly without per-tool prompts for the current session.
 
-Switch with `/mode <name>` or cycle with `Shift+Tab`.
+Switch with `/mode <name>` or cycle the confirmation-enabled modes with
+`Shift+Tab`. Auto mode continues to enforce project policy, scope, sandbox and
+orchestration authority.
 
 ## Sandboxing
 
