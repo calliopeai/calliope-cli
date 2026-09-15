@@ -69,8 +69,16 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,maximum),assertAuthority:check,attribution};
     new ExecutionGuard(execution,context.project.root).assertActive(controller.signal);
     const result=await runTurn({smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agentId,session.id,decision,controller.signal,check)}:{}),cwd:context.project.root,sessionId:session.id,execution,reasoningEffort,provider:preference.provider,model:preference.model,messages,prompt:role==='reviewer'?'Review the supplied controller draft and return one explicit reviewer verdict bound to draftHash.':'Review the recorded outcomes and return one bounded decision.',tools:()=>[],onToolStart:()=>{throw new SessionPolicyError();},beforeTool:()=>{throw new SessionPolicyError();},maxIterations:1,maxRetries:0,parallel:false,mode:options.mode,confirmation:'mutating',signal:controller.signal,runlog:log,onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;}});
-    check();if(result.reason!=='completed')throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
-    const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;
+    check();
+    let final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;
+    if(result.reason!=='completed'){
+      // Local models can spend their bounded output on reasoning before emitting a
+      // decision. A truncated controller may stop only when every recorded check
+      // already passed; missing or failed evidence remains a hard failure.
+      const mechanicallyComplete=role==='controller'&&result.reason==='length'&&outcomes.length>0&&outcomes.every(outcome=>Array.isArray(outcome.checks)&&outcome.checks.length>0&&outcome.checks.every(check=>check.passed));
+      if(!mechanicallyComplete)throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
+      final=JSON.stringify({version:1,action:'stop',reason:'All recorded acceptance checks passed; controller output was truncated.',evidence:evidence.ids});
+    }
     const decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan:reviewPlan,evidenceIds:new Set(evidence.ids)});
     await store.append({type:'supervision_decided',round,role,agentId,sessionId:session.id,decision},controller.signal,undefined,check);
   }catch(error){throw authorityError??error;}
