@@ -78,6 +78,28 @@
       "outputRate": 2,
       "status": "failed",
       "runId": "openai-20260915-responses-gpt5mini"
+    },
+    {
+      "id": "8d7e872f-49b6-4bdb-b59f-1fceb95211cf",
+      "at": "2026-09-15T22:11:33.902Z",
+      "reservedNanoUsd": 1282000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 16,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "failed",
+      "runId": "openai-20260915-responses-gpt5mini-retry"
+    },
+    {
+      "id": "daa14634-6ca2-4a7e-acaf-30ad369383f3",
+      "at": "2026-09-15T22:11:51.361Z",
+      "reservedNanoUsd": 6570000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 1.25,
+      "outputRate": 10,
+      "status": "failed",
+      "runId": "openai-20260915-responses-chat"
     }
   ],
   "runs": [
@@ -107,6 +129,14 @@
     },
     {
       "id": "openai-20260915-responses-gpt5mini",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-gpt5mini-retry",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-chat",
       "limitNanoUsd": 50000000
     }
   ]
