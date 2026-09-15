@@ -458,6 +458,7 @@ it.each(['approve','reject'] as const)('keeps a child replan sequential at full 
   p.agents[1]!.maxChildDepth=1;p.agents[1]!.maxChildCount=1;
   const reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';reviewer.maxChildDepth=0;reviewer.maxChildCount=0;p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
   const child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=8000;child.costBudgetUsd=0.1;
+  child.allowedPaths=[{path:'a/child.txt',access:'write'}];
   task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
   verificationExits=[1,1,0,0];
   decide=async context=>{
@@ -472,7 +473,12 @@ it.each(['approve','reject'] as const)('keeps a child replan sequential at full 
   const view=await reviewed(p),result=await execute(view.run.id),finished=result.execution.events.filter(e=>e.change.type==='task_finished');
   expect(result.status).toBe(verdict==='approve'?'completed':'failed');expect(finished.map(e=>e.change.type==='task_finished'&&e.change.status)).toEqual(verdict==='approve'?['failed','failed','completed','completed']:['failed','failed']);
   expect(result.execution.state.graph!.admissions).toHaveLength(1);expect(result.execution.state.graph!.plan.limits).toEqual(p.limits);
-  const history=await inspectImprovements(project,view.run.id,{store:runs});if(verdict==='approve'){expect(history.history.cycles[1]!.parentCycleId).toBe(history.history.cycles[0]!.id);expect(history.history.cycles[1]!.status).toBe('verified');}
+  const history=await inspectImprovements(project,view.run.id,{store:runs});if(verdict==='approve'){
+    expect(history.history.cycles[1]!.parentCycleId).toBe(history.history.cycles[0]!.id);expect(history.history.cycles[1]!.status).toBe('verified');
+    const [parentFailure,childFailure]=finished.filter(e=>e.change.type==='task_finished'&&e.change.status==='failed'),childRetry=requests.find(r=>r.context.task?.id==='child-task'&&r.context.attempt?.number===2)!;
+    expect(childRetry.context.previousAttempts.map((attempt:any)=>attempt.eventId)).toEqual([childFailure!.id]);expect(childRetry.context.supervision.feedback.map((outcome:any)=>outcome.eventId)).toEqual([childFailure!.id]);
+    expect(JSON.stringify(childRetry.context.supervision.feedback)).not.toContain(parentFailure!.id);expect(result.execution.state.supervision?.strategies['child-task']?.evidence).toEqual([parentFailure!.id,childFailure!.id]);
+  }
   const calls=requests.length,store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),fresh=store.read();expect(replayExecution(fresh.header,view.manifest,fresh.events)).toEqual(result.execution.state);expect(requests).toHaveLength(calls);
 });
 
