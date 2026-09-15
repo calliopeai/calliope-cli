@@ -1,21 +1,21 @@
 {
-  "version": 1,
-  "recordedAt": "2026-09-14T00:11:29.535322+00:00",
+  "version": 2,
+  "recordedAt": "2026-09-15T07:08:41.242Z",
   "issue": 336,
   "kind": "native-supervision-study",
-  "recursiveScenarioPassed": false,
+  "recursiveScenarioPassed": true,
   "reviewerProtocolObserved": true,
   "codeGates": "/docs/reviewer-verdicts.md",
   "routing": "Smart is opt-in; all native models in this study are explicitly pinned.",
-  "nativeRequestCount": 16,
-  "observedTokens": 108236,
-  "retainedReservationNanoUsd": 5594010400,
+  "nativeRequestCount": 31,
+  "observedTokens": 202912,
+  "retainedReservationNanoUsd": 8926430720,
   "budget": {
-    "followupLimitNanoUsd": 50000000000,
+    "followupLimitNanoUsd": 55000000000,
     "cumulativeLimitNanoUsd": 500000000000,
-    "followupRetainedNanoUsd": 41767230776,
-    "cumulativeRetainedNanoUsd": 93363961017,
-    "reservations": 872
+    "followupRetainedNanoUsd": 53431192856,
+    "cumulativeRetainedNanoUsd": 105027923097,
+    "reservations": 938
   },
   "experiments": [
     {
@@ -409,21 +409,109 @@
           "exceeded": 0
         }
       }
+    },
+    {
+      "id": "336n",
+      "scope": "execution of an operator-reviewed native strict recursive cross-provider plan",
+      "goalId": null,
+      "runId": "aafcd062-3e2c-4e62-97ff-d45153f7f502",
+      "recursiveScenarioPassed": true,
+      "observation": "Direct DeepSeek workers produced the staged failures and recoveries. Fable decomposed once, replanned each failed task, then continued after both checks passed; independent Haiku approved each exact draft. The executor admitted one child, preserved task-local retry evidence, verified all four isolated receipts, and completed in four supervision rounds.",
+      "roles": {
+        "controller": "anthropic:claude-fable-5-1",
+        "reviewer": "anthropic:claude-haiku-4-5-20251001",
+        "workers": "deepseek:deepseek-flash"
+      },
+      "planOrigin": {
+        "kind": "operator-reviewed-cross-provider-plan",
+        "parentSha256": "e432d4ed72c52d8c23c26e020be8af46a00fabe78b8323a0c789de41a76f4b80",
+        "sha256": "8a87d6fc2f077cff024ab997e7870446d2596eb668c136218b1b12f5762ad93e",
+        "planHash": "571a8e5282273b040de617322c1f958830998840a3962bea9c63c854b090743f"
+      },
+      "nativePlanningRequests": 0,
+      "nativeRequestCount": 15,
+      "observedTokens": 94676,
+      "retainedReservationNanoUsd": 3332420320,
+      "externalReservationCapNanoUsd": 5000000000,
+      "exactProtocol": {
+        "taskOutcomes": [
+          "fix:failed",
+          "diagnose:failed",
+          "diagnose:completed",
+          "fix:completed"
+        ],
+        "reviewDecisions": [
+          "controller:decompose",
+          "reviewer:decompose",
+          "controller:replan",
+          "reviewer:replan",
+          "controller:replan",
+          "reviewer:replan",
+          "controller:continue",
+          "reviewer:continue"
+        ],
+        "verificationExitCodes": [1, 1, 0, 0],
+        "verificationCleanupConfirmed": true,
+        "graphAdmissions": 1,
+        "supervisionRounds": 4,
+        "taskLocalRetryContexts": 2
+      },
+      "offlineInspection": {
+        "version": 2,
+        "requests": 0,
+        "historyUnchanged": true,
+        "sourceUnchanged": true,
+        "strictNestedRecovery": true,
+        "hud": {
+          "executionUpdates": 1485,
+          "rendered": true,
+          "healthLabels": 4799
+        },
+        "improvementCycles": {
+          "total": 3,
+          "failed": 1,
+          "verified": 2
+        }
+      },
+      "brain": {
+        "entities": 26,
+        "edges": 38,
+        "restartSearchEntities": 20,
+        "providerRequests": 0
+      },
+      "accounting": {
+        "scope": "this execution only; prior study costs excluded",
+        "accounted": {
+          "tokens": 94676,
+          "costNanos": 920470460
+        },
+        "requests": {
+          "pending": 0,
+          "settled": 15,
+          "unknown": 0,
+          "exceeded": 0
+        },
+        "reservationEstimateVarianceNanoUsd": 97900000
+      },
+      "privateEvidence": {
+        "archive": "observed-aafcd062-3e2c-4e62-97ff-d45153f7f502",
+        "manifestSha256": "0f9ee9160093ef5547f4bbf8286d9c7e30caaf23977d76c1ee8cb09990c9c633"
+      }
     }
   ],
   "limitations": [
     "This deliberately staged fixture is protocol evidence, not a general model reliability benchmark.",
-    "Native child admission and nested recovery are not established by this study and remain open.",
+    "Native child admission and nested recovery are established for the exact reviewed 336n scenario; broader providers, models and graph topologies remain untested.",
     "Automatic native planning did not pass. Operator changes and original failures remain preserved.",
     "The runtime normalizes hash-bound approval, then applies independent execution policy. A model approval cannot bypass an escalated parent.",
     "Retained reservations are conservative budget charges, not vendor invoices; failed and unknown reservations were not reset.",
-    "No xAI or OpenRouter paid requests. No more paid probes in this validation batch.",
+    "No xAI or OpenRouter paid requests were made.",
     "Full provider publication conformance remains unsatisfied: 16 missing wire cells and 33 semantic cells."
   ],
   "localChecks": {
-    "testsPassed": 5424,
+    "testsPassed": 5464,
     "testsSkipped": 6,
-    "testFiles": 207,
+    "testFiles": 211,
     "conformancePassed": 538,
     "conformanceSkipped": 2,
     "cleanDistFilesMatched": 1072,
