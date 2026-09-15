@@ -24,11 +24,16 @@ async function fixture(unfinishedMutation=false){
 }
 it('reports preliminary retry and child capacity from recorded state without changing it or granting authority',async()=>{
   const f=await fixture(),before=structuredClone(f.view),plan=structuredClone(f.plan),a=f.inspect();
-  expect(a).toMatchObject({version:1,executionRevision:f.view.state.revision,observedAt:f.now,remainingCapacity:{agents:1,tasks:2}});
+  expect(a).toMatchObject({version:1,executionRevision:f.view.state.revision,observedAt:f.now,remainingCapacity:{agents:1,tasks:2},retryCapacity:{available:1,policy:'allowed',reason:null}});
   expect(a.retryTasks[0]).toEqual({id:'inspect-a',actions:['retry','replan'],status:'possible',reason:null});expect(a.retryTasks[1]!.status).toBe('blocked');
   expect(a.childParents.find(a=>a.id==='a')).toMatchObject({status:'possible',remainingChildren:1,remainingDepth:1});expect(a.limitations).toContain('grants no authority');
   expect(f.inspect()).toEqual(a);expect(f.view).toEqual(before);expect(f.plan).toEqual(plan);expect(fetch).not.toHaveBeenCalled();
   a.retryTasks[0]!.actions.length=0;expect(f.inspect().retryTasks[0]!.actions).toEqual(['retry','replan']);
+});
+it('separates existing-task retry capacity from exhausted child admission capacity',async()=>{
+  const f=await fixture(),plan=structuredClone(f.plan);plan.limits.maxAgents=plan.agents.length;plan.limits.maxTasks=plan.tasks.length;
+  const a=supervisionAvailability(plan,f.view,f.now);expect(a.remainingCapacity).toEqual({agents:0,tasks:0});expect(a.retryCapacity).toEqual({available:1,policy:'allowed',reason:null});expect(a.retryTasks[0]!.status).toBe('possible');
+  expect(a.limitations).toContain('grants no authority');
 });
 it('reports stopped and escalated ancestors for both retry and delegation',async()=>{
   const f=await fixture();

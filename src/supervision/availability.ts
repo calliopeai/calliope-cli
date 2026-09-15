@@ -7,6 +7,7 @@ import {assertSupervisedRetry} from './journal.js';
 export interface SupervisionAvailability {
   version:1;executionRevision:string;observedAt:number;
   remainingCapacity:{agents:number;tasks:number};
+  retryCapacity:{available:number;policy:'allowed'|'blocked';reason:string|null};
   retryTasks:{id:string;actions:('retry'|'replan')[];status:'blocked'|'possible';reason:string|null}[];
   childParents:{id:string;status:'blocked'|'possible';reason:string|null;remainingChildren:number;remainingDepth:number;deadline:number}[];
   limitations:string;
@@ -34,6 +35,9 @@ export function supervisionAvailability(input:ProjectPlan,view:ExecutionInspecti
     const reason=closed??(!policy.allowedActions.includes('decompose')?'The reviewed policy does not permit decomposition.':agentStopped(state,{plan},agent.id)?'This agent or an ancestor is stopped or escalated.':observedAt>=deadline(agent.id)?'The original parent deadline expired.':capacity.agents===0?'The reviewed agent count is exhausted.':capacity.tasks===0?'The reviewed task count is exhausted.':remainingChildren===0?'The parent child count is exhausted.':remainingDepth===0?'The parent child depth is exhausted.':null);
     return{id:agent.id,status:reason?'blocked' as const:'possible' as const,reason,remainingChildren,remainingDepth,deadline:deadline(agent.id)};
   });
-  return{version:1,executionRevision:state.revision,observedAt,remainingCapacity:capacity,retryTasks,childParents,
+  const retryCapacity={available:retryTasks.filter(task=>task.status==='possible').length,
+    policy:actions.length?'allowed' as const:'blocked' as const,
+    reason:actions.length?null:'The reviewed policy does not permit retry or replan.'};
+  return{version:1,executionRevision:state.revision,observedAt,remainingCapacity:capacity,retryCapacity,retryTasks,childParents,
     limitations:'Possible means only these recorded state checks passed. It grants no authority. Application still requires current ownership, permissions, original deadlines, verified artifact/cleanup evidence, exact child contracts and scopes, dependencies, remaining budgets and child grants. Never approve a blocked action; revise the draft or stop if no valid action meets the reviewed goal.'};
 }
