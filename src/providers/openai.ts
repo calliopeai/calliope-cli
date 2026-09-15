@@ -370,6 +370,9 @@ async function chatOpenAIResponses(
         input: responsesInput,
         tools: responsesTools.length > 0 ? responsesTools : undefined,
         max_output_tokens: dynamicMaxTokens,
+        // Keep bounded probes and orchestration turns from spending the entire
+        // output budget on hidden reasoning before producing visible output.
+        ...(limits?.bounded ? { reasoning: { effort: 'minimal' } } : {}),
       } as unknown;
       const stream = client.responses.stream(streamParams as Parameters<typeof client.responses.stream>[0], signal ? { signal } : undefined);
 
@@ -428,6 +431,7 @@ async function chatOpenAIResponses(
     input: responsesInput,
     tools: responsesTools.length > 0 ? responsesTools : undefined,
     max_output_tokens: dynamicMaxTokens,
+    ...(limits?.bounded ? { reasoning: { effort: 'minimal' } } : {}),
   } as unknown;
   const response = await client.responses.create(
     createParams as Parameters<typeof client.responses.create>[0], signal ? { signal } : undefined

@@ -100,6 +100,50 @@
       "outputRate": 10,
       "status": "failed",
       "runId": "openai-20260915-responses-chat"
+    },
+    {
+      "id": "d91ce3b6-2db3-49f4-aa85-ab6a102ca86c",
+      "at": "2026-09-15T22:13:08.631Z",
+      "reservedNanoUsd": 1314000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "captured",
+      "runId": "openai-20260915-responses-minimal"
+    },
+    {
+      "id": "2f0cf98f-15fb-40d3-b16a-d6c5d7c256e1",
+      "at": "2026-09-15T22:13:20.984Z",
+      "reservedNanoUsd": 1314000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "captured",
+      "runId": "openai-20260915-responses-minimal-textstream"
+    },
+    {
+      "id": "5f84543a-6c77-4a8e-b096-ff4b06bf4c1f",
+      "at": "2026-09-15T22:13:23.462Z",
+      "reservedNanoUsd": 1314000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "captured",
+      "runId": "openai-20260915-responses-minimal-tooljson"
+    },
+    {
+      "id": "cc3d5958-4d1c-45c6-af37-7089c3490460",
+      "at": "2026-09-15T22:13:26.600Z",
+      "reservedNanoUsd": 1314000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "captured",
+      "runId": "openai-20260915-responses-minimal-toolstream"
     }
   ],
   "runs": [
@@ -137,6 +181,22 @@
     },
     {
       "id": "openai-20260915-responses-chat",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-minimal",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-minimal-textstream",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-minimal-tooljson",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-minimal-toolstream",
       "limitNanoUsd": 50000000
     }
   ]
