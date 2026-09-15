@@ -144,6 +144,50 @@
       "outputRate": 2,
       "status": "captured",
       "runId": "openai-20260915-responses-minimal-toolstream"
+    },
+    {
+      "id": "8851d996-1684-4662-97f2-f4dd81a392ca",
+      "at": "2026-09-15T22:14:46.697Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-semantic-system"
+    },
+    {
+      "id": "1d49dc2e-3272-4892-b034-686e4e9734f6",
+      "at": "2026-09-15T22:14:58.692Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "cancelled",
+      "runId": "openai-20260915-semantic-cancel"
+    },
+    {
+      "id": "64201353-91f7-4f35-bc5f-9fef90ebe90f",
+      "at": "2026-09-15T22:15:09.881Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-semantic-replay"
+    },
+    {
+      "id": "fb473316-4b75-4159-940d-890d3cbbeaf0",
+      "at": "2026-09-15T22:15:10.747Z",
+      "reservedNanoUsd": 788400,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 0.15,
+      "outputRate": 0.6,
+      "status": "captured",
+      "runId": "openai-20260915-semantic-replay"
     }
   ],
   "runs": [
@@ -197,6 +241,18 @@
     },
     {
       "id": "openai-20260915-responses-minimal-toolstream",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-semantic-system",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-semantic-cancel",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-semantic-replay",
       "limitNanoUsd": 50000000
     }
   ]

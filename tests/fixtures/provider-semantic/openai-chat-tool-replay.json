@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-chat",
+  "model": "gpt-4o-mini",
+  "scenario": "tool-result-replay",
+  "stream": false,
+  "maxOutputTokens": 64,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-15T22:15:11.314Z",
+    "sourceOrigin": "https://api.openai.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "64201353-91f7-4f35-bc5f-9fef90ebe90f",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC00by1taW5pIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkNhbGwgZWNobyBleGFjdGx5IG9uY2Ugd2l0aCB0ZXh0PVwiaGVsbG9cIi4gVGhpcyBpcyBhIGNvbmZvcm1hbmNlIGZpeHR1cmU6IHRoZSB0b29sIHN1cHBsaWVzIGEgbWFya2VyIHRoYXQgY2FuIGRpZmZlciBmcm9tIGl0cyBpbnB1dC4gQWZ0ZXIgeW91IHJlY2VpdmUgaXQsIG91dHB1dCBvbmx5IGl0cyByZXN1bHQgc3RyaW5nIHdpdGhvdXQgcHVuY3R1YXRpb24sIHF1b3RhdGlvbiBtYXJrcywgb3IgZXhwbGFuYXRpb24uIn1dLCJ0b29scyI6W3sidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJkZXNjcmlwdGlvbiI6IkVjaG8gYSBzdHJpbmcuIENvbmZvcm1hbmNlIHByb2JlIG9ubHk7IG5ldmVyIGV4ZWN1dGVzLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidGV4dCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJUZXh0IHRvIGVjaG8ifX0sInJlcXVpcmVkIjpbInRleHQiXX19fV0sIm1heF9jb21wbGV0aW9uX3Rva2VucyI6NjR9",
+          "sha256": "344df6120ede337cbadd51ec69c9aad21315b34fb908a629100295100689cb45"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "ewogICJpZCI6ICJjaGF0Y21wbC1FT1ZpZ01rVjNOOUFCVk1nTmVzUUx1Z1RqdjRIdCIsCiAgIm9iamVjdCI6ICJjaGF0LmNvbXBsZXRpb24iLAogICJjcmVhdGVkIjogMTc4OTUxMDUxMCwKICAibW9kZWwiOiAiZ3B0LTRvLW1pbmktMjAyNC0wNy0xOCIsCiAgImNob2ljZXMiOiBbCiAgICB7CiAgICAgICJpbmRleCI6IDAsCiAgICAgICJtZXNzYWdlIjogewogICAgICAgICJyb2xlIjogImFzc2lzdGFudCIsCiAgICAgICAgImNvbnRlbnQiOiBudWxsLAogICAgICAgICJ0b29sX2NhbGxzIjogWwogICAgICAgICAgewogICAgICAgICAgICAiaWQiOiAiY2FsbF95NEk5VHo0STlVNEllNzR5TlE2SFBWRnAiLAogICAgICAgICAgICAidHlwZSI6ICJmdW5jdGlvbiIsCiAgICAgICAgICAgICJmdW5jdGlvbiI6IHsKICAgICAgICAgICAgICAibmFtZSI6ICJlY2hvIiwKICAgICAgICAgICAgICAiYXJndW1lbnRzIjogIntcInRleHRcIjpcImhlbGxvXCJ9IgogICAgICAgICAgICB9CiAgICAgICAgICB9CiAgICAgICAgXSwKICAgICAgICAicmVmdXNhbCI6IG51bGwsCiAgICAgICAgImFubm90YXRpb25zIjogW10KICAgICAgfSwKICAgICAgImxvZ3Byb2JzIjogbnVsbCwKICAgICAgImZpbmlzaF9yZWFzb24iOiAidG9vbF9jYWxscyIKICAgIH0KICBdLAogICJ1c2FnZSI6IHsKICAgICJwcm9tcHRfdG9rZW5zIjogMTAwLAogICAgImNvbXBsZXRpb25fdG9rZW5zIjogMTMsCiAgICAidG90YWxfdG9rZW5zIjogMTEzLAogICAgInByb21wdF90b2tlbnNfZGV0YWlscyI6IHsKICAgICAgImNhY2hlZF90b2tlbnMiOiAwLAogICAgICAiYXVkaW9fdG9rZW5zIjogMAogICAgfSwKICAgICJjb21wbGV0aW9uX3Rva2Vuc19kZXRhaWxzIjogewogICAgICAicmVhc29uaW5nX3Rva2VucyI6IDAsCiAgICAgICJhdWRpb190b2tlbnMiOiAwLAogICAgICAiYWNjZXB0ZWRfcHJlZGljdGlvbl90b2tlbnMiOiAwLAogICAgICAicmVqZWN0ZWRfcHJlZGljdGlvbl90b2tlbnMiOiAwCiAgICB9CiAgfSwKICAic2VydmljZV90aWVyIjogImRlZmF1bHQiLAogICJzeXN0ZW1fZmluZ2VycHJpbnQiOiAiZnBfYTQzYzlhMmFkYyIKfQo=",
+        "sha256": "9159801560113e221a42556fdecf54d7d56caf1a2df20bbbb2f73dc6901408d1",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "",
+          "finishReason": "tool_use",
+          "usage": {
+            "inputTokens": 100,
+            "outputTokens": 13
+          },
+          "tools": [
+            {
+              "name": "echo",
+              "arguments": {
+                "text": "hello"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "reservationId": "fb473316-4b75-4159-940d-890d3cbbeaf0",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC00by1taW5pIiwibWVzc2FnZXMiOlt7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkNhbGwgZWNobyBleGFjdGx5IG9uY2Ugd2l0aCB0ZXh0PVwiaGVsbG9cIi4gVGhpcyBpcyBhIGNvbmZvcm1hbmNlIGZpeHR1cmU6IHRoZSB0b29sIHN1cHBsaWVzIGEgbWFya2VyIHRoYXQgY2FuIGRpZmZlciBmcm9tIGl0cyBpbnB1dC4gQWZ0ZXIgeW91IHJlY2VpdmUgaXQsIG91dHB1dCBvbmx5IGl0cyByZXN1bHQgc3RyaW5nIHdpdGhvdXQgcHVuY3R1YXRpb24sIHF1b3RhdGlvbiBtYXJrcywgb3IgZXhwbGFuYXRpb24uIn0seyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IiIsInRvb2xfY2FsbHMiOlt7ImlkIjoiY2FsbF95NEk5VHo0STlVNEllNzR5TlE2SFBWRnAiLCJ0eXBlIjoiZnVuY3Rpb24iLCJmdW5jdGlvbiI6eyJuYW1lIjoiZWNobyIsImFyZ3VtZW50cyI6IntcInRleHRcIjpcImhlbGxvXCJ9In19XX0seyJyb2xlIjoidG9vbCIsInRvb2xfY2FsbF9pZCI6ImNhbGxfeTRJOVR6NEk5VTRJZTc0eU5RNkhQVkZwIiwiY29udGVudCI6IkhlbGxvIM+AIn1dLCJ0b29scyI6W3sidHlwZSI6ImZ1bmN0aW9uIiwiZnVuY3Rpb24iOnsibmFtZSI6ImVjaG8iLCJkZXNjcmlwdGlvbiI6IkVjaG8gYSBzdHJpbmcuIENvbmZvcm1hbmNlIHByb2JlIG9ubHk7IG5ldmVyIGV4ZWN1dGVzLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Im9iamVjdCIsInByb3BlcnRpZXMiOnsidGV4dCI6eyJ0eXBlIjoic3RyaW5nIiwiZGVzY3JpcHRpb24iOiJUZXh0IHRvIGVjaG8ifX0sInJlcXVpcmVkIjpbInRleHQiXX19fV0sIm1heF9jb21wbGV0aW9uX3Rva2VucyI6NjR9",
+          "sha256": "2c4301f8bc063c4bc59401b70263d62dd46b2aaff5ad10482f850f7854626005"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "ewogICJpZCI6ICJjaGF0Y21wbC1FT1ZpaFJmdzF5VDhyWWs5MEI1NFdkVUFuYWNkMyIsCiAgIm9iamVjdCI6ICJjaGF0LmNvbXBsZXRpb24iLAogICJjcmVhdGVkIjogMTc4OTUxMDUxMSwKICAibW9kZWwiOiAiZ3B0LTRvLW1pbmktMjAyNC0wNy0xOCIsCiAgImNob2ljZXMiOiBbCiAgICB7CiAgICAgICJpbmRleCI6IDAsCiAgICAgICJtZXNzYWdlIjogewogICAgICAgICJyb2xlIjogImFzc2lzdGFudCIsCiAgICAgICAgImNvbnRlbnQiOiAiSGVsbG8gz4AiLAogICAgICAgICJyZWZ1c2FsIjogbnVsbCwKICAgICAgICAiYW5ub3RhdGlvbnMiOiBbXQogICAgICB9LAogICAgICAibG9ncHJvYnMiOiBudWxsLAogICAgICAiZmluaXNoX3JlYXNvbiI6ICJzdG9wIgogICAgfQogIF0sCiAgInVzYWdlIjogewogICAgInByb21wdF90b2tlbnMiOiAxMjIsCiAgICAiY29tcGxldGlvbl90b2tlbnMiOiAzLAogICAgInRvdGFsX3Rva2VucyI6IDEyNSwKICAgICJwcm9tcHRfdG9rZW5zX2RldGFpbHMiOiB7CiAgICAgICJjYWNoZWRfdG9rZW5zIjogMCwKICAgICAgImF1ZGlvX3Rva2VucyI6IDAKICAgIH0sCiAgICAiY29tcGxldGlvbl90b2tlbnNfZGV0YWlscyI6IHsKICAgICAgInJlYXNvbmluZ190b2tlbnMiOiAwLAogICAgICAiYXVkaW9fdG9rZW5zIjogMCwKICAgICAgImFjY2VwdGVkX3ByZWRpY3Rpb25fdG9rZW5zIjogMCwKICAgICAgInJlamVjdGVkX3ByZWRpY3Rpb25fdG9rZW5zIjogMAogICAgfQogIH0sCiAgInNlcnZpY2VfdGllciI6ICJkZWZhdWx0IiwKICAic3lzdGVtX2ZpbmdlcnByaW50IjogImZwX2E0M2M5YTJhZGMiCn0K",
+        "sha256": "3a16248daf177e2df3136fb4c15107be51ec406f35e4b9541f30c2e7a18626d9",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 122,
+            "outputTokens": 3
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}
