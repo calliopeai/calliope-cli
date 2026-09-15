@@ -42,7 +42,10 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 
 it('runs a real mixed-provider SDK pipeline, feeds failed-check evidence into bounded retries, and resumes/replays without spending again',async()=>{
-  respond=async context=>context.task.id==='inspect-a'&&!context.previousAttempts?completion([{id:'report-a',content:'missing the predicate'}]):reply(context);
+  respond=async context=>{
+    if(context.task.id==='inspect-a'&&context.attempt.phase==='initial'){expect(context.previousAttempts).toBeUndefined();return completion([{id:'report-a',content:'missing the predicate'}]);}
+    return reply(context);
+  };
   const pending=await startGoal(project,'Inspect the public toy project.',options());expect(pending.status).toBe('review_required');
   expect(requests.map(req=>[req.provider,req.context.task.id])).toEqual([['deepseek','draft'],['groq','propose']]);
   const id=pending.goal.manifest.id,planningId=pending.goal.state.planning!.runId;
@@ -51,7 +54,10 @@ it('runs a real mixed-provider SDK pipeline, feeds failed-check evidence into bo
   expect(planning.state.artifacts['plan-review']!.agentId).toBe('reviewer');expect(planning.state.tasks.draft!.status).toBe('review_required');
   const done=await approveGoal(project,id,pending.goal.proposal!.hash,options());expect(done.status).toBe('completed');
   expect(requests.filter(req=>req.context.task.id.startsWith('inspect')).every(req=>req.provider==='mistral'&&req.model==='worker-toy')).toBe(true);expect(requests.at(-1)).toMatchObject({provider:'deepseek',model:'controller-toy',context:{task:{id:'verify'}}});
-  const retried=requests.find(req=>req.context.previousAttempts);expect(retried!.context.previousAttempts[0]).toMatchObject({status:'failed',checks:[{id:'output-check',passed:false}]});
+  const initial=requests.find(req=>req.context.task.id==='inspect-a'&&req.context.attempt.number===1),retried=requests.find(req=>req.context.task.id==='inspect-a'&&req.context.attempt.number===2);
+  const starts=done.execution!.events.filter(event=>event.change.type==='task_started'&&event.change.taskId==='inspect-a'),finished=done.execution!.events.find(event=>event.change.type==='task_finished'&&event.change.taskId==='inspect-a');
+  expect(initial!.context.attempt).toEqual({version:1,number:1,phase:'initial',maxAttempts:2,startedEventId:starts[0]!.id,previous:[]});expect(initial!.context.previousAttempts).toBeUndefined();
+  expect(retried!.context.attempt).toEqual({version:1,number:2,phase:'retry',maxAttempts:2,startedEventId:starts[1]!.id,previous:[{number:1,startedEventId:starts[0]!.id,outcomeEventId:finished!.id,status:'failed'}]});expect(retried!.context.previousAttempts[0]).toMatchObject({eventId:finished!.id,status:'failed',checks:[{id:'output-check',passed:false}]});
   expect(done.execution!.state.tasks['inspect-a']!.attempts).toBe(2);expect(done.execution!.events.filter(event=>event.change.type==='task_reset')).toHaveLength(1);
   const ledger=new ReservationLedger(join(runs.root,done.goal.state.execution!.runId,'budget')).read(project);expect(Object.keys(ledger.projection.requests)).toHaveLength(4);
   expect(progress.map(workflowSnapshot).some(view=>view.agents.some(agent=>agent.label.includes('mistral:worker-toy')))).toBe(true);expect(workflowSnapshot(progress.at(-1)!).summary).toContain('3/3 done');
