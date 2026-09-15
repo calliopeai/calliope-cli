@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Bind every worker request to an executor-owned initial/retry descriptor with exact authoritative outcome ancestry, evidence-recovery handling and reviewed maximum attempts (#350).
+
 - Separate existing-task retry capacity from agent/task child-admission capacity in supervision context, making full-graph retries explicit without changing authority (#348).
 
 - Confirm exact container absence after an uncertain cleanup response with one bounded read-only check; retain cleanup diagnostics, failed tests, cancellation and unconfirmed creation (#346).

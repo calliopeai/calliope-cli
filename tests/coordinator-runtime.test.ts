@@ -22,7 +22,7 @@ beforeEach(()=>{
   for(const provider of config.getProviderNames()){const names=config.getProviderEnvVars(provider);for(const name of[names.apiKey,names.baseUrl])if(name)vi.stubEnv(name,'');}
   config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://coordinator.invalid/v1'});config.set('routing',{enabled:true,providerPool:['deepseek']});respond=async(task,body)=>reply(task,body);
   vi.stubGlobal('fetch',vi.fn(async(input,init)=>{const req=new Request(input,init);if(new URL(req.url).pathname==='/v1/models')return json({data:[{id:'coordinator-toy',context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]});
-    expect(req.url).toBe('https://coordinator.invalid/v1/chat/completions');const body=await req.json();expect(body.max_tokens).toBeLessThanOrEqual(100);const context=body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{'));const task=JSON.parse(context.content).task;requests.push({task:task.id,body});return respond(task,body,init?.signal??req.signal);
+    expect(req.url).toBe('https://coordinator.invalid/v1/chat/completions');const body=await req.json();expect(body.max_tokens).toBeLessThanOrEqual(100);const message=body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')),context=JSON.parse(message.content),task=context.task;requests.push({task:task.id,body,context});return respond(task,body,init?.signal??req.signal);
   }));
 });
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
@@ -103,10 +103,11 @@ it('detects artifact changes made after collection before recording completion',
 it('keeps the run ID and original deadline on resume and requires an explicit reset for unknown work',async()=>{
   const view=await reviewed(),authority=await prepareAgentExecution(project,view.run.id,'coordinator',100,{store:runs}),budget=authority.ledger.read(project).manifest,store=new ExecutionStore(join(runs.root,view.run.id),view.manifest);
   store.create({version:1,runId:view.run.id,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(budget.createdAt).toISOString(),deadline:budget.deadline});
-  await store.append({type:'started',ownerId:randomUUID()});await store.append({type:'task_started',taskId:'inspect-a',attempt:1,sessionId:'orphan-session'});
+  await store.append({type:'started',ownerId:randomUUID()});const orphan=await store.append({type:'task_started',taskId:'inspect-a',attempt:1,sessionId:'orphan-session'});
   const first=await executeReviewedRun(project,view.run.id,{store:runs,resume:true,approve:async()=> 'allow'});expect(first.status).toBe('partial');expect(first.execution.state.tasks['inspect-a']).toMatchObject({status:'unknown',attempts:1,escalation:'parent'});expect(requests.map(r=>r.task)).toEqual(['inspect-b','inspect-b']);
   await controlExecution(project,view.run.id,'retry','inspect-a',{store:runs});const second=await executeReviewedRun(project,view.run.id,{store:runs,resume:true,approve:async()=> 'allow'});
-  expect(second.status).toBe('completed');expect(second.runId).toBe(view.run.id);expect(second.execution.header).toEqual(first.execution.header);expect(second.execution.state.tasks['inspect-a']!.attempts).toBe(2);expect(second.execution.state.tasks['inspect-b']!.attempts).toBe(1);
+  expect(second.status,JSON.stringify({tasks:second.execution.state.tasks,events:second.execution.events.slice(-10)})).toBe('completed');expect(second.runId).toBe(view.run.id);expect(second.execution.header).toEqual(first.execution.header);expect(second.execution.state.tasks['inspect-a']!.attempts).toBe(2);expect(second.execution.state.tasks['inspect-b']!.attempts).toBe(1);
+  const retried=requests.find(r=>r.task==='inspect-a')!;expect(retried.context.attempt).toMatchObject({version:1,number:2,phase:'retry',previous:[{number:1,startedEventId:orphan.id,outcomeEventId:null,status:'unknown'}]});expect(retried.body.messages[0].content).toContain('null outcomeEventId was interrupted');
 });
 it('records human acceptance only against unchanged artifacts and reviewable criteria',async()=>{
   const p=plan();for(const task of p.tasks)task.acceptanceChecks=[];const view=await reviewed(p);await executeReviewedRun(project,view.run.id,{store:runs,approve:async()=> 'allow'});

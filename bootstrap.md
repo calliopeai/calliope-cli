@@ -69,6 +69,8 @@ append-only client failures, parallel progress and bounded private inspection.
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
 with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
+Worker context binds an explicit versioned initial/retry phase to the current
+task-start event and prior outcomes instead of asking models to infer attempt state.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active
 graph without resetting its original scope, budget or clock.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git

@@ -118,6 +118,18 @@ started dependent task. Cancellation/unknown outcomes never trigger automatic
 mutation replay. SDK/shared transport retries remain separately bounded and each
 provider attempt requires another reservation; a task retry does not reset spend.
 
+Every worker request includes an executor-owned version-1 `attempt` descriptor:
+the current number, `initial` or `retry` phase, reviewed maximum, current
+`task_started` event ID and numbered prior start/outcome event pairs. A prior
+attempt interrupted before an outcome has a null outcome ID and `unknown` status.
+The descriptor is derived from the replayed journal after task start and rejected if it differs
+from projected state. Workers must use it instead of inferring retry state from
+task prose, files or prior model output. Detailed `previousAttempts` evidence is
+present only on retries and carries the same event IDs. Evidence recovery can
+append a corrected outcome without creating another attempt; in that case the
+descriptor selects the last authoritative outcome before the next task start.
+This context grants no additional attempts, tools, paths, budget or time.
+
 ## Event and output schemas
 
 Execution commands emit newline-delimited JSON envelopes:
