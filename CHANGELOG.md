@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Confirm exact container absence after an uncertain cleanup response with one bounded read-only check; retain cleanup diagnostics, failed tests, cancellation and unconfirmed creation (#346).
+
 - Describe the exact effect of supervision drafts so reviewers distinguish existing-task retries from new child admissions and future strategy prose; retain independent rejection and all executor gates (#344).
 
 - Add operator-reviewed full-context metadata for bounded calls to providers with incomplete live discovery; preserve live rejections, original budgets, revocation checks and replayable reservation evidence (#337).

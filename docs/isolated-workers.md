@@ -99,6 +99,23 @@ No worktree is deleted automatically. Archive the run evidence before explicitly
 removing its retained worktrees with Git. A failed cleanup result names the
 container to inspect; preserve that result rather than treating it as a test pass.
 
+New command receipts include optional version-1 `cleanup` diagnostics: the final
+removal outcome (`removed`, `absent`, `timeout` or `error`) and exit code, plus a
+read-only verification outcome when needed. After an unconfirmed removal, the
+executor inspects the exact container once, only if creation was acknowledged.
+Only the daemon's exact named absence response confirms removal. A present
+container, daemon error, malformed/oversized response or timeout stays unconfirmed.
+The five-second removal and three-second inspection limits each allow 250 ms for
+process-group termination. Safety cleanup can outlast the command deadline; it
+does not authorize another command or extend the task's execution allowance.
+Cancellation and command timeout retain their original outcomes, and a failed
+test remains failed even when absence is confirmed. Interrupted creation cannot
+be confirmed by this probe because the create request might still complete later.
+Legacy receipts stay valid and unchanged; this check does not repair prior runs.
+The [local process smoke evidence](evidence/container-cleanup-smoke.json) records
+a real failing Docker command and deliberately lost removal acknowledgement,
+with the exact source hashes and matching clean-package behavior.
+
 An output-limit cutoff now collects the actual patch and runs the approved
 verification commands while authority and time remain. The task stays failed:
 partial model reports cannot establish success, even when the tests pass. A

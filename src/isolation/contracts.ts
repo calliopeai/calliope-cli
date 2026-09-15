@@ -9,6 +9,8 @@ export interface CommandEvidence {
   exitCode: number; outcome: 'passed' | 'failed' | 'cancelled' | 'timeout' | 'unavailable';
   stdout: string; stderr: string; truncated: boolean; durationMs: number;
   container: string; cleanupConfirmed: boolean;
+  cleanup?: {version:1;removal:{outcome:'removed'|'absent'|'timeout'|'error';exitCode:number|null};
+    verification?:{outcome:'absent'|'present'|'timeout'|'error';exitCode:number|null}};
 }
 export function validateIsolation(value: unknown): asserts value is WorktreeIsolation {
   shape(value, ['version', 'image']);

@@ -73,6 +73,8 @@ with inherited authority, bounded scheduling, verified artifacts and explicit re
 graph without resetting its original scope, budget or clock.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
+Uncertain cleanup gets one bounded exact-container absence check after confirmed
+creation, with versioned diagnostics and unchanged failure/cancellation outcomes.
 Output cutoffs retain independently verified evidence; explicit legacy evidence
 recovery reopens the original worktree without replenishing authority or budgets.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,
