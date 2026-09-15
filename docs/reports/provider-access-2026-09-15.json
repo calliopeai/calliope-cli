@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "kind": "provider-access-check",
+  "checkedAt": "2026-09-15T18:07:00.000Z",
+  "localOnly": true,
+  "secretMaterial": false,
+  "providers": [
+    {
+      "provider": "cerebras",
+      "status": "unavailable",
+      "reason": "The bounded gpt-oss-120b probe returned HTTP 402 (credit balance exhausted).",
+      "wireCaptureStatus": "missing",
+      "retryAuthorized": false
+    },
+    {
+      "provider": "xai",
+      "status": "unavailable",
+      "reason": "Skipped by operator instruction.",
+      "wireCaptureStatus": "unavailable",
+      "retryAuthorized": false
+    }
+  ]
+}
