@@ -56,6 +56,28 @@
       "outputRate": 0.6,
       "status": "captured",
       "runId": "openai-20260915-gpt4omini-toolstream"
+    },
+    {
+      "id": "92af5550-4d2c-46f7-88ca-91a07dd8661f",
+      "at": "2026-09-15T22:10:31.080Z",
+      "reservedNanoUsd": 5781600,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 64,
+      "inputRate": 1.1,
+      "outputRate": 4.4,
+      "status": "failed",
+      "runId": "openai-20260915-responses-text-json"
+    },
+    {
+      "id": "82e02846-c69c-4415-9c6e-0d4be263afc0",
+      "at": "2026-09-15T22:10:42.688Z",
+      "reservedNanoUsd": 1314000,
+      "maxInputTokens": 5000,
+      "maxOutputTokens": 32,
+      "inputRate": 0.25,
+      "outputRate": 2,
+      "status": "failed",
+      "runId": "openai-20260915-responses-gpt5mini"
     }
   ],
   "runs": [
@@ -77,6 +99,14 @@
     },
     {
       "id": "openai-20260915-gpt4omini-toolstream",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-text-json",
+      "limitNanoUsd": 50000000
+    },
+    {
+      "id": "openai-20260915-responses-gpt5mini",
       "limitNanoUsd": 50000000
     }
   ]
