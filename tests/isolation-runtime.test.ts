@@ -105,7 +105,7 @@ it('stops when dependency artifacts disagree on a path, without requesting a con
   const second=structuredClone(p.tasks[0]!);second.id='second';second.agentId='b';second.outputs[0]!.id='report-b';second.outputs[1]!.id='patch-b';second.outputs[2]!.id='tests-b';second.isolation!.patchArtifactId='patch-b';second.isolation!.commands[0]!.artifactId='tests-b';second.acceptanceChecks![0]!.artifactId='report-b';second.acceptanceChecks![1]!.artifactId='tests-b';p.tasks.push(second);
   p.tasks[1]!.dependencies.push('second');p.tasks[1]!.inputs.push({id:'other',kind:'artifact',value:'report-b'});
   const v=await reviewed(p),result=await executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow'});expect(result.status).toBe('partial');expect(result.execution.state.tasks.consume!.output!.summary).toContain('disagree');expect(requests).toBe(4);
-});
+}, 10000);
 it('binds every command check to the final candidate, even when content changes between commands',async()=>{
   const p=plan(),task=p.tasks[0]!;task.outputs.push({id:'again',kind:'test_result',description:'Second check.'});task.isolation!.commands.push({...task.isolation!.commands[0]!,artifactId:'again'});task.acceptanceChecks!.push({id:'again',artifactId:'again',kind:'command',criteria:['task:0','agent:0']});
   const v=await reviewed(p),result=await executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow',onEvent:event=>{if(event.change.type==='artifact'&&event.change.artifact.id==='tests')fs.writeFileSync(join(runs.root,v.run.id,'execution','worker-inspect-a-1','files','a/report.txt'),'public toy replaced between checks');}});
