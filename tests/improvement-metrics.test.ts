@@ -28,6 +28,7 @@ it('compares attributed worker charges without claiming whole-goal cost or invoi
   expect(cost).toMatchObject({name:'provider-accounted-cost',unit:'nano-usd',before:100000,after:150000,delta:50000,comparable:true});expect(cost.reason).toContain('excludes planning');expect(cost.reason).toContain('not an invoice');
   const history={version:2,kind:'improvement.history',runId:'run',revision:'revision',cycles:[],accounting:{version:1,status:'available',revision:'budget',scope:'worker-attempts',basis:'reservations-and-settlements'}} as ImprovementHistory;
   const feedback=improvementFeedback(history);expect(feedback.version).toBe(2);expect(feedback.accounting).toEqual(history.accounting);expect(feedback.limits).toContain('excludes planning');
+  const healthFeedback=improvementFeedback({...history,version:3});expect(healthFeedback.version).toBe(3);expect(healthFeedback.accounting).toEqual(history.accounting);expect(healthFeedback.limits).toContain('excludes planning');
 });
 it('keeps incomplete charges visible but not comparable and leaves legacy costs unavailable',()=>{
   const before=priced(100000),after=priced(150000,2);if(after.accounting?.status!=='available')throw Error('Fixture');after.accounting.usageComplete=false;

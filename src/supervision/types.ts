@@ -1,4 +1,5 @@
 import type {SpawnInput} from '../spawning/types.js';
+import type {FailureKind,HealthProvider,HealthSnapshot} from '../health/types.js';
 
 export type OptimizationPrinciple='speed'|'robustness'|'stability'|'security'|'performance'|'cost';
 export type SupervisionAction='retry'|'replan'|'decompose';
@@ -35,12 +36,21 @@ export type SupervisionDecision=
 
 export interface RetryReceipt {artifactId:string;sha256:string;exitCode:number;outcome:'passed'|'failed'|'timeout';cleanupConfirmed:true}
 export type SupervisionRole='controller'|'reviewer';
+export interface SupervisionProviderHealth {
+  provider:HealthProvider;target:string;sampleCount:number;latencyMs:number|null;timeoutRate:number|null;retryRate:number|null;errorRate:number|null;
+  lastSuccessAt:string|null;lastFailure:{at:string;kind:FailureKind;httpStatus:number|null}|null;
+  discovery:HealthSnapshot['discovery'];lastSuccessfulConformanceAt:string|null;capabilities:HealthSnapshot['capabilities'];
+  quarantine:HealthSnapshot['quarantine'];importedEvents:number;
+}
+/** Sanitized append-only health evidence captured before a review request. */
+export type SupervisionHealthEvidence={version:1;observedAt:string;status:'available';historyHash:string;eventCount:number;providers:SupervisionProviderHealth[]}
+  |{version:1;observedAt:string;status:'unavailable';historyHash:null;eventCount:0;providers:[];reason:'local-health-history-unavailable'};
 export type ReviewerVerdict={version:1;draftHash:string}&(
   |{verdict:'approve'|'reject';reason:string}
   |{verdict:'revise';decision:SupervisionDecision}
 );
 export type SupervisionChange=
-  |{type:'supervision_started';round:number;role:SupervisionRole;agentId:string;sessionId:string;evidenceIds:string[];evidenceHash:string;requestAttribution?:1}
+  |{type:'supervision_started';round:number;role:SupervisionRole;agentId:string;sessionId:string;evidenceIds:string[];evidenceHash:string;health?:SupervisionHealthEvidence;requestAttribution?:1}
   |{type:'supervision_decided';round:number;role:SupervisionRole;agentId:string;sessionId:string;decision:SupervisionDecision}
   |{type:'supervision_applied';round:number;decisionId:string;receipts:RetryReceipt[]}
   |{type:'supervision_halted';round:number;outcome:'stop'|'limit'|'failed'|'denied'|'cancelled'|'interrupted';reason:string}

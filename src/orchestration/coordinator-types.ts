@@ -36,7 +36,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5|6;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6|7;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;

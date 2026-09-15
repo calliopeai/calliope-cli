@@ -16,7 +16,7 @@ export interface CycleMetric {
 }
 /** Derived from validated append-only execution and request histories at named revisions. */
 export interface ImprovementCycle {
-  version:1|2;id:string;runId:string;round:number;principle:OptimizationPrinciple;
+  version:1|2|3;id:string;runId:string;round:number;principle:OptimizationPrinciple;
   parentCycleId:string|null;previousCycleId:string|null;
   status:'proposed'|'running'|'verified'|'failed'|'partial'|'cancelled'|'withdrawn';
   trigger:{reason:string;events:CycleEventRef[]};
@@ -30,8 +30,9 @@ export interface ImprovementCycle {
   isolation:{mode:'git-worktree'|'unavailable';image:string|null};
   rollback:{kind:'retained-source-and-artifacts';manifestHash:string;baselineEvents:CycleEventRef[];patches:CollectedArtifact[];productionChanged:false;baseCommit:string|null};
   source:{manifestHash:string;executionRevision:string;decision:CycleEventRef};
+  providerHealth?:{controller:import('../supervision/types.js').SupervisionHealthEvidence;reviewer?:import('../supervision/types.js').SupervisionHealthEvidence};
 }
 export interface ImprovementHistory {
-  version:1|2;kind:'improvement.history';runId:string;revision:string;cycles:ImprovementCycle[];
+  version:1|2|3;kind:'improvement.history';runId:string;revision:string;cycles:ImprovementCycle[];
   accounting?:{version:1;status:'available'|'unavailable';revision:string|null;scope:'worker-attempts';basis:'reservations-and-settlements'};
 }

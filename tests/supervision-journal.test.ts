@@ -40,6 +40,12 @@ it('requires final review and independently rejects forged evidence, roles, sess
   await f.store.append({type:'finished',ownerId:f.ownerId,status:'completed'});const saved=f.store.read();expect(replayExecution(saved.header,f.view.manifest,saved.events)).toEqual(saved.state);expect(fetch).not.toHaveBeenCalled();
 });
 
+it('versions health-bound review starts and rejects secret-bearing health before journaling',async()=>{
+  const f=await fixture();await f.finish();const evidence=supervisionEvidence(f.store.read().events),health={version:1 as const,observedAt:new Date().toISOString(),status:'unavailable' as const,historyHash:null,eventCount:0 as const,providers:[] as [],reason:'local-health-history-unavailable' as const};
+  await expect(f.store.append({type:'supervision_started',round:1,role:'controller',agentId:'coordinator',sessionId:'controller-1',evidenceIds:evidence.ids,evidenceHash:evidence.hash,health:{...health,apiKey:'secret'}} as any)).rejects.toThrow();
+  const started=await f.store.append({type:'supervision_started',round:1,role:'controller',agentId:'coordinator',sessionId:'controller-1',evidenceIds:evidence.ids,evidenceHash:evidence.hash,health});expect(started.version).toBe(7);
+});
+
 it('resumes a committed decision without another model call and does not reset failed task attempts',async()=>{
   const f=await fixture();await f.finish('failed evidence');await f.start();await f.decide('retry');
   const saved=f.store.read(),restarted=new ExecutionStore(join(f.runs.root,f.view.run.id),f.view.manifest);expect(restarted.read()).toEqual(saved);
@@ -83,7 +89,7 @@ it('bounds evidence excerpts, detects changed snapshots and refuses non-outcome 
 
 it('projects a cycle through proposal, restart, running, partial and cancellation without erasing baseline evidence',async()=>{
   const {projectImprovementHistory}=await import('../src/improvement/index.js'),f=await fixture();await f.finish('failed');await f.start();const decision=await f.decide('retry');
-  const history=()=>projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()),first=history();expect(first.cycles[0]).toMatchObject({id:decision.id,status:'proposed',approval:{execution:'pending'},baseline:[{status:'failed',attempt:1}]});
+  const history=()=>projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()),first=history();expect(first.version).toBe(1);expect(first.cycles[0]).toMatchObject({version:1,id:decision.id,status:'proposed',approval:{execution:'pending'},baseline:[{status:'failed',attempt:1}]});
   await f.apply();expect(history().cycles[0]!.status).toBe('running');await f.store.append({type:'finished',ownerId:f.ownerId,status:'partial'});expect(history().cycles[0]!.status).toBe('partial');
   const ownerId=randomUUID();await f.store.append({type:'started',ownerId});await f.store.append({type:'finished',ownerId,status:'cancelled'});expect(history().cycles[0]!.status).toBe('cancelled');
   expect(history().cycles[0]!.baseline).toEqual(first.cycles[0]!.baseline);expect(history().cycles[0]!.metrics.every(m=>!m.comparable)).toBe(true);

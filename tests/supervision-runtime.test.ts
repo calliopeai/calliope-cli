@@ -81,6 +81,7 @@ it('applies explicit reviewer approval to the exact replan, retains verification
   const decisions=result.execution.events.filter(e=>e.change.type==='supervision_decided'&&e.change.role==='reviewer');expect(decisions.map(e=>e.change.type==='supervision_decided'&&e.change.decision.action)).toEqual(['replan','continue']);
   expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(2);expect(result.execution.events.some(e=>e.change.type==='supervision_applied'&&e.change.decisionId===decisions[0]!.id)).toBe(true);expect(fs.existsSync(join(project,'a/report.txt'))).toBe(false);
   const count=requests.length,restarted=new ExecutionStore(join(runs.root,view.run.id),view.manifest).read();expect(replayExecution(restarted.header,view.manifest,restarted.events)).toEqual(restarted.state);
+  const history=projectImprovementHistory(view.manifest,restarted,new ExecutionStore(join(runs.root,view.run.id),view.manifest).context());expect(history).toMatchObject({version:3,cycles:[{version:3,providerHealth:{controller:{status:'available'},reviewer:{status:'available'}}}]});
   const rows:any[]=[];expect(await runOrchestrationCommand('run',['replay',view.run.id,'--json'],{cwd:project,store:new RunStore(runs.root),write:s=>rows.push(JSON.parse(s))})).toBe(0);expect(rows.at(-1).version).toBe(2);expect(requests).toHaveLength(count);
 });
 it.each(['reject','stale','ambiguous'])('does not retry a failed worker after a %s reviewer reply',async kind=>{
@@ -123,7 +124,7 @@ it('uses reviewed limits for ID-only worker, controller and reviewer discovery w
 
 it('reviews actual executor artifacts with distinct controller/reviewer models, updates the HUD and replays without calls',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
-  const view=await reviewed(p),hud:string[]=[];decide=async context=>{expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='tests').excerpt).toContain('"cleanupConfirmed":true');expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='patch').excerpt).toContain('+public toy candidate');if(context.role==='reviewer')expect(context.draft.action).toBe('continue');return keepGoing(context);};
+  const view=await reviewed(p),hud:string[]=[];decide=async context=>{expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='tests').excerpt).toContain('"cleanupConfirmed":true');expect(context.outcomes[0].artifacts.find((a:any)=>a.id==='patch').excerpt).toContain('+public toy candidate');expect(context.providerHealth).toMatchObject({version:1,status:'available',eventCount:expect.any(Number),providers:[{provider:'deepseek'}]});if(context.role==='reviewer')expect(context.draft.action).toBe('continue');return keepGoing(context);};
   const result=await execute(view.run.id,{onProgress:(value:any)=>hud.push(...workflowLines([workflowSnapshot(value)],'agents'))});
   expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');expect(requests.map(r=>r.body.model)).toEqual(['worker-toy','worker-toy','controller-toy','reviewer-toy']);
   expect(result.execution.state).toMatchObject({version:6,supervision:{rounds:1,phase:'ready'}});expect(hud.some(row=>row.includes('reviewing round 1'))).toBe(true);
@@ -131,7 +132,8 @@ it('reviews actual executor artifacts with distinct controller/reviewer models, 
   const groups=Object.values(accounting.attribution.groups);expect(groups).toHaveLength(3);expect(groups.every(g=>g.status==='available'&&g.usageComplete)).toBe(true);
   expect(groups.filter(g=>g.source.kind==='task')).toMatchObject([{accounted:{tokens:20,costNanos:26000}}]);
   expect(groups.filter(g=>g.source.kind==='supervision').map(g=>[g.source.kind==='supervision'?g.source.role:'',g.status==='available'?g.accounted.costNanos:null])).toEqual([['controller',13000],['reviewer',13000]]);
-  const events=result.execution.events;expect(events.findIndex(e=>e.change.type==='supervision_started')).toBeGreaterThan(events.findIndex(e=>e.change.type==='agent_finished'));
+  const events=result.execution.events,starts=events.filter(e=>e.change.type==='supervision_started');expect(events.findIndex(e=>e.change.type==='supervision_started')).toBeGreaterThan(events.findIndex(e=>e.change.type==='agent_finished'));
+  expect(starts).toHaveLength(2);expect(starts.every(e=>e.version===7&&e.change.type==='supervision_started'&&e.change.health?.status==='available')).toBe(true);expect(requests.filter(r=>r.context.kind==='controller-review').map(r=>r.context.providerHealth)).toEqual(starts.map(e=>e.change.type==='supervision_started'&&e.change.health));
   expect(replayExecution(result.execution.header,view.manifest,events)).toEqual(result.execution.state);expect(new ExecutionStore(join(runs.root,view.run.id),view.manifest).read()).toEqual(result.execution);
   const lines:string[]=[];await runOrchestrationCommand('run',['replay',view.run.id,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)});expect(JSON.parse(lines[0]!).data.execution.events).toEqual(events);expect(requests).toHaveLength(4);expect(git('status','--porcelain')).toBe('?? plan.json\n');
 });
@@ -145,7 +147,7 @@ it('replans a failed isolated candidate, preserves both attempts and only comple
   expect(result.execution.events.find(e=>e.change.type==='supervision_applied')?.change).toMatchObject({receipts:[{artifactId:'tests',exitCode:1,cleanupConfirmed:true}]});
   for(const attempt of [1,2])expect(fs.existsSync(join(runs.root,view.run.id,'execution',`worker-inspect-a-${attempt}`,'files','a/report.txt'))).toBe(true);
   const budget=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(Object.keys(budget.projection.requests)).toHaveLength(6);expect(budget.projection.spent.tokens).toBe(60);
-  const inspected=await inspectImprovements(project,view.run.id,{store:runs});expect(inspected.history.version).toBe(2);expect(inspected.history.cycles[0]!.version).toBe(2);
+  const inspected=await inspectImprovements(project,view.run.id,{store:runs});expect(inspected.history.version).toBe(3);expect(inspected.history.cycles[0]!.version).toBe(3);expect(inspected.history.cycles[0]!.providerHealth).toMatchObject({controller:{status:'available'}});expect(inspected.history.cycles[0]!.providerHealth).not.toHaveProperty('reviewer');
   expect(inspected.history.cycles[0]!.metrics.find(m=>m.name==='provider-accounted-cost')).toMatchObject({before:26000,after:26000,delta:0,comparable:true});
   const controller=requests.filter(r=>r.context.kind==='controller-review').at(-1)!.context;
   expect(controller.improvements.accounting.scope).toBe('worker-attempts');expect(controller.improvements.cycles[0].measurements.find((m:any)=>m.name==='provider-accounted-cost')).toMatchObject({before:26000,after:26000,comparable:true});
@@ -518,7 +520,7 @@ it('streams proposal events as JSON and allows an expired proposal to be withdra
   verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed();await execute(view.run.id);decide=async context=>retry(context);
   const lines:string[]=[];expect(await runImprovementCommand(['propose','--run',view.run.id,'--allow-mutations','--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(0);
   const records=lines.map(l=>JSON.parse(l)),last=records.at(-1),{cycle,proposalHash}=last.data;expect(last).toMatchObject({version:1,type:'improvement',action:'propose',localOnly:true});
-  const events=records.filter(r=>r.type==='improvement.event');expect(events.length).toBeGreaterThan(0);expect(events.every(r=>r.version===1&&r.runId===view.run.id&&r.event.version===(r.event.change.requestAttribution===1?6:r.event.change.type.startsWith('supervision_')?3:1)&&r.event.hash.length===64)).toBe(true);
+  const events=records.filter(r=>r.type==='improvement.event');expect(events.length).toBeGreaterThan(0);expect(events.every(r=>r.version===1&&r.runId===view.run.id&&r.event.version===(r.event.change.health?7:r.event.change.requestAttribution===1?6:r.event.change.type.startsWith('supervision_')?3:1)&&r.event.hash.length===64)).toBe(true);
   const calls=requests.length,ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project);vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(cycle.budget.deadline+1);
   await expect(runImprovement(project,view.run.id,cycle.id,proposalHash,{store:runs})).rejects.toThrow(/deadline|expired/i);
   const human:string[]=[];expect(await runImprovementCommand(['history','--run',view.run.id],{cwd:project,store:runs,write:l=>human.push(l)})).toBe(0);expect(human[0]).toContain(cycle.id);

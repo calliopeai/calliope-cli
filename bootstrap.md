@@ -101,6 +101,8 @@ pools, verification-backed escalation and actual selections recorded before infe
 [Continuous supervision](docs/continuous-supervision.md) reviews isolated worker
 evidence between batches and applies bounded retries, strategy changes and child
 admissions under the original authority, with explicit interrupted-call recovery.
+Each review is bound to a sanitized local provider-health snapshot so routing
+failures can inform a hypothesis without expanding provider or execution authority.
 `orchestrate --supervise` connects read-only goal planning to that isolated loop,
 with captured controller/reviewer choices, local-image admission and exact-plan approval.
 [Reviewer verdicts](docs/reviewer-verdicts.md) bind explicit approval, rejection

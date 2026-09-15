@@ -1,7 +1,7 @@
 import {canonicalJson,digest} from '../approvals/index.js';
 import {OrchestrationError,type AgentInput,type ProjectPlan} from '../orchestration/types.js';
 import type {TaskState} from '../orchestration/coordinator-types.js';
-import type {SupervisionDecision,SupervisionPolicy,SupervisionProjection,SupervisionRole} from './types.js';
+import type {SupervisionDecision,SupervisionHealthEvidence,SupervisionPolicy,SupervisionProjection,SupervisionRole} from './types.js';
 import type {improvementFeedback} from '../improvement/feedback.js';
 import type {reviewEvidence} from './evidence.js';
 import type {SupervisionAvailability} from './availability.js';
@@ -17,6 +17,7 @@ export interface ControllerContextInput {
   role:SupervisionRole;round:number;plan:ProjectPlan;tasks:Record<string,TaskState>;
   improvements?:ReturnType<typeof improvementFeedback>;
   availability?:SupervisionAvailability;
+  providerHealth?:SupervisionHealthEvidence;
   goalAccounting?:import('../goals/accounting.js').GoalAccounting;
   outcomes:Awaited<ReturnType<typeof reviewEvidence>>;draft?:SupervisionDecision|null;
   budget:{deadline:number;spent:unknown;accounts:unknown};strategies:SupervisionProjection['strategies'];
@@ -33,7 +34,7 @@ export function buildControllerContext(value:ControllerContextInput) {
   });
   const content=JSON.stringify({version:1,kind:'controller-review',role:value.role,round:value.round,principle:policy!.principle,policy,
     plan:{...plan,agents:plan.agents.map(a=>({...a,inputs:a.inputs.map(input)})),tasks:plan.tasks.map(t=>({...t,inputs:t.inputs.map(input)}))},
-    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft,draftHash:digest(canonicalJson(value.draft)),draftEffect:supervisionDraftEffect(value.draft,value.plan,new Set(outcomes.map(o=>o.eventId)))}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),
+    planHash:digest(canonicalJson(value.plan)),permittedEvidenceIds:outcomes.map(o=>o.eventId),tasks,outcomes,...(value.draft?{draft:value.draft,draftHash:digest(canonicalJson(value.draft)),draftEffect:supervisionDraftEffect(value.draft,value.plan,new Set(outcomes.map(o=>o.eventId)))}:{}),budget:value.budget,strategies:value.strategies,...(value.improvements?{improvements:value.improvements}:{}),...(value.goalAccounting?{goalAccounting:value.goalAccounting}:{}),...(value.providerHealth?{providerHealth:value.providerHealth}:{}),
     ...(value.availability?{availability:value.availability}:{}),
     omissions:'Long text inputs and worker prose are referenced by hash; task outputs are represented by outcomes. Acceptance criteria and authority are complete. Stop if omitted data is needed to decide safely.'});
   const bytes=Buffer.byteLength(content);
@@ -50,6 +51,7 @@ export function controllerInstructions(policy:SupervisionPolicy,role:Supervision
       : `Return only one short JSON object with version:1, action (${actions.join('|')}), reason (one concise sentence), evidence (a subset of permittedEvidenceIds, never nested artifact/source IDs). Continue and stop are always available. Include only the fields required for the chosen action.`,
     'Continue asks the executor to check acceptance and advance; it never declares completion. Stop when unsafe effects, insufficient evidence or exhausted authority prevent safe progress. Preserve all reviewed acceptance criteria, scopes, accounts, retry limits, budgets and original deadlines.',
     'Use the reviewed optimization principle and recorded improvement measurements to choose the next bounded hypothesis. Comparisons are observations, not proof of causality; missing or non-comparable measurements cannot establish improvement.',
+    'Provider health is a sanitized observation captured in the run journal before this review. It can inform a hypothesis but cannot change provider/model pins, routing pools, quarantine rules, budgets or execution authority. Unavailable or sparse health is not evidence that a provider is healthy.',
     'The reviewer independently evaluates the draft against the recorded evidence. Executor receipts report observed process results; worker prose cannot establish a pass. Omitted or truncated data is not evidence of absence.',
     'Use the executor availability snapshot when present. Never propose or approve an action marked blocked; revise or stop instead. Possible is preliminary, not authorization: remaining evidence, scopes, budgets, grants and current policy still apply. A denied or escalated parent is not permission to delegate around that denial.',
     'Retry capacity is separate from child-admission capacity: retryCapacity.available counts existing tasks whose recorded checks permit another attempt. Retrying an existing task consumes no remainingCapacity agents or tasks and creates no child. Use the task-level status and reason for the exact proposed task.',

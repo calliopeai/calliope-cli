@@ -102,6 +102,15 @@ Principles are `speed`, `robustness`, `stability`, `security`, `performance` and
 `cost`. They guide proposed strategy; they do not change acceptance or policy.
 Linked reviews also receive [whole-goal accounting](goal-accounting.md), including
 planning costs. Its diagnostic headroom never replaces the active run's budget.
+Before each controller or reviewer request, Calliope also reads the local
+[provider-health history](provider-health.md) and commits a sanitized snapshot to
+the execution journal. It includes only plan-relevant provider identities, target
+hashes, aggregate rates, capability and discovery observations, quarantine state,
+and sanitized failure categories. It excludes endpoints, credential state, model
+content, prompts, responses and raw provider errors. The context receives the
+exact object from that start event, so replay can establish what the model saw.
+Unreadable history is recorded as `local-health-history-unavailable`; sparse or
+missing observations never become evidence that a provider is healthy.
 Round limits are 1–64. A round counts when controller admission is recorded,
 including a subsequent failed or interrupted model call. A stalled round means
 the number of completed tasks has not increased since the previous review.
@@ -189,7 +198,11 @@ while authority remains; their incomplete reports still cannot complete a task.
 
 Legacy plan and execution events remain readable. Supervision changes use execution
 event version 3: `supervision_started`, `supervision_decided`,
-`supervision_applied`, `supervision_halted`, and `supervision_reset`. A supervised
+`supervision_applied`, `supervision_halted`, and `supervision_reset`. A
+`supervision_started` event with version 1 health evidence uses execution event
+version 7, including when request attribution is present. The health history hash
+covers the IDs and checksums of relevant retained health events at observation
+time; the execution event hash then binds the complete snapshot. A supervised
 execution projection has version 3 and a version 1 `supervision` state. The
 existing version 2 headless envelopes remain unchanged and carry these versioned
 events. Journal IDs, ancestry and hashes use the existing integrity checks.
