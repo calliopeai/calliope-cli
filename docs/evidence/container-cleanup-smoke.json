@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "kind": "local-process-fault-injection",
+  "baseCommit": "5170f352373a1a182e3a296c673df20ab74bb52e",
+  "sourceFiles": {
+    "src/isolation/process.ts": "3458a7528d374ff0729d0ea75edfc80f2447facb4a087791e0402ea395024d30",
+    "src/isolation/contracts.ts": "d4c48d42619ed03b997f8ba48eb4babff7c8bcff7be82e5a335ed6d9ac083303"
+  },
+  "sourceAndCleanPackagePassed": true,
+  "image": "sha256:2cf067cfed83d5ea958367df9f966191a942351a2df77d6f0193e162b5febfc0",
+  "fault": "Actual Docker removes the container successfully; the local wrapper withholds its acknowledgement until the bounded client terminates it.",
+  "originalCommandDispatches": 1,
+  "originalCommandOutcome": "failed",
+  "originalCommandExitCode": 17,
+  "cleanup": {
+    "version": 1,
+    "removal": {
+      "outcome": "timeout",
+      "exitCode": null
+    },
+    "verification": {
+      "outcome": "absent",
+      "exitCode": 1
+    }
+  },
+  "sourceDurationMs": 5928,
+  "cleanDurationMs": 5976,
+  "subsequentExactContainerAbsence": true,
+  "headlessSdkAndDockerSourcePassed": true,
+  "headlessSdkAndDockerCleanPassed": true,
+  "headlessModelTransport": "Synthetic localhost SDK transport; command verification uses real local Docker.",
+  "cleanDoctorAndBrainPassed": true,
+  "compiledFilesMatched": 1080,
+  "historicalNativeRun": {
+    "runId": "8279a3a0-c13a-4277-9702-82f33f1d6b1d",
+    "outcome": "failed",
+    "cleanupConfirmed": false,
+    "legacyReceiptUnchanged": true,
+    "offlineReplayRequests": 0
+  },
+  "paidRequests": 0,
+  "nativeNestedRecoveryProved": false,
+  "publicationReady": false
+}

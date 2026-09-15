@@ -53,15 +53,20 @@ export async function runIsolatedCommand(image: string, command: VerificationCom
     if (data.length > remaining) truncated = true;
     if (remaining > 0) output[key] = Buffer.concat([output[key], data.subarray(0, remaining)]);
   };
-  const remove = (): Promise<boolean> => new Promise(resolve => {
-    const cleanup = docker(['rm', '--force', container]); let error = Buffer.alloc(0);
-    const stop = setTimeout(() => cleanup.kill('SIGKILL'), 5000);
-    cleanup.stderr.on('data', chunk => { if (error.length < 4096) error = Buffer.concat([error, chunk]).subarray(0, 4096); });
-    cleanup.stdout.resume();
-    cleanup.once('error', () => { clearTimeout(stop); resolve(false); });
-    cleanup.once('close', code => { clearTimeout(stop); resolve(code === 0 || /No such container/.test(error.toString())); });
-  });
-  let earlyRemoval: Promise<boolean> | undefined;
+  const cleanupRequest = async(argv:string[],timeoutMs:number) => {
+    const child=docker(argv),bounded=new AbortController(),stop=setTimeout(()=>bounded.abort(),timeoutMs);
+    const stopped=bindProcessCancellation(child,bounded.signal),buffers={stdout:Buffer.alloc(0),stderr:Buffer.alloc(0)};let overflow=false;
+    for(const key of ['stdout','stderr'] as const)child[key].on('data',chunk=>{if(buffers[key].length+chunk.length>4096)overflow=true;if(buffers[key].length<4096)buffers[key]=Buffer.concat([buffers[key],chunk]).subarray(0,4096);});
+    const code=await new Promise<number|null>(resolve=>{child.once('error',()=>resolve(null));child.once('close',resolve);});
+    clearTimeout(stop);await stopped;
+    const absent=!overflow&&code===1&&!buffers.stdout.toString().trim()&&['container','object'].some(kind=>buffers.stderr.toString().trim()===`Error response from daemon: No such ${kind}: ${container}`);
+    return{code,absent,timedOut:bounded.signal.aborted,present:code===0&&/^[a-f0-9]{64}$/.test(buffers.stdout.toString().trim())};
+  };
+  const remove = async():Promise<NonNullable<CommandEvidence['cleanup']>['removal']> => {
+    const result=await cleanupRequest(['rm','--force',container],5000);
+    return{outcome:result.timedOut?'timeout':result.code===0?'removed':result.absent?'absent':'error',exitCode:result.code};
+  };
+  let earlyRemoval: ReturnType<typeof remove> | undefined;
   try {
     const execute = async(argv:string[],creating=false):Promise<number>=>{
       const child=docker(argv),stopped=bindProcessCancellation(child,controller.signal,()=>{earlyRemoval??=remove();});
@@ -75,10 +80,19 @@ export async function runIsolatedCommand(image: string, command: VerificationCom
     const created=await execute(args,true);
     const code=created===0&&!controller.signal.aborted?await execute(['start','--attach',container]):125;
     clearTimeout(timer);if(earlyRemoval)await earlyRemoval;
-    const removed=await remove(),cleanupConfirmed=removed&&(created===0||!controller.signal.aborted);
+    const cleanup:NonNullable<CommandEvidence['cleanup']>={version:1,removal:await remove()};
+    let removed=cleanup.removal.outcome==='removed'||cleanup.removal.outcome==='absent';
+    // An acknowledged create cannot arrive later and recreate an absent container.
+    // Inspect once after a lost removal response; never infer absence from a daemon error.
+    if(!removed&&created===0){
+      const result=await cleanupRequest(['container','inspect','--format','{{.Id}}',container],3000);
+      cleanup.verification={outcome:result.timedOut?'timeout':result.absent?'absent':result.present?'present':'error',exitCode:result.code};
+      removed=cleanup.verification.outcome==='absent';
+    }
+    const cleanupConfirmed=removed&&created===0;
     const outcome = signal?.aborted ? 'cancelled' : timedOut ? 'timeout' : code === 125 || !cleanupConfirmed ? 'unavailable' : code === 0 ? 'passed' : 'failed';
     const clean = (bytes: Buffer) => approvalDisplayText(String(redactSecrets(bytes.toString('utf8'))));
-    return { version: 1, kind: 'isolated-command', argv: [...command.argv], image, container, cleanupConfirmed,
+    return { version: 1, kind: 'isolated-command', argv: [...command.argv], image, container, cleanupConfirmed, cleanup,
       outcome, exitCode: outcome === 'cancelled' ? 130 : outcome === 'timeout' ? 124 : code,
       stdout: clean(output.stdout), stderr: clean(output.stderr), truncated, durationMs: Date.now() - start };
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
