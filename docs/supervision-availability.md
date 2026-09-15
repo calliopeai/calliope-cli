@@ -8,6 +8,12 @@ admission below it. Original deadlines, allowed actions, task status, consumed o
 exhausted attempts, uncertain mutations, direct child counts and remaining graph
 count/depth capacity are visible before the model chooses its next action.
 
+The snapshot also includes `retryCapacity`, which counts existing tasks whose
+recorded evidence permits a retry or replan. This is independent of
+`remainingCapacity.agents` and `.tasks`: retrying an existing task consumes no
+child-admission slot and creates no agent or task. The task-level `retryTasks`
+entry remains authoritative for the exact evidence and reason.
+
 The snapshot reuses the executor's stopped-agent and supervised-retry checks.
 It is derived from validated plans and recorded execution state, without model
 calls, writes, new grants or clock resets. A graph revision mismatch is rejected.

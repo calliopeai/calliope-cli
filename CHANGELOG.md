@@ -2,6 +2,8 @@
 
 ## 3.2.0 — Unreleased (publication blocked by provider evidence)
 
+- Separate existing-task retry capacity from agent/task child-admission capacity in supervision context, making full-graph retries explicit without changing authority (#348).
+
 - Confirm exact container absence after an uncertain cleanup response with one bounded read-only check; retain cleanup diagnostics, failed tests, cancellation and unconfirmed creation (#346).
 
 - Describe the exact effect of supervision drafts so reviewers distinguish existing-task retries from new child admissions and future strategy prose; retain independent rejection and all executor gates (#344).

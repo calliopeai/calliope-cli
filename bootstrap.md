@@ -75,6 +75,9 @@ graph without resetting its original scope, budget or clock.
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
 Uncertain cleanup gets one bounded exact-container absence check after confirmed
 creation, with versioned diagnostics and unchanged failure/cancellation outcomes.
+Supervision availability also reports retry capacity separately from child
+admission capacity so reviewers can distinguish an existing-task retry from a new
+agent or task.
 Output cutoffs retain independently verified evidence; explicit legacy evidence
 recovery reopens the original worktree without replenishing authority or budgets.
 [Goal planning](docs/goal-planning.md) turns a goal into a read-only proposed graph,

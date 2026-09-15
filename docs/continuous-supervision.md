@@ -224,6 +224,13 @@ version, size, hash, plan hash, role, round and chosen effort.
 replan and decomposition permissions; it does not disable those two safe decisions.
 Only permitted optional action shapes appear in the controller instructions.
 
+The availability snapshot includes `retryCapacity` separately from
+`remainingCapacity`. Its `available` count is the number of existing tasks whose
+recorded evidence permits a retry or replan under the current policy. Retrying an
+existing task does not consume agent/task admission capacity and creates no child;
+the exact task's `retryTasks` entry remains authoritative for its evidence and
+reason. The field is descriptive and grants no authority.
+
 A reviewed supervision policy can explicitly choose reasoning effort by role:
 
 ```json
