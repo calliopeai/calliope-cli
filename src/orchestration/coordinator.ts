@@ -106,7 +106,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
-      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
+      const agentOutputCap=agent.costBudgetUsd<0.05?Math.min(agent.id===context.plan.supervision?.controllerId?512:2048,agent.tokenBudget):Math.min(2048,agent.tokenBudget);
+      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(options.measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try { tools=new ExecutionGuard(provisional,cwd).tools(getTools()); }
       catch(error) {
@@ -120,7 +121,6 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // Keep inexpensive workers within their own cost envelope. A global
       // output cap can otherwise reserve more than a low-cost agent can afford
       // before the provider gets a chance to produce any useful work.
-      const agentOutputCap=agent.costBudgetUsd<0.05?Math.min(agent.id===context.plan.supervision?.controllerId?512:2048,agent.tokenBudget):agent.tokenBudget;
       const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating:['write_file','edit_file'].includes(call.name),success});};
       const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
