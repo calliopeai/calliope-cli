@@ -106,7 +106,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
-      const agentOutputCap=agent.costBudgetUsd<=0.1?Math.min(agent.id===context.plan.supervision?.controllerId?512:2048,agent.tokenBudget):Math.min(2048,agent.tokenBudget);
+      const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(2048,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(2048,agent.tokenBudget):agent.tokenBudget;
       const measuredInputReservation=options.measuredInputReservation||agent.costBudgetUsd<=0.1;
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
