@@ -20,6 +20,11 @@ export function workerReport(content:string,task:ProjectTask):{summary:string;ou
   if(content.length>1024*1024)return{summary,outputs,risks:['Worker report exceeded its size limit.']};
   const raw=content.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');let value:unknown;
   try{value=JSON.parse(raw);}catch{return{summary,outputs,risks};}
+  if (task.id === 'propose' && value && typeof value === 'object' && !Array.isArray(value) &&
+      Object.hasOwn(value, 'agents') && Object.hasOwn(value, 'tasks') && Object.hasOwn(value, 'limits')) {
+    outputs.set('proposal', raw);
+    return {summary:'Raw ProjectPlan proposal captured for validation.', outputs, risks};
+  }
   try {
     shape(value,['version','summary','outputs'],['risks']);if(value.version!==1)throw new Error();text(value.summary);array(value.outputs,100);summary=value.summary;
     if(value.risks!==undefined){array(value.risks,100);for(const risk of value.risks){text(risk);risks.push(risk);}}
