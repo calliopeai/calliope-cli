@@ -214,6 +214,10 @@ const RESPONSES_API_MODELS = [
   'o3-pro',
   'o4-mini',
   'gpt-5',
+  // GPT-6 Astra supports function tools with reasoning only through
+  // Responses; keeping it here also prevents accidental Chat Completions
+  // dispatch when the planner supplies the standard reasoning setting.
+  'gpt-6-astra',
 ];
 
 /**

@@ -464,6 +464,10 @@ describe('requiresResponsesAPI', () => {
     expect(requiresResponsesAPI('gpt-5')).toBe(true);
   });
 
+  it('returns true for GPT-6 Astra', () => {
+    expect(requiresResponsesAPI('gpt-6-astra')).toBe(true);
+  });
+
   it('returns true for model names that start with a responses API model', () => {
     expect(requiresResponsesAPI('o3-2025-01-01')).toBe(true);
     expect(requiresResponsesAPI('gpt-5-turbo')).toBe(true);
