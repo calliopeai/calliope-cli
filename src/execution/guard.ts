@@ -18,6 +18,7 @@ import {validateRequestAttribution,type RequestAttribution} from './attribution.
 
 export interface AgentExecution {
   ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
+  measuredInputReservation?: boolean;
   attribution?:RequestAttribution;
   /** Trusted coordinator ownership/revocation check; may only narrow authority. */
   assertAuthority?: () => void;
@@ -35,8 +36,9 @@ export class ExecutionGuard {
   readonly filesRoot:string;
   private readonly workspace?:AgentExecution['workspace'];
   private readonly attribution?:RequestAttribution;
+  private readonly measuredInputReservation:boolean;
   constructor(execution:AgentExecution,private readonly cwd:string) {
-    this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution);
+    this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution); this.measuredInputReservation=execution.measuredInputReservation===true;
     this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();this.workspace=execution.workspace;this.workspace?.assertIdentity();
     const saved=execution.ledger.read(cwd);
     assertExecutionStoreOutsideProject(saved.manifest.project.root,dirname(execution.ledger.root));
@@ -83,7 +85,7 @@ export class ExecutionGuard {
   budget(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,signal?:AbortSignal,onEvent?:(event:{requestId:string;stage:string;revision:string;tokens:number;costNanos:number})=>void):ProviderAttemptBudget {
     this.assertActive(signal);
     route=structuredClone(route);const billing=readBillingEvidence(route,this.manifest.project.root);
-    const base=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing);
+    const base=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,undefined,this.measuredInputReservation);
     const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
       ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
@@ -94,7 +96,7 @@ export class ExecutionGuard {
           throw new ExecutionLimitError('authority','Provider attempt does not match its discovered budget quote.');
         if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after budget admission.');
         if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
-        const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount);
+        const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount,this.measuredInputReservation);
         const id=randomUUID(),caps=getBudgetCaps();
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
