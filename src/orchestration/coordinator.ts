@@ -107,7 +107,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
       const agentOutputCap=agent.costBudgetUsd<0.05?Math.min(agent.id===context.plan.supervision?.controllerId?512:2048,agent.tokenBudget):Math.min(2048,agent.tokenBudget);
-      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(options.measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
+      const measuredInputReservation=options.measuredInputReservation||agent.costBudgetUsd<0.1;
+      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try { tools=new ExecutionGuard(provisional,cwd).tools(getTools()); }
       catch(error) {
@@ -123,7 +124,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // before the provider gets a chance to produce any useful work.
       const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating:['write_file','edit_file'].includes(call.name),success});};
-      const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
+      const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
         approve:options.approve?(_call,decision)=>options.approve!(decision,child.signal):undefined,runlog:log,maxIterations:20,maxRetries:0,parallel:false,
         onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;},
         onSafetyBranch:async()=>{await branchSession(session.id,{...childOptions(child.signal),kind:'safety',runlog:log,confirmation:options.confirmation??'mutating'});},
