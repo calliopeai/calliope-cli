@@ -128,6 +128,18 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       });
       throwIfCancelled(child.signal);assertRun();
       if(result.reason!=='completed'){
+        // Planning responses may hit the provider output cutoff after emitting a
+        // complete compact JSON proposal. Preserve and validate that response
+        // before treating the attempt as a hard worker failure.
+        if(result.reason==='length'&&task.id==='propose'){
+          const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;
+          const collected=await collectTaskOutput(store,task,typeof final==='string'?final:'',{...childOptions(child.signal),workspace,executorOutputs:undefined});
+          if(requiresProposalValidation(store.manifest)){
+            const {validatePlanningArtifact}=await import('../goals/repair.js');
+            await validatePlanningArtifact(store,task,collected,childOptions(child.signal),assertRun);
+          }
+          await finish(collected.status as Exclude<TaskStatus,'pending'|'running'>,collected.output,true);return;
+        }
         if(result.reason==='length'&&workspace){
           const executorOutputs=await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log});
           const output=await collectStoppedTaskOutput(store,task,{...childOptions(child.signal),workspace,executorOutputs});
