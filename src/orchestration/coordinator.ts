@@ -145,7 +145,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
           }
           await finish(collected.status as Exclude<TaskStatus,'pending'|'running'>,collected.output,true);return;
         }
-        if(result.reason==='length'&&workspace){
+        if((result.reason==='length'||result.reason==='budget')&&workspace){
           const executorOutputs=await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log});
           const output=await collectStoppedTaskOutput(store,task,{...childOptions(child.signal),workspace,executorOutputs});
           await finish('failed',output,true);return;
