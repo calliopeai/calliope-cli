@@ -169,7 +169,8 @@ export async function chat(
     openRouterBounds(ceiling);
     limits.priceCeiling = Object.freeze({ ...ceiling! });
   }
-  if (limits.reasoningEffort !== undefined && actualProvider !== 'anthropic')
+  if (limits.reasoningEffort !== undefined && actualProvider !== 'anthropic' &&
+      !(actualProvider === 'openai' && actualModel === 'gpt-6-astra'))
     throw new ExecutionLimitError('authority', 'Explicit reasoning effort is supported only by the native Anthropic adapter.');
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
   let quarantineHalt: string | undefined;
