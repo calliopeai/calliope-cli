@@ -1,6 +1,7 @@
 /** One model/tool turn engine. Clients adapt context, presentation and approval. */
 import { chat } from '../providers/index.js';
 import type { ChatOptions, StreamCallback, RetryCallback } from '../providers/types.js';
+import type { ProviderAttemptBudget } from '../providers/types.js';
 import { executeTool, getTools, type ExecuteToolOptions } from '../tools.js';
 import { DEFAULT_MODELS, calculateCost, type LLMProvider, type LLMResponse, type Message, type Tool, type ToolCall, type ToolResult, type Mode } from '../types.js';
 import { cancellable, cancellableDelay, cancellationError, isCancellation, throwIfCancelled } from '../cancellation.js';
@@ -177,8 +178,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     const requestController=!guard&&trackProject?new AbortController():undefined;
     const abortRequest=()=>requestController?.abort(signal?.reason);
     const requestSignal=requestController?.signal??signal;
-    const attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
-      ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0}),options.measuredInputReservation??false):undefined);
+    let attemptBudget:ProviderAttemptBudget|undefined;
+    try {
+      attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
+        ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0}),options.measuredInputReservation??false):undefined);
+    } catch (error) {
+      runlog.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Budget admission failed',durationMs:0});
+      throw error;
+    }
     signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
     const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
     let response:LLMResponse;
