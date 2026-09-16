@@ -30,7 +30,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       const terms=fullContextTerms(quoteEvidence), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):terms.inputTokens;
       const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
       if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
-      return{provider:route.provider,model:route.model,target:route.target,inputTokens,outputTokens:maxOutputTokens,inputPrice,outputPrice,costNanos:requestCostNanos(inputTokens,maxOutputTokens,inputPrice,outputPrice),quoteEvidence};
+      return{provider:route.provider,model:route.model,target:route.target,inputTokens,outputTokens:maxOutputTokens,inputPrice,outputPrice,costNanos:requestCostNanos(inputTokens,maxOutputTokens,inputPrice,outputPrice),...(measuredInput?{}:{quoteEvidence})};
     }
     const capabilities:RouteCandidate['capabilities']={...billing?.profile.capabilities,...Object.fromEntries(Object.entries(route.capabilities).filter(([,v])=>v!==undefined))};
     if(capabilities.chat!==true || tools.length&&capabilities.tools!==true || streaming&&capabilities.streaming!==true)
