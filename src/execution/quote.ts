@@ -16,7 +16,7 @@ export function costCapNanos(value:number):number {
   if(!Number.isFinite(value)||value<0)throw new ExecutionLimitError('budget','Configured cost cap is invalid.');
   const cap=Math.floor(value*1e9);integer(cap);return cap;
 }
-export function providerQuote(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,billing?:BillingEvidence,count?:InputCount) {
+export function providerQuote(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,billing?:BillingEvidence,count?:InputCount,measuredInput=false) {
     integer(maxOutputTokens,1,100000000);
     if(!route || route.evidence!=='live' || !route.discoveredAt || !Number.isFinite(Date.parse(route.discoveredAt)) || Date.now()-Date.parse(route.discoveredAt)>300000 || Date.parse(route.discoveredAt)>Date.now()+1000)
       throw new ExecutionLimitError('authority','Bounded execution requires recent live model discovery.');
@@ -27,7 +27,8 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       if(count)throw new ExecutionLimitError('authority','Full-context admission does not accept an unverified input count.');
       const quoteEvidence=validateQuoteEvidence({version:2,profileHash:billing.hash,profile:billing.profile,quotedAt:Date.now(),live:{discoveredAt:Date.parse(route.discoveredAt),contextLength:route.contextLength,maxOutputTokens:route.maxOutputTokens,capabilities:Object.fromEntries(['chat','tools','streaming'].filter(k=>route.capabilities[k as keyof typeof route.capabilities]!==undefined).map(k=>[k,route.capabilities[k as keyof typeof route.capabilities]])),prices:{input:route.price?.input??null,output:route.price?.output??null}},requirements:{tools:tools.length>0,streaming}});
       if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
-      const {inputTokens,maxOutputTokens:outputLimit,inputPrice,outputPrice}=fullContextTerms(quoteEvidence);
+      const terms=fullContextTerms(quoteEvidence), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):terms.inputTokens;
+      const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
       if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
       return{provider:route.provider,model:route.model,target:route.target,inputTokens,outputTokens:maxOutputTokens,inputPrice,outputPrice,costNanos:requestCostNanos(inputTokens,maxOutputTokens,inputPrice,outputPrice),quoteEvidence};
     }
@@ -60,9 +61,9 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
 }
 
 /** Project-capped ordinary turns use the same pre-dispatch accounting as child turns. */
-export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,signal?:AbortSignal,onEvent?:(id:string,stage:string,evidence?:QuoteEvidence)=>void):ProviderAttemptBudget {
+export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,signal?:AbortSignal,onEvent?:(id:string,stage:string,evidence?:QuoteEvidence)=>void,measuredInput=false):ProviderAttemptBudget {
   route=structuredClone(route);const project=projectIdentity(cwd).project,billing=readBillingEvidence(route,project);
-  const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing),ledger=new ProjectSpendLedger(projectBudgetPath(cwd));
+  const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,undefined,measuredInput),ledger=new ProjectSpendLedger(projectBudgetPath(cwd));
   const quotes=new Map<string,ReturnType<typeof providerQuote>>();
   return {
     ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
@@ -72,7 +73,7 @@ export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidat
       if(actual.provider!==base.provider||actual.model!==base.model||actual.target!==base.target||actual.maxOutputTokens!==base.outputTokens)throw new ExecutionLimitError('authority','Provider attempt changed after project budget admission.');
       if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after project budget admission.');
       if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
-      const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount);
+      const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount,measuredInput);
       const id=randomUUID(),cap=getBudgetCaps().maxCostPerProject;
       await ledger.reserve(id,runId,quote.costNanos,cap===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(cap),signal);quotes.set(id,quote);onEvent?.(id,'reserved',quote.quoteEvidence);
       throwIfCancelled(signal);
