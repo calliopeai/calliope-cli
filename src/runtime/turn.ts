@@ -199,7 +199,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
         options.onWarning?.(message);
       },
-    });}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
+    });}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     throwIfCancelled(signal);
     const prices = input.route?.price;
     const costSource = prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
