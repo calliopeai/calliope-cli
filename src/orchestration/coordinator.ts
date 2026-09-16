@@ -117,7 +117,11 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
       if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=reviewedOutputLimit(decision.selected,cwd);
       if(!maximum)throw new ExecutionLimitError('budget','Live discovery or reviewed metadata must provide an output limit for this task.');
-      const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
+      // Keep inexpensive workers within their own cost envelope. A global
+      // output cap can otherwise reserve more than a low-cost agent can afford
+      // before the provider gets a chance to produce any useful work.
+      const agentOutputCap=agent.costBudgetUsd<0.05?Math.min(2048,agent.tokenBudget):agent.tokenBudget;
+      const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating:['write_file','edit_file'].includes(call.name),success});};
       const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
         approve:options.approve?(_call,decision)=>options.approve!(decision,child.signal):undefined,runlog:log,maxIterations:20,maxRetries:0,parallel:false,
