@@ -106,7 +106,13 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
-      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})},tools=new ExecutionGuard(provisional,cwd).tools(getTools());
+      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:outputCap,...(options.measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
+      let tools:ReturnType<ExecutionGuard['tools']>;
+      try { tools=new ExecutionGuard(provisional,cwd).tools(getTools()); }
+      catch(error) {
+        log.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Execution guard admission failed',durationMs:0});
+        throw error;
+      }
       const smart=agent.routing?taskSmartSelection(agent.routing,store.read().events,task.id):undefined;
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
       if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=reviewedOutputLimit(decision.selected,cwd);
