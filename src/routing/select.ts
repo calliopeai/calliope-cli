@@ -147,7 +147,11 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
     if (target.key !== providerTarget(provider).key || (evidence === 'live' && !getDiscoveredModels(provider))) {
       exclude(provider, 'configuration-changed-during-discovery'); continue;
     }
-    if (needs.reasoningEffort !== undefined && provider !== 'anthropic') { exclude(provider, 'reasoning-effort-protocol-unsupported'); continue; }
+    // Anthropic exposes effort natively, and Astra uses the Responses API's
+    // reasoning effort field. Keep the gate model-specific so other adapters
+    // cannot receive an unsupported effort request.
+    if (needs.reasoningEffort !== undefined && provider !== 'anthropic' &&
+        !(provider === 'openai' && preferredModel === 'gpt-6-astra')) { exclude(provider, 'reasoning-effort-protocol-unsupported'); continue; }
     for (const model of models) {
       if (preferredModel && model.id !== preferredModel && !model.aliases?.includes(preferredModel)) continue;
       if(pool&&!pinnedModel&&(!explicit||pool.some(t=>t.provider===provider))&&!smartTargetMatches(pool,provider,model)){exclude(provider,'outside-smart-pool',model.id);continue;}
