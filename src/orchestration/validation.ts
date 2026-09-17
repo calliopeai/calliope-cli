@@ -112,7 +112,11 @@ export function analyzePlan(value: unknown): PlanAnalysis {
     const owner = agents.get(item.agentId)!;
     for (const output of item.outputs) { artifact(output); if (producers.has(output.id)) fail('Artifact IDs must be unique across tasks.'); producers.set(output.id, item.id); if (output.path && !permits(owner.allowedPaths, output.path, 'write')) fail('Artifact output exceeds the agent write scope.'); }
     for (const input of item.inputs) if (input.kind === 'file' && !permits(owner.allowedPaths, input.value, 'read')) fail('Task input exceeds its agent scope.');
-    if((v.version===3||v.version===4))validateTaskIsolation(item.isolation,item as unknown as ProjectPlan['tasks'][number],plan);
+    if((v.version===3||v.version===4)){
+      validateTaskIsolation(item.isolation,item as unknown as ProjectPlan['tasks'][number],plan);
+      if(!owner.allowedTools.includes('write_file')&&!owner.allowedTools.includes('edit_file'))
+        fail('Isolated mutation tasks require write_file or edit_file authority.');
+    }
     if(v.version!==1) {
       array(item.acceptanceChecks,200);const checks=new Set<string>();
       for(const check of item.acceptanceChecks){
