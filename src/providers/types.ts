@@ -40,7 +40,7 @@ export type StreamCallback = (token: string) => void;
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
 export type ProviderPriceCeiling = Readonly<{ input: number; output: number }>;
-export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling }
+export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling; maxProviderRetries?: number }
 export interface ProviderAttemptBudget {
   readonly priceCeiling?: ProviderPriceCeiling;
   inputCounting?:'anthropic-count-tokens';

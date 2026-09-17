@@ -41,6 +41,8 @@ export interface TurnOptions {
   sessionId: string; cwd: string; provider: LLMProvider; model?: string; prompt: string;
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
   maxIterations?: number; maxRetries?: number; parallel?: boolean; continueOnLength?: boolean;
+  /** Bound provider transport retries independently from tool/turn retries. */
+  maxProviderRetries?: number;
   inheritScope?: boolean; runlog?: RunLog; toolOptions?: ExecuteToolOptions;
   approvals?: ApprovalStore;
   captureToolOutput?: boolean;
@@ -192,6 +194,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     try {response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
       reasoningEffort: options.reasoningEffort,
+      ...(options.maxProviderRetries !== undefined ? { maxProviderRetries: options.maxProviderRetries } : {}),
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
       onStreamReset: stream ? options.onStreamReset : undefined,
       onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },

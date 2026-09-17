@@ -316,7 +316,7 @@ export async function chat(
   };
   try { return await withRetry(observedChat, {
     signal: options?.signal,
-    maxRetries: MAX_STREAM_ATTEMPTS - 1,
+    maxRetries: options?.maxProviderRetries ?? MAX_STREAM_ATTEMPTS - 1,
     initialDelayMs: 1000,
     onRetry: (attempt, error, delayMs) => {
       throwIfCancelled(options?.signal);
