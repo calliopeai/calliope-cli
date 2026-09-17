@@ -76,9 +76,10 @@ export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,co
 /** Retain only independently collected files/receipts, never truncated worker claims. */
 export async function collectStoppedTaskOutput(store:ExecutionStore,task:ProjectTask,options:RunActionOptions&{workspace:WorkerWorktree;executorOutputs:Map<string,string>}):Promise<TaskOutput> {
   const {output}=await collectTaskOutput(store,task,'',options);
-  return {...output,status:'failed',summary:'Worker output was truncated; retained workspace evidence was collected independently.',
-    unresolvedRisks:[...output.unresolvedRisks.slice(0,99),'The incomplete worker report was not accepted as success.'],
-    recommendedNextAction:'Review the retained patch and verification receipts before a bounded retry; increase --max-output-tokens if needed for the worker report.'};
+  const mechanicallyReady=output.checks.length>0&&output.checks.every(check=>check.passed)&&output.artifacts.length===task.outputs.length;
+  return {...output,status:mechanicallyReady?'partial':'failed',summary:'Worker output was truncated; retained workspace evidence was collected independently.',
+    unresolvedRisks:[...output.unresolvedRisks.slice(0,99),mechanicallyReady?'The incomplete worker report still requires human acceptance.':'The incomplete worker report was not accepted as success.'],
+    recommendedNextAction:mechanicallyReady?'Review and accept the retained patch and verification receipts.':'Review the retained patch and verification receipts before a bounded retry; increase --max-output-tokens if needed for the worker report.'};
 }
 /** Retain completed process evidence even when cancellation stops later collection. */
 export async function recordExecutorArtifact(store:ExecutionStore,task:ProjectTask,id:string,content:string):Promise<void> {

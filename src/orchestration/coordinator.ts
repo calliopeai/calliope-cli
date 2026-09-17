@@ -169,7 +169,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         if((result.reason==='length'||result.reason==='budget')&&workspace){
           const executorOutputs=await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log});
           const output=await collectStoppedTaskOutput(store,task,{...childOptions(child.signal),workspace,executorOutputs});
-          await finish('failed',output,true);return;
+          const retainedPass=output.checks.length>0&&output.checks.every(check=>check.passed)&&output.artifacts.length===task.outputs.length;
+          await finish(retainedPass?'review_required':'failed',output,true);return;
         }
         const status=result.reason==='budget'?'denied':result.reason==='cancelled'?'cancelled':'failed';await finish(status,incompleteOutput(store,task,status,`Worker stopped: ${result.reason}.`));return;
       }
