@@ -149,7 +149,8 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     }else if(c.type==='tool'){
       active();if(task!.status!=='running')conflict('Tool evidence requires an active task.');
       const agent=manifest.plan.agents.find(a=>a.id===manifest.plan.tasks.find(t=>t.id===c.taskId)!.agentId)!;
-      if(c.mutating!==(['write_file','edit_file'].includes(c.name)||!!manifest.plan.workspace.isolation&&c.name==='shell'))fail('Tool mutation classification differs from the executor.');
+      const expectedMutation=['write_file','edit_file'].includes(c.name)||!!manifest.plan.workspace.isolation&&c.name==='shell';
+      if(c.mutating!==expectedMutation)fail(`Tool mutation classification differs from the executor (tool=${c.name}, mutating=${String(c.mutating)}, expected=${String(expectedMutation)}).`);
       const key=c.taskId+':'+task!.attempts+':'+c.callId,scope=canonicalJson({name:c.name,path:c.path,mutating:c.mutating});
       if(c.stage==='started'){if(toolStarts.has(key))conflict('Duplicate tool start.');toolStarts.set(key,scope);}else{if(toolStarts.get(key)!==scope)conflict('Tool result has no matching start.');toolStarts.set(key,'finished');}
       if(!agent.allowedTools.includes(c.name)||c.path!==null&&!permits(agent.allowedPaths,c.path,c.mutating?'write':'read')){if(c.success)fail('Successful tool evidence exceeds agent authority.');}
