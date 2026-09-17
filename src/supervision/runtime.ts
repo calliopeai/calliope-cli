@@ -76,14 +76,14 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     check();
     const verifiedOutcomes=outcomes.length>0&&outcomes.every(outcome=>Array.isArray(outcome.checks)&&outcome.checks.length>0&&outcome.checks.every(check=>check.passed));
     if(result.reason!=='completed'){
-      if(!(role==='controller'&&preference.provider==='ollama'&&result.reason==='length'&&verifiedOutcomes))throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
-      messages.current.push({role:'assistant',content:JSON.stringify({version:1,action:'stop',reason:'All recorded acceptance checks passed; local controller output was truncated.',evidence:evidence.ids})});
+      if(!(role==='controller'&&result.reason==='length'&&verifiedOutcomes))throw new OrchestrationError(result.reason==='budget'?'policy-denied':'unavailable',`${role==='reviewer'?'Reviewer':'Controller'} stopped: ${result.reason}.`);
+      messages.current.push({role:'assistant',content:JSON.stringify({version:1,action:'stop',reason:'All recorded acceptance checks passed; controller output was truncated.',evidence:evidence.ids})});
     }
     const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;
     let decision;
     try { decision=parseSupervisionReply(final,{role,draft:s.draft,policy,plan:reviewPlan,evidenceIds:new Set(evidence.ids)}); }
     catch(error) {
-      const localController=role==='controller'&&preference.provider==='ollama';
+      const localController=role==='controller';
       const verified=outcomes.length>0&&outcomes.every(outcome=>Array.isArray(outcome.checks)&&outcome.checks.length>0&&outcome.checks.every(check=>check.passed));
       if(!localController||!verified)throw error;
       decision={version:1,action:'stop',reason:'All recorded acceptance checks passed; local controller response was invalid.',evidence:evidence.ids} as const;
