@@ -57,12 +57,6 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
   // Auto at the root inherits the user's captured goal choice; explicit proposed choices remain visible for review.
   const coordinator=plan.agents.find(a=>a.parentId===null)!,preference=manifest.supervision?.controller??manifest.preference;if(coordinator.preference.provider==='auto'&&preference.provider!=='auto')coordinator.preference={...preference,...(coordinator.preference.model?{model:coordinator.preference.model}:{})};
   applyGoalTeam(plan,manifest,source);applyGoalRouting(plan,manifest,'execution');
-  // Captured worker preferences are authoritative for agent-created plans;
-  // prevent a planner from silently routing the execution worker back to the
-  // planner model.
-  if(source.kind==='agent'&&manifest.team?.workers){
-    for(const agent of plan.agents)if(agent.parentId!==null)agent.preference={...manifest.team.workers};
-  }
   // A one-worker coding task needs room for both mutation and read-back
   // verification. Keep the grant inside the captured execution pool while
   // avoiding plans that spend the entire allowance on a single turn.
