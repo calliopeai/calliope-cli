@@ -129,7 +129,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         // Planning is a bounded proposal pass. Limiting tool turns prevents
         // the growing conversation from consuming the remaining planning
         // reservation before the required JSON proposal is emitted.
-        maxIterations:task.id==='propose'?8:20,maxRetries:0,parallel:false,
+        maxIterations:task.id==='propose'?12:20,maxRetries:0,parallel:false,
         onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;},
         onSafetyBranch:async()=>{await branchSession(session.id,{...childOptions(child.signal),kind:'safety',runlog:log,confirmation:options.confirmation??'mutating'});},
         onPermission:(_call,decision)=>{if(decision.decision!=='allow')throw new SessionPolicyError();},
