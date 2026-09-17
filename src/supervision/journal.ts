@@ -53,7 +53,8 @@ export function validateSupervisionChange(value:unknown,plan:ProjectPlan):Superv
 /** Replay checks references; the executor checks artifact bytes immediately before applying. */
 export function assertSupervisedRetry(plan:ProjectPlan,state:ExecutionProjection,events:ExecutionEvent[],taskId:string,receipts?:RetryReceipt[]):void {
   const task=state.tasks[taskId],spec=plan.tasks.find(value=>value.id===taskId),agent=plan.agents.find(value=>value.id===spec?.agentId);
-  if(!task||!spec||!agent||task.status!=='failed'||task.escalation||task.attempts>agent.escalationPolicy.maxRetries||plan.tasks.some(other=>other.dependencies.includes(taskId)&&state.tasks[other.id]!.attempts>0))fail('Supervised retry requires a failed, unconsumed task with attempts remaining.');
+  const retainedPartial=task?.status==='review_required'&&/truncat/i.test(task.output?.summary??'')&&task.output?.checks?.length&&task.output.checks.every(check=>check.passed);
+  if(!task||!spec||!agent||!(task.status==='failed'||retainedPartial)||task.escalation||task.attempts>agent.escalationPolicy.maxRetries||plan.tasks.some(other=>other.dependencies.includes(taskId)&&state.tasks[other.id]!.attempts>0))fail('Supervised retry requires a failed, unconsumed task with attempts remaining.');
   let ancestor=agent;for(let n=0;n<plan.agents.length;n++){
     if(state.stoppedAgents.includes(ancestor.id)||Object.values(state.tasks).some(t=>t.agentId===ancestor.id&&t.escalation))fail('A stopped or escalated agent cannot be retried automatically.');
     const parent=plan.agents.find(value=>value.id===ancestor.parentId);if(!parent)break;ancestor=parent;

@@ -30,7 +30,14 @@ export async function reviewEvidence(store:ExecutionStore,ids:string[],options:R
       remaining-=receipt?Buffer.byteLength(receipt):length;
       artifacts.push({id:artifact.id,kind:artifact.kind,sha256:artifact.sha256,source:artifact.source,bytes:bytes.length,excerpt:receipt??bytes.subarray(0,length).toString('utf8'),truncated:receipt!==undefined||length<bytes.length,...(receipt?{derived:'executor-command-summary-v1' as const}:{})});
     }
-    outcomes.push({eventId:id,taskId:change.taskId,status:change.type==='task_finished'?change.status:'completed',summary:output?.summary,checks:output?.checks,risks:output?.unresolvedRisks,artifacts});
+    // A truncated worker report is operationally failed until a controller
+    // authorizes recovery, even when independently retained checks are
+    // complete. Preserve the task's review_required journal status while
+    // exposing the retry-worthy outcome to supervision.
+    const status = change.type === 'task_finished' && change.status === 'review_required' && /truncat/i.test(output?.summary ?? '')
+      ? 'failed' as const
+      : change.type === 'task_finished' ? change.status : 'completed' as const;
+    outcomes.push({eventId:id,taskId:change.taskId,status,summary:output?.summary,checks:output?.checks,risks:output?.unresolvedRisks,artifacts});
   }
   return outcomes;
 }
