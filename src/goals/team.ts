@@ -19,7 +19,9 @@ export function validateGoalTeam(value:unknown):GoalTeam {
 export function applyGoalTeam(plan:ProjectPlan,manifest:GoalManifest,source:ProposalSource):void {
   const team=manifest.team;if(!team&&!manifest.supervision&&!manifest.routing)return;
   for(const agent of plan.agents){
-    const preference=agent.parentId===null?manifest.supervision?.controller??manifest.preference:manifest.supervision&&agent.id===plan.supervision?.reviewerId?manifest.supervision.reviewer:team?.workers;
+    const preference=agent.parentId===null
+      ?(manifest.supervision?.controller??(team?.workers??manifest.preference))
+      :(manifest.supervision&&agent.id===plan.supervision?.reviewerId?manifest.supervision.reviewer:team?.workers);
     if(manifest.routing&&source.kind==='agent')agent.preference=preference?{...preference}:{provider:'auto'};
     if(preference&&(source.kind==='agent'||agent.preference.provider==='auto'&&!agent.preference.model))agent.preference={...preference};
     if(team?.maxAttempts!==undefined){
