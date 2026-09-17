@@ -170,6 +170,9 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       const expectedStatus=c.status==='completed'?'success':c.status==='review_required'?'partial':c.status==='unknown'?'failed':c.status;if(c.output.status!==expectedStatus)fail('Task result status differs from its evidence.');
       if(c.status==='completed'&&(!mechanicallyVerified(c.output,manifest)||c.output.status!=='success'))fail('Task completion requires verified acceptance evidence.');
       task!.status=c.status;task!.output=c.output;recovering.delete(c.taskId);
+      // A retained partial report requires an explicit controller decision,
+      // even if its evidence hash matches the previous review snapshot.
+      if (c.status === 'review_required' && state.supervision) state.supervision.forceReview = true;
     }else if(c.type==='task_reset'){
       const spec=manifest.plan.tasks.find(t=>t.id===c.taskId)!,agent=manifest.plan.agents.find(a=>a.id===spec.agentId)!;
       if(c.source==='automatic'&&state.supervision)conflict('Supervised runs require a controller or explicit operator retry.');
