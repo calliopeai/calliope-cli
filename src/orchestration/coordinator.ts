@@ -1,6 +1,7 @@
 import {readRunAccounting,type RunAccounting} from './accounting.js';
 import {taskSmartSelection,recordAgentRoute} from './routing.js';
 import {join,relative,resolve,isAbsolute} from 'node:path';
+import {existsSync} from 'node:fs';
 import {randomUUID} from 'node:crypto';
 import {runTurn} from '../runtime/index.js';
 import {ExecutionGuard,ExecutionLimitError,reviewedOutputLimit} from '../execution/index.js';
@@ -115,7 +116,12 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         // fixture providers intentionally retain their tool harness so tests
         // can exercise tool lifecycle behavior.
         const compactProposal=task.id==='propose'&&!preference.model?.includes('toy');
-        tools=new ExecutionGuard(provisional,cwd).tools(compactProposal?[]:getTools());
+        const creationTarget=task.outputs.find(output=>output.kind==='file'&&output.path);
+        const creationMissing=!!creationTarget&&workspace!==undefined&&!existsSync(resolve(workspace.base,creationTarget.path!));
+        const admittedTools=creationMissing
+          ? getTools().filter(tool=>tool.name!=='read_file'&&tool.name!=='list_files')
+          : getTools();
+        tools=new ExecutionGuard(provisional,cwd).tools(compactProposal?[]:admittedTools);
       }
       catch(error) {
         log.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Execution guard admission failed',durationMs:0});
