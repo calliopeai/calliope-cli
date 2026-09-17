@@ -330,8 +330,8 @@ it('rejects malformed recovery commands and unknown or non-cutoff tasks without 
 });
 
 it('keeps malformed controller output recoverable only through an explicit command without resetting budget or clock',async()=>{
-  decide=async()=>'{bad JSON';const view=await reviewed(),first=await execute(view.run.id);expect(first.status).toBe('completed');expect(first.execution.state.supervision?.halt?.reason).toContain('malformed');
-  const count=requests.length,again=await execute(view.run.id,{resume:true});expect(again.status).toBe('completed');expect(requests).toHaveLength(count);
+  decide=async()=>'{bad JSON';const view=await reviewed(),first=await execute(view.run.id);expect(first.status).toBe('failed');expect(first.execution.state.supervision?.halt?.reason).toContain('malformed');
+  const count=requests.length,again=await execute(view.run.id,{resume:true});expect(again.status).toBe('failed');expect(requests).toHaveLength(count);
   const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project),lines:string[]=[];
   expect(await runOrchestrationCommand('run',['retry-controller',view.run.id,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)})).toBe(0);expect(ledger.read(project)).toEqual(before);
   decide=async context=>keepGoing(context);const next=await execute(view.run.id,{resume:true});expect(next.status).toBe('completed');expect(next.execution.header).toEqual(first.execution.header);expect(next.execution.state.supervision?.rounds).toBe(2);expect(requests).toHaveLength(count+1);
@@ -355,7 +355,7 @@ it('does not let a controller retry denied tools, unclean verification or exhaus
 });
 
 it('honors stop decisions and round limits even when a model claims the task is complete',async()=>{
-  decide=async context=>({...keepGoing(context),action:'stop',reason:'The reviewer requests human inspection.'});const view=await reviewed(),result=await execute(view.run.id);expect(result.status).toBe('completed');expect(result.execution.state.supervision?.halt?.outcome).toBe('stop');
+  decide=async context=>({...keepGoing(context),action:'stop',reason:'The reviewer requests human inspection.'});const view=await reviewed(),result=await execute(view.run.id);expect(result.status).toBe('partial');expect(result.execution.state.supervision?.halt?.outcome).toBe('stop');
   const p=plan();p.supervision!.maxRounds=p.supervision!.maxStalledRounds=1;verificationExits=[1,0];decide=async context=>retry(context);const next=await reviewed(p),limited=await execute(next.run.id);expect(limited.status).toBe('denied');expect(limited.execution.state.supervision).toMatchObject({rounds:1,halt:{outcome:'limit'}});
   await expect(controlExecution(project,next.run.id,'controller-retry','coordinator',{store:runs})).rejects.toThrow('rounds remaining');
 });
