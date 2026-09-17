@@ -61,7 +61,10 @@ async function taskMessages(store:ExecutionStore,task:ProjectTask,options:RunAct
     artifacts.push({id:artifact.id,sha256:artifact.sha256,source:artifact.source,content:content.toString('utf8')});
   }
   const {attempt,previousAttempts}=workerAttemptContext(context.plan,task,inspected);
-  const instructions=formatRepositoryInstructions(loadRepositoryInstructions(store.manifest.project.root));
+  // Planning only needs the signed goal contract. Loading the full repository
+  // instruction tree here can consume the entire measured planning allowance
+  // before the model emits its proposal.
+  const instructions=task.id==='propose'?'':formatRepositoryInstructions(loadRepositoryInstructions(store.manifest.project.root));
   const strategy=state.supervision?.strategies[task.id];
   const feedbackIds=workerRetryEvidenceIds(previousAttempts,strategy?.evidence);
   const feedback=state.supervision&&feedbackIds.length?await reviewEvidence(store,feedbackIds,options,agent.id):undefined;
