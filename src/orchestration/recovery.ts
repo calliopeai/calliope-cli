@@ -62,7 +62,11 @@ export async function recoverTaskEvidence(cwd:string,runId:string,taskId:string,
     if(workspace.snapshot(agent.allowedPaths,controller.signal)!==snapshot||executorOutputs.get(task.isolation.patchArtifactId)!==patch)throw new OrchestrationError('conflict','Retained workspace changed during recovery verification.');
     const output=await collectStoppedTaskOutput(store,task,{...recoveryOptions,executorOutputs});
     output.summary='Recovered current retained workspace evidence after a worker output cutoff; the original report remains incomplete.';
-    await append({type:'task_finished',taskId,status:'failed',output},true);began=false;
+    // Evidence recovery closes the legacy cutoff attempt as failed. The
+    // retained checks stay attached to the output, but acceptance belongs to
+    // the subsequent bounded controller/worker attempt.
+    const recoveredOutput = output.status === 'partial' ? {...output,status:'failed' as const} : output;
+    await append({type:'task_finished',taskId,status:'failed',output:recoveredOutput},true);began=false;
     await append({type:'finished',ownerId:lease.id,status:'failed'});return notify();
   }catch(error){
     const failure=timedOut?new ExecutionLimitError('deadline','Original evidence recovery deadline expired.'):authorityFailure??error;
