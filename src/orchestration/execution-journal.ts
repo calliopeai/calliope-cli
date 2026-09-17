@@ -181,7 +181,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     }else if(c.type==='agent_stop'){if(!state.stoppedAgents.includes(c.agentId))state.stoppedAgents.push(c.agentId);}
     else if(c.type==='agent_reset'){if(state.ownerId)conflict('Stop the coordinator before resetting an agent.');state.stoppedAgents=state.stoppedAgents.filter(a=>a!==c.agentId);}
     else if(c.type==='finished'){
-      active();if(c.status==='completed'&&state.supervision&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');
+      active();if(c.status==='completed'&&state.supervision){const reviewedStop=state.supervision.phase==='halted'&&state.supervision.halt?.outcome==='stop'&&!state.supervision.forceReview&&state.supervision.reviewedHash===supervisionEvidence(events.slice(0,event.sequence-1)).hash;if(!reviewedStop&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');}
       if(c.ownerId!==state.ownerId||Object.values(state.tasks).some(t=>t.status==='running')||c.status==='completed'&&!Object.values(state.tasks).every(t=>t.status==='completed'))conflict('Coordinator cannot finish with active or unverified work.');state.status=c.status;state.ownerId=null;
     }
     if(state.routes)state.version=5;if(attributed)state.version=6;state.revision=event.hash;
