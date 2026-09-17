@@ -69,7 +69,19 @@ export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,co
   const complete=mechanicallyVerified(output,contextForTask(store,task.id)),failed=artifacts.length!==task.outputs.length||checks.some(c=>!c.passed);
   options.workspace?.assertVerified(options.signal);
   if(complete){output.status='success';output.recommendedNextAction='Continue with dependency-ready work.';}
-  else if(failed){output.status='failed';output.recommendedNextAction='Inspect failed or missing evidence before retrying.';}
+  else if(failed){
+    // A mutation may be real and mechanically verified even when the model
+    // omitted a non-file report/receipt. Preserve those checks for supervised
+    // evidence repair instead of treating the workspace as an unverified
+    // failure. Human acceptance still requires every declared artifact.
+    const missing=task.outputs.some(spec=>!artifacts.some(a=>a.id===spec.id));
+    if(missing&&checks.length>0&&checks.every(check=>check.passed)&&state.mutations){
+      output.status='partial';
+      output.recommendedNextAction='Request the missing patch or verification receipt; do not repeat the mutation until evidence is complete.';
+      return{output,status:'review_required'};
+    }
+    output.status='failed';output.recommendedNextAction='Inspect failed or missing evidence before retrying.';
+  }
   else output.unresolvedRisks=[...risks.slice(0,99),'Natural-language acceptance criteria still require human review.'];
   return{output,status:complete?'completed':failed?'failed':'review_required'};
 }
