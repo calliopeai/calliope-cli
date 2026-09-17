@@ -153,7 +153,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
           // A model-selected shell probe is expected to be denied in an
           // isolated worker; return the denial as a tool error so the worker
           // can finish and the coordinator can run its reviewed verifier.
-          if(decision.decision!=='allow'&&!(workspace&&call.name==='shell'))throw new SessionPolicyError();
+          if(decision.decision!=='allow'&&!(workspace&&(['shell','read_file','list_files'].includes(call.name))))throw new SessionPolicyError();
         },
         onToolStart:call=>toolEvent(call,'started'),onToolResult:(call,result)=>toolEvent(call,'finished',!result.isError),
       });
