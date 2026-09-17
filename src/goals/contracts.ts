@@ -63,5 +63,14 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
   if(source.kind==='agent'&&manifest.team?.workers){
     for(const agent of plan.agents)if(agent.parentId!==null)agent.preference={...manifest.team.workers};
   }
+  // A one-worker coding task needs room for both mutation and read-back
+  // verification. Keep the grant inside the captured execution pool while
+  // avoiding plans that spend the entire allowance on a single turn.
+  if(source.kind==='agent'&&plan.agents.length===1){
+    const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
+    plan.agents[0]!.tokenBudget=Math.max(plan.agents[0]!.tokenBudget,Math.min(12000,executionPool));
+    plan.agents[0]!.costBudgetUsd=Math.max(plan.agents[0]!.costBudgetUsd,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9);
+    plan.limits.tokenBudget=Math.max(plan.limits.tokenBudget,plan.agents[0]!.tokenBudget);
+  }
   const analysis=analyzePlan(plan);return validateGoalProposal(signed({version:1,goalId:manifest.id,goalManifestHash:manifest.hash,plan:analysis.plan,planHash:analysis.hash,knowledgeStatus:'proposed',confidence:null,inferred:source.kind==='agent',source}),manifest,spend);
 }
