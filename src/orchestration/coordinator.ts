@@ -117,7 +117,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         // can exercise tool lifecycle behavior.
         const compactProposal=task.id==='propose'&&!preference.model?.includes('toy');
         const creationTarget=task.outputs.find(output=>output.kind==='file'&&output.path);
-        const creationMissing=!!creationTarget&&workspace!==undefined&&!existsSync(resolve(workspace.base,creationTarget.path!));
+        const creationMissing=!!creationTarget&&workspace!==undefined&&!existsSync(resolve(workspace.filesRoot,creationTarget.path!));
         const admittedTools=creationMissing
           ? getTools().filter(tool=>tool.name!=='read_file'&&tool.name!=='list_files')
           : getTools();
