@@ -293,7 +293,10 @@ export async function chatOpenAICompatible(
       throw new Error('Bounded execution requires a server shim that preserves requested tools.');
   }
 
-  const client = new OpenAI({ apiKey, baseURL, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
+  // Bind the active transport at request setup time. This keeps provider
+  // calls observable and cancellable for embedded runtimes and test harnesses
+  // that install a scoped fetch implementation after module initialization.
+  const client = new OpenAI({ apiKey, baseURL, fetch: globalThis.fetch, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const openaiMessages = provider==='deepseek'?toDeepSeekMessages(messages):toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
