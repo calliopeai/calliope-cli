@@ -85,8 +85,15 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     catch(error) {
       const localController=role==='controller';
       const verified=outcomes.length>0&&outcomes.every(outcome=>Array.isArray(outcome.checks)&&outcome.checks.length>0&&outcome.checks.every(check=>check.passed));
-      if(!localController||!verified)throw error;
-      decision={version:1,action:'stop',reason:'All recorded acceptance checks passed; local controller response was invalid.',evidence:evidence.ids} as const;
+      if(!localController)throw error;
+      if(verified){
+        decision={version:1,action:'stop',reason:'All recorded acceptance checks passed; local controller response was invalid.',evidence:evidence.ids} as const;
+      }else if(policy.allowedActions.includes('retry')){
+        const failed=Object.values(current.state.tasks).find(task=>task.status==='failed');
+        const failedSpec=failed&&reviewPlan.tasks.find(task=>task.id===failed.id),failedAgent=failedSpec&&reviewPlan.agents.find(agent=>agent.id===failedSpec.agentId);
+        if(!failed||!failedSpec||!failedAgent||failed.attempts>failedAgent.escalationPolicy.maxRetries)throw error;
+        decision={version:1,action:'retry',taskId:failed.id,reason:'Controller response was invalid; retry is mechanically authorized by the recorded failed task and remaining attempt budget.',evidence:evidence.ids,hypothesis:'Retry the failed task within its reviewed scope.',expectedMetric:{name:'task acceptance checks passed',direction:'increase'}} as const;
+      }else throw error;
     }
     await store.append({type:'supervision_decided',round,role,agentId,sessionId:session.id,decision},controller.signal,undefined,check);
   }catch(error){throw authorityError??error;}
