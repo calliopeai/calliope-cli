@@ -134,7 +134,13 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       }
       const smart=agent.routing?taskSmartSelection(agent.routing,store.read().events,task.id):undefined;
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
-      if(!decision.selected)throw new RoutingUnavailableError(decision);const maximum=reviewedOutputLimit(decision.selected,cwd);
+      if(!decision.selected)throw new RoutingUnavailableError(decision);
+      // Planner calls are always bounded by the manifest allocation. Some
+      // live provider catalogs do not publish an output limit even though the
+      // selected model is discoverable; use the already-authorized planner
+      // cap in that case. Worker execution remains fail-closed on missing
+      // reviewed metadata.
+      const maximum=reviewedOutputLimit(decision.selected,cwd)??(task.id==='propose'?Math.min(outputCap,agentOutputCap):null);
       if(!maximum)throw new ExecutionLimitError('budget','Live discovery or reviewed metadata must provide an output limit for this task.');
       // Keep inexpensive workers within their own cost envelope. A global
       // output cap can otherwise reserve more than a low-cost agent can afford
