@@ -191,7 +191,7 @@ it('retains real verification after a truncated worker report and retries withou
   const view=await reviewed(),result=await execute(view.run.id);
   expect(result.status,JSON.stringify(result.execution.state.supervision)).toBe('completed');
   const outcomes=result.execution.events.filter(e=>e.change.type==='task_finished').map(e=>(e.change as any).output);
-  expect(outcomes.map(o=>o.status)).toEqual(['failed','success']);expect(outcomes[0].summary).toContain('truncated');
+  expect(outcomes.map(o=>o.status)).toEqual(['partial','success']);expect(outcomes[0].summary).toContain('truncated');
   expect(outcomes[0].checks.every((c:any)=>c.passed)).toBe(true);expect(outcomes[0].artifacts.map((a:any)=>a.id)).toEqual(expect.arrayContaining(['patch','tests']));
   expect(JSON.stringify(outcomes)).not.toContain('forged-test');
   expect(result.execution.events.find(e=>e.change.type==='supervision_applied')?.change).toMatchObject({receipts:[{artifactId:'tests',exitCode:0,cleanupConfirmed:true}]});
