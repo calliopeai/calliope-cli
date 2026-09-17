@@ -752,19 +752,24 @@ async function chatBedrockStreaming(
  * Check if native AWS credentials are available (for provider detection).
  */
 export function hasAWSCredentials(): boolean {
+  // Prefer the live HOME override. Test workers and embedded callers may
+  // redirect HOME after node:os has been imported; os.homedir() can otherwise
+  // keep pointing at the caller's real profile and make an unrelated AWS
+  // profile appear configured.
+  const awsHome = process.env.HOME || process.env.USERPROFILE || homedir();
   // Check env vars
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) return true;
 
   // Check for named profile
   if (process.env.AWS_PROFILE) {
-    const awsDir = join(homedir(), '.aws');
+    const awsDir = join(awsHome, '.aws');
     if (existsSync(join(awsDir, 'credentials')) || existsSync(join(awsDir, 'config'))) {
       return true;
     }
   }
 
   // Check default profile
-  const credPath = join(homedir(), '.aws', 'credentials');
+  const credPath = join(awsHome, '.aws', 'credentials');
   if (existsSync(credPath)) return true;
 
   return false;
