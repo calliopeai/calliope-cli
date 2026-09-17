@@ -149,7 +149,12 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         maxIterations:task.id==='propose'?12:20,maxRetries:0,parallel:false,
         onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;},
         onSafetyBranch:async()=>{await branchSession(session.id,{...childOptions(child.signal),kind:'safety',runlog:log,confirmation:options.confirmation??'mutating'});},
-        onPermission:(_call,decision)=>{if(decision.decision!=='allow')throw new SessionPolicyError();},
+        onPermission:(call,decision)=>{
+          // A model-selected shell probe is expected to be denied in an
+          // isolated worker; return the denial as a tool error so the worker
+          // can finish and the coordinator can run its reviewed verifier.
+          if(decision.decision!=='allow'&&!(workspace&&call.name==='shell'))throw new SessionPolicyError();
+        },
         onToolStart:call=>toolEvent(call,'started'),onToolResult:(call,result)=>toolEvent(call,'finished',!result.isError),
       });
       throwIfCancelled(child.signal);assertRun();
