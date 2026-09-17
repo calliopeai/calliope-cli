@@ -111,7 +111,10 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
       const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(1024,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(8192,agent.tokenBudget):agent.tokenBudget;
-      const measuredInputReservation=options.measuredInputReservation||agent.id===context.plan.supervision?.controllerId||agent.costBudgetUsd<=0.1;
+      // Coordinator turns are bounded by their actual serialized prompt. A
+      // full model context reservation can starve the second turn after a
+      // successful write, preventing the required read-back verification.
+      const measuredInputReservation=true;
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try {
