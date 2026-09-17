@@ -110,7 +110,14 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const measuredInputReservation=options.measuredInputReservation||agent.id===context.plan.supervision?.controllerId||agent.costBudgetUsd<=0.1;
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
-      try { tools=new ExecutionGuard(provisional,cwd).tools(getTools()); }
+      try {
+        // Proposal planning is deliberately a no-tools turn: the planner has
+        // the complete goal contract and trusted repository instructions, and
+        // file inspection here would consume multiple reservations before the
+        // required JSON proposal can be emitted. Workers perform the actual
+        // repository inspection under their isolated authority.
+        tools=new ExecutionGuard(provisional,cwd).tools(task.id==='propose'?[]:getTools());
+      }
       catch(error) {
         log.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Execution guard admission failed',durationMs:0});
         throw error;
