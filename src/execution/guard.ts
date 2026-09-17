@@ -51,6 +51,7 @@ export class ExecutionGuard {
   }
   check= (call:ToolCall,cwd=this.cwd):string|undefined => {
     this.assertAuthority?.();this.workspace?.assertIdentity();
+    if(this.workspace&&call.name==='shell')return 'Isolated workers cannot issue model-selected shell commands; use the declared coordinator verifier.';
     const denial=executionToolDenial(this.manifest,this.agentId,call,cwd);if(denial||!this.workspace)return denial;
     if(['read_file','write_file','edit_file','list_files'].includes(call.name))try{this.filePath(resolve(cwd,String(call.arguments.path??'.')));}catch{return 'Isolated file path is outside its workspace or aliases Git metadata.';}
     return undefined;
