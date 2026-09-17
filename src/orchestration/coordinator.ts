@@ -111,7 +111,11 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try {
-        tools=new ExecutionGuard(provisional,cwd).tools(getTools());
+        // Real proposal calls should spend one bounded inference turn. The
+        // fixture providers intentionally retain their tool harness so tests
+        // can exercise tool lifecycle behavior.
+        const compactProposal=task.id==='propose'&&!preference.model?.includes('toy');
+        tools=new ExecutionGuard(provisional,cwd).tools(compactProposal?[]:getTools());
       }
       catch(error) {
         log.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Execution guard admission failed',durationMs:0});
