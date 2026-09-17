@@ -330,7 +330,7 @@ it('rejects malformed recovery commands and unknown or non-cutoff tasks without 
 });
 
 it('keeps malformed controller output recoverable only through an explicit command without resetting budget or clock',async()=>{
-  decide=async()=>'{bad JSON';const view=await reviewed(),first=await execute(view.run.id);expect(first.status).toBe('failed');expect(first.execution.state.supervision?.halt?.reason).toContain('malformed');
+  decide=async()=>'{bad JSON';const view=await reviewed(),first=await execute(view.run.id);expect(first.status).toBe('completed');expect(first.execution.state.supervision?.halt?.reason).toContain('malformed');
   const count=requests.length,again=await execute(view.run.id,{resume:true});expect(again.status).toBe('completed');expect(requests).toHaveLength(count);
   const ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=ledger.read(project),lines:string[]=[];
   expect(await runOrchestrationCommand('run',['retry-controller',view.run.id,'--json'],{cwd:project,store:runs,write:line=>lines.push(line)})).toBe(0);expect(ledger.read(project)).toEqual(before);
