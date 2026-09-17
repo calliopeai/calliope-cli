@@ -118,9 +118,14 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         const compactProposal=task.id==='propose'&&!preference.model?.includes('toy');
         const creationTarget=task.outputs.find(output=>output.kind==='file'&&output.path);
         const creationMissing=!!creationTarget&&workspace!==undefined&&!existsSync(resolve(workspace.filesRoot,creationTarget.path!));
-        const admittedTools=creationMissing
-          ? getTools().filter(tool=>tool.name!=='read_file'&&tool.name!=='list_files')
-          : getTools();
+        const admittedTools=getTools().filter(tool=>
+          // Isolated verification is coordinator-owned. Workers may mutate
+          // files and reason, but must not issue model-selected shell commands
+          // that bypass the reviewed verifier and network/container policy.
+          workspace===undefined||tool.name!=='shell'
+        ).filter(tool=>creationMissing
+          ? tool.name!=='read_file'&&tool.name!=='list_files'
+          : true);
         tools=new ExecutionGuard(provisional,cwd).tools(compactProposal?[]:admittedTools);
       }
       catch(error) {
