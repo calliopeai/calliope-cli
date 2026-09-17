@@ -66,7 +66,11 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const route=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:false,reasoningEffort},signal:controller.signal});log.routingDecision(route);
     if(!route.selected)throw new RoutingUnavailableError(route);const maximum=reviewedOutputLimit(route.selected,store.manifest.project.root);if(!maximum)throw new ExecutionLimitError('budget','Controller model needs a live or reviewed output limit.');
     const attribution={version:1 as const,kind:'supervision' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,role,round};
-    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,maximum),assertAuthority:check,attribution};
+    // Controller reviews receive a derived, bounded context. Reserve against
+    // that measured request size so prior worker charges do not reject a
+    // review merely because the provider's full context window is larger than
+    // the controller's remaining account budget.
+    const execution={...authority,agentId,maxOutputTokens:Math.min(policy.maxOutputTokens,maximum),measuredInputReservation:true,assertAuthority:check,attribution};
     new ExecutionGuard(execution,context.project.root).assertActive(controller.signal);
     const result=await runTurn({smart,...(smart?{onRoute:(decision)=>recordAgentRoute(store,agentId,session.id,decision,controller.signal,check)}:{}),cwd:context.project.root,sessionId:session.id,execution,reasoningEffort,provider:preference.provider,model:preference.model,messages,prompt:role==='reviewer'?'Review the supplied controller draft and return one explicit reviewer verdict bound to draftHash.':'Review the recorded outcomes and return one bounded decision.',tools:()=>[],onToolStart:()=>{throw new SessionPolicyError();},beforeTool:()=>{throw new SessionPolicyError();},maxIterations:1,maxRetries:0,parallel:false,mode:options.mode,confirmation:'mutating',signal:controller.signal,runlog:log,onCheckpoint:(messages,status)=>{revision=saveSessionConversation(session.id,messages,{expectedRevision:revision,status}).revision;}});
     check();
