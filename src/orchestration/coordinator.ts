@@ -111,12 +111,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),...(measuredInputReservation?{measuredInputReservation:true}:{}),attribution,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try {
-        // Proposal planning is deliberately a no-tools turn: the planner has
-        // the complete goal contract and trusted repository instructions, and
-        // file inspection here would consume multiple reservations before the
-        // required JSON proposal can be emitted. Workers perform the actual
-        // repository inspection under their isolated authority.
-        tools=new ExecutionGuard(provisional,cwd).tools(task.id==='propose'?[]:getTools());
+        tools=new ExecutionGuard(provisional,cwd).tools(getTools());
       }
       catch(error) {
         log.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Execution guard admission failed',durationMs:0});
@@ -131,7 +126,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // before the provider gets a chance to produce any useful work.
       const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating:['write_file','edit_file'].includes(call.name),success});};
-      const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
+      const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,tools:()=>tools,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
         approve:options.approve?(_call,decision)=>options.approve!(decision,child.signal):undefined,runlog:log,
         // Planning is a bounded proposal pass. Limiting tool turns prevents
         // the growing conversation from consuming the remaining planning
