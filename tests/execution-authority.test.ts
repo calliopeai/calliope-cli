@@ -53,6 +53,16 @@ it('writes atomically through the declared edit tool and detects stale reads and
   const delegate=agentFiles(g,'a',call);await delegate.readTextFile!(file);fs.writeFileSync(file,'changed');await expect(delegate.writeTextFile!(file,'stale')).rejects.toMatchObject({code:'conflict'});expect(fs.readFileSync(file,'utf8')).toBe('changed');
   const controller=new AbortController(),cancelled=agentFiles(g,'a',call,controller.signal);await cancelled.readTextFile!(file);controller.abort();await expect(cancelled.writeTextFile!(file,'cancelled')).rejects.toThrow();expect(fs.readFileSync(file,'utf8')).toBe('changed');
 });
+it('allows a declared creation write without read_file while preserving read-before-write for existing files',async()=>{
+  manifest.accounts[1]!.allowedTools=['write_file'];const g=guard(),file=join(project,'a/new-file.txt');
+  const call={id:'create',name:'write_file',arguments:{path:file,content:'created'}};
+  const result=await withScope(project,()=>executeTool(call,project,1000,undefined,{authority:g.check,fs:agentFiles(g,'a',call)}));
+  expect(result.isError).toBeFalsy();expect(fs.readFileSync(file,'utf8')).toBe('created');
+  const existing=join(project,'a/existing.txt');fs.writeFileSync(existing,'old');
+  const blocked=agentFiles(g,'a',{...call,id:'overwrite',arguments:{path:existing,content:'new'}});
+  await expect(blocked.writeTextFile!(existing,'new')).rejects.toMatchObject({code:'conflict'});
+  expect(fs.readFileSync(existing,'utf8')).toBe('old');
+});
 it('denies writes through read-only grants and creation of undeclared parent directories',async()=>{
   manifest.accounts[1]!.allowedPaths=[{path:'a/new/file.txt',access:'write'}];const g=guard(),call={id:'write',name:'write_file',arguments:{path:'a/new/file.txt',content:'text'}};
   const result=await withScope(project,()=>executeTool(call,project,1000,undefined,{authority:g.check,fs:agentFiles(g,'a',call)}));expect(result.isError).toBe(true);expect(fs.existsSync(join(project,'a/new'))).toBe(false);

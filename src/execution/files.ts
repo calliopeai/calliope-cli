@@ -30,8 +30,17 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
     readTextFile:async file=>{guard.assertActive(signal);check(file);const value=read(file);snapshots.set(file,value?{hash:value.hash,mode:value.mode}:null);if(!value)throw new Error('File not found.');check(file);return value.content;},
     writeTextFile:async(file,content)=>{
       guard.assertActive(signal);check(file);if(Buffer.byteLength(content)>MAX_FILE_BYTES)throw new ExecutionLimitError('limit','Agent file output exceeds 1 MiB.');
-      const expected=snapshots.get(file);if(expected===undefined)throw new ExecutionLimitError('conflict','Agent writes require a preceding file snapshot.');
-      const physical=guard.filePath(file),parent=dirname(physical),missing:string[]=[];let dir=parent;
+      const expected=snapshots.get(file);
+      const physical=guard.filePath(file);
+      // Creation tasks intentionally omit read_file from the admitted tool set.
+      // Permit an un-snapshotted write only when the target is still absent;
+      // existing files retain the read-before-write requirement.
+      if(expected===undefined){
+        let present=false;try{present=fs.lstatSync(physical).isFile();}catch(error){if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;}
+        if(present)throw new ExecutionLimitError('conflict','Agent writes require a preceding file snapshot.');
+        snapshots.set(file,null);
+      }
+      const parent=dirname(physical),missing:string[]=[];let dir=parent;
       while(!fs.existsSync(dir)){missing.push(dir);const next=dirname(dir);if(next===dir||missing.length>64)throw new ExecutionLimitError('authority','Parent directory is outside the bounded write scope.');dir=next;}
       const account=accountLineage(guard.manifest,agentId)[0]!;
       for(const path of missing.reverse()){
