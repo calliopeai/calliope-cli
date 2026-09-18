@@ -56,15 +56,15 @@ export function anthropicMetadata(value: unknown): Omit<ModelInfo, 'id'> {
 
 /** Mistral fields and common compatible-server extensions; absent fields stay unknown. */
 export function compatibleMetadata(value: unknown): Omit<ModelInfo, 'id'> {
-  const model = object(value), caps = object(model.capabilities), costs = object(model.pricing);
+  const model = object(value), caps = object(model.capabilities), costs = object(model.pricing), limits = object(model.limits);
   const supported = stringList(model.supported_parameters);
   return {
     aliases: stringList(model.aliases),
-    contextLength: positiveLimit(model.max_context_length ?? model.context_length),
-    maxOutputTokens: positiveLimit(model.max_output_tokens),
-    pricing: { input: price(costs.input), output: price(costs.output) },
+    contextLength: positiveLimit(model.max_context_length ?? model.context_length ?? limits.max_context_length),
+    maxOutputTokens: positiveLimit(model.max_output_tokens ?? limits.max_completion_tokens),
+    pricing: { input: price(costs.input ?? costs.prompt), output: price(costs.output ?? costs.completion) },
     capabilities: {
-      chat: model.archived === true ? false : capability(caps.completion_chat ?? caps.chat),
+      chat: model.archived === true ? false : capability(caps.completion_chat ?? caps.chat) ?? true,
       tools: capability(caps.function_calling ?? caps.tools) ?? (supported ? supported.includes('tools') : undefined),
       streaming: capability(caps.streaming), vision: capability(caps.vision),
       thinking: capability(caps.thinking ?? caps.reasoning), json: capability(caps.json),

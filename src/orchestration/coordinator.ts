@@ -115,7 +115,10 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
-      const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(1024,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(8192,agent.tokenBudget):agent.tokenBudget;
+      // Leaf workers should leave room for the coordinator's verification and
+      // retry accounting. Keep inexpensive bounded tasks compact even when a
+      // generated contract grants a larger token allowance.
+      const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(1024,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(2048,agent.tokenBudget):agent.tokenBudget;
       // Coordinator turns are bounded by their actual serialized prompt. A
       // full model context reservation can starve the second turn after a
       // successful write, preventing the required read-back verification.
@@ -146,13 +149,11 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const smart=agent.routing?taskSmartSelection(agent.routing,store.read().events,task.id):undefined;
       const decision=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:tools.length>0},signal:child.signal});log.routingDecision(decision);
       if(!decision.selected)throw new RoutingUnavailableError(decision);
-      // Planner calls are always bounded by the manifest allocation. Some
-      // live provider catalogs do not publish an output limit even though the
-      // selected model is discoverable; use the already-authorized planner
-      // cap in that case. Worker execution remains fail-closed on missing
-      // reviewed metadata.
-      const maximum=reviewedOutputLimit(decision.selected,cwd)??(task.id==='propose'?Math.min(outputCap,agentOutputCap):null);
-      if(!maximum)throw new ExecutionLimitError('budget','Live discovery or reviewed metadata must provide an output limit for this task.');
+      // Every task already has an explicit manifest/run output cap. Provider
+      // catalogs may omit their own maximum even when the model is live; the
+      // declared cap is the safe upper bound in that case. Reviewed metadata
+      // can narrow it further, but is not required to establish a finite cap.
+      const maximum=reviewedOutputLimit(decision.selected,cwd)??Math.min(outputCap,agentOutputCap);
       // Keep inexpensive workers within their own cost envelope. A global
       // output cap can otherwise reserve more than a low-cost agent can afford
       // before the provider gets a chance to produce any useful work.

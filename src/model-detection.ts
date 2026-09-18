@@ -1123,16 +1123,23 @@ async function getOpenAICompatibleModels(provider: LLMProvider): Promise<ModelIn
   const baseURL = config.getBaseUrl(provider) || PROVIDER_BASE_URLS[provider];
   if (!baseURL) throw new Error(`Unknown provider: ${provider}`);
 
+  // Cerebras exposes richer limits, pricing and capability metadata on its
+  // public catalog; the OpenAI-compatible /v1/models endpoint only returns
+  // identifiers, which makes bounded tool execution impossible to quote.
+  if (provider === 'cerebras') {
+    const publicUrl = `${new URL(baseURL).origin}/public/v1/models`;
+    const metadataResponse = await fetchModelMetadata(publicUrl, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (metadataResponse.ok) {
+      const payload = await metadataResponse.json() as { data?: unknown[] };
+      if (!Array.isArray(payload.data)) throw new ModelDiscoveryError('Invalid Cerebras model discovery response');
+      return payload.data
+        .filter(model => { const id = typeof model === 'object' && model !== null ? (model as { id?: unknown }).id : undefined; return typeof id === 'string' && isCompatibleModel(id, provider); })
+        .map(model => { const id = (model as { id: string }).id; return { id, name: id, ...compatibleMetadata(model) }; });
+    }
+  }
   const client = new OpenAI({ apiKey, baseURL, ...discoveryTransportOptions() });
   const response = await client.models.list();
-
-  return response.data
-    .filter(model => isCompatibleModel(model.id, provider))
-    .map(model => ({
-      id: model.id,
-      name: model.id,
-      ...compatibleMetadata(model),
-    }));
+  return response.data.filter(model => isCompatibleModel(model.id, provider)).map(model => ({ id: model.id, name: model.id, ...compatibleMetadata(model) }));
 }
 
 /**
