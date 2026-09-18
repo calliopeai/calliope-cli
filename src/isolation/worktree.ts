@@ -94,7 +94,9 @@ export class WorkerWorktree {
     this.assertIdentity();const hash=createHash('sha256'),seen=new Set<string>();let bytes=0;
     const visit=(path:string):void=>{
       throwIfCancelled(signal);if(seen.has(path))return;seen.add(path);if(seen.size>10000)unavailable('Workspace snapshot exceeds 10,000 entries.');
-      const file=resolve(this.filesRoot,path);if(canonicalPath(file)!==file)unavailable('Workspace snapshot contains an alias.');const s=fs.lstatSync(file);
+      const file=resolve(this.filesRoot,path);
+      if(!fs.existsSync(file)){hash.update(canonicalJson({path,missing:true}));return;}
+      if(canonicalPath(file)!==file)unavailable('Workspace snapshot contains an alias.');const s=fs.lstatSync(file);
       if(s.isDirectory()){hash.update(canonicalJson({path,mode:s.mode&0o777}));for(const name of fs.readdirSync(file).sort())visit(path==='.'?name:path+'/'+name);}
       else {const content=readArtifactBytes(file,10*1024*1024);bytes+=content.length;if(bytes>50*1024*1024)unavailable('Workspace snapshot exceeds 50 MiB.');hash.update(canonicalJson({path,mode:s.mode&0o777,bytes:content.length}));hash.update(content);}
     };
