@@ -87,7 +87,10 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
       const verified=outcomes.length>0&&outcomes.every(outcome=>Array.isArray(outcome.checks)&&outcome.checks.length>0&&outcome.checks.every(check=>check.passed));
       if(!localController)throw error;
       if(verified){
-        decision={version:1,action:'stop',reason:'All recorded acceptance checks passed; local controller response was invalid.',evidence:evidence.ids} as const;
+        // A malformed controller response is an execution failure even when
+        // the worker happened to pass. Completion still requires an explicit,
+        // parseable controller decision bound to the recorded evidence.
+        throw error;
       }else if(policy.allowedActions.includes('retry')){
         const failed=Object.values(current.state.tasks).find(task=>task.status==='failed');
         const failedSpec=failed&&reviewPlan.tasks.find(task=>task.id===failed.id),failedAgent=failedSpec&&reviewPlan.agents.find(agent=>agent.id===failedSpec.agentId);

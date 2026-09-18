@@ -259,8 +259,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         if(current.state.revision!==candidate.state.revision)return[];
         const tasks=Object.values(current.state.tasks),pending=inspectSpawnAuthority(store,rootAuthority.ledger,current).pending;
         const supervision=current.state.supervision;
-        const reviewedStop=supervision?.phase==='halted'&&supervision.halt?.outcome==='stop'&&!supervision.forceReview;
-        const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':tasks.every(t=>t.status==='completed')&&!pending.length&&(!supervision||supervision.phase!=='halted'||reviewedStop)?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
+        const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':tasks.every(t=>t.status==='completed')&&!pending.length&&(!supervision||supervision.phase!=='halted')?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
         return[{change:{type:'finished',ownerId:lease.id,status}}];
       },undefined,lease.check);
       if(finished.length)break;

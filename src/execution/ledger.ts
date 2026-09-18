@@ -29,7 +29,7 @@ function reservation(value: unknown): asserts value is RequestReservation {
     const proof=validateQuoteEvidence(value.quoteEvidence),p=proof.profile;
     if(value.provider!==p.provider||value.model!==p.model||value.target!==p.target||Number(value.inputPrice)<p.prices.input||Number(value.outputPrice)<p.prices.output)invalid();
     if(proof.version===1){if(value.inputTokens<proof.count.inputTokens||value.inputTokens>proof.count.inputTokens*2+1024)invalid();}
-    else{const terms=fullContextTerms(proof);if(value.inputTokens!==terms.inputTokens||value.outputTokens>terms.maxOutputTokens||value.inputPrice!==terms.inputPrice||value.outputPrice!==terms.outputPrice)invalid();}
+    else{const terms=fullContextTerms(proof);if(value.inputTokens<1||value.inputTokens>terms.inputTokens||value.outputTokens>terms.maxOutputTokens||value.inputPrice!==terms.inputPrice||value.outputPrice!==terms.outputPrice)invalid();}
   }
   if(value.limits!==undefined){shape(value.limits,[],['tokens','costNanos']);for(const cap of Object.values(value.limits))integer(cap);}
   if(value.attribution!==undefined)validateRequestAttribution(value.attribution);
