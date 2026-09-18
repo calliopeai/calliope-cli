@@ -62,7 +62,7 @@
     "@zed-industries/agent-client-protocol": "^0.4.5",
     "conf": "^15.1.0",
     "ink": "^7.1.0",
-    "openai": "^6.46.0",
+    "openai": "^7.15.0",
     "react": "^19.2.3",
     "sql.js": "1.14.2",
     "string-width": "8.2.2",
