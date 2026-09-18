@@ -100,7 +100,9 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
     const context=store.context(),agent=context.plan.agents.find(a=>a.id===task.agentId)!,agentDeadline=budget.createdAt+agent.timeBudgetMs;let timedOut=false;
     const taskTimer=setTimeout(()=>{timedOut=true;child.abort();},Math.max(0,agentDeadline-Date.now()));let began=false,agentBegan=false,taskLog:RunLog|undefined;
     const finish=async(status:Exclude<TaskStatus,'pending'|'running'>,output:TaskOutput,verify=false)=>{
-      await store.append({type:'task_finished',taskId:task.id,status,output},undefined,randomUUID(),()=>{lease.check();if(verify){assertRun();throwIfCancelled(child.signal);for(const artifact of output.artifacts)checkArtifactSnapshot(store,artifact);}});
+      const persistedStatus:TaskOutput['status']=status==='completed'?'success':status==='review_required'?'partial':status==='unknown'?'failed':status;
+      const persistedOutput:TaskOutput={...output,status:persistedStatus};
+      await store.append({type:'task_finished',taskId:task.id,status,output:persistedOutput},undefined,randomUUID(),()=>{lease.check();if(verify){assertRun();throwIfCancelled(child.signal);for(const artifact of persistedOutput.artifacts)checkArtifactSnapshot(store,artifact);}});
       if(agentBegan)await store.append({type:'agent_finished',agentId:agent.id,taskId:task.id,status});
     };
     try {
