@@ -33,6 +33,13 @@ it('binds operator choices before review while human revisions can select indivi
   const human=proposePlan(m,p,{kind:'human',path:'plan.json',sha256:'a'.repeat(64)},spend);expect(human.plan.agents[1]!.preference).toEqual({provider:'google',model:'unrequested-toy'});expect(human.inferred).toBe(false);
   const onlyWorkers=newGoalManifest(project,'Toy.',m.runsRoot,{team:{version:1,workers:{provider:'google'}}});expect(plannerPlan(onlyWorkers).tasks).toHaveLength(1);
 });
+it('keeps leaf workers large enough for a bounded verification turn',()=>{
+  const m=newGoalManifest(project,'Bounded edit.',join(root,'runs'),{limits:{tokenBudget:60000,planningTokens:10000}}),p=verifiedPlan();
+  p.limits.tokenBudget=24000;p.agents[0]!.tokenBudget=24000;p.agents.slice(1).forEach(agent=>{agent.tokenBudget=1000;});
+  const proposed=proposePlan(m,p,source,spend);
+  expect(proposed.plan.agents.filter(agent=>agent.parentId!==null).map(agent=>agent.tokenBudget)).toEqual([12000,12000]);
+  expect(proposed.plan.agents[0]!.tokenBudget).toBe(24000);
+});
 it('rejects malformed teams, version confusion, and reviewer limits before creating a goal',async()=>{
   for(const team of [{},{version:2,workers:{provider:'auto'}},{version:1},{version:1,workers:{provider:'nope'}},{version:1,workers:{provider:'auto',model:''}},{version:1,reviewer:null},{version:1,maxAttempts:0},{version:1,maxAttempts:5},{version:1,maxAttempts:1.5},{version:1,workers:{provider:'auto',token:'secret'}}])expect(()=>validateGoalTeam(team)).toThrow();
   const m=teamGoal(),{hash,...body}=m;
