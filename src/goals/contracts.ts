@@ -73,10 +73,11 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
     // A worker turn reserves its serialized prompt envelope before dispatch.
     // Give each leaf enough room for read -> mutate -> verify, while keeping
     // the aggregate inside the already captured execution pool.
-    const executionPool=Math.max(1,Math.min(manifest.limits.tokenBudget-manifest.limits.planningTokens,plan.limits.tokenBudget));
+    const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
     const leaves=plan.agents.filter(agent=>!plan.agents.some(child=>child.parentId===agent.id));
-    const leafFloor=Math.min(12000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
-    for(const leaf of leaves)leaf.tokenBudget=Math.max(leaf.tokenBudget,leafFloor);
+    const leafFloor=Math.min(40000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
+    const costPool=Math.max(0,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9),leafCostFloor=costPool/Math.max(1,leaves.length);
+    for(const leaf of leaves){leaf.tokenBudget=Math.max(leaf.tokenBudget,leafFloor);leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,leafCostFloor);}
     for(const parent of plan.agents.slice().reverse()){
       const children=plan.agents.filter(a=>a.parentId===parent.id);
       if(children.length){
@@ -86,6 +87,8 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
         parent.costBudgetUsd=Math.max(parent.costBudgetUsd,childCost);
       }
     }
+    const root=plan.agents.find(agent=>agent.parentId===null);
+    if(root){plan.limits.tokenBudget=Math.max(plan.limits.tokenBudget,root.tokenBudget);plan.limits.costBudgetUsd=Math.max(plan.limits.costBudgetUsd,root.costBudgetUsd);}
   }
   const analysis=analyzePlan(plan);return validateGoalProposal(signed({version:1,goalId:manifest.id,goalManifestHash:manifest.hash,plan:analysis.plan,planHash:analysis.hash,knowledgeStatus:'proposed',confidence:null,inferred:source.kind==='agent',source}),manifest,spend);
 }
