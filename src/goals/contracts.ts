@@ -73,12 +73,14 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
     // A worker turn reserves its serialized prompt envelope before dispatch.
     // Give each leaf enough room for read -> mutate -> verify, while keeping
     // the aggregate inside the already captured execution pool.
-    if(!plan.supervision){
-      const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
-      const leaves=plan.agents.filter(agent=>!plan.agents.some(child=>child.parentId===agent.id));
-      const leafFloor=Math.min(40000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
-      const costPool=Math.max(0,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9),leafCostFloor=costPool/Math.max(1,leaves.length);
-      for(const leaf of leaves){leaf.tokenBudget=Math.max(leaf.tokenBudget,leafFloor);leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,leafCostFloor);}
+    const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
+    const leaves=plan.agents.filter(agent=>!plan.agents.some(child=>child.parentId===agent.id)&&plan.tasks.some(task=>task.agentId===agent.id));
+    const leafFloor=Math.min(plan.supervision?12000:40000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
+    for(const leaf of leaves)if(leaf.tokenBudget<leafFloor){
+      leaf.tokenBudget=leafFloor;
+      // A worker whose token grant was too small also needs enough cost room
+      // for its initial prompt envelope and one bounded verification turn.
+      leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,Math.min(0.1,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9));
     }
     for(const parent of plan.agents.slice().reverse()){
       const children=plan.agents.filter(a=>a.parentId===parent.id);
