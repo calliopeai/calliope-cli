@@ -31,7 +31,7 @@ import {
   type BrainOptions,
 } from './access.js';
 import { commitBrain } from './actions.js';
-import { exportKnowledgeGraph, type PortableKnowledgeGraph } from './kg.js';
+import { exportKnowledgeGraph, parseKnowledgeGraph, type PortableKnowledgeGraph } from './kg.js';
 export interface BrainBundle {
   version: 1;
   kind: 'calliope.brain';
@@ -273,4 +273,25 @@ export async function importBrain(cwd: string, path: string, options: BrainOptio
     imported: changes.length,
     origin: origin.header.id,
   };
+}
+
+/** Import either portable KG name as untrusted, namespaced local proposals. */
+export async function importKnowledgeGraph(cwd: string, path: string, options: BrainOptions = {}) {
+  const input = await readBrainFile(cwd, path, options, BRAIN_LIMITS.journalBytes);
+  let parsed: unknown;
+  try { parsed = JSON.parse(input.original); } catch { throw new BrainError('invalid', 'Knowledge graph import must be JSON.'); }
+  const graph = parseKnowledgeGraph(parsed), store = brainStore(cwd, options), prior = store.read(options.signal), origin = digest(input.original), namespace = (id: string) => 'import:kg:' + digest(origin + ':' + id);
+  const sourceId = 'source:kg:' + origin;
+  const source: SourceInput = { id: sourceId, kind: 'import', name: input.relative, content: sanitizeBrainText(input.content), originalHash: input.hash, contentHash: digest(sanitizeBrainText(input.content)), redacted: sanitizeBrainText(input.content) !== input.content, locator: { importedFrom: graph.format, projectKey: input.project.projectKey, path: input.relative } };
+  const changes: BrainChange[] = [{ kind: 'source', value: source }];
+  const nodeIds = new Set(graph.nodes.map(node => node.id));
+  for (const node of graph.nodes) {
+    const props = sanitizeBrainValue(node.props);
+    changes.push({ kind: 'entity', id: namespace(node.id), expected: prior.state.revisions['entity:' + namespace(node.id)] ?? null, value: { id: namespace(node.id), kind: (['document','decision','requirement','task','risk','dependency','stakeholder','provider','agent','artifact','test_evidence','run'] as const).includes(node.type as never) ? node.type as never : 'artifact', name: sanitizeBrainText(node.name), summary: typeof props.summary === 'string' ? sanitizeBrainText(props.summary) : sanitizeBrainText(node.name), state: 'proposed', confidence: typeof props.confidence === 'number' ? Math.max(0, Math.min(1, props.confidence)) : 0.5, provenance: [{ sourceId, basis: 'observed' }], attributes: { externalId: node.id, externalType: node.type, ...typeof props.attributes === 'object' && props.attributes && !Array.isArray(props.attributes) ? props.attributes as Record<string, string | number | boolean | null> : {} } } });
+  }
+  for (const edge of graph.edges) if (nodeIds.has(edge.source) && nodeIds.has(edge.target)) {
+    const props = sanitizeBrainValue(edge.props);
+    changes.push({ kind: 'edge', id: namespace(edge.props.id && typeof edge.props.id === 'string' ? edge.props.id : edge.source + ':' + edge.type + ':' + edge.target), expected: null, value: { id: namespace(edge.props.id && typeof edge.props.id === 'string' ? edge.props.id : edge.source + ':' + edge.type + ':' + edge.target), from: namespace(edge.source), to: namespace(edge.target), type: sanitizeBrainText(edge.type), state: 'proposed', confidence: typeof props.confidence === 'number' ? Math.max(0, Math.min(1, props.confidence)) : 0.5, provenance: [{ sourceId, basis: 'observed' }] } });
+  }
+  return { ...(await commitBrain(cwd, changes, 'import', 'Imported portable KG claims; accepted claims require local review.', prior, options, input.assertUnchanged)), imported: changes.length, origin: graph.format };
 }

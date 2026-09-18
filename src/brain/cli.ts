@@ -18,7 +18,7 @@ import {
   refreshBrain,
 } from './actions.js';
 import { queryBrain } from './queries.js';
-import { exportBrain, exportKnowledgeGraphFile, importBrain } from './transfer.js';
+import { exportBrain, exportKnowledgeGraphFile, importBrain, importKnowledgeGraph } from './transfer.js';
 import { ingestBrainRun, type BrainRunOptions } from './run-ingest.js';
 export const BRAIN_USAGE =
   'calliope brain init|status|ingest <path>|ingest-run <id>|search <query>|entity <id/name>|neighbors <id/name>|path <from> <to>|graph [root]|decisions|risks|history|export [path] [--kg]|import <path>|note <name> <text>|edit <id/name>|edit-edge <id>|link <from> <to> <type> --source <id>|reverse <event> --reason <text>|refresh|reindex [--global] [--allow-mutations] [--json]';
@@ -109,7 +109,7 @@ export async function runBrainCommand(
       summary: ['edit'],
       state: ['edit', 'edit-edge'],
       confidence: ['edit', 'edit-edge'],
-      kg: ['export'],
+      kg: ['export', 'import'],
     };
     for (const [flag, actions] of Object.entries(allowed))
       if (v[flag as keyof typeof v] !== undefined && !actions.includes(action))
@@ -183,7 +183,7 @@ export async function runBrainCommand(
           : await exportBrain(cwd, p[1] ?? `calliope-brain-export-${Date.now()}.json`, opts);
         break;
       case 'import':
-        result = brainReceipt(await importBrain(cwd, p[1]!, opts));
+        result = brainReceipt(await (v.kg ? importKnowledgeGraph(cwd, p[1]!, opts) : importBrain(cwd, p[1]!, opts)));
         break;
       default:
         result = await queryBrain(
