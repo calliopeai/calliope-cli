@@ -19,7 +19,14 @@ export function workerReport(content:string,task:ProjectTask):{summary:string;ou
   const outputs=new Map<string,string>(),risks:string[]=[];let summary=workerSummary(content);
   if(content.length>1024*1024)return{summary,outputs,risks:['Worker report exceeded its size limit.']};
   const raw=content.trim().replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'');let value:unknown;
-  try{value=JSON.parse(raw);}catch{return{summary,outputs,risks};}
+  try{value=JSON.parse(raw);}catch{
+    // Models often preface a valid structured report with one sentence and a
+    // fenced JSON block. Parse only that block; prose remains an untrusted
+    // summary and never supplies artifact metadata.
+    const fenced=/```(?:json)?\s*([\s\S]*?)\s*```/i.exec(content)?.[1]?.trim();
+    if(!fenced) return{summary,outputs,risks};
+    try{value=JSON.parse(fenced);}catch{return{summary,outputs,risks};}
+  }
   if (task.id === 'propose' && value && typeof value === 'object' && !Array.isArray(value) &&
       Object.hasOwn(value, 'agents') && Object.hasOwn(value, 'tasks') && Object.hasOwn(value, 'limits')) {
     outputs.set('proposal', raw);

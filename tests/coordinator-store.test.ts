@@ -37,6 +37,10 @@ it('does not accept malformed worker output, fabricated metadata or absent evide
   const {store,view}=await coordinatorRun(root,p);await store.append({type:'started',ownerId:randomUUID()});await store.append({type:'task_started',taskId:task.id,attempt:1,sessionId:'toy'});
   const result=await collectTaskOutput(store,view.manifest.plan.tasks[0]!,'I passed every test.');expect(result.status).toBe('failed');expect(result.output.artifacts).toEqual([]);expect(result.output.testEvidence).toEqual([]);
 });
+it('accepts a valid report wrapped in model prose and a fenced JSON block',()=>{
+  const task=structuredClone(verifiedPlan().tasks[0]!);delete task.outputs[0]!.path;const report='Verification complete:\n\n```json\n'+JSON.stringify({version:1,summary:'Read-back complete.',outputs:[{id:'report-a',content:'public toy'}]})+'\n```';
+  const parsed=workerReport(report,task);expect(parsed.outputs.get('report-a')).toBe('public toy');expect(parsed.risks).toEqual([]);
+});
 it('rejects mismatched tool evidence and agent lifecycle events independently of runtime callbacks',async()=>{
   const {store}=await coordinatorRun(root);await store.append({type:'started',ownerId:randomUUID()});await store.append({type:'task_started',taskId:'inspect-a',attempt:1,sessionId:'toy'});
   const call={type:'tool' as const,taskId:'inspect-a',callId:'call',name:'write_file',path:'a/report.txt',mutating:true};
