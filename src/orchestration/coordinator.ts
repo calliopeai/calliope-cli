@@ -253,7 +253,12 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
             if(agent.escalationPolicy.onFailure==='stop'){stop(t.status==='denied'?'denied':'failed');break;}
           }
         }
-        for(const task of state.supervision?.phase==='halted'||options.proposalOnly?[]:context.plan.tasks){
+        // A supervised graph still needs its initial work pass.  The
+        // controller reviews recorded evidence after that pass; only decision
+        // and reviewer phases must pause task scheduling while their outcome
+        // is being committed.
+        const supervisionPausesWork=state.supervision?.phase==='halted'||state.supervision?.phase==='decision'||state.supervision?.phase==='draft-ready';
+        for(const task of supervisionPausesWork||options.proposalOnly?[]:context.plan.tasks){
           if(controller.signal.aborted||active.size>=context.plan.limits.maxConcurrent)break;
           if(state.tasks[task.id]!.status!=='pending'||active.has(task.id)||agentStopped(state,context,task.agentId)||task.dependencies.some(d=>!['completed','review_required'].includes(state.tasks[d]!.status))||[...active.keys()].some(id=>analysis.conflicts.some(c=>c.tasks.includes(id)&&c.tasks.includes(task.id))))continue;
           const pending=work(task).catch(error=>{if(!isCancellation(error))stop(error instanceof ExecutionLimitError||error instanceof SessionPolicyError?'denied':'failed');}).finally(()=>active.delete(task.id));active.set(task.id,pending);
