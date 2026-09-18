@@ -61,7 +61,7 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
   // verification. Keep the grant inside the captured execution pool while
   // avoiding plans that spend the entire allowance on a single turn.
   if(source.kind==='agent'&&plan.agents.length===1){
-    const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
+    const executionPool=Math.max(1,Math.min(manifest.limits.tokenBudget-manifest.limits.planningTokens,plan.limits.tokenBudget));
     plan.agents[0]!.tokenBudget=Math.max(plan.agents[0]!.tokenBudget,Math.min(12000,executionPool));
     plan.agents[0]!.costBudgetUsd=Math.max(plan.agents[0]!.costBudgetUsd,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9);
     plan.limits.tokenBudget=Math.max(plan.limits.tokenBudget,plan.agents[0]!.tokenBudget);
@@ -70,6 +70,13 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
   // below its own children. Parent accounts must be able to admit every
   // bounded child grant; widen only within the already captured plan pool.
   if(source.kind==='agent'){
+    // A worker turn reserves its serialized prompt envelope before dispatch.
+    // Give each leaf enough room for read -> mutate -> verify, while keeping
+    // the aggregate inside the already captured execution pool.
+    const executionPool=Math.max(1,Math.min(manifest.limits.tokenBudget-manifest.limits.planningTokens,plan.limits.tokenBudget));
+    const leaves=plan.agents.filter(agent=>!plan.agents.some(child=>child.parentId===agent.id));
+    const leafFloor=Math.min(12000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
+    for(const leaf of leaves)leaf.tokenBudget=Math.max(leaf.tokenBudget,leafFloor);
     for(const parent of plan.agents.slice().reverse()){
       const children=plan.agents.filter(a=>a.parentId===parent.id);
       if(children.length){
