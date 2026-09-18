@@ -130,7 +130,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
           // that bypass the reviewed verifier and network/container policy.
           workspace===undefined||tool.name!=='shell'
         ).filter(tool=>creationMissing
-          ? tool.name!=='read_file'&&tool.name!=='list_files'
+          ? tool.name!=='read_file'&&tool.name!=='list_files'&&tool.name!=='edit_file'
           : true);
         tools=new ExecutionGuard(provisional,cwd).tools(compactProposal?[]:admittedTools);
       }
