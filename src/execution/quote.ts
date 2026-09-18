@@ -46,7 +46,10 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     // reserve the measured request size so token budgets remain meaningful.
     const contextLimit=route.contextLength??0;
     const measured=Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4));
-    let inputTokens=local?Math.min(contextLimit,measured):measuredInput&&contextLimit===0?measured:contextLimit;
+    // When measured reservations are enabled, reserve the serialized request
+    // rather than the model's entire context window. Keep the live context as
+    // the hard ceiling so oversized prompts still fail closed.
+    let inputTokens=measuredInput?Math.min(contextLimit,measured):local?Math.min(contextLimit,measured):contextLimit;
     const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');
