@@ -137,7 +137,7 @@ lets planners and workers read that knowledge within their inherited source scop
 
 ## Native validation
 
-The [native Brain-loop receipt](evidence/native-brain-loop-smoke.json) records a
+The [native Brain-loop receipt](docs/evidence/native-brain-loop-smoke.json) records a
 Fable planner/controller and a Haiku worker on a public clamp fixture. All 12 paid
 requests used the native provider after live discovery. Planning recovered from
 one output cutoff within its original allowance. After exact-plan review, the

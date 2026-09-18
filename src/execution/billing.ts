@@ -31,7 +31,7 @@ export interface CountedQuoteEvidence {version:1;profileHash:string;profile:Bill
 export interface FullContextQuoteEvidence {
   version:2;profileHash:string;profile:FullContextBillingProfile;quotedAt:number;
   live:{discoveredAt:number;contextLength:number|null;maxOutputTokens:number|null;capabilities:FullContextBillingProfile['capabilities'];prices:{input:number|null;output:number|null}};
-  requirements:{tools:boolean;streaming:boolean};
+  requirements:{tools:boolean;streaming:boolean};measuredInput?:boolean;
 }
 export type QuoteEvidence=CountedQuoteEvidence|FullContextQuoteEvidence;
 export const billingFile = ():string => resolve(process.env.CALLIOPE_BILLING_FILE || join(homedir(),'.calliope-cli','billing.json'));
@@ -70,13 +70,14 @@ export function fullContextTerms(proof:FullContextQuoteEvidence) {
   return{inputTokens:Math.max(profile.limits.contextLength,live.contextLength??0),maxOutputTokens:Math.min(profile.limits.maxOutputTokens,live.maxOutputTokens??100000000),inputPrice:Math.max(profile.prices.input,live.prices.input??0),outputPrice:Math.max(profile.prices.output,live.prices.output??0)};
 }
 export function validateQuoteEvidence(value:unknown):QuoteEvidence {
-  shape(value,['version','profileHash','profile'],['count','multiplier','slackTokens','quotedAt','live','requirements']);
+  shape(value,['version','profileHash','profile'],['count','multiplier','slackTokens','quotedAt','live','requirements','measuredInput']);
   if(!hex(value.profileHash))invalid();const profile=validateBillingProfile(value.profile);if(digest(canonicalJson(profile))!==value.profileHash)invalid();
   if(value.version===1){
     shape(value,['version','profileHash','profile','count','multiplier','slackTokens']);
     if(profile.admission!=='provider-count-v1'||value.multiplier!==2||value.slackTokens!==1024)invalid();validateInputCount(value.count);
   }else if(value.version===2){
-    shape(value,['version','profileHash','profile','quotedAt','live','requirements']);if(profile.admission!=='reviewed-full-context-v1')invalid();
+    shape(value,['version','profileHash','profile','quotedAt','live','requirements'],['measuredInput']);if(profile.admission!=='reviewed-full-context-v1')invalid();
+    if(value.measuredInput!==undefined&&typeof value.measuredInput!=='boolean')invalid();
     integer(value.quotedAt,Math.max(1,profile.checkedAt-1000),profile.expiresAt-1);
     shape(value.live,['discoveredAt','contextLength','maxOutputTokens','capabilities','prices']);integer(value.live.discoveredAt,Math.max(1,value.quotedAt-300000),value.quotedAt+1000);
     for(const key of ['contextLength','maxOutputTokens'])if(value.live[key]!==null)integer(value.live[key],1,100000000);

@@ -25,7 +25,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       throw new ExecutionLimitError('budget','Multimodal requests require a separate verified billing bound.');
     if(billing?.profile.admission==='reviewed-full-context-v1'){
       if(count)throw new ExecutionLimitError('authority','Full-context admission does not accept an unverified input count.');
-      const quoteEvidence=validateQuoteEvidence({version:2,profileHash:billing.hash,profile:billing.profile,quotedAt:Date.now(),live:{discoveredAt:Date.parse(route.discoveredAt),contextLength:route.contextLength,maxOutputTokens:route.maxOutputTokens,capabilities:Object.fromEntries(['chat','tools','streaming'].filter(k=>route.capabilities[k as keyof typeof route.capabilities]!==undefined).map(k=>[k,route.capabilities[k as keyof typeof route.capabilities]])),prices:{input:route.price?.input??null,output:route.price?.output??null}},requirements:{tools:tools.length>0,streaming}});
+      const quoteEvidence=validateQuoteEvidence({version:2,profileHash:billing.hash,profile:billing.profile,quotedAt:Date.now(),live:{discoveredAt:Date.parse(route.discoveredAt),contextLength:route.contextLength,maxOutputTokens:route.maxOutputTokens,capabilities:Object.fromEntries(['chat','tools','streaming'].filter(k=>route.capabilities[k as keyof typeof route.capabilities]!==undefined).map(k=>[k,route.capabilities[k as keyof typeof route.capabilities]])),prices:{input:route.price?.input??null,output:route.price?.output??null}},requirements:{tools:tools.length>0,streaming},...(measuredInput?{measuredInput:true}:{})});
       if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
       const terms=fullContextTerms(quoteEvidence), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):terms.inputTokens;
       const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
@@ -43,7 +43,8 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     // Local servers expose a context window but no billable input reservation;
     // reserve the measured request size so token budgets remain meaningful.
     const contextLimit=route.contextLength??0;
-    let inputTokens=local?Math.min(contextLimit,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):contextLimit;
+    const measured=Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4));
+    let inputTokens=local?Math.min(contextLimit,measured):contextLimit;
     const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');
