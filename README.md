@@ -21,6 +21,20 @@ with no Node.js required — see
 - **Focused command surface.** 23 commands, plus optional fleet mode. The [command reference](docs/commands.md) documents the available workflows and subcommands.
 - **Tested like infrastructure.** 3,500 tests, 93%+ line coverage with an enforced 90% floor.
 
+## What's new in 3.2
+
+3.2 turns the provider foundation into a project workbench: live provider health and
+model discovery, `/doctor` diagnostics, health-aware routing, resumable sessions,
+stream-safe retries, and the `auto` permission mode are available from the same
+terminal and headless interfaces. It also adds reviewed orchestration with planner,
+worker and verifier roles, isolated execution, bounded retry/replan supervision,
+auditable artifacts, and a local Brain/KG for provenance-aware project memory.
+
+The release includes native Bedrock reasoning preservation, Google's `@google/genai`
+adapter, expanded DeepSeek/Cerebras and OpenAI-compatible coverage, and real-wire
+provider evidence. See the [3.2.0 release notes](docs/releases/3.2.0.md) for the
+complete feature and validation details.
+
 ## Quick start
 
 ```bash
