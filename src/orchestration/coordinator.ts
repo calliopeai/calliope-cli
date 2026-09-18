@@ -200,6 +200,10 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         }
         const status=result.reason==='budget'?'denied':result.reason==='cancelled'?'cancelled':'failed';await finish(status,incompleteOutput(store,task,status,`Worker stopped: ${result.reason}.`));return;
       }
+      if(workspace&&task.isolation?.patchArtifactId&&!store.read().state.tasks[task.id]!.mutations){
+        const status:TaskOutput['status']='denied';
+        await finish(status,incompleteOutput(store,task,status,'Mutating isolated tasks must record a write or edit before verification.'),false);return;
+      }
       const executorOutputs=workspace?await verifyInWorktree(store,task,workspace,new ExecutionGuard(execution,cwd),{...childOptions(child.signal),runlog:log}):undefined;
       const final=messages.current.filter(m=>m.role==='assistant').at(-1)?.content;const collected=await collectTaskOutput(store,task,typeof final==='string'?final:'',{...childOptions(child.signal),workspace,executorOutputs});
       if(requiresProposalValidation(store.manifest)){const {validatePlanningArtifact}=await import('../goals/repair.js');await validatePlanningArtifact(store,task,collected,childOptions(child.signal),assertRun);}
