@@ -20,7 +20,7 @@ import type {PermissionDecision} from '../runtime/types.js';
 import {RunStore} from './store.js';
 import {prepareAgentExecution} from './execution.js';
 import {ExecutionStore} from './execution-store.js';
-import {agentStopped,requiresProposalValidation} from './execution-journal.js';
+import {agentStopped,requiresProposalValidation,mechanicallyVerified} from './execution-journal.js';
 import {collectTaskOutput,collectStoppedTaskOutput,readCollectedArtifact,checkArtifactSnapshot,workerSummary} from './verification.js';
 import {OrchestrationError,type ProjectTask,type ProjectPlan} from './types.js';
 import {analyzePlan} from './validation.js';
@@ -271,7 +271,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         if(current.state.revision!==candidate.state.revision)return[];
         const tasks=Object.values(current.state.tasks),pending=inspectSpawnAuthority(store,rootAuthority.ledger,current).pending;
         const supervision=current.state.supervision;
-        const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':tasks.every(t=>t.status==='completed')&&!pending.length&&(!supervision||supervision.phase!=='halted')?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
+      const allAccepted=tasks.length>0&&tasks.every(t=>t.status==='completed'&&t.output&&mechanicallyVerified(t.output,context));
+      const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':allAccepted&&!pending.length?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
         return[{change:{type:'finished',ownerId:lease.id,status}}];
       },undefined,lease.check);
       if(finished.length)break;
