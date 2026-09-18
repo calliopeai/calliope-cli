@@ -83,7 +83,8 @@ export async function collectTaskOutput(store:ExecutionStore,task:ProjectTask,co
     output.status='failed';output.recommendedNextAction='Inspect failed or missing evidence before retrying.';
   }
   else output.unresolvedRisks=[...risks.slice(0,99),'Natural-language acceptance criteria still require human review.'];
-  return{output,status:complete?'completed':failed?'failed':'review_required'};
+  const policyDenied=risks.some(r=>/current policy and scope|permission denied/i.test(r));
+  return{output,status:policyDenied?'denied':complete?'completed':failed?'failed':'review_required'};
 }
 /** Retain only independently collected files/receipts, never truncated worker claims. */
 export async function collectStoppedTaskOutput(store:ExecutionStore,task:ProjectTask,options:RunActionOptions&{workspace:WorkerWorktree;executorOutputs:Map<string,string>}):Promise<TaskOutput> {
