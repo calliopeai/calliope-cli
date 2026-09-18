@@ -71,7 +71,8 @@ jobs:
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPOSITORY }}:sha-${{ steps.sha.outputs.short }}
             ${{ github.event_name == 'workflow_run' && format('{0}/{1}:v{2}', steps.login-ecr.outputs.registry, env.ECR_REPOSITORY, steps.version.outputs.version) || '' }}
           cache-from: type=gha,scope=calliope-cli
-          cache-to: type=gha,mode=max,scope=calliope-cli
+          # Cache service outages must not prevent the already-built image from shipping.
+          cache-to: type=gha,mode=max,scope=calliope-cli,ignore-error=true
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
