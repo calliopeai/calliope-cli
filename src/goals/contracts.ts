@@ -66,5 +66,19 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
     plan.agents[0]!.costBudgetUsd=Math.max(plan.agents[0]!.costBudgetUsd,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9);
     plan.limits.tokenBudget=Math.max(plan.limits.tokenBudget,plan.agents[0]!.tokenBudget);
   }
+  // Preserve the declared hierarchy when a planner budgets a controller
+  // below its own children. Parent accounts must be able to admit every
+  // bounded child grant; widen only within the already captured plan pool.
+  if(source.kind==='agent'){
+    for(const parent of plan.agents.slice().reverse()){
+      const children=plan.agents.filter(a=>a.parentId===parent.id);
+      if(children.length){
+        const childTokens=children.reduce((n,a)=>n+a.tokenBudget,0);
+        const childCost=children.reduce((n,a)=>n+a.costBudgetUsd,0);
+        parent.tokenBudget=Math.max(parent.tokenBudget,childTokens);
+        parent.costBudgetUsd=Math.max(parent.costBudgetUsd,childCost);
+      }
+    }
+  }
   const analysis=analyzePlan(plan);return validateGoalProposal(signed({version:1,goalId:manifest.id,goalManifestHash:manifest.hash,plan:analysis.plan,planHash:analysis.hash,knowledgeStatus:'proposed',confidence:null,inferred:source.kind==='agent',source}),manifest,spend);
 }
