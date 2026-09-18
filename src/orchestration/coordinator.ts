@@ -151,7 +151,11 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // Keep inexpensive workers within their own cost envelope. A global
       // output cap can otherwise reserve more than a low-cost agent can afford
       // before the provider gets a chance to produce any useful work.
-      const execution={...provisional,maxOutputTokens:Math.min(outputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
+      // Proposal turns return compact JSON; cap their output independently of
+      // the project-wide allowance so the measured prompt still fits inside
+      // the planner's bounded planning account.
+      const proposalOutputCap=task.id==='propose'?Math.min(4096,outputCap):outputCap;
+      const execution={...provisional,maxOutputTokens:Math.min(proposalOutputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{const mutating=['write_file','edit_file'].includes(call.name)||workspace!==undefined&&call.name==='shell';await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating,success});};
       const result=await runTurn({execution,cwd,sessionId:session.id,smart,...(measuredInputReservation?{measuredInputReservation:true}:{}),...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,tools:()=>tools,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
         approve:options.approve?(_call,decision)=>options.approve!(decision,child.signal):undefined,runlog:log,
