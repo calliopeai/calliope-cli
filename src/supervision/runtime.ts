@@ -46,7 +46,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
   const evidence=supervisionEvidence(view.events),session=createSession(context.project.root,{activate:false}),log=RunLog.open(session.id),controller=new AbortController();
   const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
   const agentDeadline=Date.parse(view.header.createdAt)+agent.timeBudgetMs;let authorityError:unknown,revision:string|null=null;
-  const check=()=>{assertRun();throwIfCancelled(controller.signal);const current=store.read();if(Date.now()>=agentDeadline)throw new ExecutionLimitError('deadline','Original controller deadline expired.');if(agentStopped(current.state,store.context(current),agentId))throw new ExecutionLimitError('authority','The controller agent was stopped.');};
+  const check=()=>{assertRun();throwIfCancelled(controller.signal);const current=store.read();if(Date.now()>=agentDeadline)throw new ExecutionLimitError('deadline','Original controller deadline expired.');if(role==='controller'&&agentStopped(current.state,store.context(current),agentId))throw new ExecutionLimitError('authority','The controller agent was stopped.');};
   const observe=()=>{try{check();}catch(error){authorityError??=error;controller.abort();}};
   const timer=setInterval(observe,100),deadline=setTimeout(observe,Math.max(0,agentDeadline-Date.now()));
   try {

@@ -107,7 +107,7 @@ export function replaySupervisionChange(event:ExecutionEvent,plan:ProjectPlan,st
     const evidence=supervisionEvidence(prior);
     if(canonicalJson(c.evidenceIds)!==canonicalJson(evidence.ids)||c.evidenceHash!==evidence.hash||Date.parse(event.at)>=state.deadline)fail('Controller evidence changed or its deadline expired.');
     const account=plan.agents.find(a=>a.id===c.agentId)!;
-    let ancestor=account;for(let n=0;n<plan.agents.length;n++){if(state.stoppedAgents.includes(ancestor.id)||Object.values(state.tasks).some(task=>task.agentId===ancestor.id&&task.escalation))fail('Stopped agents cannot supervise.');const parent=plan.agents.find(a=>a.id===ancestor.parentId);if(!parent)break;ancestor=parent;}
+    let ancestor=account;for(let n=0;n<plan.agents.length;n++){if(c.role==='controller'&&(state.stoppedAgents.includes(ancestor.id)||Object.values(state.tasks).some(task=>task.agentId===ancestor.id&&(task.escalation||task.status==='denied'))))fail('Stopped agents cannot supervise.');const parent=plan.agents.find(a=>a.id===ancestor.parentId);if(!parent)break;ancestor=parent;}
     if(Date.parse(event.at)>=createdAt+account.timeBudgetMs)fail('Controller account deadline expired.');
     if(c.role==='controller'){
       if(s.phase!=='ready'||c.round!==s.rounds+1||!s.forceReview&&s.reviewedHash===evidence.hash)fail('Controller round is duplicated or not ready.');

@@ -25,7 +25,7 @@ export function supervisionAvailability(input:ProjectPlan,view:ExecutionInspecti
   const closed=state.status==='completed'?'The run is completed.':observedAt>=state.deadline?'The original run deadline expired.':null;
   const actions=policy.allowedActions.filter((action):action is 'retry'|'replan'=>action==='retry'||action==='replan');
   const retryTasks=plan.tasks.map(task=>{
-    let reason=closed??(!actions.length?'The reviewed policy does not permit retry or replan.':observedAt>=deadline(task.agentId)?'The original task agent deadline expired.':null);
+    let reason=closed??(!actions.length?'The reviewed policy does not permit retry or replan.':agentStopped(state,{plan},task.agentId)?'This agent or an ancestor is stopped or escalated.':observedAt>=deadline(task.agentId)?'The original task agent deadline expired.':null);
     if(!reason)try{assertSupervisedRetry(plan,state,events,task.id);}catch(error){if(!(error instanceof OrchestrationError))throw error;reason=error.message;}
     return{id:task.id,actions:[...actions],status:reason?'blocked' as const:'possible' as const,reason};
   });
