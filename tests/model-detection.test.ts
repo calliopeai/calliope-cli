@@ -875,6 +875,7 @@ describe('isCompatibleModel (indirect)', () => {
             { name: 'models/text-embedding-004', displayName: 'Text Embedding 004' },
             { name: 'models/aqa', displayName: 'AQA' },
             { name: 'models/something-embedding', displayName: 'Something Embedding' },
+            { name: 'models/gemini-2.5-computer-use-preview-10-2025', displayName: 'Computer Use Preview' },
           ],
         }),
       });
@@ -882,6 +883,20 @@ describe('isCompatibleModel (indirect)', () => {
       const models = await getAvailableModels('google');
       expect(models.length).toBe(1);
       expect(models[0].id).toBe('gemini-2.0-flash');
+    });
+
+    it('excludes Computer Use models from ordinary chat routing', async () => {
+      vi.mocked(config.getApiKey).mockReturnValue('test-key');
+      clearModelCache('google');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ models: [
+          { name: 'models/gemini-2.5-computer-use-preview-10-2025', supportedGenerationMethods: ['generateContent'] },
+          { name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] },
+        ] }),
+      });
+      const models = await getAvailableModels('google', { throwOnError: true });
+      expect(models.map(model => model.id)).toEqual(['gemini-2.5-flash']);
     });
   });
 });

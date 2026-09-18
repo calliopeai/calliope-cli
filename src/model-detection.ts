@@ -128,6 +128,7 @@ const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
     /^text-embedding/,      // Text embedding
     /^aqa/,                 // Attributed QA (not chat)
     /embedding$/,           // Any model ending in embedding
+    /computer-use/i,        // Requires the dedicated Computer Use tool contract
   ],
   groq: [
     /^whisper/,             // Speech-to-text
