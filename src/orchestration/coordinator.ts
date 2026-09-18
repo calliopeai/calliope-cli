@@ -115,10 +115,9 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
       const preference=resolvePreferences(cwd,{turn:agentPreference(context.plan,agent.id)});
       const attribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
-      // Leaf workers should leave room for the coordinator's verification and
-      // retry accounting. Keep inexpensive bounded tasks compact even when a
-      // generated contract grants a larger token allowance.
-      const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(1024,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(2048,agent.tokenBudget):agent.tokenBudget;
+      // Leaf workers remain bounded by their cost-scoped token allowance while
+      // retaining enough room for a structured report and tool receipts.
+      const agentOutputCap=agent.id===context.plan.supervision?.controllerId?Math.min(1024,agent.tokenBudget):agent.costBudgetUsd<=0.1?Math.min(8192,agent.tokenBudget):agent.tokenBudget;
       // Coordinator turns are bounded by their actual serialized prompt. A
       // full model context reservation can starve the second turn after a
       // successful write, preventing the required read-back verification.
