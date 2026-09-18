@@ -22,6 +22,7 @@ const { values } = parseArgs({
     output: { type: "string" },
     "max-output-tokens": { type: "string", default: "128" },
     "reasoning-effort": { type: "string" },
+    "probe-version": { type: "string", default: "2" },
     ledger: { type: "string" },
     "max-cost-usd": { type: "string" },
     "run-id": { type: "string" },
@@ -65,6 +66,7 @@ if (
   maxOutputTokens < 1 ||
   maxOutputTokens > 512 ||
   (values["reasoning-effort"] !== undefined && !["low", "medium", "high", "max"].includes(values["reasoning-effort"])) ||
+  !["1", "2"].includes(values["probe-version"]) ||
   (values.scenario === "cancellation" && !values.stream)
 )
   throw new Error("Invalid semantic probe arguments; see --help");
@@ -127,6 +129,7 @@ try {
     scenario: values.scenario,
     stream: values.stream,
     maxOutputTokens,
+    probeVersion: Number(values["probe-version"]),
     ...(values["reasoning-effort"] ? { reasoningEffort: values["reasoning-effort"] } : {}),
     signal: signal.signal,
     sdkVersions,
