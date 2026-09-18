@@ -303,7 +303,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         throwIfCancelled(signal);
         checkBudget();
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
-        const compressed = await autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
+        const compressed = options.measuredInputReservation===false ? {
+          compressed:false, method:'none' as const, messages:messages.current,
+          originalTokens:0, compressedTokens:0, summarizedCount:0,
+        } : await autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
           async (summaryMessages, summaryModel) => {
             const response = await request({ ...currentRequest, model: summaryModel || currentRequest.model, messages: summaryMessages, tools: [] }, {}, false);
             checkBudget();
