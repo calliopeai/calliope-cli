@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "cerebras",
+  "model": "gpt-oss-120b",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-18T14:10:55.774Z",
+    "sourceOrigin": "https://api.cerebras.ai",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "39b10566-998c-45f1-aa33-8b3a51ad1b23",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC1vc3MtMTIwYiIsIm1lc3NhZ2VzIjpbeyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJSZXBseSB3aXRoIGV4YWN0bHk6IEhlbGxvIM+AIn1dLCJtYXhfdG9rZW5zIjoxMjgsInN0cmVhbSI6dHJ1ZSwic3RyZWFtX29wdGlvbnMiOnsiaW5jbHVkZV91c2FnZSI6dHJ1ZX19",
+          "sha256": "691973572cc6c7c8e58391a39a05fda10aad71724be335e8435755687ea41f1c"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6",
+        "sha256": "9586cfb66c72fe0bfdd491c225cf7b0eca877b0eae15b7c050fbac74110f78da",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 12,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}
