@@ -7,6 +7,7 @@ export * from './access.js';
 export * from './actions.js';
 export * from './queries.js';
 export * from './transfer.js';
+export * from './kg.js';
 export * from './run-ingest.js';
 export * from './cli.js';
 export * from './presentation.js';
