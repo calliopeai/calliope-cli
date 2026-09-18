@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.2.1 — README and release documentation
+
+- Add a concise 3.2 feature overview to the npm-facing README, covering provider
+  health, resumable sessions, supervised orchestration, and the local Brain/KG.
+- Link the complete 3.2 release notes from the package README.
+
 ## 3.2.0 — Unreleased (xAI explicitly deferred)
 
 - Add first-class interactive auto mode with `/mode auto`, `/auto on|off` and `/permissions off|on`; show it in the HUD and correctly pass `--auto`/`--god-mode` into the Ink REPL while retaining policy, scope, sandbox and orchestration authority checks (#359).
