@@ -76,11 +76,13 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
     const executionPool=Math.max(1,manifest.limits.tokenBudget-manifest.limits.planningTokens);
     const leaves=plan.agents.filter(agent=>!plan.agents.some(child=>child.parentId===agent.id)&&plan.tasks.some(task=>task.agentId===agent.id));
     const leafFloor=Math.min(plan.supervision?12000:40000,Math.max(1,Math.floor(executionPool/Math.max(1,leaves.length))));
+    const executionCostPool=Math.max(0,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9);
+    const leafCostFloor=executionCostPool/Math.max(1,leaves.length);
     for(const leaf of leaves)if(leaf.tokenBudget<leafFloor){
       leaf.tokenBudget=leafFloor;
       // A worker whose token grant was too small also needs enough cost room
       // for its initial prompt envelope and one bounded verification turn.
-      leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,Math.min(0.1,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9));
+      leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,Math.min(0.1,leafCostFloor));
     }
     if(plan.supervision?.reviewerId){
       const reviewer=plan.agents.find(agent=>agent.id===plan.supervision!.reviewerId);
