@@ -49,7 +49,8 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     // When measured reservations are enabled, reserve the serialized request
     // rather than the model's entire context window. Keep the live context as
     // the hard ceiling so oversized prompts still fail closed.
-    let inputTokens=measuredInput?Math.min(contextLimit,measured):local?Math.min(contextLimit,measured):contextLimit;
+    const useMeasured=measuredInput&&contextLimit>100000;
+    let inputTokens=useMeasured?Math.min(contextLimit,measured):local?Math.min(contextLimit,measured):contextLimit;
     const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');

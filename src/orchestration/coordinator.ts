@@ -272,7 +272,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         const tasks=Object.values(current.state.tasks),pending=inspectSpawnAuthority(store,rootAuthority.ledger,current).pending;
         const supervision=current.state.supervision;
       const allAccepted=tasks.length>0&&tasks.every(t=>t.status==='completed'&&t.output&&mechanicallyVerified(t.output,context));
-      const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':allAccepted&&!pending.length?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
+      const verifiedHalt=!supervision||supervision.phase!=='halted'||/acceptance check passed|successful executor verification|nonempty patch/i.test(supervision.halt?.reason??'');
+      const status:Exclude<ExecutionStatus,'ready'|'running'>=stopReason??(options.proposalOnly&&supervision?.phase==='decision'?'partial':allAccepted&&verifiedHalt&&!pending.length?'completed':tasks.some(t=>t.status==='denied')?'denied':pending.length||tasks.some(t=>['completed','review_required'].includes(t.status))?'partial':'failed');
         return[{change:{type:'finished',ownerId:lease.id,status}}];
       },undefined,lease.check);
       if(finished.length)break;
