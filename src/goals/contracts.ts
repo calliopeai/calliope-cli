@@ -82,6 +82,10 @@ export function proposePlan(manifest:GoalManifest,value:unknown,source:ProposalS
       // for its initial prompt envelope and one bounded verification turn.
       leaf.costBudgetUsd=Math.max(leaf.costBudgetUsd,Math.min(0.1,(manifest.limits.costBudgetNanos-manifest.limits.planningCostNanos)/1e9));
     }
+    if(plan.supervision?.reviewerId){
+      const reviewer=plan.agents.find(agent=>agent.id===plan.supervision!.reviewerId);
+      if(reviewer&&reviewer.tokenBudget<6000)reviewer.tokenBudget=6000;
+    }
     for(const parent of plan.agents.slice().reverse()){
       const children=plan.agents.filter(a=>a.parentId===parent.id);
       if(children.length){
