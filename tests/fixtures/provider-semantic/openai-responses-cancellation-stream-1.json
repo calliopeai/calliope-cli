@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-responses",
+  "model": "gpt-5-nano",
+  "scenario": "cancellation",
+  "stream": true,
+  "maxOutputTokens": 128,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-09-18T14:14:25.755Z",
+    "sourceOrigin": "https://api.openai.com",
+    "sdkVersions": {
+      "openai": "6.46.0",
+      "@anthropic-ai/sdk": "0.111.0",
+      "@google/genai": "2.22.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "55bbdfc7-ad6d-4f72-9829-a97caef5e954",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/responses",
+          "body": "eyJtb2RlbCI6ImdwdC01LW5hbm8iLCJpbnB1dCI6W3sicm9sZSI6InVzZXIiLCJjb250ZW50IjoiUmVwbHkgd2l0aCBleGFjdGx5OiBIZWxsbyDPgCJ9XSwibWF4X291dHB1dF90b2tlbnMiOjEyOCwic3RyZWFtIjp0cnVlfQ==",
+          "sha256": "2522c1f286f6a259c5153d1720153df167c03ad345164053ae6e2428f0d46835"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZXZlbnQ6IHJlc3BvbnNlLmNyZWF0ZWQKZGF0YTogeyJ0eXBlIjoicmVzcG9uc2UuY3JlYXRlZCIsInJlc3BvbnNlIjp7ImlkIjoicmVzcF8wZDZjOTI1ZGNlZDVkZTczMDA2YWFkNDc0MGU3OTA4N2QyYmM1OGFhZDJlY2VlODg4NCIsIm9iamVjdCI6InJlc3BvbnNlIiwiY3JlYXRlZF9hdCI6MTc4OTc0MDg2NCwic3RhdHVzIjoiaW5fcHJvZ3Jlc3MiLCJiYWNrZ3JvdW5kIjpmYWxzZSwiY29tcGxldGVkX2F0IjpudWxsLCJlcnJvciI6bnVsbCwiZnJlcXVlbmN5X3BlbmFsdHkiOjAuMCwiaW5jb21wbGV0ZV9kZXRhaWxzIjpudWxsLCJpbnN0cnVjdGlvbnMiOm51bGwsIm1heF9vdXRwdXRfdG9rZW5zIjoxMjgsIm1heF90b29sX2NhbGxzIjpudWxsLCJtb2RlbCI6ImdwdC01LW5hbm8tMjAyNS0wOC0wNyIsIm1vZGVyYXRpb24iOm51bGwsIm91dHB1dCI6W10sInBhcmFsbGVsX3Rvb2xfY2FsbHMiOnRydWUsInByZXNlbmNlX3BlbmFsdHkiOjAuMCwicHJldmlvdXNfcmVzcG9uc2VfaWQiOm51bGwsInByb21wdF9jYWNoZV9rZXkiOm51bGwsInByb21wdF9jYWNoZV9yZXRlbnRpb24iOiJpbl9tZW1vcnkiLCJyZWFzb25pbmciOnsiY29udGV4dCI6ImN1cnJlbnRfdHVybiIsImVmZm9ydCI6Im1lZGl1bSIsIm1vZGUiOiJzdGFuZGFyZCIsInN1bW1hcnkiOm51bGx9LCJzYWZldHlfaWRlbnRpZmllciI6bnVsbCwic2VydmljZV90aWVyIjoiYXV0byIsInN0b3JlIjp0cnVlLCJ0ZW1wZXJhdHVyZSI6MS4wLCJ0ZXh0Ijp7ImZvcm1hdCI6eyJ0eXBlIjoidGV4dCJ9LCJ2ZXJib3NpdHkiOiJtZWRpdW0ifSwidG9vbF9jaG9pY2UiOiJhdXRvIiwidG9vbF91c2FnZSI6eyJpbWFnZV9nZW4iOnsiaW5wdXRfdG9rZW5zIjowLCJpbnB1dF90b2tlbnNfZGV0YWlscyI6eyJpbWFnZV90b2tlbnMiOjAsInRleHRfdG9rZW5zIjowfSwib3V0cHV0X3Rva2VucyI6MCwib3V0cHV0X3Rva2Vuc19kZXRhaWxzIjp7ImltYWdlX3Rva2VucyI6MCwidGV4dF90b2tlbnMiOjB9LCJ0b3RhbF90b2tlbnMiOjB9LCJ3ZWJfc2VhcmNoIjp7Im51bV9yZXF1ZXN0cyI6MH19LCJ0b29scyI6W10sInRvcF9sb2dwcm9icyI6MCwidG9wX3AiOjEuMCwidHJ1bmNhdGlvbiI6ImRpc2FibGVkIiwidXNhZ2UiOm51bGwsInVzZXIiOm51bGwsIm1ldGFkYXRhIjp7fX0sInNlcXVlbmNlX251bWJlciI6MH0KCmV2ZW50OiByZXNwb25zZS5pbl9wcm9ncmVzcwpkYXRhOiB7InR5cGUiOiJyZXNwb25zZS5pbl9wcm9ncmVzcyIsInJlc3BvbnNlIjp7ImlkIjoicmVzcF8wZDZjOTI1ZGNlZDVkZTczMDA2YWFkNDc0MGU3OTA4N2QyYmM1OGFhZDJlY2VlODg4NCIsIm9iamVjdCI6InJlc3BvbnNlIiwiY3JlYXRlZF9hdCI6MTc4OTc0MDg2NCwic3RhdHVzIjoiaW4=",
+        "sha256": "cf6391f4c166eea27ee0a01f7bbee0508f395c4662d7db99cd4c9c1160d623be",
+        "complete": false,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "cancelled",
+        "abortedAfterBytes": 1364,
+        "signalAborted": true,
+        "adapterRejected": true
+      }
+    }
+  ]
+}
