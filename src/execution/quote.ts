@@ -27,7 +27,9 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       if(count)throw new ExecutionLimitError('authority','Full-context admission does not accept an unverified input count.');
       const quoteEvidence=validateQuoteEvidence({version:2,profileHash:billing.hash,profile:billing.profile,quotedAt:Date.now(),live:{discoveredAt:Date.parse(route.discoveredAt),contextLength:route.contextLength,maxOutputTokens:route.maxOutputTokens,capabilities:Object.fromEntries(['chat','tools','streaming'].filter(k=>route.capabilities[k as keyof typeof route.capabilities]!==undefined).map(k=>[k,route.capabilities[k as keyof typeof route.capabilities]])),prices:{input:route.price?.input??null,output:route.price?.output??null}},requirements:{tools:tools.length>0,streaming},...(measuredInput?{measuredInput:true}:{})});
       if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
-      const terms=fullContextTerms(quoteEvidence), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4))):terms.inputTokens;
+      // Provider wrappers and protocol metadata can exceed the local estimator;
+      // keep a bounded cushion while settlement remains authoritative.
+      const terms=fullContextTerms(quoteEvidence), measured=estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4)+1024, inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,measured)):terms.inputTokens;
       const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
       if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
       // Keep the signed live quote alongside measured input reservations. The
