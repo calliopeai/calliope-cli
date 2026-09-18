@@ -31,6 +31,7 @@ import {
   type BrainOptions,
 } from './access.js';
 import { commitBrain } from './actions.js';
+import { exportKnowledgeGraph, type PortableKnowledgeGraph } from './kg.js';
 export interface BrainBundle {
   version: 1;
   kind: 'calliope.brain';
@@ -121,6 +122,26 @@ export async function exportBrain(cwd: string, path: string, options: BrainOptio
         /* Preserve files in replaced directories. */
       }
   }
+}
+
+/** Export the derived portable graph without exposing the append-only journal. */
+export async function exportKnowledgeGraphFile(cwd: string, path: string, options: BrainOptions = {}) {
+  const store = brainStore(cwd, options), view = store.read(options.signal);
+  await new BrainAccess(cwd, view.state.sources, options).all();
+  const graph: PortableKnowledgeGraph = exportKnowledgeGraph(view), content = JSON.stringify(graph);
+  if (Buffer.byteLength(content) > BRAIN_LIMITS.journalBytes) throw new BrainError('limit', 'Knowledge graph export exceeds its byte limit.');
+  if (hasBrainSecrets(graph)) throw new BrainError('policy-denied', 'Knowledge graph matches current secret material; preserve it privately and export a reviewed sanitized scope.');
+  const target = projectFile(cwd, path);
+  await authorizeSessionAction(cwd, 'write_file', { path: target.file, operation: 'brain-kg-export', format: graph.format, bytes: Buffer.byteLength(content) }, { ...options, confirmation: options.confirmation ?? 'mutating' });
+  target.recheck(); throwIfCancelled(options.signal);
+  const temp = join(dirname(target.file), '.' + basename(target.file) + '-' + randomUUID() + '.tmp'); let created = false;
+  try {
+    const fd = fs.openSync(temp, 'wx', 0o600); created = true;
+    try { fs.writeFileSync(fd, content); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    target.recheck(); throwIfCancelled(options.signal); fs.linkSync(temp, target.file);
+    const parent = fs.openSync(dirname(target.file), 'r'); try { fs.fsyncSync(parent); } finally { fs.closeSync(parent); }
+    return { path: target.file, format: graph.format, nodes: graph.nodes.length, edges: graph.edges.length, revision: view.state.revision };
+  } finally { if (created) try { target.recheck(); fs.unlinkSync(temp); } catch { /* preserve replaced directories */ } }
 }
 /** Imported authority is discarded. Claims are namespaced and staged as proposals for local review. */
 export async function importBrain(cwd: string, path: string, options: BrainOptions = {}) {

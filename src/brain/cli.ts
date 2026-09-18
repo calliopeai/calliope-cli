@@ -18,10 +18,10 @@ import {
   refreshBrain,
 } from './actions.js';
 import { queryBrain } from './queries.js';
-import { exportBrain, importBrain } from './transfer.js';
+import { exportBrain, exportKnowledgeGraphFile, importBrain } from './transfer.js';
 import { ingestBrainRun, type BrainRunOptions } from './run-ingest.js';
 export const BRAIN_USAGE =
-  'calliope brain init|status|ingest <path>|ingest-run <id>|search <query>|entity <id/name>|neighbors <id/name>|path <from> <to>|graph [root]|decisions|risks|history|export [path]|import <path>|note <name> <text>|edit <id/name>|edit-edge <id>|link <from> <to> <type> --source <id>|reverse <event> --reason <text>|refresh|reindex [--global] [--allow-mutations] [--json]';
+  'calliope brain init|status|ingest <path>|ingest-run <id>|search <query>|entity <id/name>|neighbors <id/name>|path <from> <to>|graph [root]|decisions|risks|history|export [path] [--kg]|import <path>|note <name> <text>|edit <id/name>|edit-edge <id>|link <from> <to> <type> --source <id>|reverse <event> --reason <text>|refresh|reindex [--global] [--allow-mutations] [--json]';
 export function brainReceipt(result: BrainInspection & Record<string, unknown>) {
   const { journal, state, ...extra } = result;
   return {
@@ -64,6 +64,7 @@ export async function runBrainCommand(
         summary: { type: 'string' },
         state: { type: 'string' },
         confidence: { type: 'string' },
+        kg: { type: 'boolean' },
       },
     });
     json = !!v.json;
@@ -108,6 +109,7 @@ export async function runBrainCommand(
       summary: ['edit'],
       state: ['edit', 'edit-edge'],
       confidence: ['edit', 'edit-edge'],
+      kg: ['export'],
     };
     for (const [flag, actions] of Object.entries(allowed))
       if (v[flag as keyof typeof v] !== undefined && !actions.includes(action))
@@ -176,7 +178,9 @@ export async function runBrainCommand(
         result = brainReceipt(await reindexBrain(cwd, opts));
         break;
       case 'export':
-        result = await exportBrain(cwd, p[1] ?? `calliope-brain-export-${Date.now()}.json`, opts);
+        result = v.kg
+          ? await exportKnowledgeGraphFile(cwd, p[1] ?? `calliope-kg-${Date.now()}.json`, opts)
+          : await exportBrain(cwd, p[1] ?? `calliope-brain-export-${Date.now()}.json`, opts);
         break;
       case 'import':
         result = brainReceipt(await importBrain(cwd, p[1]!, opts));
