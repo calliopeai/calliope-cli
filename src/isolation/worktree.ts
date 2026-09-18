@@ -121,8 +121,19 @@ export class WorkerWorktree {
     };
     for (const path of paths) {
       pathName(path); if (path.split('/').some(p=>p.toLowerCase()==='.git')) unavailable('Git metadata is outside worker scope.');
-      const file = resolve(this.filesRoot, path); scan(file);
       const target = path === '.' ? '/project' : '/project/' + path;
+      const file = resolve(this.filesRoot, path);
+      // A creation task may legitimately have no output yet. Give the
+      // verifier an empty read-only placeholder so its declared command
+      // records a failed check instead of aborting setup with ENOENT.
+      if (!fs.existsSync(file)) {
+        if (path === '.') unavailable('The project workspace root is missing.');
+        const placeholder = join(view, path); fs.mkdirSync(dirname(placeholder), { recursive: true, mode: 0o700 });
+        if (!fs.existsSync(placeholder)) writeNew(placeholder, '');
+        mounts.push({ source: placeholder, target });
+        continue;
+      }
+      scan(file);
       if (path === '.') mounts[0] = { source: file, target }; else {
         const placeholder = join(view, path); fs.mkdirSync(dirname(placeholder), { recursive: true, mode: 0o700 });
         if (!fs.existsSync(placeholder)) { if (fs.statSync(file).isDirectory()) fs.mkdirSync(placeholder, { mode: 0o700 }); else writeNew(placeholder, ''); }
