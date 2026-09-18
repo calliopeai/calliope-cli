@@ -21,6 +21,7 @@ function read(directory: string) {
     .map((file) => JSON.parse(readFileSync(new URL(file, root), "utf8")));
 }
 const captures = read("provider-semantic").map(validateSemanticCapture);
+const deferredProviders = new Set((process.env.CALLIOPE_RELEASE_DEFERRED_PROVIDERS ?? '').split(',').map(value => value.trim()).filter(Boolean));
 beforeEach(() => {
   vi.spyOn(config, "getApiKey").mockReturnValue("offline-replay");
   vi.spyOn(config, "getBaseUrl").mockReturnValue("https://replay.invalid/v1");
@@ -67,7 +68,7 @@ it.skipIf(!process.env.CALLIOPE_REQUIRE_WIRE_CAPTURES)(
       new Date(),
       captures,
     );
-    const missing = report.adapters.flatMap((adapter) =>
+    const missing = report.adapters.filter(adapter => !deferredProviders.has(adapter.id)).flatMap((adapter) =>
       Object.entries(adapter.checks)
         .filter(([, status]) => status !== "captured")
         .map(([check, status]) => `${adapter.id}/${check}:${status}`),

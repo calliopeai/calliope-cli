@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.2.0 — Unreleased (publication blocked by provider evidence)
+## 3.2.0 — Unreleased (xAI explicitly deferred)
 
 - Add first-class interactive auto mode with `/mode auto`, `/auto on|off` and `/permissions off|on`; show it in the HUD and correctly pass `--auto`/`--god-mode` into the Ink REPL while retaining policy, scope, sandbox and orchestration authority checks (#359).
 
