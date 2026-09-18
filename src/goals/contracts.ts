@@ -20,7 +20,11 @@ export function newGoalManifest(cwd:string,goal:string,runsRoot:string,options:G
   const repairs=options.planningRepairs??0;integer(repairs,0,2);
   const requested=options.limits??{};shape(requested,[],['tokenBudget','costBudgetNanos','timeBudgetMs','planningTokens','planningCostNanos','planningTimeMs','maxOutputTokens','maxAgents','maxTasks','maxDepth','maxConcurrent']);for(const value of Object.values(requested))integer(value,0,1e13);
   const caps=getBudgetCaps(),tokenBudget=Math.min(requested.tokenBudget??1000000,caps.maxTokensPerRun??100000000),costBudgetNanos=Math.min(requested.costBudgetNanos??1000000000,caps.maxCostPerRun===undefined?1e13:Math.floor(caps.maxCostPerRun*1e9)),timeBudgetMs=requested.timeBudgetMs??1800000;
-  const planningTokens=requested.planningTokens??Math.min(250000,Math.max(1,Math.floor(tokenBudget/4))),planningCostNanos=requested.planningCostNanos??Math.floor(costBudgetNanos/4);
+  // Brain retrieval may require multiple bounded read turns before a planner
+  // can emit its proposal. Give Brain-enabled goals a larger planning lane,
+  // while keeping it inside the captured goal token allowance.
+  const defaultPlanningTokens=Math.min(250000,Math.max(1,Math.floor(tokenBudget/4)));
+  const planningTokens=Math.min(tokenBudget-1,options.brain?Math.max(requested.planningTokens??defaultPlanningTokens,20000):requested.planningTokens??defaultPlanningTokens),planningCostNanos=requested.planningCostNanos??Math.floor(costBudgetNanos/4);
   // Reasoning planners can spend output tokens on hidden deliberation before
   // emitting the JSON proposal. Keep the cap bounded, while allowing enough
   // room for a structured plan when the planning token allowance permits it.
