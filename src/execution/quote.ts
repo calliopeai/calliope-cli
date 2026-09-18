@@ -29,7 +29,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
       // Provider wrappers and protocol metadata can exceed the local estimator;
       // keep a bounded cushion while settlement remains authoritative.
-      const terms=fullContextTerms(quoteEvidence), measured=estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4)+1024, inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,measured)):terms.inputTokens;
+      const terms=fullContextTerms(quoteEvidence), measured=estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,measured)):terms.inputTokens;
       const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
       if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
       // Keep the signed live quote alongside measured input reservations. The
@@ -46,7 +46,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     // reserve the measured request size so token budgets remain meaningful.
     const contextLimit=route.contextLength??0;
     const measured=Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4));
-    let inputTokens=local?Math.min(contextLimit,measured):contextLimit;
+    let inputTokens=local?Math.min(contextLimit,measured):measuredInput&&contextLimit===0?measured:contextLimit;
     const outputTokens=maxOutputTokens;
     if(!Number.isSafeInteger(inputTokens)||inputTokens!<1||inputTokens!>100000000||!Number.isSafeInteger(route.maxOutputTokens)||route.maxOutputTokens!<outputTokens)
       throw new ExecutionLimitError('budget','Bounded execution requires discovered input/output limits that cover the requested output.');

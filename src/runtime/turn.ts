@@ -35,6 +35,8 @@ export interface TurnResult { reason: TurnReason; iterations: number; totals: Tu
 export interface TurnOptions {
   /** Planning calls reserve measured prompt size while retaining the reviewed context ceiling. */
   measuredInputReservation?: boolean;
+  /** Proposal turns retain their structured contract instead of summarizing it away. */
+  disableCompression?: boolean;
   execution?: AgentExecution;
   reasoningEffort?: ChatOptions['reasoningEffort'];
   client?: 'terminal' | 'headless' | 'acp' | 'library';
@@ -303,7 +305,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         throwIfCancelled(signal);
         checkBudget();
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
-        const compressed = options.measuredInputReservation===false ? {
+        const compressed = options.disableCompression ? {
           compressed:false, method:'none' as const, messages:messages.current,
           originalTokens:0, compressedTokens:0, summarizedCount:0,
         } : await autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,

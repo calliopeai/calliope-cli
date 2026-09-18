@@ -24,7 +24,7 @@ export function newGoalManifest(cwd:string,goal:string,runsRoot:string,options:G
   // can emit its proposal. Give Brain-enabled goals a larger planning lane,
   // while keeping it inside the captured goal token allowance.
   const defaultPlanningTokens=Math.min(250000,Math.max(1,Math.floor(tokenBudget/4)));
-  const planningTokens=Math.min(tokenBudget-1,options.brain?Math.max(requested.planningTokens??defaultPlanningTokens,20000):requested.planningTokens??defaultPlanningTokens),planningCostNanos=requested.planningCostNanos??Math.floor(costBudgetNanos/4);
+  const planningTokens=Math.min(tokenBudget-1,options.brain?Math.max(requested.planningTokens??defaultPlanningTokens,30000):requested.planningTokens??defaultPlanningTokens),planningCostNanos=requested.planningCostNanos??Math.floor(costBudgetNanos/4);
   // Reasoning planners can spend output tokens on hidden deliberation before
   // emitting the JSON proposal. Keep the cap bounded, while allowing enough
   // room for a structured plan when the planning token allowance permits it.
