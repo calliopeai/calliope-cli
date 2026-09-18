@@ -29,6 +29,14 @@ it('exposes only declared read scopes and rejects aliases, metadata access or a 
   fs.symlinkSync('/tmp',join(worker.filesRoot,'src/escape'));expect(()=>worker.mounts([{path:'src',access:'read'}])).toThrow(/alias/);fs.unlinkSync(join(worker.filesRoot,'src/escape'));
   const metadata=join(worker.filesRoot,'.git');fs.writeFileSync(metadata,'gitdir: /tmp/other');expect(()=>worker.assertIdentity()).toThrow(/identity/);
 });
+it('mounts a placeholder for a missing declared output so verification can fail normally',async()=>{
+  const base=await pin(),worker=await createWorkerWorktree(join(store,'worker'),project,base);
+  const mounts=worker.mounts([{path:'new-output.txt',access:'read'}]);
+  expect(mounts.at(-1)).toMatchObject({target:'/project/new-output.txt'});
+  expect(fs.existsSync(mounts.at(-1)!.source)).toBe(true);
+  expect(fs.readFileSync(mounts.at(-1)!.source,'utf8')).toBe('');
+  expect(fs.existsSync(join(worker.filesRoot,'new-output.txt'))).toBe(false);
+});
 it('rejects dirty source, broken identity, traversal and non-Git roots without adopting partial workspaces',async()=>{
   fs.writeFileSync(join(project,'src/input.txt'),'dirty');await expect(pin()).rejects.toThrow(/pending/);git('checkout','--','src/input.txt');
   const base=await pin();await expect(createWorkerWorktree(join(project,'worker'),project,base)).rejects.toThrow(/outside/);
