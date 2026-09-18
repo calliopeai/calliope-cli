@@ -227,7 +227,7 @@ it('recovers legacy evidence through the JSON command after restart, retains his
   const next=await execute(view.run.id,{resume:true});expect(next.status).toBe('completed');expect(next.execution.state.tasks['inspect-a']?.attempts).toBe(2);expect(next.execution.state.supervision?.rounds).toBe(3);
   expect(requests.slice(count).map(r=>r.body.model)).toEqual(['controller-toy','worker-toy','worker-toy','controller-toy']);
   const recoveredOutcome=recovered.events.findLast(e=>e.change.type==='task_finished'&&e.change.taskId==='inspect-a')!,retried=requests.slice(count).find(r=>r.context?.task?.id==='inspect-a')!;
-  expect(retried.context.attempt).toMatchObject({version:1,number:2,phase:'retry',previous:[{number:1,outcomeEventId:recoveredOutcome.id,status:'failed'}]});expect(retried.context.previousAttempts.map((a:any)=>a.eventId)).toEqual([recoveredOutcome.id]);
+  expect(retried.context.attempt).toMatchObject({version:1,number:2,phase:'retry',previous:[{number:1,outcomeEventId:recoveredOutcome.id,status:'failed'}]});expect(retried.context.previousAttempts.map((a:any)=>a.eventId)).toEqual([recoveredOutcome.id]);expect(retried.body.messages[0].content).toContain('RETRY DIRECTIVE');
 });
 
 it('requires explicit recovery approval and preserves all state when denied or already cancelled',async()=>{

@@ -65,7 +65,7 @@ async function taskMessages(store:ExecutionStore,task:ProjectTask,options:RunAct
   // instruction tree here can consume the entire measured planning allowance
   // before the model emits its proposal.
   const instructions=(task.id==='propose'?'':formatRepositoryInstructions(loadRepositoryInstructions(store.manifest.project.root)))+
-    (attempt.phase==='retry'&&task.outputs.some(output=>output.kind==='file'&&output.path)
+    (attempt.phase==='retry'&&task.outputs.some(output=>output.path)
       ?'\nRETRY DIRECTIVE: this is a fresh isolated worktree. Perform the declared write_file mutation first and recreate every missing file before verification, even when prior evidence says the file existed.'
       :'');
   const strategy=state.supervision?.strategies[task.id];
