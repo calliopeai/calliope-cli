@@ -51,7 +51,7 @@ export async function commitBrain(
   reason: string,
   prior: BrainInspection,
   options: BrainOptions = {},
-  beforeCommit?: () => void,
+  beforeCommit?: () => void | Promise<void>,
 ) {
   if (hasBrainSecrets(changes))
     throw new BrainError(

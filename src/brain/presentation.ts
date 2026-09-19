@@ -1,3 +1,4 @@
+import type { TransferReport } from './transfer-report.js';
 /** Compact terminal views; headless callers keep the complete versioned JSON contract. */
 export function brainLines(action: string, result: unknown): string[] {
   const data = result as Record<string, unknown>,
@@ -42,7 +43,11 @@ export function brainLines(action: string, result: unknown): string[] {
         `${edge.id} · ${edge.from} --${edge.type}--> ${edge.to} · ${edge.effectiveState ?? edge.state}`,
       );
   if (Array.isArray(data.sources))
-    for (const source of data.sources as { id: string; name: string; content: string }[])
+    for (const source of data.sources as {
+      id: string;
+      name: string;
+      content: string;
+    }[])
       lines.push(
         `Source ${source.id} · ${source.name}`,
         source.content.slice(0, 3000) +
@@ -51,7 +56,12 @@ export function brainLines(action: string, result: unknown): string[] {
             : ''),
       );
   if (Array.isArray(data.events))
-    for (const event of data.events as { id: string; at: string; actor: string; reason: string }[])
+    for (const event of data.events as {
+      id: string;
+      at: string;
+      actor: string;
+      reason: string;
+    }[])
       lines.push(`${event.id} · ${event.at} · ${event.actor} · ${event.reason}`);
   for (const key of [
     'entityId',
@@ -67,5 +77,14 @@ export function brainLines(action: string, result: unknown): string[] {
   ])
     if (data[key] !== undefined) lines.push(`${key}: ${String(data[key])}`);
   if (data.revision) lines.push(`Revision ${data.revision}`);
+  if (data.report) {
+    const report = data.report as TransferReport;
+    lines.push(
+      `${report.representation}: ${report.losses.length} conversion limits · ${report.conflicts} conflicts · ${report.changes} changes`,
+    );
+    for (const loss of report.losses) lines.push(`${loss.code}: ${loss.message}`);
+    if (report.destinationRevision) lines.push(`Review revision ${report.destinationRevision}`);
+    if (data.preview) lines.push('Preview only; no knowledge or output file written.');
+  }
   return lines;
 }

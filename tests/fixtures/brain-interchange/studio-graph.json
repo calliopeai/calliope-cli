@@ -1,0 +1,1 @@
+{"format": "calliope-kg/v1", "nodes": [{"id": "DuckDB", "name": "DuckDB", "type": "technology", "props": {"sessions": ["manual"], "descriptions": ["the warehouse"]}}, {"id": "Chat Studio", "name": "Chat Studio", "type": "product", "props": {"sessions": ["manual"], "descriptions": []}}], "edges": [{"source": "Chat Studio", "target": "DuckDB", "type": "uses", "props": {}}]}

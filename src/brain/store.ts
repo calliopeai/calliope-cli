@@ -22,7 +22,7 @@ import { replayBrain, inverseChanges } from './journal.js';
 export interface BrainWriteOptions {
   signal?: AbortSignal;
   expectedRevision?: string;
-  beforeCommit?: () => void;
+  beforeCommit?: () => void | Promise<void>;
 }
 function exists(path: string): boolean {
   try {
@@ -224,7 +224,7 @@ export class BrainStore {
           : exists(file)
       )
         throw new BrainError('conflict', 'Brain history changed before commit.');
-      options.beforeCommit?.();
+      await options.beforeCommit?.();
       check();
       if (
         prior
@@ -281,7 +281,7 @@ export class BrainStore {
       try {
         durable(temp, bytes);
         temporary = fs.lstatSync(temp);
-        options.beforeCommit?.();
+        await options.beforeCommit?.();
         check();
         if (this.read(options.signal).state.revision !== index.state.revision)
           throw new BrainError('conflict', 'Brain changed during index replacement.');
