@@ -177,6 +177,108 @@ Exact repeats are idempotent. Budget, tool, policy and execution authority are n
 part of the import schema. Foreign locators never trigger automatic filesystem or
 network reads. Review knowledge before exporting it to other people.
 
+## Portable graphs and explicit exchange
+
+`brain export` still emits the complete `calliope.brain` v1 journal by default.
+`brain export --kg` still emits `calliope-kg/v1`; import accepts that name and
+`conflict-kg/v1`. Unknown versions and ambiguous legacy properties are rejected.
+Legacy node/edge fields outside `props` are normalized into `props` when there
+is no collision. Graph exports retain referenced source snapshots, locators,
+origin claims, record revisions and created/updated timestamps.
+
+A graph is a projection: events, tombstones, reversals and unreferenced historical
+sources require a native bundle. Graph operations therefore expose
+`calliope-brain-transfer-report/v1` and require `--allow-loss` before writing.
+`--preview` checks current read scope and returns limits, stable record mappings,
+conflicts and the destination revision without requesting a knowledge mutation
+or creating output. It does not reserve that revision or approve the write.
+
+```sh
+calliope brain export product-kg.json --kg --preview --json
+calliope brain export product-kg.json --kg --allow-loss --allow-mutations
+calliope brain import product-kg.json --kg --preview --json
+calliope brain import product-kg.json --kg --allow-loss --allow-mutations
+```
+
+Bare graphs need a stable `--origin <id>` unless their embedded origin claims
+supply it. Use the same origin across successive source revisions. Origin IDs
+are untrusted identity claims, not authenticated issuer credentials. Namespace
+identity includes the origin, record kind and foreign record ID, so a node and
+edge with the same ID stay distinct. Alias spelling, whitespace and the local
+input filename do not change identity. Relationships without `props.id` use a
+stable endpoint/type identity only when that triple is unique; parallel edges
+require distinct explicit IDs.
+
+Every imported graph record retains its complete sanitized JSON claim in an
+immutable `import` source. Separate transfer metadata retains the origin revision,
+manifest and any compiled envelope. Native projections begin **proposed** with
+**inferred** provenance; acceptance requires local human review. Original evidence
+bases, timestamps, source states/confidences, multimodal locators, nested attributes,
+and origin ancestry remain source claims. They are not silently promoted into
+native semantics. Unsupported entity kinds project to `artifact` only after loss
+acknowledgement. Unknown confidence projects to zero with an explicit report;
+out-of-range or malformed confidence is rejected, never clamped. Unsupported
+relationship identifiers and oversized native fields are rejected. Foreign
+locators remain data and are never fetched.
+
+An exact repeat is a no-op, including after an alias/whitespace change. Retained
+sources must still be readable. Changed source claims, local corrections and
+local deletions produce conflicts. Review a new preview, then explicitly supply
+`--reconcile-revision <destinationRevision>` with `--allow-loss` to replace the
+conflicting projections through the normal journal transaction. A concurrent
+write makes that revision stale. Reconciliation starts proposals again and
+preserves earlier journal events; absent incoming records are not deleted.
+Legacy imports made before stable origin namespaces are not automatically
+adopted or deduplicated; inspect them and migrate in an explicitly reviewed scope.
+
+### Core and Studio transfer handshake
+
+An explicit `--exchange` export uses `brain-exchange/v2` with an RFC 8785 digest.
+It works with either a graph projection (`--kg`) or the default full native bundle.
+`--manifest <path>` attaches an optional scope/profile/capability object as source
+claims and requires `--exchange`. Neither the digest nor the manifest grants
+permissions, shares a writer, or activates advertised capabilities.
+
+```sh
+calliope brain export product-exchange.json --kg --exchange --manifest manifest.json --preview --json
+calliope brain export product-exchange.json --kg --exchange --manifest manifest.json --allow-loss --allow-mutations
+calliope brain import product-exchange.json --kg --preview --json
+calliope brain import product-exchange.json --kg --allow-loss --allow-mutations
+# Preserve and validate the complete native history in an explicit archive:
+calliope brain export journal-exchange.json --exchange --manifest manifest.json --allow-mutations
+calliope brain import journal-exchange.json --allow-mutations
+```
+
+The producer writes an exclusive private file. A consumer validates the archive
+version/digest and source shape, checks its own scope, previews graph losses and
+conflicts, and obtains its own mutation approval. Save the JSON receipt with the
+origin/revision, manifest hash and metadata source ID. Native archive import
+also replays the native journal and checks its identity against the envelope;
+it stages active claims in the destination, while the original archive retains
+foreign events and reversals. Studio shipped native JSON and both KG readers in PR #408. Its release `4ffcd9e`
+does not yet read v2 envelopes or apply stable origin reconciliation; that work
+is tracked in [Studio #421](https://github.com/calliopeai/calliope-chat-studio/issues/421).
+Use the bare native/graph formats with that release, preserving its reported
+projection limits. Do not claim an upgraded v2 round trip until both consumers
+pass the shared fixtures. There is no CLI shared-folder writer activation.
+
+The CLI also accepts a core `compiled-brain/v1` payload inside a v2 archive via
+`import --kg`. It preserves the compiled envelope as source metadata and maps
+node `kind`/properties and edge `rel` into the portable projection; it does not
+infer or activate the producer's ontology. Native archives use `import` without
+`--kg`. The Python-era `brain-exchange/v1` digest is deliberately not reinterpreted:
+validate/unpack it with the core, then explicitly repack as v2.
+
+Portable JSON is bounded to 16 MiB, 32 levels and 100,000 visited values/keys;
+integers outside the safe interoperable range must be strings. Duplicate keys,
+invalid Unicode and nonfinite numbers are rejected. Native source claims are
+limited to 128 KiB each and normal journal/source/graph retention still applies;
+large claims fail atomically rather than being truncated. Native bundles outside
+the optional exchange wrapper retain their existing 64 MiB journal limit.
+Policy is checked again after approval, and the journal lock/revision comparison
+protects the write. Export likewise rechecks retained-source access before
+publishing the private file.
+
 ## Headless contract
 
 One JSON line per brain command:
@@ -185,7 +287,8 @@ One JSON line per brain command:
 {"version":1,"type":"brain","action":"search","localOnly":true,"data":{"entities":[],"limit":20,"partial":false,"index":"valid","revision":"<sha256>"}}
 ```
 
-Errors replace `data` with `error: {code, message}`. Exit codes: 0 success,
+Errors replace `data` with `error: {code, message}`. Transfer acknowledgement and
+reconciliation errors also include `error.report`, without retained source content. Exit codes: 0 success,
 2 malformed input, 3 policy denial, 130 cancellation, 1 unavailable/conflicting/
 limited operation. Mutation results are compact receipts (scope, brain ID,
 revision, event ID/count, affected IDs, index state); they do not dump unrelated

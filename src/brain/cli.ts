@@ -18,10 +18,17 @@ import {
   refreshBrain,
 } from './actions.js';
 import { queryBrain } from './queries.js';
-import { exportBrain, exportKnowledgeGraphFile, importBrain, importKnowledgeGraph } from './transfer.js';
+import {
+  exportBrain,
+  exportKnowledgeGraphFile,
+  importBrain,
+  importKnowledgeGraph,
+} from './transfer.js';
+import { BrainTransferError } from './transfer-report.js';
+import type { BrainTransferOptions } from './exchange.js';
 import { ingestBrainRun, type BrainRunOptions } from './run-ingest.js';
 export const BRAIN_USAGE =
-  'calliope brain init|status|ingest <path>|ingest-run <id>|search <query>|entity <id/name>|neighbors <id/name>|path <from> <to>|graph [root]|decisions|risks|history|export [path] [--kg]|import <path>|note <name> <text>|edit <id/name>|edit-edge <id>|link <from> <to> <type> --source <id>|reverse <event> --reason <text>|refresh|reindex [--global] [--allow-mutations] [--json]';
+  'calliope brain init|status|ingest <path>|ingest-run <id>|search <query>|entity <id/name>|neighbors <id/name>|path <from> <to>|graph [root]|decisions|risks|history|export [path] [--kg --exchange --manifest <path> --preview --allow-loss]|import <path> [--kg --origin <id> --preview --allow-loss --reconcile-revision <revision>]|note <name> <text>|edit <id/name>|edit-edge <id>|link <from> <to> <type> --source <id>|reverse <event> --reason <text>|refresh|reindex [--global] [--allow-mutations] [--json]';
 export function brainReceipt(result: BrainInspection & Record<string, unknown>) {
   const { journal, state, ...extra } = result;
   return {
@@ -36,7 +43,11 @@ export function brainReceipt(result: BrainInspection & Record<string, unknown>) 
 }
 export async function runBrainCommand(
   args: string[],
-  options: BrainRunOptions & { cwd?: string; write?: (line: string) => void; kg?: boolean } = {},
+  options: BrainRunOptions & {
+    cwd?: string;
+    write?: (line: string) => void;
+    kg?: boolean;
+  } = {},
 ): Promise<number> {
   const write = options.write ?? ((line) => process.stdout.write(line)),
     cwd = options.cwd ?? process.cwd();
@@ -65,6 +76,12 @@ export async function runBrainCommand(
         state: { type: 'string' },
         confidence: { type: 'string' },
         kg: { type: 'boolean' },
+        preview: { type: 'boolean' },
+        'allow-loss': { type: 'boolean' },
+        origin: { type: 'string' },
+        'reconcile-revision': { type: 'string' },
+        exchange: { type: 'boolean' },
+        manifest: { type: 'string' },
       },
     });
     json = !!v.json;
@@ -110,6 +127,12 @@ export async function runBrainCommand(
       state: ['edit', 'edit-edge'],
       confidence: ['edit', 'edit-edge'],
       kg: ['export', 'import'],
+      preview: ['export', 'import'],
+      'allow-loss': ['export', 'import'],
+      origin: ['import'],
+      'reconcile-revision': ['import'],
+      exchange: ['export'],
+      manifest: ['export'],
     };
     for (const [flag, actions] of Object.entries(allowed))
       if (v[flag as keyof typeof v] !== undefined && !actions.includes(action))
@@ -119,11 +142,28 @@ export async function runBrainCommand(
       (action === 'link' && !v.source)
     )
       throw new BrainError('invalid', BRAIN_USAGE);
-    const opts: BrainRunOptions = {
+    if (
+      !v.kg &&
+      (['allow-loss', 'origin', 'reconcile-revision'].some(
+        (flag) => v[flag as keyof typeof v] !== undefined,
+      ) ||
+        (action === 'import' && v.preview))
+    )
+      throw new BrainError(
+        'invalid',
+        'Projection review flags require --kg; native import validates and stages its journal claims directly.',
+      );
+    const opts: BrainRunOptions & BrainTransferOptions = {
       ...options,
       scope: v.global ? 'global' : options.scope,
       confirmation: v['allow-mutations'] ? 'none' : (options.confirmation ?? 'mutating'),
       ...(v['allow-mutations'] ? { approve: async () => 'allow' as const } : {}),
+      preview: v.preview,
+      allowLoss: v['allow-loss'],
+      origin: v.origin,
+      reconcileRevision: v['reconcile-revision'],
+      exchange: v.exchange,
+      manifestPath: v.manifest,
     };
     let result: unknown;
     switch (action) {
@@ -183,7 +223,9 @@ export async function runBrainCommand(
           : await exportBrain(cwd, p[1] ?? `calliope-brain-export-${Date.now()}.json`, opts);
         break;
       case 'import':
-        result = brainReceipt(await (v.kg ? importKnowledgeGraph(cwd, p[1]!, opts) : importBrain(cwd, p[1]!, opts)));
+        result = brainReceipt(
+          await (v.kg ? importKnowledgeGraph(cwd, p[1]!, opts) : importBrain(cwd, p[1]!, opts)),
+        );
         break;
       default:
         result = await queryBrain(
@@ -202,7 +244,14 @@ export async function runBrainCommand(
           opts,
         );
     }
-    if (json) emit({ version: 1, type: 'brain', action, localOnly: true, data: result });
+    if (json)
+      emit({
+        version: 1,
+        type: 'brain',
+        action,
+        localOnly: true,
+        data: result,
+      });
     else write(approvalDisplayText(brainLines(action, result).join('\n')) + '\n');
     return 0;
   } catch (error) {
@@ -233,8 +282,22 @@ export async function runBrainCommand(
               ? BRAIN_USAGE
               : 'Brain operation failed; preserve its history and inspect paths, permissions and available storage.';
     if (json)
-      emit({ version: 1, type: 'brain', action, localOnly: true, error: { code, message } });
-    else write(message + '\n');
+      emit({
+        version: 1,
+        type: 'brain',
+        action,
+        localOnly: true,
+        error: {
+          code,
+          message,
+          ...(error instanceof BrainTransferError ? { report: error.report } : {}),
+        },
+      });
+    else {
+      write(message + '\n');
+      if (error instanceof BrainTransferError)
+        write(approvalDisplayText(brainLines(action, { report: error.report }).join('\n')) + '\n');
+    }
     return cancelled ? 130 : denied ? 3 : code === 'invalid' ? 2 : 1;
   }
 }

@@ -1,0 +1,47 @@
+{
+  "format": "brain-exchange/v2",
+  "sourceFormat": "calliope-kg/v1",
+  "origin": {
+    "id": "brain:example",
+    "revision": "revision:42"
+  },
+  "manifest": {
+    "scope": {
+      "kind": "product",
+      "id": "synthetic"
+    },
+    "profiles": [
+      "core"
+    ],
+    "capabilities": [
+      "evidence.multimodal"
+    ]
+  },
+  "payload": {
+    "format": "calliope-kg/v1",
+    "nodes": [
+      {
+        "id": "decision:alpha",
+        "name": "Alpha",
+        "type": "decision",
+        "props": {
+          "confidence": 1.0,
+          "measurements": [
+            1e-07,
+            1e-05,
+            -0.0,
+            333333333.3333333
+          ],
+          "data": {
+            "2": "second",
+            "10": "tenth",
+            "": "BMP",
+            "𐀀": "supplementary"
+          }
+        }
+      }
+    ],
+    "edges": []
+  },
+  "sha256": "2dfe105a08197697bd621c9b331460af2f6ed7569337019efb23b183fc3b59a5"
+}

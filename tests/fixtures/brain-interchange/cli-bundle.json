@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "kind": "calliope.brain",
+  "journal": {
+    "version": 1,
+    "header": {
+      "version": 1,
+      "id": "11111111-1111-4111-8111-111111111111",
+      "scope": "global",
+      "project": null,
+      "createdAt": "2026-09-18T00:00:00.000Z"
+    },
+    "events": [
+      {
+        "version": 1,
+        "id": "22222222-2222-4222-8222-000000000001",
+        "sequence": 1,
+        "at": "2026-09-18T00:01:00.000Z",
+        "previous": "a6ccaa0347b708bff475c6451610a5cefe19f582c0066f714bb37f42e4fa6ebc",
+        "actor": "human",
+        "reason": "Synthetic interchange fixture",
+        "changes": [
+          {
+            "kind": "source",
+            "value": {
+              "id": "source:example",
+              "kind": "file",
+              "name": "Synthetic review",
+              "content": "Synthetic source: choose Alpha. No external file is read.",
+              "originalHash": "a21cc1075d7d7a871b5dc153ae51bed6cfebeb9efd5bf7e5072dcc39512ee2d4",
+              "contentHash": "a21cc1075d7d7a871b5dc153ae51bed6cfebeb9efd5bf7e5072dcc39512ee2d4",
+              "redacted": false,
+              "locator": {
+                "projectKey": "660752609f7270159b02ef1d4079c2af65d50b027d78851e69ce73091339bd28",
+                "path": "docs/source.md"
+              }
+            }
+          },
+          {
+            "kind": "entity",
+            "id": "decision:alpha",
+            "expected": null,
+            "value": {
+              "id": "decision:alpha",
+              "kind": "decision",
+              "name": "Alpha",
+              "summary": "Choose Alpha",
+              "state": "accepted",
+              "confidence": 0.875,
+              "provenance": [
+                {
+                  "sourceId": "source:example",
+                  "basis": "observed",
+                  "excerpt": "choose Alpha"
+                }
+              ],
+              "attributes": {
+                "cost": 1.25,
+                "reversible": true
+              }
+            }
+          },
+          {
+            "kind": "entity",
+            "id": "artifact:beta",
+            "expected": null,
+            "value": {
+              "id": "artifact:beta",
+              "kind": "artifact",
+              "name": "Beta",
+              "summary": "Choose Alpha",
+              "state": "proposed",
+              "confidence": 0.875,
+              "provenance": [
+                {
+                  "sourceId": "source:example",
+                  "basis": "observed",
+                  "excerpt": "choose Alpha"
+                }
+              ],
+              "attributes": {
+                "cost": 1.25,
+                "reversible": true
+              }
+            }
+          },
+          {
+            "kind": "edge",
+            "id": "edge:example",
+            "expected": null,
+            "value": {
+              "id": "edge:example",
+              "from": "decision:alpha",
+              "to": "artifact:beta",
+              "type": "about",
+              "state": "accepted",
+              "confidence": 0.75,
+              "provenance": [
+                {
+                  "sourceId": "source:example",
+                  "basis": "observed",
+                  "excerpt": "choose Alpha"
+                }
+              ]
+            }
+          }
+        ],
+        "reverses": null,
+        "hash": "a67f2c6151cb555078a1308e3311e6610a5d10dea21ee32a7033390db4e50796"
+      },
+      {
+        "version": 1,
+        "id": "22222222-2222-4222-8222-000000000002",
+        "sequence": 2,
+        "at": "2026-09-18T00:02:00.000Z",
+        "previous": "a67f2c6151cb555078a1308e3311e6610a5d10dea21ee32a7033390db4e50796",
+        "actor": "human",
+        "reason": "Synthetic interchange fixture",
+        "changes": [
+          {
+            "kind": "entity",
+            "id": "decision:alpha",
+            "expected": "22222222-2222-4222-8222-000000000001",
+            "value": {
+              "id": "decision:alpha",
+              "kind": "decision",
+              "name": "Alpha",
+              "summary": "Correction later withdrawn",
+              "state": "accepted",
+              "confidence": 0.875,
+              "provenance": [
+                {
+                  "sourceId": "source:example",
+                  "basis": "observed",
+                  "excerpt": "choose Alpha"
+                }
+              ],
+              "attributes": {
+                "cost": 1.25,
+                "reversible": true
+              }
+            }
+          }
+        ],
+        "reverses": null,
+        "hash": "c500231d6f2ca7a1b69f91ec6922f2295adee16bb46a4e4cf6730690bce0e3af"
+      },
+      {
+        "version": 1,
+        "id": "22222222-2222-4222-8222-000000000003",
+        "sequence": 3,
+        "at": "2026-09-18T00:03:00.000Z",
+        "previous": "c500231d6f2ca7a1b69f91ec6922f2295adee16bb46a4e4cf6730690bce0e3af",
+        "actor": "reversal",
+        "reason": "Synthetic interchange fixture",
+        "changes": [
+          {
+            "kind": "entity",
+            "id": "decision:alpha",
+            "expected": "22222222-2222-4222-8222-000000000002",
+            "value": {
+              "id": "decision:alpha",
+              "kind": "decision",
+              "name": "Alpha",
+              "summary": "Choose Alpha",
+              "state": "accepted",
+              "confidence": 0.875,
+              "provenance": [
+                {
+                  "sourceId": "source:example",
+                  "basis": "observed",
+                  "excerpt": "choose Alpha"
+                }
+              ],
+              "attributes": {
+                "cost": 1.25,
+                "reversible": true
+              }
+            }
+          }
+        ],
+        "reverses": "22222222-2222-4222-8222-000000000002",
+        "hash": "9b4bd503b2af9e0b41a9456d2c944edf691e2767aff8a4ac2d5fd28f43729059"
+      }
+    ],
+    "hash": "9b4bd503b2af9e0b41a9456d2c944edf691e2767aff8a4ac2d5fd28f43729059"
+  },
+  "checksum": "2ace3bd59554f0daf6e8b58d5aa935385c21597d1e34136b8ffb1fd93c76d675"
+}
