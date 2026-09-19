@@ -44,6 +44,7 @@ provider backends, and a small, tested command surface.
 | `/exit` | Quit (alias `/quit`) |
 | `calliope replay <path\|id>` | Render an audit run-log trace (see [governance](./governance.md)) |
 | `calliope judge --request <file>` | Typed judgments from a state and questions (see [judgments](./judgments.md)) |
+| `calliope judge --policy <rules>` | Judgment-backed pre-tool policy engine (see [judgments](./judgments.md#policy-engine)) |
 
 ### Keyboard shortcuts
 

@@ -428,6 +428,7 @@ ${bold('USAGE')}
   calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
   calliope session <action> [args] [--json]   Manage private session history without inference
   calliope judge --request <file|-> [--provider <name>|typesafe] [--model <id>] [--json]   Typed judgments (noul/choice/score)
+  calliope judge --policy <rules.json>   Judgment-backed pre-tool policy engine (tool call on stdin)
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)

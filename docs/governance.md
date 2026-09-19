@@ -307,6 +307,10 @@ Every decision is recorded as a `policy_event` in the run log. Failing closed is
 deliberate: a broken or unreachable policy engine must not silently wave tools
 through.
 
+A policy can also be written as typed judgments instead of pattern matching,
+which distinguishes `rm -rf ./build` from `rm -rf /`. See
+[typed judgments](./judgments.md#policy-engine) for `calliope judge --policy`.
+
 ### Shell example
 
 A minimal policy that blocks writes outside `/work` and denies `rm -rf`:
