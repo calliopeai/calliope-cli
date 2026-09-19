@@ -1,5 +1,5 @@
 import { getAvailableModels } from '../model-detection.js';
-import { formatRoutingDecision } from '../routing/index.js';
+import { formatRoutingDecision, isNotableRoutingDecision } from '../routing/index.js';
 import { providerChoices, validateSelection, readProjectDefaults, saveProjectDefaults, resolvePreferences } from '../preferences/index.js';
 import { RunLog } from '../runlog.js';
 import { throwIfCancelled } from '../cancellation.js';
@@ -47,7 +47,8 @@ export async function handleModelCommand(command: string, ctx: CommandContext): 
     throwIfCancelled(ctx.signal);
     if (verb === '/provider') { ctx.setProvider(choice.provider); ctx.setModel(undefined); }
     else ctx.setModel(arg);
-    ctx.addMessage('system', `${verb === '/provider' ? 'Provider' : 'Model'}: ${arg} (session only; /defaults save persists for this project)\n${formatRoutingDecision(decision)}`);
+    const detail = isNotableRoutingDecision(decision) ? `\n${formatRoutingDecision(decision)}` : decision.selected ? ` → ${decision.selected.provider}/${decision.selected.model}` : '';
+    ctx.addMessage('system', `${verb === '/provider' ? 'Provider' : 'Model'}: ${arg} (session only; /defaults save persists for this project)${detail}`);
   } catch (error) {
     throwIfCancelled(ctx.signal);
     ctx.addMessage('error', `${verb} (${ctx.provider ?? ctx.actualProvider}): ${error instanceof Error ? error.message : 'Model control failed'}. Use /doctor for diagnostics.`);

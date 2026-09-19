@@ -209,12 +209,12 @@ describe('getModelContextLimit', () => {
 
     return getAvailableModels('anthropic').then(() => {
       // Cache should now contain the fallback Anthropic models with their context windows
-      const info = getModelInfo('anthropic', 'claude-sonnet-4-6');
+      const info = getModelInfo('anthropic', 'claude-sonnet-5');
       expect(info).toBeDefined();
       expect(info?.contextLength).toBe(1000000);
 
       // getModelContextLimit should use the cached info
-      const limit = getModelContextLimit('anthropic', 'claude-sonnet-4-6');
+      const limit = getModelContextLimit('anthropic', 'claude-sonnet-5');
       expect(limit).toBe(1000000);
     });
   });
@@ -271,9 +271,9 @@ describe('getModelInfo', () => {
     mockFetch.mockRejectedValueOnce(new Error('network'));
     await getAvailableModels('anthropic');
 
-    const info = getModelInfo('anthropic', 'claude-sonnet-4-6');
+    const info = getModelInfo('anthropic', 'claude-sonnet-5');
     expect(info).toBeDefined();
-    expect(info?.id).toBe('claude-sonnet-4-6');
+    expect(info?.id).toBe('claude-sonnet-5');
   });
 
   it('should find model by unambiguous prefix (dated id of a cached family)', async () => {
@@ -306,10 +306,10 @@ describe('clearModelCache', () => {
     mockFetch.mockRejectedValueOnce(new Error('network'));
     await getAvailableModels('anthropic');
 
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeDefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-5')).toBeDefined();
 
     clearModelCache('anthropic');
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeUndefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-5')).toBeUndefined();
   });
 
   it('should clear all caches when no provider specified', async () => {
@@ -318,7 +318,7 @@ describe('clearModelCache', () => {
     await getAvailableModels('anthropic');
 
     clearModelCache();
-    expect(getModelInfo('anthropic', 'claude-sonnet-4-6')).toBeUndefined();
+    expect(getModelInfo('anthropic', 'claude-sonnet-5')).toBeUndefined();
   });
 });
 
@@ -390,23 +390,43 @@ describe('getAvailableModels - anthropic', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('should sort models newest first (descending ID)', async () => {
+  it('should sort models newest first by created_at, not by id', async () => {
     vi.mocked(config.getApiKey).mockReturnValue('test-key');
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: async () => ({
         data: [
-          { id: 'claude-3-5-haiku-20241022' },
-          { id: 'claude-sonnet-4-20250514' },
-          { id: 'claude-opus-4-5-20251101' },
+          { id: 'claude-sonnet-5', created_at: '2026-06-29T00:00:00Z' },
+          { id: 'claude-3-5-haiku-20241022', created_at: '2024-10-22T00:00:00Z' },
+          { id: 'claude-fable-5-1', created_at: '2026-08-28T00:00:00Z' },
+          { id: 'claude-opus-5', created_at: '2026-07-24T00:00:00Z' },
+          { id: 'claude-undated' },
         ],
       }),
     });
 
     const models = await getAvailableModels('anthropic');
-    // Descending alphabetical: opus > sonnet > haiku (by localeCompare desc)
-    expect(models[0].id).toBe('claude-sonnet-4-20250514');
-    expect(models[models.length - 1].id).toBe('claude-3-5-haiku-20241022');
+    // Alphabetical order would put sonnet-5 first and fable-5-1 last.
+    expect(models.map(m => m.id)).toEqual(['claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-3-5-haiku-20241022', 'claude-undated']);
+  });
+
+  it('should record adaptive thinking support from discovery capabilities', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: [
+          { id: 'claude-opus-5', capabilities: { thinking: { supported: true, types: { enabled: { supported: false }, adaptive: { supported: true } } } } },
+          { id: 'claude-haiku-4-5', capabilities: { thinking: { supported: true, types: { enabled: { supported: true }, adaptive: { supported: false } } } } },
+          { id: 'claude-unknown' },
+        ],
+      }),
+    });
+
+    const models = await getAvailableModels('anthropic');
+    expect(models.find(m => m.id === 'claude-opus-5')?.capabilities?.adaptiveThinking).toBe(true);
+    expect(models.find(m => m.id === 'claude-haiku-4-5')?.capabilities?.adaptiveThinking).toBe(false);
+    expect(models.find(m => m.id === 'claude-unknown')?.capabilities?.adaptiveThinking).toBeUndefined();
   });
 });
 
@@ -885,6 +905,27 @@ describe('isCompatibleModel (indirect)', () => {
       expect(models[0].id).toBe('gemini-2.0-flash');
     });
 
+    it('hides live, speech, image, robotics and embedding Gemini variants and orders by generation', async () => {
+      vi.mocked(config.getApiKey).mockReturnValue('test-key');
+      clearModelCache('google');
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [
+            'gemini-2.5-flash', 'gemini-robotics-er-2-preview', 'gemini-pro-latest', 'gemini-embedding-2', 'gemini-3.8-live',
+            'gemini-3.5-transcribe', 'gemini-3.1-flash-tts-preview', 'gemini-3.1-flash-image', 'gemini-2.5-flash-native-audio-latest',
+            'gemini-3.5-live-translate-preview', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview', 'gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-3.1-flash-lite-preview',
+          ].map(id => ({ name: `models/${id}` })),
+        }),
+      });
+
+      const models = await getAvailableModels('google');
+      expect(models.map(m => m.id)).toEqual([
+        'gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite', 'gemini-3.1-flash-lite-preview',
+        'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-pro-latest',
+      ]);
+    });
+
     it('excludes Computer Use models from ordinary chat routing', async () => {
       vi.mocked(config.getApiKey).mockReturnValue('test-key');
       clearModelCache('google');
@@ -1209,7 +1250,7 @@ describe('getAvailableModels - openai', () => {
     expect(models[0].description).toBe('OpenAI language model');
   });
 
-  it('should sort models alphabetically', async () => {
+  it('should sort models newest first, alias before dated snapshot', async () => {
     vi.mocked(config.getApiKey).mockReturnValue('test-key');
     clearModelCache('openai');
     const OpenAI = (await import('openai')).default;
@@ -1217,18 +1258,49 @@ describe('getAvailableModels - openai', () => {
       this.models = {
         list: vi.fn().mockResolvedValue({
           data: [
-            { id: 'gpt-4o' },
-            { id: 'gpt-3.5-turbo' },
-            { id: 'gpt-4o-mini' },
+            { id: 'gpt-4o', created: 1715000000 },
+            { id: 'gpt-5.5-2026-04-23', created: 1776800000 },
+            { id: 'gpt-3.5-turbo', created: 1677000000 },
+            { id: 'gpt-6-astra', created: 1787800000 },
+            { id: 'gpt-5.5', created: 1776800000 },
           ],
         }),
       };
     });
 
     const models = await getAvailableModels('openai');
-    expect(models[0].id).toBe('gpt-3.5-turbo');
-    expect(models[1].id).toBe('gpt-4o');
-    expect(models[2].id).toBe('gpt-4o-mini');
+    expect(models.map(m => m.id)).toEqual(['gpt-6-astra', 'gpt-5.5', 'gpt-5.5-2026-04-23', 'gpt-4o', 'gpt-3.5-turbo']);
+  });
+
+  it('should hide image, speech, video, search and research models', async () => {
+    vi.mocked(config.getApiKey).mockReturnValue('test-key');
+    clearModelCache('openai');
+    const OpenAI = (await import('openai')).default;
+    vi.mocked(OpenAI).mockImplementation(function (this: any) {
+      this.models = {
+        list: vi.fn().mockResolvedValue({
+          data: [
+            { id: 'gpt-6-astra', created: 2 },
+            { id: 'chatgpt-image-latest', created: 9 },
+            { id: 'gpt-image-2.5-sunburst', created: 9 },
+            { id: 'gpt-live-1', created: 9 },
+            { id: 'gpt-realtime-2.1', created: 9 },
+            { id: 'gpt-transcribe', created: 9 },
+            { id: 'gpt-4o-mini-tts', created: 9 },
+            { id: 'gpt-audio-1.5', created: 9 },
+            { id: 'sora-2-pro', created: 9 },
+            { id: 'gpt-4o-search-preview', created: 9 },
+            { id: 'gpt-5-search-api', created: 9 },
+            { id: 'o4-mini-deep-research', created: 9 },
+            { id: 'computer-use-preview', created: 9 },
+            { id: 'gpt-5.5', created: 1 },
+          ],
+        }),
+      };
+    });
+
+    const models = await getAvailableModels('openai');
+    expect(models.map(m => m.id)).toEqual(['gpt-6-astra', 'gpt-5.5']);
   });
 });
 

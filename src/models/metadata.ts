@@ -5,6 +5,8 @@ export interface ModelCapabilities {
   streaming?: boolean;
   vision?: boolean;
   thinking?: boolean;
+  /** Anthropic `thinking.types.adaptive`; absent means unknown. */
+  adaptiveThinking?: boolean;
   json?: boolean;
 }
 export class ModelDiscoveryError extends Error {
@@ -47,11 +49,11 @@ function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 export function anthropicMetadata(value: unknown): Omit<ModelInfo, 'id'> {
-  const model = object(value), caps = object(model.capabilities), effort = object(caps.effort);
+  const model = object(value), caps = object(model.capabilities), effort = object(caps.effort), thinkingTypes = object(object(caps.thinking).types);
   return { contextLength: positiveLimit(model.max_input_tokens), maxOutputTokens: positiveLimit(model.max_tokens),
     reasoningEfforts: capability(effort) === undefined ? undefined : capability(effort) === false ? []
       : REASONING_EFFORTS.filter(level => capability(effort[level]) === true),
-    capabilities: { chat: true, vision: capability(caps.image_input), thinking: capability(caps.thinking), json: capability(caps.structured_outputs) } };
+    capabilities: { chat: true, vision: capability(caps.image_input), thinking: capability(caps.thinking), adaptiveThinking: capability(thinkingTypes.adaptive), json: capability(caps.structured_outputs) } };
 }
 
 /** Mistral fields and common compatible-server extensions; absent fields stay unknown. */
