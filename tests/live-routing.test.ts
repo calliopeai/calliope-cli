@@ -180,6 +180,13 @@ it('honors stored provider model preferences and disabling optimization preserve
   expect(route.reason).toContain('optimization disabled');
 });
 
+it('defaults to the first discovered model, not the alphabetically first one', async () => {
+  data.deepseek = [{ id: 'zeta-newest' }, { id: 'alpha-oldest' }];
+  const route = await selectRoute({ provider: 'deepseek' });
+  expect(route.selected?.model).toBe('zeta-newest');
+  expect(route.alternatives.map(candidate => candidate.model)).toEqual(['alpha-oldest']);
+});
+
 it('treats an empty provider pool as no automatic targets while preserving explicit choices', async () => {
   expect((await selectRoute({ provider: 'auto', preferences: { providerPool: [] } })).status).toBe('unavailable');
   expect(fetch).not.toHaveBeenCalled();

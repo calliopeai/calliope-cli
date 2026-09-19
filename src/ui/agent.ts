@@ -11,7 +11,7 @@ import { assessToolRisk } from '../risk.js';
 import { formatError, classifyError } from '../errors.js';
 import { getAvailableProviders } from '../providers/index.js';
 import * as storage from '../storage.js';
-import { formatRoutingDecision, type RoutingDecision } from '../routing/index.js';
+import { formatRoutingDecision, isNotableRoutingDecision, type RoutingDecision } from '../routing/index.js';
 import { fleetActive, fleetMirrorAssistant } from '../fleet.js';
 import * as summarization from '../summarization.js';
 import { createStreamFlusher } from '../streaming.js';
@@ -219,7 +219,7 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
       onRoute: decision => {
         if (decision.selected) { provider = decision.selected.provider; model = decision.selected.model; }
         ctx.onRoute?.(decision);
-        ctx.addMessage(decision.selected ? 'system' : 'error', formatRoutingDecision(decision));
+        if (isNotableRoutingDecision(decision)) ctx.addMessage(decision.selected ? 'system' : 'error', formatRoutingDecision(decision));
       },
       prompt: summarizeMessageContent(content), messages: ctx.llmMessages,
       signal: ctx.signal, mode: ctx.mode, maxIterations,
