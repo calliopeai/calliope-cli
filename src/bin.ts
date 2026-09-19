@@ -147,11 +147,11 @@ function completeCommand(exitCode: number): void {
 }
 
 async function main(): Promise<void> {
-  // Check Node.js version — ink requires Node >=20 (uses /v regex flag in string-width)
+  // Check Node.js version — the supported floor is Node 24 (current openai SDK needs >=22; 20 is EOL)
   const [nodeMaj = 0] = process.versions.node.split('.').map(Number);
-  if (nodeMaj < 20) {
-    console.error(`calliope requires Node.js 20 or later (you have ${process.versions.node})`);
-    console.error('Upgrade: https://nodejs.org/en/download  or  nvm install 20');
+  if (nodeMaj < 24) {
+    console.error(`calliope requires Node.js 24 or later (you have ${process.versions.node})`);
+    console.error('Upgrade: https://nodejs.org/en/download  or  nvm install 24');
     process.exit(1);
   }
 

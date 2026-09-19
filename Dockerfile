@@ -12,7 +12,7 @@
 ################################################################################
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 
 WORKDIR /build
 
@@ -30,13 +30,13 @@ RUN npm run build
 RUN npm prune --production
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS runtime
+FROM node:24-alpine AS runtime
 
 # git is needed by calliope-cli for project memory / session operations
 RUN apk add --no-cache git
 
 # Non-root user with home dir for config persistence
-# UID/GID 2000 sidesteps the `node` user that ships at 1000 in node:20-alpine
+# UID/GID 2000 sidesteps the `node` user that ships at 1000 in node:24-alpine
 RUN addgroup -g 2000 calliope && \
     adduser -u 2000 -G calliope -s /bin/sh -D -h /home/calliope calliope
 

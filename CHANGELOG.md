@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Raise the supported Node.js floor to 24 (engines, CI, Dockerfile, runtime check, docs). Node 20 is end-of-life and current provider SDK majors require 22+.
 - Add typed judgments: `calliope judge` and the `judge()` library entry evaluate a state against noul/choice/score questions in one request and return probabilities, confidence and probability-weighted scores under the caller's ids. Any chat backend serves the prompted engine; `--provider typesafe` calls the native TypeSafe endpoint with bounded 429/529 backoff (#362).
 - Reword the `think` tool as a planning scratchpad; its "write out your reasoning" wording tripped the `reasoning_extraction` refusal classifier on Claude Fable 5.1, so every turn on that model was refused.
 - Send `max_completion_tokens` on OpenAI Chat Completions; current models reject the deprecated `max_tokens` name (`gpt-6-astra` and friends returned 400).
