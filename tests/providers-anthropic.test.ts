@@ -29,6 +29,7 @@ vi.mock('../src/model-detection.js', () => ({
   getModelContextLimit: vi.fn(() => 200000),
   getModelMaxOutput: vi.fn(() => 8192),
   getModelInfo: vi.fn(() => null),
+  getDiscoveredModels: vi.fn(() => undefined),
   getOllamaFallbackModel: vi.fn(() => null),
 }));
 
@@ -744,6 +745,29 @@ describe('adaptive thinking + refusal stop reason (#147)', () => {
     expect(lastCreateParams?.thinking).toBeUndefined();
     await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-sonnet-4-20250514');
     expect(lastCreateParams?.thinking).toBeUndefined();
+  });
+
+  it('enables adaptive thinking for the Claude 5 family offline', async () => {
+    for (const model of ['claude-opus-5', 'claude-sonnet-5', 'claude-fable-5-1']) {
+      await chatAnthropic([{ role: 'user', content: 'hi' }], [], model);
+      expect(lastCreateParams?.thinking, model).toEqual({ type: 'adaptive' });
+    }
+  });
+
+  it('lets live discovery decide adaptive thinking over the name fallback', async () => {
+    const { getDiscoveredModels } = await import('../src/model-detection.js');
+    vi.mocked(getDiscoveredModels).mockReturnValue([
+      { id: 'claude-next-9', capabilities: { adaptiveThinking: true } },
+      { id: 'claude-opus-4-8', capabilities: { adaptiveThinking: false } },
+    ]);
+    try {
+      await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-next-9');
+      expect(lastCreateParams?.thinking).toEqual({ type: 'adaptive' });
+      await chatAnthropic([{ role: 'user', content: 'hi' }], [], 'claude-opus-4-8');
+      expect(lastCreateParams?.thinking).toBeUndefined();
+    } finally {
+      vi.mocked(getDiscoveredModels).mockReturnValue(undefined);
+    }
   });
 
   it('caps non-streaming max_tokens to a timeout-safe ceiling', async () => {

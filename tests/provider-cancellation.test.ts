@@ -23,7 +23,7 @@ vi.mock('../src/config.js', () => ({
   getBaseUrl: () => 'http://fixture.invalid',
   getProviderCred: () => ({ region: 'us-east-1' }),
 }));
-vi.mock('../src/model-detection.js', () => ({ getModelContextLimit: () => 128000, getModelMaxOutput: () => 8192 }));
+vi.mock('../src/model-detection.js', () => ({ getModelContextLimit: () => 128000, getModelMaxOutput: () => 8192, getDiscoveredModels: () => undefined }));
 
 import { chatAnthropic } from '../src/providers/anthropic.js';
 import { chatOpenAI } from '../src/providers/openai.js';
