@@ -12,14 +12,14 @@ import {
   type EdgeInput,
   type SourceInput,
 } from './types.js';
-import { shape, uuid, hash, iso, text, change, invalid } from './validation.js';
+import { shape, uuid, hash, iso, text, change, invalid, enumValue } from './validation.js';
 export function validateHeader(value: unknown): BrainHeader {
   shape(value, ['version', 'id', 'scope', 'project', 'createdAt']);
   if (
     value.version !== 1 ||
     !uuid(value.id) ||
     !iso(value.createdAt) ||
-    !['project', 'global'].includes(String(value.scope))
+    !enumValue(value.scope, ['project', 'global'])
   )
     invalid();
   if (value.scope === 'global') {
@@ -58,7 +58,7 @@ export function validateEvent(value: unknown): BrainEvent {
     !iso(value.at) ||
     !hash(value.previous) ||
     !hash(value.hash) ||
-    !['human', 'ingest', 'run', 'import', 'reversal'].includes(String(value.actor)) ||
+    !enumValue(value.actor, ['human', 'ingest', 'run', 'import', 'reversal']) ||
     (value.reverses !== null && !uuid(value.reverses))
   )
     invalid();

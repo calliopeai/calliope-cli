@@ -40,6 +40,8 @@ export function text(v: unknown, max = 4096, empty = false): asserts v is string
 }
 export const identifier = (v: unknown): v is string =>
   typeof v === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(v);
+export const enumValue = (value: unknown, choices: readonly string[]): value is string =>
+  typeof value === 'string' && choices.includes(value);
 export const hash = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 export const uuid = (v: unknown): v is string =>
   typeof v === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(v);
@@ -50,7 +52,7 @@ export function provenance(value: unknown): Provenance[] {
     invalid('Knowledge requires bounded source provenance.');
   for (const p of value) {
     shape(p, ['sourceId', 'basis'], ['excerpt']);
-    if (!identifier(p.sourceId) || !['observed', 'inferred'].includes(String(p.basis))) invalid();
+    if (!identifier(p.sourceId) || !enumValue(p.basis, ['observed', 'inferred'])) invalid();
     if (p.excerpt !== undefined) text(p.excerpt, 4096);
   }
   if (new Set(value.map((v) => canonicalJson(v))).size !== value.length)
@@ -78,7 +80,7 @@ function origins(value: unknown): void {
       invalid('Invalid knowledge origin.');
     if (
       item.state !== undefined &&
-      !['proposed', 'accepted', 'rejected', 'stale'].includes(String(item.state))
+      !enumValue(item.state, ['proposed', 'accepted', 'rejected', 'stale'])
     )
       invalid();
     if (
@@ -91,7 +93,7 @@ function origins(value: unknown): void {
       invalid();
     if (
       item.sourceKind !== undefined &&
-      !['file', 'run', 'human', 'import'].includes(String(item.sourceKind))
+      !enumValue(item.sourceKind, ['file', 'run', 'human', 'import'])
     )
       invalid();
     if (item.locator !== undefined) {
@@ -103,7 +105,7 @@ function origins(value: unknown): void {
 function knowledge(v: Record<string, unknown>): void {
   if (
     !identifier(v.id) ||
-    !['proposed', 'accepted', 'rejected', 'stale'].includes(String(v.state)) ||
+    !enumValue(v.state, ['proposed', 'accepted', 'rejected', 'stale']) ||
     typeof v.confidence !== 'number' ||
     !Number.isFinite(v.confidence) ||
     v.confidence < 0 ||
@@ -122,7 +124,7 @@ export function source(value: unknown): SourceInput {
   origins(value.origins);
   if (
     !identifier(value.id) ||
-    !['file', 'run', 'human', 'import'].includes(String(value.kind)) ||
+    !enumValue(value.kind, ['file', 'run', 'human', 'import']) ||
     !hash(value.originalHash) ||
     !hash(value.contentHash) ||
     typeof value.redacted !== 'boolean'
@@ -193,7 +195,7 @@ export function change(value: unknown): BrainChange {
   } else {
     shape(value, ['kind', 'id', 'expected', 'value']);
     if (
-      !['entity', 'edge'].includes(String(value.kind)) ||
+      !enumValue(value.kind, ['entity', 'edge']) ||
       !identifier(value.id) ||
       (value.expected !== null && !uuid(value.expected))
     )
