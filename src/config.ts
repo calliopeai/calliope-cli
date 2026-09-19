@@ -95,6 +95,10 @@ export interface CalliopeConfig {
   // exit 0 = allow, non-zero = deny (stderr = reason), timeout = deny (fail closed).
   policy?: {
     command?: string;
+    /** Built-in alternative to `command`: a judgment rules file (opt-in, off by default). */
+    judgment?: string;
+    judgmentProvider?: string;
+    judgmentModel?: string;
     timeoutMs?: number;  // default 5000
   };
   // Plugin trust (#137). `devTrustLocal` names locally-edited plugins that are

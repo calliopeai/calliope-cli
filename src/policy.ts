@@ -34,11 +34,20 @@ export interface PolicyOptions {
   signal?: AbortSignal;
   /** Override the configured command (tests / embedding). */
   command?: string;
+  /** Override the configured judgment rules file (tests / embedding). */
+  judgment?: string;
   /** Override the configured timeout in ms. */
   timeoutMs?: number;
 }
 
 const DEFAULT_TIMEOUT_MS = 5000;
+/**
+ * A judged decision waits on a provider, not a local script: observed round
+ * trips run from about one second to over six. The spawn default would deny
+ * healthy calls, so the built-in source gets a latency-matched default that an
+ * operator can still lower with `policy.timeoutMs`.
+ */
+const DEFAULT_JUDGMENT_TIMEOUT_MS = 30000;
 
 /** Configured policy command, or undefined when policy enforcement is off. */
 export function getPolicyCommand(): string | undefined {
@@ -51,19 +60,68 @@ export function getPolicyCommand(): string | undefined {
   }
 }
 
-function getPolicyTimeout(): number {
+/**
+ * Built-in judgment classifier, an opt-in alternative to spawning `command`.
+ * Off unless an operator sets `policy.judgment` to a rules file.
+ */
+export function getPolicyJudgment(): string | undefined {
   try {
-    const policy = config.get('policy') as { timeoutMs?: number } | undefined;
-    const t = policy?.timeoutMs;
-    return typeof t === 'number' && t > 0 ? t : DEFAULT_TIMEOUT_MS;
+    const policy = config.get('policy') as { judgment?: string } | undefined;
+    const rules = policy?.judgment;
+    return typeof rules === 'string' && rules.trim().length > 0 ? rules : undefined;
   } catch {
-    return DEFAULT_TIMEOUT_MS;
+    return undefined;
   }
 }
 
-/** True when a policy command is configured (or explicitly provided). */
+function getPolicyTimeout(fallback: number = DEFAULT_TIMEOUT_MS): number {
+  try {
+    const policy = config.get('policy') as { timeoutMs?: number } | undefined;
+    const t = policy?.timeoutMs;
+    return typeof t === 'number' && t > 0 ? t : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** True when either policy source is configured (or explicitly provided). */
 export function isPolicyEnabled(options: PolicyOptions = {}): boolean {
-  return Boolean(options.command ?? getPolicyCommand());
+  return Boolean(options.command ?? getPolicyCommand()) || Boolean(options.judgment ?? getPolicyJudgment());
+}
+
+/**
+ * Judge the tool call in process against the configured rules file. Mirrors the
+ * spawned engine's stance exactly: the timeout and every failure deny, and the
+ * configured provider is explicit so an operator knows which backend is spending.
+ */
+async function evaluateJudgmentPolicy(toolCall: ToolCall, rulesPath: string, timeoutMs: number, started: number, options: PolicyOptions): Promise<PolicyResult> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  options.signal?.addEventListener('abort', abort, { once: true });
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
+  const deny = (reason: string): PolicyResult => ({ decision: 'deny', source: 'policy', reason, durationMs: Date.now() - started });
+  try {
+    if (options.signal?.aborted) return deny('Policy evaluation cancelled');
+    const { judgeToolCall, validateJudgmentEngine } = await import('./judgment/policy.js');
+    const settings = (config.get('policy') ?? {}) as { judgmentProvider?: string; judgmentModel?: string };
+    const { judgeProvider, judgeModel } = {
+      judgeProvider: settings.judgmentProvider === undefined ? undefined : validateJudgmentEngine(settings.judgmentProvider),
+      judgeModel: typeof settings.judgmentModel === 'string' && settings.judgmentModel.trim() ? settings.judgmentModel : undefined,
+    };
+    const { verdict } = await judgeToolCall({ id: toolCall.id, name: toolCall.name, arguments: toolCall.arguments }, {
+      rulesPath, signal: controller.signal, ...(judgeProvider ? { provider: judgeProvider } : {}), ...(judgeModel ? { model: judgeModel } : {}),
+    });
+    if (verdict.decision === 'allow') return { decision: 'allow', source: 'policy', durationMs: Date.now() - started };
+    return deny(verdict.reason ?? 'policy denied');
+  } catch (error) {
+    if (timedOut) return deny(`policy judgment timed out after ${timeoutMs}ms (fail closed)`);
+    if (options.signal?.aborted) return deny('Policy evaluation cancelled');
+    return deny(`policy judgment could not decide: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abort);
+  }
 }
 
 /**
@@ -73,9 +131,16 @@ export function isPolicyEnabled(options: PolicyOptions = {}): boolean {
  */
 export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}): Promise<PolicyResult> {
   const command = options.command ?? getPolicyCommand();
+  const judgment = options.judgment ?? getPolicyJudgment();
   const started = Date.now();
 
   if (options.signal?.aborted) return Promise.resolve({decision:'deny',source:'policy',reason:'Policy evaluation cancelled',durationMs:0});
+  // Two configured sources are an ambiguous security control, so deny rather
+  // than silently pick one.
+  if (command && judgment) {
+    return Promise.resolve({ decision: 'deny', source: 'policy', reason: 'policy.command and policy.judgment are both set; configure exactly one (fail closed)', durationMs: 0 });
+  }
+  if (judgment) return evaluateJudgmentPolicy(toolCall, judgment, options.timeoutMs ?? getPolicyTimeout(DEFAULT_JUDGMENT_TIMEOUT_MS), started, options);
   if (!command) {
     return Promise.resolve({ decision: 'allow', source: 'none', durationMs: 0 });
   }

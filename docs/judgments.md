@@ -161,15 +161,25 @@ backoff, up to four attempts. It reports the versioned model that answered.
 
 ## Policy engine
 
-`calliope judge --policy` turns reviewed judgments into the pre-tool
-[policy hook](./governance.md#policy-hook): it reads the pending tool call on
-stdin, judges it, and exits 0 to allow or non-zero to deny with the reason on
-stderr. It runs as its own process outside the agent turn, so it changes no
-authority check and no default behavior; it only ever withholds a tool.
+Judgments can drive the pre-tool [policy hook](./governance.md#policy-hook),
+deciding whether a tool runs. This is an extra mechanism and never a default:
+nothing is judged until an operator sets one of the two settings below, and a
+judgment can only ever withhold a tool.
+
+**Built in** (`policy.judgment`), evaluated in process:
+
+```bash
+calliope /config set policy.judgment /etc/calliope/policy-rules.json
+calliope /config set policy.judgmentProvider typesafe   # optional, else normal resolution
+calliope /config set policy.judgmentModel jev-1.13.0    # optional
+calliope /config set policy.judgment off                # disable
+```
+
+**External** (`policy.command`), spawned per tool call, for composing with other
+checks or running the engine somewhere else:
 
 ```bash
 calliope /config set policy.command /usr/local/bin/calliope-policy
-calliope /config set policy.timeoutMs 15000
 ```
 
 ```bash
@@ -177,6 +187,9 @@ calliope /config set policy.timeoutMs 15000
 # /usr/local/bin/calliope-policy
 exec calliope judge --policy /etc/calliope/policy-rules.json --provider typesafe
 ```
+
+Both read the same rules file and decide identically. Setting both is an
+ambiguous security control, so it denies rather than silently picking one.
 
 A rules file declares the questions and the conditions that deny:
 
@@ -231,10 +244,17 @@ This is what a judgment adds over the regex example in
 | `rm -rf ~/Documents` | deny, irreversible data loss |
 | `kubectl delete deployment api --context prod` | deny, operates on remote or production state |
 
-**Latency.** The hook's default `policy.timeoutMs` is 5000ms and a timeout
-denies. A hosted judgment answers in about a second including process start; a
-local model on ordinary hardware does not, so raise the timeout or pin a fast
-backend with `--provider`/`--model` before enabling it.
+**Latency.** A timeout denies, so the two sources have different defaults:
+5000ms for a spawned `policy.command`, and 30000ms for `policy.judgment`, which
+waits on a provider rather than a local script. Observed round trips run from
+about one second to over six on a hosted backend, which is why the spawn default
+would deny healthy calls. Local models are slower again. `policy.timeoutMs`
+overrides either, and pinning a fast backend with `policy.judgmentProvider`
+matters more than the timeout.
+
+**Cost.** This fires per tool call, so a long session pays a judgment per tool.
+Pin the provider and model deliberately rather than inheriting whatever the
+session is using.
 
 **This is a gate, not a boundary.** A judgment can withhold a tool; it cannot
 contain one that runs. The sandbox remains the boundary, exactly as for the
