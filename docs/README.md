@@ -19,6 +19,7 @@ provider backends, and a small, tested command surface.
 - [Goal planning](./goal-planning.md) — proposed graphs, human approval, shared limits and recovery
 - [Permissions](./permissions.md) — one resolver, explicit client defaults and audited reasons
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
+- [Typed judgments](./judgments.md) — noul/choice/score primitives over any backend or the native TypeSafe engine
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)
 - [Editors (ACP)](./acp.md) — run Calliope as an Agent Client Protocol agent in Zed, JetBrains, and more
 - [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
@@ -42,6 +43,7 @@ provider backends, and a small, tested command surface.
 | `/clear` | Clear the conversation |
 | `/exit` | Quit (alias `/quit`) |
 | `calliope replay <path\|id>` | Render an audit run-log trace (see [governance](./governance.md)) |
+| `calliope judge --request <file>` | Typed judgments from a state and questions (see [judgments](./judgments.md)) |
 
 ### Keyboard shortcuts
 
