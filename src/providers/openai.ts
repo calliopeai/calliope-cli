@@ -512,7 +512,8 @@ export async function chatOpenAI(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        ...(limits?.bounded ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens }),
+        // Current OpenAI models reject the deprecated max_tokens name.
+        max_completion_tokens: dynamicMaxTokens,
         stream: true,
         stream_options: { include_usage: true },
       }, signal ? { signal } : undefined);
@@ -590,7 +591,7 @@ export async function chatOpenAI(
     model,
     messages: openaiMessages,
     tools: openaiTools.length > 0 ? openaiTools : undefined,
-    ...(limits?.bounded ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens }),
+    max_completion_tokens: dynamicMaxTokens,
   }, signal ? { signal } : undefined);
 
   if (!response.choices || response.choices.length === 0) {

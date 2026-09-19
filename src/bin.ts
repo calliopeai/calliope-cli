@@ -205,6 +205,14 @@ async function main(): Promise<void> {
     return completeCommand(await runOrchestrationCommand(args[0], rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  // Typed judgments run before the setup/TUI gates: they need a provider, but
+  // never an interactive session, and the module is loaded only on demand.
+  if (args[0] === 'judge') {
+    headlessCancellation = new AbortController();
+    const { runJudge } = await import('./judgment/index.js');
+    return completeCommand(await runJudge(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   if (args[0] === 'session') {
     headlessCancellation = new AbortController();
     const { runSessionCommand } = await import('./session-management/cli.js');
@@ -419,6 +427,7 @@ ${bold('USAGE')}
   calliope agents spawn --resume <hash> --run <id> [--json]   Recover child admission
   calliope tasks --graph [--run <id>] [--json]   Inspect task dependencies
   calliope session <action> [args] [--json]   Manage private session history without inference
+  calliope judge --request <file|-> [--provider <name>|typesafe] [--model <id>] [--json]   Typed judgments (noul/choice/score)
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)

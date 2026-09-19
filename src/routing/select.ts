@@ -38,6 +38,20 @@ export function formatRoutingDecision(decision: RoutingDecision): string {
   return decision.selected ? `Route: ${decision.selected.provider}/${decision.selected.model}. ${decision.reason}` : `Routing stopped: ${decision.reason}`;
 }
 
+/**
+ * Whether the terminal should surface a decision. Explicit or turn-pinned picks
+ * that landed exactly where the user pointed are routine and stay quiet; auto or
+ * smart routing, a fallback away from the request, an unverified model, or a
+ * failure is worth a line. CALLIOPE_DEBUG=1 shows every decision.
+ */
+export function isNotableRoutingDecision(decision: RoutingDecision): boolean {
+  if (process.env.CALLIOPE_DEBUG === '1') return true;
+  const selected = decision.selected;
+  if (!selected || decision.mode === 'auto' || decision.smart || selected.evidence === 'explicit-unverified') return true;
+  if (decision.requested.provider !== 'auto' && selected.provider !== decision.requested.provider) return true;
+  return decision.requested.model !== null && decision.requested.model !== selected.model;
+}
+
 /** Discovery sends no inference prompts. A whole decision has a fixed 30s deadline. */
 export async function selectRoute(request: RoutingRequest): Promise<RoutingDecision> {
   const decision: RoutingDecision = { version: 1, id: randomUUID(), at: new Date().toISOString(), status: 'unavailable',
@@ -178,7 +192,8 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   }
   if (request.signal?.aborted) { decision.status = 'cancelled'; decision.reason = 'Routing cancelled before inference.'; return decision; }
   if (overall.aborted) { decision.reason = 'Model discovery exceeded the routing deadline; no inference was sent.'; return decision; }
-  candidates.sort((a, b) => (smart||optimize ? b.score - a.score : 0) || providers.indexOf(a.provider) - providers.indexOf(b.provider) || a.model.localeCompare(b.model));
+  // Stable sort: within a provider, candidates keep discovery order (newest first).
+  candidates.sort((a, b) => (smart||optimize ? b.score - a.score : 0) || providers.indexOf(a.provider) - providers.indexOf(b.provider));
   if (candidates.length) {
     decision.status = 'selected'; decision.selected = candidates[0]!; decision.alternatives = candidates.slice(1, 21);
     decision.reason = `${decision.mode} selection${optimize ? '' : ' in configured order (optimization disabled)'}; ${decision.selected.reason}.${decision.selected.evidence === 'explicit-unverified' ? ' Discovery unavailable; honoring the explicit model without claiming compatibility.' : ''}`;

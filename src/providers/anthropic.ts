@@ -39,14 +39,18 @@ function toAnthropicContent(content: MessageContent): Anthropic.MessageParam['co
 }
 
 /**
- * Whether a model supports adaptive thinking (Opus 4.6+, Sonnet 4.6, Fable/Mythos 5).
- * Older models (Haiku 4.5, the dated -20250514 ids, Claude 3.x) do not, so we
- * omit the parameter for them to avoid a 400.
+ * Whether a model supports adaptive thinking. Live discovery answers this
+ * (`capabilities.thinking.types.adaptive`); the name check is only the offline
+ * fallback (Opus 4.6+, Sonnet 4.6+, Fable/Mythos 5). Older models (Haiku 4.5,
+ * the dated -20250514 ids, Claude 3.x) do not, so we omit the parameter for
+ * them to avoid a 400.
  */
 function supportsAdaptiveThinking(model: string): boolean {
+  const discovered = getDiscoveredModels('anthropic')?.find(m => m.id === model || m.aliases?.includes(model));
+  if (discovered?.capabilities?.adaptiveThinking !== undefined) return discovered.capabilities.adaptiveThinking;
   const m = model.toLowerCase();
-  return /claude-opus-4-[678]/.test(m)
-    || m.includes('claude-sonnet-4-6')
+  return /claude-opus-(4-[678]|5)/.test(m)
+    || /claude-sonnet-(4-6|5)/.test(m)
     || m.includes('claude-fable-5')
     || m.includes('claude-mythos-5');
 }
