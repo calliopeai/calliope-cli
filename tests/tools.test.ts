@@ -38,6 +38,16 @@ afterEach(() => {
 // TOOLS array structure
 // ===========================================================================
 
+describe('think tool wording', () => {
+  it('reads as a planning scratchpad, not a request to expose reasoning', () => {
+    // "Write out your reasoning" trips the reasoning_extraction refusal on Claude Fable 5.1.
+    const think = TOOLS.find(t => t.name === 'think')!;
+    const text = `${think.description} ${JSON.stringify(think.parameters)}`.toLowerCase();
+    expect(text).not.toMatch(/reason|thought process|step by step/);
+    expect(text).toContain('plan');
+  });
+});
+
 describe('TOOLS array', () => {
   it('should export a non-empty array', () => {
     expect(Array.isArray(TOOLS)).toBe(true);

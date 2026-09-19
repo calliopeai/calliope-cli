@@ -100,10 +100,13 @@ it("builds certified container tags only from the successful npm publisher sourc
   expect(job.steps[0].with.ref).toBe(
     "${{ github.event.workflow_run.head_sha || github.sha }}",
   );
-  expect(job.steps.find((s: any) => s.name === "Tag :stable").if).toBe(
+  expect(job.steps.find((s: any) => s.name === "Tag :stable").if).toContain(
     "github.event_name == 'workflow_run'",
+  );
+  expect(job.steps.find((s: any) => s.name === "Tag :stable").if).toContain(
+    "github.event_name == 'workflow_dispatch'",
   );
   const tags = job.steps.find((s: any) => s.name === "Build and push image")
     .with.tags;
-  expect(tags).toContain("github.event_name == 'workflow_run' && format");
+  expect(tags).toContain("github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'");
 });
