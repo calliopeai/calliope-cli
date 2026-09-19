@@ -290,6 +290,7 @@ engine receives the full tool-call JSON and uses conventional exit semantics.
 ```bash
 calliope /config set policy.command /usr/local/bin/calliope-policy
 calliope /config set policy.command off    # disable
+calliope /config set policy.judgment /etc/calliope/rules.json   # built-in classifier instead
 ```
 
 ### Contract
@@ -300,7 +301,8 @@ Before each tool executes, if `policy.command` is set, Calliope spawns it and:
 - **exit 0** — ALLOW; the tool runs.
 - **exit non-zero** — DENY; the tool is skipped and the agent sees
   `[Denied by policy: <stderr>]` as the tool result. `stderr` is the reason.
-- **timeout** (`policy.timeoutMs`, default 5000ms) — DENY (**fail closed**).
+- **timeout** (`policy.timeoutMs`; 5000ms for `command`, 30000ms for the
+  built-in `judgment` source, which waits on a provider) — DENY (**fail closed**).
 - **spawn failure** (command missing, etc.) — DENY (**fail closed**).
 
 Every decision is recorded as a `policy_event` in the run log. Failing closed is
@@ -308,8 +310,10 @@ deliberate: a broken or unreachable policy engine must not silently wave tools
 through.
 
 A policy can also be written as typed judgments instead of pattern matching,
-which distinguishes `rm -rf ./build` from `rm -rf /`. See
-[typed judgments](./judgments.md#policy-engine) for `calliope judge --policy`.
+which distinguishes `rm -rf ./build` from `rm -rf /`. Set `policy.judgment` to a
+rules file to run that classifier in process, or point `policy.command` at
+`calliope judge --policy` to spawn it. Setting both denies. See
+[typed judgments](./judgments.md#policy-engine).
 
 ### Shell example
 

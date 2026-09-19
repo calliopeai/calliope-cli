@@ -5,6 +5,7 @@
  * that cannot decide must never wave a tool through.
  */
 import * as fs from 'node:fs';
+import * as config from '../config.js';
 import { evaluate } from './evaluate.js';
 import { JudgmentError, type Answer, type JudgmentEngine, type JudgmentResponse, type Question } from './types.js';
 
@@ -104,6 +105,32 @@ export function decidePolicy(rules: PolicyRules, answers: Record<string, Answer>
   return { decision: 'allow' };
 }
 
+/** A configured engine name is operator input, so it is checked like any other. */
+export function validateJudgmentEngine(value: unknown): JudgmentEngine {
+  if (value === 'typesafe') return 'typesafe';
+  if (typeof value !== 'string' || (value !== 'auto' && !config.getProviderNames().includes(value as never)))
+    invalid(`Unknown judgment provider ${JSON.stringify(value)}.`);
+  return value as JudgmentEngine;
+}
+
+export interface JudgeToolCallOptions {
+  rulesPath: string;
+  provider?: JudgmentEngine;
+  model?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Judge one pending tool call against a rules file. Shared by the CLI engine
+ * and the built-in `policy.judgment` setting so both decide identically.
+ */
+export async function judgeToolCall(toolCall: unknown, options: JudgeToolCallOptions): Promise<{ verdict: PolicyVerdict; response: JudgmentResponse }> {
+  const rules = validatePolicyRules(JSON.parse(fs.readFileSync(options.rulesPath, 'utf8')));
+  if (!isRecord(toolCall)) invalid('The pending tool call must be a JSON object.');
+  const response = await evaluate({ state: toolCall, questions: rules.questions }, { provider: options.provider, model: options.model, signal: options.signal });
+  return { verdict: decidePolicy(rules, response.answers), response };
+}
+
 export interface PolicyRunOptions {
   provider?: JudgmentEngine;
   model?: string;
@@ -123,13 +150,10 @@ export async function runJudgePolicy(rulesPath: string, options: PolicyRunOption
   const writeErr = options.writeErr ?? ((text: string) => { process.stderr.write(text); });
   const stdin = options.stdin ?? (() => fs.readFileSync(0, 'utf8'));
   try {
-    const rules = validatePolicyRules(JSON.parse(fs.readFileSync(rulesPath, 'utf8')));
     let toolCall: unknown;
     try { toolCall = JSON.parse(stdin()); }
     catch { invalid('The pending tool call on stdin is not valid JSON.'); }
-    if (!isRecord(toolCall)) invalid('The pending tool call on stdin must be a JSON object.');
-    const response: JudgmentResponse = await evaluate({ state: toolCall, questions: rules.questions }, { provider: options.provider, model: options.model, signal: options.signal });
-    const verdict = decidePolicy(rules, response.answers);
+    const { verdict, response } = await judgeToolCall(toolCall, { rulesPath, ...(options.provider ? { provider: options.provider } : {}), ...(options.model ? { model: options.model } : {}), ...(options.signal ? { signal: options.signal } : {}) });
     if (options.json) write(JSON.stringify({ version: 1, type: 'judgment-policy', ...verdict, provider: response.provider, model: response.model, answers: response.answers, usage: response.usage }) + '\n');
     if (verdict.decision === 'allow') return 0;
     writeErr(`${verdict.reason}\n`);

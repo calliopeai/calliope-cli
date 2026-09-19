@@ -193,6 +193,21 @@ function formatSessionLogLimit(limit: number): string {
  * Apply a `budget.*` config key. `off`/`none`/empty clears the cap. Throws on an
  * invalid number so the caller's try/catch surfaces the message.
  */
+/** Policy is a security control, so a bad value clears nothing and is reported. */
+function applyPolicyKey(field: 'command' | 'judgment' | 'judgmentProvider' | 'judgmentModel', value: string): string {
+  const policy = { ...(config.get('policy') ?? {}) } as Record<string, unknown>;
+  if (value === 'off' || value === 'none' || value === '') {
+    delete policy[field];
+    config.set('policy', policy);
+    return `✓ policy.${field} cleared`;
+  }
+  if (field === 'judgmentProvider' && value !== 'typesafe' && value !== 'auto' && !config.getProviderNames().includes(value as never)) {
+    throw new Error(`Unknown judgment provider "${value}" (a provider name, auto, or typesafe)`);
+  }
+  config.set('policy', { ...policy, [field]: value });
+  return `✓ policy.${field} set`;
+}
+
 function applyBudgetKey(field: 'maxCostPerRun' | 'maxTokensPerRun' | 'maxCostPerProject', value: string): string {
   const budget = { ...(config.get('budget') ?? {}) } as Record<string, number>;
   if (value === 'off' || value === 'none' || value === '') {
@@ -543,7 +558,10 @@ Available keys:
   budget.maxTokensPerRun <n|off>          - Halt a run at this token count
   budget.maxCostPerProject <usd|off>      - Halt when project spend reaches this
   audit.enabled <bool>                    - Audit run log (on by default)
-  policy.command <path|off>               - Pre-tool policy hook script`);
+  policy.command <path|off>               - Pre-tool policy hook script
+  policy.judgment <rules.json|off>        - Built-in judgment policy classifier (opt-in)
+  policy.judgmentProvider <name|off>      - Backend that answers policy judgments
+  policy.judgmentModel <id|off>           - Model that answers policy judgments`);
           break;
         }
 
@@ -623,16 +641,8 @@ Available keys:
             const bool = value === 'true';
             config.set('audit', { ...(config.get('audit') ?? {}), enabled: bool });
             ctx.addMessage('system', `✓ audit.enabled set to ${bool}`);
-          } else if (key === 'policy.command') {
-            const policy = { ...(config.get('policy') ?? {}) } as Record<string, unknown>;
-            if (value === 'off' || value === 'none') {
-              delete policy.command;
-              config.set('policy', policy);
-              ctx.addMessage('system', '✓ policy.command cleared');
-            } else {
-              config.set('policy', { ...policy, command: value });
-              ctx.addMessage('system', '✓ policy.command set');
-            }
+          } else if (key === 'policy.command' || key === 'policy.judgment' || key === 'policy.judgmentProvider' || key === 'policy.judgmentModel') {
+            ctx.addMessage('system', applyPolicyKey(key.slice('policy.'.length) as Parameters<typeof applyPolicyKey>[0], value));
           } else {
             ctx.addMessage('error', `Unknown config key: ${key}`);
           }
