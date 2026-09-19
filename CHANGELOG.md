@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add typed judgments: `calliope judge` and the `judge()` library entry evaluate a state against noul/choice/score questions in one request and return probabilities, confidence and probability-weighted scores under the caller's ids. Any chat backend serves the prompted engine; `--provider typesafe` calls the native TypeSafe endpoint with bounded 429/529 backoff (#362).
+
 ## 3.2.1 — README and release documentation
 
 - Add a concise 3.2 feature overview to the npm-facing README, covering provider
