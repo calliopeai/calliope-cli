@@ -9,7 +9,7 @@ install to your first session.
 npm i -g @calliopelabs/cli
 ```
 
-Requires Node.js 20 or later. Verify the install:
+Requires Node.js 24 or later. Verify the install:
 
 ```
 calliope --version

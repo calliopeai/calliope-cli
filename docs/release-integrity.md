@@ -18,7 +18,7 @@ The canonical `install.sh` requires `curl`, an authenticated GitHub CLI supporti
 CALLIOPE_VERSION=v3.2.0 bash install.sh
 ```
 
-The compatibility entry at `packaging/install.sh` delegates to the canonical installer. The HTTPS bootstrap script itself is a trust input: inspect it or retrieve it from a reviewed commit before execution. Historical releases without attestations are refused; there is no unverified fallback. The old root script's automatic Node installation/npm fallback has been removed. An explicit npm installation remains available separately and requires Node 20 or later.
+The compatibility entry at `packaging/install.sh` delegates to the canonical installer. The HTTPS bootstrap script itself is a trust input: inspect it or retrieve it from a reviewed commit before execution. Historical releases without attestations are refused; there is no unverified fallback. The old root script's automatic Node installation/npm fallback has been removed. An explicit npm installation remains available separately and requires Node 24 or later.
 
 Independent binary verification, after downloading the binary and its bundle:
 
