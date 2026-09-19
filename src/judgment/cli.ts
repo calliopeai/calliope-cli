@@ -4,15 +4,19 @@ import * as fs from 'node:fs';
 import { parseModelFlags } from '../preferences/flags.js';
 import { resolvePreferences } from '../preferences/resolve.js';
 import { evaluate } from './evaluate.js';
+import { runJudgePolicy } from './policy.js';
 import { JudgmentError, type Answer, type JudgmentEngine, type JudgmentResponse } from './types.js';
 
 export const JUDGE_USAGE = `calliope judge --request <file|-> [--provider <name>|typesafe] [--model <id>] [--json]
-calliope judge --questions <file> (--state <text> | --state-file <file|->) [--provider <name>] [--model <id>] [--json]`;
+calliope judge --questions <file> (--state <text> | --state-file <file|->) [--provider <name>] [--model <id>] [--json]
+calliope judge --policy <rules.json> [--provider <name>] [--model <id>] [--json]   pre-tool policy engine, tool call on stdin`;
 
 export interface JudgeCommandOptions {
   signal?: AbortSignal;
   stdin?: () => string;
   write?: (text: string) => void;
+  /** Policy denials and engine failures; stdout stays free for --json. */
+  writeErr?: (text: string) => void;
   cwd?: string;
 }
 
@@ -93,7 +97,7 @@ export async function runJudge(rawArgs: string[], options: JudgeCommandOptions =
   let parsed: ReturnType<typeof parseArgs<{ options: Record<string, { type: 'string' | 'boolean' }> }>>;
   try {
     parsed = parseArgs({ args: rest, allowPositionals: false, options: {
-      json: { type: 'boolean' }, request: { type: 'string' }, questions: { type: 'string' }, state: { type: 'string' }, 'state-file': { type: 'string' },
+      json: { type: 'boolean' }, request: { type: 'string' }, questions: { type: 'string' }, state: { type: 'string' }, 'state-file': { type: 'string' }, policy: { type: 'string' },
     } });
   } catch (error) { return fail({ error: 'invalid-arguments', message: error instanceof Error ? error.message : String(error) }, 2); }
   json = !!parsed.values.json;
@@ -103,6 +107,13 @@ export async function runJudge(rawArgs: string[], options: JudgeCommandOptions =
   else {
     const resolved = resolvePreferences(options.cwd ?? process.cwd(), { turn: preference });
     provider = resolved.provider; model = resolved.model;
+  }
+
+  // The policy engine owns its own exit codes and fails closed on every error.
+  if (parsed.values.policy !== undefined) {
+    if (['request', 'questions', 'state', 'state-file'].some(flag => parsed.values[flag] !== undefined))
+      return fail({ error: 'invalid-arguments', message: '--policy takes the pending tool call on stdin and its questions from the rules file.' }, 2);
+    return runJudgePolicy(String(parsed.values.policy), { provider, model, signal: options.signal, json, stdin, write, ...(options.writeErr ? { writeErr: options.writeErr } : {}) });
   }
 
   try {

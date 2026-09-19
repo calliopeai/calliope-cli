@@ -21,6 +21,7 @@ the same contract:
 - [Library](#library)
 - [Engines and calibration](#engines-and-calibration)
 - [Composing judgments](#composing-judgments)
+- [Policy engine](#policy-engine)
 - [Exit codes](#exit-codes)
 
 ---
@@ -158,6 +159,88 @@ backoff, up to four attempts. It reports the versioned model that answered.
 - **Keep raw judgments reusable.** Store the distributions; weights, thresholds
   and views can change without re-running inference.
 
+## Policy engine
+
+`calliope judge --policy` turns reviewed judgments into the pre-tool
+[policy hook](./governance.md#policy-hook): it reads the pending tool call on
+stdin, judges it, and exits 0 to allow or non-zero to deny with the reason on
+stderr. It runs as its own process outside the agent turn, so it changes no
+authority check and no default behavior; it only ever withholds a tool.
+
+```bash
+calliope /config set policy.command /usr/local/bin/calliope-policy
+calliope /config set policy.timeoutMs 15000
+```
+
+```bash
+#!/usr/bin/env bash
+# /usr/local/bin/calliope-policy
+exec calliope judge --policy /etc/calliope/policy-rules.json --provider typesafe
+```
+
+A rules file declares the questions and the conditions that deny:
+
+```json
+{
+  "questions": {
+    "destructive": { "type": "noul", "instructions": "Would running `arguments.command` irreversibly destroy data the user did not intend to lose? Deleting build output, caches or git-ignored artifacts is NOT irreversible loss.",
+                     "criteria": { "true": "It removes source, user data, system files or remote state", "false": "It is read-only, or removes only regenerable artifacts" } },
+    "scope":       { "type": "choice", "instructions": "What does `arguments.command` operate on?",
+                     "criteria": { "workspace": "Paths inside the project", "system": "Paths outside it", "remote": "A remote or production service", "none": "It modifies nothing" } }
+  },
+  "deny": [
+    { "question": "destructive", "above": 0.6, "reason": "irreversible data loss" },
+    { "question": "scope", "is": "system", "minConfidence": 0.5, "reason": "operates outside the project directory" }
+  ]
+}
+```
+
+The state is the tool call itself, so instructions reference its fields by path:
+`arguments.command`, `name`, `arguments.path`.
+
+One operator per primitive, and rules are checked against their own questions
+when the file loads, so a typo or a mismatched operator fails immediately rather
+than at the moment a tool is judged:
+
+| Primitive | Operator | Denies when |
+| --- | --- | --- |
+| noul | `above` | the probability of yes is strictly greater |
+| choice | `is` | that option is selected |
+| score | `atLeast` | the weighted level is greater or equal |
+
+`minConfidence` (choice and score) ignores a match the model is not sure about.
+Deny wins and the first matching rule supplies the reason; if none match, the
+tool is allowed.
+
+Author rules against real tool calls with `--json`, which prints the verdict and
+every distribution to stdout:
+
+```bash
+echo '{"id":"c1","name":"shell","arguments":{"command":"rm -rf ./build"}}' \
+  | calliope judge --policy rules.json --provider typesafe --json
+```
+
+This is what a judgment adds over the regex example in
+[governance](./governance.md#shell-example), which blocks every `rm -rf`:
+
+| Tool call | Verdict |
+| --- | --- |
+| `rm -rf ./build` | allow |
+| `rm -rf node_modules` | allow |
+| `rm -rf /` | deny, irreversible data loss |
+| `rm -rf ~/Documents` | deny, irreversible data loss |
+| `kubectl delete deployment api --context prod` | deny, operates on remote or production state |
+
+**Latency.** The hook's default `policy.timeoutMs` is 5000ms and a timeout
+denies. A hosted judgment answers in about a second including process start; a
+local model on ordinary hardware does not, so raise the timeout or pin a fast
+backend with `--provider`/`--model` before enabling it.
+
+**This is a gate, not a boundary.** A judgment can withhold a tool; it cannot
+contain one that runs. The sandbox remains the boundary, exactly as for the
+advisory blocklists in `risk.ts`. Validate a rules file against your own tool
+calls before trusting it, and remember every failure denies.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -166,3 +249,8 @@ backoff, up to four attempts. It reports the versioned model that answered.
 | 1 | The provider failed, or the model returned unusable output (`model-output`, `unavailable`) |
 | 2 | Invalid arguments or request (`invalid-arguments`, `invalid-request`) |
 | 130 | Cancelled |
+
+With `--policy` the codes are the hook's instead: 0 allows, 1 denies by rule,
+and 2 denies because the engine could not decide (unreadable or invalid rules,
+a malformed tool call, a provider or model failure). Every non-zero exit is a
+denial, so a broken engine fails closed.
