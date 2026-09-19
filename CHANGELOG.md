@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Reword the `think` tool as a planning scratchpad; its "write out your reasoning" wording tripped the `reasoning_extraction` refusal classifier on Claude Fable 5.1, so every turn on that model was refused.
+- Send `max_completion_tokens` on OpenAI Chat Completions; current models reject the deprecated `max_tokens` name (`gpt-6-astra` and friends returned 400).
+- Read adaptive-thinking support from Anthropic model discovery (`capabilities.thinking.types.adaptive`) instead of a name regex; the offline fallback now covers the Claude 5 family.
+- List models newest first: Anthropic by `created_at`, OpenAI by release family (alias before dated snapshot), Gemini by generation; hide OpenAI image/speech/video/search/research models and Gemini live/speech/image/robotics/embedding variants. A provider-only selection now defaults to the newest discovered model instead of the alphabetically first one (`chatgpt-image-latest`, `gpt-3.5-turbo`).
+- Stop printing the routing trace on every turn; it appears only for auto/smart routing, fallbacks away from the request, unverified models, failures, or under `CALLIOPE_DEBUG=1`.
+
 ## 3.2.1 — README and release documentation
 
 - Add a concise 3.2 feature overview to the npm-facing README, covering provider

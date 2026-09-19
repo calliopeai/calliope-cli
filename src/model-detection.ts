@@ -122,13 +122,22 @@ const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
     /-similarity-/,         // Similarity models
     /-edit-/,               // Edit models
     /^chatgpt-4o-latest/,   // Internal/unstable aliases
+    /image/,                // Image generation (gpt-image-*, chatgpt-image-latest)
+    /audio|realtime|transcribe|tts|whisper|^gpt-live/, // Speech and live-voice models
+    /^sora/,                // Video generation
+    /-search-preview|-search-api/, // Search-only endpoints
+    /deep-research/,        // Background research agents, not chat
+    /computer-use/,         // Requires the dedicated Computer Use tool contract
   ],
   google: [
     /^embedding/,           // Embedding models
     /^text-embedding/,      // Text embedding
     /^aqa/,                 // Attributed QA (not chat)
     /embedding$/,           // Any model ending in embedding
+    /embedding/,            // gemini-embedding-*
     /computer-use/i,        // Requires the dedicated Computer Use tool contract
+    /robotics/,             // Embodied-reasoning models
+    /-live|-tts|transcribe|translate|native-audio|-image/, // Live, speech, and image modalities
   ],
   groq: [
     /^whisper/,             // Speech-to-text
@@ -393,26 +402,26 @@ async function getAnthropicModels(options: ModelFetchOptions = {}): Promise<Mode
   if (!apiKey) throw new Error('Anthropic API key not configured');
 
   try {
-    const models = await modelPages<{ id: string; display_name?: string; max_input_tokens?: number; max_tokens?: number; capabilities?: { image_input?: unknown; thinking?: unknown; structured_outputs?: unknown } }>(
+    const models = await modelPages<{ id: string; display_name?: string; created_at?: string; max_input_tokens?: number; max_tokens?: number; capabilities?: { image_input?: unknown; thinking?: unknown; structured_outputs?: unknown } }>(
       `${(config.getBaseUrl('anthropic') || 'https://api.anthropic.com').replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/models`, 'anthropic', { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' });
 
     return models
       .filter(model => model.id.startsWith('claude'))
+      .sort((a, b) => releaseOrder(Date.parse(a.created_at ?? ''), Date.parse(b.created_at ?? ''), a.id, b.id)) // Newest first
       .map(model => ({
         id: model.id,
         name: model.display_name || formatModelName(model.id),
         description: getAnthropicModelDescription(model.id),
         ...anthropicMetadata(model),
-      }))
-      .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
+      }));
   } catch (error) {
     // Emergency fallback when the API is unreachable. Keep these as the current
     // shipping models — discovery is the source of truth; this is the offline net.
     if (options.throwOnError) throw error;
     logModelDetectionWarning('Failed to fetch Anthropic models, using fallback list', error, options);
     return [
-      { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Most capable model', contextLength: 1000000 },
-      { id: 'claude-sonnet-4-6', name: 'Claude Sonnet 4.6', description: 'Balanced intelligence and speed', contextLength: 1000000 },
+      { id: 'claude-opus-5', name: 'Claude Opus 5', description: 'Most capable model', contextLength: 1000000 },
+      { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', description: 'Balanced intelligence and speed', contextLength: 1000000 },
       { id: 'claude-haiku-4-5', name: 'Claude Haiku 4.5', description: 'Fast and affordable', contextLength: 200000 },
     ].map(model => ({ ...model, evidence: { source: 'emergency' as const, at: new Date().toISOString() } }));
   }
@@ -460,7 +469,7 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
         maxOutputTokens: positiveLimit(model.outputTokenLimit),
         capabilities: { chat: stringList(model.supportedGenerationMethods)?.includes('generateContent'), thinking: capability(model.thinking) },
       }))
-      .sort((a, b) => b.id.localeCompare(a.id)); // Newest first
+      .sort((a, b) => geminiOrder(a.id, b.id)); // Newest first
   } catch (error) {
     // Fallback to known models if API fails
     if (options.throwOnError) throw error;
@@ -476,6 +485,17 @@ async function getGoogleModels(options: ModelFetchOptions = {}): Promise<ModelIn
 }
 
 /**
+ * Gemini ids carry the generation in the name and the API reports no release
+ * date, so order by version (3.8 before 3.1 before 2.5), then pro before flash
+ * before flash-lite, then the shortest id. Unversioned rolling aliases sort last.
+ */
+function geminiOrder(aId: string, bId: string): number {
+  const version = (id: string) => { const m = /^gemini-(\d+(?:\.\d+)?)/.exec(id); return m ? Number(m[1]) : -1; };
+  const tier = (id: string) => id.includes('-pro') ? 0 : id.includes('flash-lite') ? 2 : id.includes('flash') ? 1 : 3;
+  return version(bId) - version(aId) || tier(aId) - tier(bId) || aId.length - bId.length || aId.localeCompare(bId);
+}
+
+/**
  * Get OpenAI models
  */
 async function getOpenAIModels(): Promise<ModelInfo[]> {
@@ -486,6 +506,9 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
   const response = await client.models.list();
 
   // Filter for chat-compatible models (GPT and reasoning models)
+  const family = (id: string) => id.replace(/-\d{4}-\d{2}-\d{2}$/, '');
+  const familyCreated = new Map<string, number>();
+  for (const model of response.data) familyCreated.set(family(model.id), Math.max(familyCreated.get(family(model.id)) ?? -Infinity, model.created * 1000));
   return response.data
     .filter(model =>
       isCompatibleModel(model.id, 'openai') && (
@@ -496,13 +519,23 @@ async function getOpenAIModels(): Promise<ModelInfo[]> {
         model.id.startsWith('gpt-5')
       )
     )
+    .sort((a, b) => releaseOrder(familyCreated.get(family(a.id))!, familyCreated.get(family(b.id))!, a.id, b.id)) // Newest first
     .map(model => ({
       id: model.id,
       name: model.id,
       description: getOpenAIModelDescription(model.id),
       ...compatibleMetadata(model),
-    }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    }));
+}
+
+/**
+ * Newest release first; within a release family, the short alias precedes its
+ * dated snapshot (gpt-5.5 before gpt-5.5-2026-04-23). Unknown dates sort last.
+ */
+function releaseOrder(aCreated: number, bCreated: number, aId: string, bId: string): number {
+  const a = Number.isFinite(aCreated) ? aCreated : -Infinity, b = Number.isFinite(bCreated) ? bCreated : -Infinity;
+  if (a !== b) return b - a;
+  return aId.length - bId.length || aId.localeCompare(bId);
 }
 
 /**
