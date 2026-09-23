@@ -78,7 +78,7 @@ import {
 } from '@zed-industries/agent-client-protocol';
 import { serveAcp } from '../src/acp.js';
 import { readRunLog, verifyChain, resetRunLogs, type RunLogLine } from '../src/runlog.js';
-import type { ToolCall } from '../src/types.js';
+import type { Message, ToolCall } from '../src/types.js';
 
 const RUNS_DIR = path.join(tmpHome, '.calliope-cli', 'runs');
 
@@ -224,7 +224,7 @@ describe('initialize', () => {
     const res = await conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
 
     expect(res.protocolVersion).toBe(1);
-    expect(res.agentCapabilities?.loadSession).toBe(false);
+    expect(res.agentCapabilities?.loadSession).toBe(true);
     expect(res.agentCapabilities?.promptCapabilities).toEqual({ image: false, audio: false, embeddedContext: false });
     expect(res.authMethods).toEqual([]);
   });
@@ -716,4 +716,186 @@ it('returns the existing JSON-RPC error after partial streaming and accepts a la
   scriptChat([{ content: 'Recovered', stream: ['Recovered'] }]);
   expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue explicitly' }] })).stopReason).toBe('end_turn');
   expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content)).toEqual(['Recovered']);
+});
+
+// ===========================================================================
+// session/load (#377)
+// ===========================================================================
+
+describe('session/load', () => {
+  const usage = { inputTokens: 1, outputTokens: 1 };
+  /** Shut the agent down as a host restart would, then connect a fresh one to the same store. */
+  async function restart(agent: ReturnType<typeof serveAcp>): Promise<ReturnType<typeof connect>> {
+    await agent.shutdown();
+    resetRunLogs();
+    const next = connect();
+    await handshake(next.conn);
+    return next;
+  }
+  const load = (conn: ClientSideConnection, sessionId: string, cwd = tmpHome) => conn.loadSession({ sessionId, cwd, mcpServers: [] });
+
+  it('restores a session after a restart, replays its history before responding and continues with it', async () => {
+    const first = connect(); await handshake(first.conn);
+    const sessionId = await newSession(first.conn);
+    mockExecuteTool.mockResolvedValue({ toolCallId: 'c1', result: 'FILE BODY', isError: false });
+    scriptChat([{ toolCalls: [{ id: 'c1', name: 'read_file', arguments: { path: 'a.txt' } }] }, { stream: ['All ', 'done'] }]);
+    expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] })).stopReason).toBe('end_turn');
+
+    const { client, conn, agent } = await restart(first.agent);
+    expect(await load(conn, sessionId)).toEqual({});
+    expect(client.updates.every(update => update.sessionId === sessionId)).toBe(true);
+    expect(client.updates.map(update => update.update)).toEqual([
+      { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'read a.txt' } },
+      { sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'read_file: a.txt', kind: 'read', status: 'pending', rawInput: { path: 'a.txt' } },
+      { sessionUpdate: 'tool_call_update', toolCallId: 'c1', status: 'completed', content: [{ type: 'content', content: { type: 'text', text: 'FILE BODY' } }], rawOutput: { result: 'FILE BODY', isError: false } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'All done' } },
+    ]);
+    expect(mockExecuteTool).toHaveBeenCalledTimes(1);
+
+    let sent: Message[] = [];
+    mockChat.mockImplementation(async (_p: unknown, messages: Message[]) => {
+      sent = structuredClone(messages);
+      return { content: 'continued', toolCalls: [], finishReason: 'stop', usage };
+    });
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'next' }] })).stopReason).toBe('end_turn');
+    expect(sent.map(message => [message.role, message.content])).toEqual([
+      ['system', 'system'], ['user', 'read a.txt'], ['assistant', ''], ['tool', 'FILE BODY'], ['assistant', 'All done'], ['user', 'next'],
+    ]);
+    const { readSessionConversation } = await import('../src/storage.js');
+    expect(readSessionConversation(sessionId).messages.at(-1)).toMatchObject({ role: 'assistant', content: 'continued' });
+
+    await agent.shutdown();
+    const lines = readRunLog(path.join(RUNS_DIR, `${sessionId}.jsonl`));
+    expect(verifyChain(lines).ok).toBe(true);
+    expect(lines.filter(line => line.type === 'run_start')).toHaveLength(2);
+    expect(lines.filter(line => line.type === 'policy_event' && (line as { source?: string }).source === 'session-recovery'))
+      .toEqual([expect.objectContaining({ decision: 'allow', reason: expect.stringMatching(/^session\/load revision=[0-9a-f-]{36} messages=5$/) })]);
+  });
+
+  it('commits the initial snapshot at session/new, so a never-prompted session loads with nothing to replay', async () => {
+    const first = connect(); await handshake(first.conn);
+    const sessionId = await newSession(first.conn);
+    const { readSessionConversation } = await import('../src/storage.js');
+    expect(readSessionConversation(sessionId)).toMatchObject({ status: 'completed', messages: [{ role: 'system', content: 'system' }] });
+
+    const { client, conn } = await restart(first.agent);
+    await load(conn, sessionId);
+    expect(client.updates).toEqual([]);
+    scriptChat([{ content: 'fresh' }]);
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'hello' }] })).stopReason).toBe('end_turn');
+    expect(readSessionConversation(sessionId).messages.map(message => message.role)).toEqual(['system', 'user', 'assistant']);
+  });
+
+  it('replays recorded tool errors and interrupted tool calls as failed, runs nothing and says so', async () => {
+    const first = connect(); await handshake(first.conn);
+    const sessionId = await newSession(first.conn);
+    first.client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'reject' } });
+    scriptChat([{ toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: 'out.txt', content: 'x' } }] }, { content: 'ok' }]);
+    await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
+    // The process dies after the model asked for a tool and before its result was recorded.
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    const state = readSessionConversation(sessionId);
+    saveSessionConversation(sessionId, [...state.messages,
+      { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', mediaType: 'image/png', data: 'AAAA' }] },
+      { role: 'assistant', content: 'Working', toolCalls: [{ id: 'w9', name: 'shell', arguments: { command: 'make' } }] },
+    ], { expectedRevision: state.revision, status: 'active' });
+
+    const { client, conn } = await restart(first.agent);
+    await load(conn, sessionId);
+    const updates = client.updates.map(update => update.update as Record<string, unknown>);
+    expect(updates.map(update => [update.sessionUpdate, update.toolCallId ?? null, update.status ?? null])).toEqual([
+      ['user_message_chunk', null, null],
+      ['tool_call', 'w1', 'pending'], ['tool_call_update', 'w1', 'failed'],
+      ['agent_message_chunk', null, null],
+      ['user_message_chunk', null, null], ['agent_message_chunk', null, null],
+      ['tool_call', 'w9', 'pending'], ['tool_call_update', 'w9', 'failed'],
+      ['agent_thought_chunk', null, null],
+    ]);
+    expect(JSON.stringify(updates[2])).toContain('Permission denied');
+    expect(updates[4]).toMatchObject({ content: { text: 'look\n[Image: image/png]' } });
+    expect(updates[6]).toMatchObject({ title: 'shell: make', kind: 'execute' });
+    expect(JSON.stringify(updates[7])).toContain('Session interrupted; tool outcome unknown');
+    expect(updates[8]).toMatchObject({ content: { text: expect.stringContaining('Interrupted work: check the project state') } });
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+
+    let sent: Message[] = [];
+    mockChat.mockImplementation(async (_p: unknown, messages: Message[]) => {
+      sent = structuredClone(messages);
+      return { content: 'checked', toolCalls: [], finishReason: 'stop', usage };
+    });
+    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'status?' }] });
+    expect(sent.filter(message => message.role === 'tool').map(message => message.toolCallId)).toEqual(['w1', 'w9']);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+  });
+
+  it('notes messages omitted by retention', async () => {
+    const first = connect(); await handshake(first.conn);
+    const sessionId = await newSession(first.conn);
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    const state = readSessionConversation(sessionId);
+    vi.stubEnv('CALLIOPE_MAX_PERSISTED_MESSAGES', '3');
+    try {
+      saveSessionConversation(sessionId, [...state.messages, ...['one', 'two', 'three'].flatMap(text => [
+        { role: 'user' as const, content: `ask ${text}` }, { role: 'assistant' as const, content: `answer ${text}` }])],
+      { expectedRevision: state.revision, status: 'completed' });
+    } finally { vi.unstubAllEnvs(); }
+
+    const { client, conn } = await restart(first.agent);
+    await load(conn, sessionId);
+    expect(client.updates.map(update => update.update)).toEqual([
+      { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'ask three' } },
+      { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'answer three' } },
+      { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '[4 older messages were omitted by retention.]\n' } },
+    ]);
+  });
+
+  it('refuses unknown sessions, other projects, relative paths, missing and damaged snapshots', async () => {
+    const { client, conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn);
+    const other = fs.realpathSync(fs.mkdtempSync(path.join(tmpHome, 'other-project-')));
+    const refused = (error: string) => ({ code: -32602, data: { error: expect.stringContaining(error) } });
+    await expect(load(conn, 'acp_missing')).rejects.toMatchObject(refused('unknown session'));
+    await expect(load(conn, sessionId, other)).rejects.toMatchObject(refused('Session belongs to'));
+    await expect(load(conn, sessionId, 'relative/project')).rejects.toMatchObject(refused('Session belongs to'));
+    const { createSession, getSessionDirById } = await import('../src/storage.js');
+    const bare = createSession(tmpHome, { activate: false, prefix: 'acp' }).id;
+    await expect(load(conn, bare)).rejects.toMatchObject(refused('No recovery snapshot'));
+    fs.writeFileSync(path.join(getSessionDirById(sessionId)!, 'messages.json'), '{');
+    await expect(load(conn, sessionId)).rejects.toMatchObject(refused('invalid or damaged snapshot'));
+    expect(client.updates).toEqual([]);
+  });
+
+  it('refuses a load while a prompt runs, then reloads the idle session in place', async () => {
+    const { client, conn } = connect(); await handshake(conn);
+    const sessionId = await newSession(conn);
+    let started = false;
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    mockChat.mockImplementationOnce(async () => {
+      started = true;
+      await blocked;
+      return { content: 'first answer', toolCalls: [], finishReason: 'stop', usage };
+    });
+    const running = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'first' }] });
+    await waitFor(() => started);
+    await expect(load(conn, sessionId)).rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('already running') } });
+    release();
+    expect((await running).stopReason).toBe('end_turn');
+
+    client.updates = [];
+    await load(conn, sessionId);
+    expect(client.updates.map(update => update.update.sessionUpdate)).toEqual(['user_message_chunk', 'agent_message_chunk']);
+    // A prompt sent before the load responds is refused instead of racing the replayed state.
+    scriptChat([{ content: 'raced' }]);
+    const reloading = load(conn, sessionId);
+    await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'too early' }] }))
+      .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('unknown session') } });
+    await reloading;
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    scriptChat([{ content: 'second answer' }]);
+    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'second' }] })).stopReason).toBe('end_turn');
+    const { readSessionConversation } = await import('../src/storage.js');
+    expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content))
+      .toEqual(['first answer', 'second answer']);
+  });
 });
