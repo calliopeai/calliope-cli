@@ -94,7 +94,7 @@ jobs:
           printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/calliope-signing.p12"
           security import "$RUNNER_TEMP/calliope-signing.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -f pkcs12 -T /usr/bin/codesign
           rm -f "$RUNNER_TEMP/calliope-signing.p12"
-          curl -fsSL --proto '=https' https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
           security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" -T /usr/bin/codesign
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
           security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
