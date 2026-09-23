@@ -29,9 +29,10 @@ is implemented and tested against the official TypeScript SDK
 | `initialize` | ✅ | Negotiates protocol v1; advertises agent capabilities |
 | `authenticate` | ✅ | No-op — Calliope authenticates via locally-configured provider keys |
 | `session/new` | ✅ | One Calliope session per ACP session; the session id round-trips |
+| `session/load` | ✅ | Restores a saved session in its project and replays its history (see *Loading a session*) |
 | `session/prompt` | ✅ | Drives the agent loop (chat + tools) to a stop reason |
 | `session/cancel` | ✅ | Aborts provider I/O and pending permission waits; returns `stopReason: cancelled` |
-| `session/update` (streaming) | ✅ | `agent_message_chunk`, `tool_call`, `tool_call_update` |
+| `session/update` (streaming) | ✅ | `agent_message_chunk`, `tool_call`, `tool_call_update`; `user_message_chunk` in a replay |
 | `session/request_permission` | ✅ | Asked for mutating/destructive tools (see below) |
 | `fs/read_text_file`, `fs/write_text_file` | ✅ | Preferred for file tools when the client advertises `fs` |
 
@@ -42,7 +43,7 @@ is implemented and tested against the official TypeScript SDK
 | Capability | Value |
 |---|---|
 | `promptCapabilities.image` / `audio` / `embeddedContext` | `false` — text and resource links only |
-| `loadSession` | `false` — see *Not yet done* |
+| `loadSession` | `true`; see *Loading a session* |
 | `authMethods` | `[]` — no authentication required |
 
 **Consumed from the client (editor):**
@@ -75,6 +76,27 @@ plugin operations offer only once/reject. Unknown option IDs are rejected.
 Session grants disappear on process restart; existing project grants may apply
 but ACP does not create project grants. See [permissions](./permissions.md) for
 scope, revocation and audit semantics.
+
+### Loading a session
+
+`session/load` restores a session this agent saved, including after the agent or
+its host restarts. Every turn already checkpoints a verified
+[recovery snapshot](./session-recovery.md), and `session/new` commits the first
+one, so a session that was never prompted loads too.
+
+- Pass the ID from `session/new` and the same `cwd`. A session loads only in its
+  recorded project; an unknown ID or a missing or damaged snapshot is refused.
+- Before responding, Calliope replays the conversation as `session/update`
+  notifications: `user_message_chunk`, `agent_message_chunk`, `tool_call`, then a
+  `tool_call_update` carrying the recorded result. The system prompt is not
+  replayed.
+- A tool call without a recorded result is closed as an unknown outcome and
+  replays as `failed`, as do recorded tool errors. Nothing runs and no provider
+  request is made; an `agent_thought_chunk` says so when work was interrupted or
+  retention omitted older messages.
+- A load is refused while a prompt runs in that session. Provider and model
+  preferences resolve for `cwd` as they do for `session/new`, and session
+  approvals do not survive a restart.
 
 ### Client-side filesystem
 
@@ -136,8 +158,6 @@ Any client that can launch a stdio ACP agent works the same way: run the command
 
 - **Registry listing.** Submitting Calliope to the public ACP agent registry is
   deferred to a later release.
-- **`session/load`.** Resuming a previous session (the `loadSession` capability)
-  is not implemented; each `session/new` starts fresh.
 - **Session modes / model selection** (`session/set_mode`, `session/set_model`).
 - **MCP servers over ACP.** `session/new` accepts an `mcpServers` list; Calliope
   ignores it for now and uses its own MCP configuration.
@@ -149,7 +169,9 @@ Code-level conformance is tested against the official ACP TypeScript SDK: the
 handshake, session lifecycle, streaming updates, the permission round-trip (grant
 and deny), mid-prompt cancellation, and client-side filesystem delegation are all
 covered by in-process tests that drive the SDK's client against the agent
-(`tests/acp.test.ts`, `tests/acp-fs-delegate.test.ts`). A live editor smoke test
+(`tests/acp.test.ts`, `tests/acp-fs-delegate.test.ts`). `tests/acp-stdio.test.ts`
+runs the built CLI over stdio, kills it after a turn and loads the session in a
+new process. A live editor smoke test
 in Zed and JetBrains is pending and tracked on the release checklist.
 
 ## Cancellation and instructions
