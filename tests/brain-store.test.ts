@@ -1,15 +1,19 @@
 import * as fs from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, it, expect } from 'vitest';
+import { afterEach, it, expect, vi } from 'vitest';
 import { BrainStore } from '../src/brain/index.js';
 import { fixture, changes, entity, source } from './helpers/brain.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
+import { simulateWindowsPathSeparators } from './helpers/windows-path.js';
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
+vi.mock('node:path', async original => ({ ...await original<typeof import('node:path')>() }));
 const fixtures: ReturnType<typeof fixture>[] = [];
 const setup = () => {
   const f = fixture();
   fixtures.push(f);
   return f;
 };
-afterEach(() => fixtures.splice(0).forEach((f) => f.clean()));
+afterEach(() => { fixtures.splice(0).forEach((f) => f.clean()); vi.restoreAllMocks(); });
 it('initializes, persists and restarts private project/global scopes without changing source files', async () => {
   const f = setup();
   fs.writeFileSync(join(f.cwd, 'README.md'), 'Original');
@@ -26,6 +30,26 @@ it('initializes, persists and restarts private project/global scopes without cha
   expect(global.read().state.entities).toEqual({});
   expect(() => new BrainStore(f.cwd, 'wrong' as never, f.base)).toThrow('scope');
   expect(() => new BrainStore(f.cwd, 'project', join(f.cwd, 'brain'))).toThrow();
+});
+it('initializes, appends and rebuilds the index on Windows, where the brain directory cannot be fsynced (#382)', async () => {
+  const f = setup();
+  const restoreFsync = simulateWindowsDirectoryFsyncDenial();
+  const restorePath = simulateWindowsPathSeparators();
+  try {
+    // Construct fresh under simulation: fixture()'s own store predates it, and
+    // BrainStore's constructor is where assertExecutionStoreOutsideProject runs.
+    const store = new BrainStore(f.cwd, 'project', f.base);
+    await store.init();
+    const a = await store.append(changes(entity()), 'human', 'Reviewed architecture');
+    expect(store.read()).toEqual(a);
+    const index = await store.index();
+    await store.saveIndex(index);
+    index.close();
+    expect((await store.index()).cache).toBe('valid');
+  } finally {
+    restorePath();
+    restoreFsync();
+  }
 });
 it('serializes concurrent writers and rejects stale review revisions without losing events', async () => {
   const f = setup();

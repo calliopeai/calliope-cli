@@ -43,6 +43,11 @@ function durable(file: string, bytes: string | Uint8Array): void {
   }
 }
 function sync(dir: string): void {
+  // NTFS journals directory metadata on commit; on Windows, libuv opens a
+  // directory with fs.openSync(dir, 'r') using a read-only (FILE_GENERIC_READ)
+  // handle, and FlushFileBuffers on that handle fails with EPERM, so this
+  // fsync is POSIX-only (calliopeai/calliope-cli#382, same root cause as #384).
+  if (process.platform === 'win32') return;
   const fd = fs.openSync(dir, 'r');
   try {
     fs.fsyncSync(fd);

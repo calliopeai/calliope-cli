@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
 import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
@@ -65,7 +65,9 @@ export function checkExecutionIdentity(manifest: ExecutionManifest, cwd: string)
   if (current.project !== manifest.project.root || current.projectKey !== manifest.project.key) throw new ExecutionLimitError('authority','Execution belongs to a different or replaced project.');
 }
 export function assertExecutionStoreOutsideProject(project:string,path:string):void {
-  const canonical=canonicalPath(path),rel=relative(project,canonical);if(!(rel==='..'||rel.startsWith('../')||isAbsolute(rel))||canonical!==path)throw new ExecutionLimitError('authority','Execution authority must stay outside worker project scope without aliases.');
+  // relative() returns OS-native separators (backslash on Windows); a hardcoded '../'
+  // never matched there, so every store outside the project looked like an alias (#382).
+  const canonical=canonicalPath(path),rel=relative(project,canonical);if(!(rel==='..'||rel.startsWith('..'+sep)||isAbsolute(rel))||canonical!==path)throw new ExecutionLimitError('authority','Execution authority must stay outside worker project scope without aliases.');
 }
 /** Shell, network and extensible tools need an enclosing sandbox with these exact grants. */
 export function executionToolDenial(manifest: ExecutionManifest, agentId: string, call: ToolCall, cwd: string, now = Date.now()): string | undefined {

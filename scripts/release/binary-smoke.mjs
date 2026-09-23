@@ -114,29 +114,24 @@ try {
   assert.equal(invalid.events[0].text, body.text);
   const denied = JSON.parse(run(["brain", "init", "--json"], 3));
   assert.ok(denied.error);
-  // Windows currently denies allowed brain mutations too (calliopeai/calliope-cli#382);
-  // the checks above still gate the Windows binary. Remove this skip with that fix.
-  const brain = process.platform !== "win32";
-  if (brain) {
-    const initialized = JSON.parse(
-      run(["brain", "init", "--allow-mutations", "--json"]),
-    );
-    assert.equal(initialized.type, "brain");
-    assert.ok(initialized.data);
-    assert.equal(initialized.error, undefined);
-    writeFileSync(
-      join(project, "source.md"),
-      "Release package indexed evidence.\n",
-    );
-    const ingested = JSON.parse(
-      run(["brain", "ingest", "source.md", "--allow-mutations", "--json"]),
-    );
-    assert.equal(ingested.type, "brain");
-    assert.ok(ingested.data.entityId);
-    assert.equal(ingested.error, undefined);
-    const found = JSON.parse(run(["brain", "search", "indexed", "--json"]));
-    assert.equal(found.data.entities.length, 1);
-  }
+  const initialized = JSON.parse(
+    run(["brain", "init", "--allow-mutations", "--json"]),
+  );
+  assert.equal(initialized.type, "brain");
+  assert.ok(initialized.data);
+  assert.equal(initialized.error, undefined);
+  writeFileSync(
+    join(project, "source.md"),
+    "Release package indexed evidence.\n",
+  );
+  const ingested = JSON.parse(
+    run(["brain", "ingest", "source.md", "--allow-mutations", "--json"]),
+  );
+  assert.equal(ingested.type, "brain");
+  assert.ok(ingested.data.entityId);
+  assert.equal(ingested.error, undefined);
+  const found = JSON.parse(run(["brain", "search", "indexed", "--json"]));
+  assert.equal(found.data.entities.length, 1);
   console.log(
     JSON.stringify({
       version: 1,
@@ -145,7 +140,7 @@ try {
       versionJson: true,
       acpHandshake: true,
       doctor: true,
-      brainIndexedSearch: brain || "skipped on Windows (calliopeai/calliope-cli#382)",
+      brainIndexedSearch: true,
       completeLargeJson: true,
       failureAndDenialExitCodes: true,
       inferenceRequests: 0,
