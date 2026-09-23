@@ -120,7 +120,8 @@ function read(file:string): string {
   }finally{fs.closeSync(fd);}
 }
 function writeNew(file:string,raw:string):void {const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,raw);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
-function syncDir(path:string):void {const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
+// POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+function syncDir(path:string):void {if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 
 export class ReservationLedger {
   readonly root:string;

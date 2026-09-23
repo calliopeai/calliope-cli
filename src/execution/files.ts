@@ -53,7 +53,9 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
         const fd=fs.openSync(temp,'wx',expected?.mode??0o600);try{fs.writeFileSync(fd,content);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
         guard.assertActive(signal);check(file);const after=fs.statSync(parent);if(before.ino!==after.ino||before.dev!==after.dev)throw new ExecutionLimitError('conflict','Parent directory changed before file commit.');
         const latest=read(file);if((latest?.hash??null)!==(expected?.hash??null))throw new ExecutionLimitError('conflict','File changed before commit.');
-        fs.renameSync(temp,physical);const directory=fs.openSync(parent,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}
+        fs.renameSync(temp,physical);
+        // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+        if(process.platform!=='win32'){const directory=fs.openSync(parent,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
       }finally{try{const after=fs.statSync(parent);if(canonicalPath(parent)===parent&&after.ino===before.ino&&after.dev===before.dev)fs.unlinkSync(temp);}catch{/* Committed or replaced. */}}
     },
     listFiles:async(file,recursive)=>{

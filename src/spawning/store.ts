@@ -34,6 +34,7 @@ export class SpawnProposalStore {
     const temp=join(this.root,randomUUID()+'.tmp'),fd=fs.openSync(temp,'wx',0o600);
     try{fs.writeFileSync(fd,raw);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
     try{fs.linkSync(temp,file);}finally{fs.unlinkSync(temp);}
-    for(const path of [this.root,this.execution.root]){const directory=fs.openSync(path,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
+    // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+    if(process.platform!=='win32')for(const path of [this.root,this.execution.root]){const directory=fs.openSync(path,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
   }
 }

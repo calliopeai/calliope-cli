@@ -37,7 +37,8 @@ function writeNew(file: string, value: unknown): void {
   const fd = fs.openSync(file, 'wx', 0o600);
   try { fs.writeFileSync(fd, canonicalJson(value)); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
-function syncDirectory(path: string): void { const fd = fs.openSync(path, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
+// POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+function syncDirectory(path: string): void { if (process.platform === 'win32') return; const fd = fs.openSync(path, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); } }
 export function validateRunManifest(value: unknown): RunManifest {
   shape(value, ['version','id','createdAt','project','plan','planHash','source','hash'],['goal']);
   if (value.version!==1&&value.version!==2 || !uuid(value.id) || !iso(value.createdAt) || !hex(value.planHash)) throw unavailable();

@@ -87,7 +87,9 @@ export class ProjectSpendLedger {
       if(events.length+(change.type==='reserve'?pending+2:1)>MAX_EVENTS)throw new ExecutionLimitError('limit','Project budget history reached its event limit; pending reservations remain charged.');
       const next=replay([...events,event(events,change)]),output=encode(next);writeNew(temp,output);throwIfCancelled(signal);const after=directory(dir);
       if(before.dev!==after.dev||before.ino!==after.ino||readRaw(this.file)!==raw)throw new ExecutionLimitError('conflict','Project budget changed before commit.');
-      if(!marked)writeNew(marker,'version=2');fs.renameSync(temp,this.file);const directoryFd=fs.openSync(dir,'r');try{fs.fsyncSync(directoryFd);}finally{fs.closeSync(directoryFd);}return next;
+      if(!marked)writeNew(marker,'version=2');fs.renameSync(temp,this.file);
+      // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+      if(process.platform!=='win32'){const directoryFd=fs.openSync(dir,'r');try{fs.fsyncSync(directoryFd);}finally{fs.closeSync(directoryFd);}}return next;
     }finally{fs.closeSync(fd);try{const after=directory(dir);if(before.dev===after.dev&&before.ino===after.ino){fs.rmSync(temp,{force:true});const lockStat=fs.lstatSync(lock);if(lockStat.dev===identity.dev&&lockStat.ino===identity.ino)fs.unlinkSync(lock);}}catch{/* Preserve foreign or damaged directories. */}}
   }
 }

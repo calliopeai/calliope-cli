@@ -12,6 +12,8 @@ import {verifiedPlan} from './helpers/coordinator-run.js';
 import {goalSupervision} from './helpers/supervised-goal.js';
 import {analyzePlan,OrchestrationError,RunStore} from '../src/orchestration/index.js';
 import {runGoalCommand,formatGoal} from '../src/goals/index.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
+vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string,project:string,manifest:GoalManifest;
 const resign=(value:any)=>{const {hash,...body}=value;return signed(body);};
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-goal-schema-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);manifest=toyGoal(project,join(root,'runs'));vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('No provider requests in schema tests.');}));});
@@ -113,4 +115,12 @@ it('captures optional Brain grants in the existing hash and preserves default pl
   const store=new GoalStore(join(root,'brain-goals'));store.create(m);expect(new GoalStore(store.root).read(m.id).manifest.workspace).toEqual(m.workspace);
   expect(formatGoal({goal:store.read(m.id),status:'created'} as any)).toContain('Brain: read-only');
   for(const action of ['resume','status','replay']){const lines:string[]=[];expect(await runGoalCommand([action,m.id,'--brain','--json'],{cwd:project,goals:store,write:line=>lines.push(line)})).toBe(2);expect(JSON.parse(lines[0]!).version).toBe(1);}
+});
+it('creates and appends a goal on Windows, where its directories cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    const store=new GoalStore(join(root,'goals'));store.create(manifest);
+    await store.append(manifest.id,{type:'cancelled',source:'cli'});
+    expect(store.read(manifest.id).events).toHaveLength(1);
+  }finally{restore();}
 });

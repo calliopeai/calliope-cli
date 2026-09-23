@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { RunStore, analyzePlan, replayRun, validateRunEvent, validateRunManifest } from '../src/orchestration/index.js';
 import { canonicalJson, digest } from '../src/approvals/index.js';
 import { toyPlan } from './helpers/orchestration-plan.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
 vi.mock('node:fs', async original => ({...await original<typeof import('node:fs')>()}));
 let root: string, project: string, store: RunStore;
 beforeEach(() => { root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-run-store-'))); project = join(root,'project'); fs.mkdirSync(project); store = new RunStore(join(root,'store')); });
@@ -104,4 +105,14 @@ it('detects a store or project directory replacement while a read yields', async
   await expect(pending).rejects.toThrow(); fs.rmSync(store.root,{recursive:true,force:true}); fs.renameSync(before,store.root);
   const reading=store.read(initial.run.id,project); fs.renameSync(project,join(root,'old-project')); fs.mkdirSync(project);
   await expect(reading).rejects.toMatchObject({code:'policy-denied'});
+});
+it('prepares and transitions a run on Windows, where its directories cannot be fsynced (#388)', async () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const initial = await prepare();
+    const approved = await store.transition(initial.run.id,project,initial.run.revision,{type:'approved',source:'cli'});
+    expect(approved.run).toMatchObject({status:'approved',approval:'approved',eventCount:2});
+  } finally {
+    restore();
+  }
 });

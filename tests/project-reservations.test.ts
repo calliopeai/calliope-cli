@@ -4,6 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {ProjectSpendLedger} from '../src/execution/index.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
 vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string,file:string,store:ProjectSpendLedger;
 beforeEach(()=>{root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-project-cost-')));file=join(root,'private','budget.json');store=new ProjectSpendLedger(file);});
@@ -45,4 +46,12 @@ it('retains legacy timestamps and refuses a damaged initialization marker or fai
   fs.mkdirSync(join(root,'private'),{mode:0o700});const at='2026-01-01T00:00:00.000Z';fs.writeFileSync(file,JSON.stringify({spentUsd:1,updatedAt:at}));expect(store.read().updatedAt).toBe(at);fs.unlinkSync(file);
   vi.spyOn(fs,'renameSync').mockImplementationOnce(()=>{throw new Error('disk failure');});await expect(store.reserve(randomUUID(),randomUUID(),100,1000)).rejects.toThrow();expect(()=>store.read()).toThrow();
   fs.unlinkSync(file+'.initialized');fs.symlinkSync(join(root,'missing'),file+'.initialized');expect(()=>store.read()).toThrow();await expect(store.reserve(randomUUID(),randomUUID(),100,1000)).rejects.toThrow();expect(fs.existsSync(file)).toBe(false);
+});
+it('imports and commits project spend on Windows, where its directory cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    fs.mkdirSync(join(root,'private'),{mode:0o700});fs.writeFileSync(file,JSON.stringify({spentUsd:1,updatedAt:new Date().toISOString()}));
+    const id=randomUUID();await store.reserve(id,randomUUID(),1e9,2e9);await store.settle(id,2e8);
+    expect(store.read().spentUsd).toBe(1.2);expect(new ProjectSpendLedger(file).read().spentUsd).toBe(1.2);
+  }finally{restore();}
 });

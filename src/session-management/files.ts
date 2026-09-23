@@ -50,8 +50,11 @@ export async function writeSessionTransfer(cwd: string, path: string, content: s
     try { fs.writeFileSync(fd, content); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
     target.recheck(); throwIfCancelled(options.signal);
     fs.linkSync(temp, target.file);
-    const parentFd = fs.openSync(target.parent, 'r');
-    try { fs.fsyncSync(parentFd); } finally { fs.closeSync(parentFd); }
+    // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+    if (process.platform !== 'win32') {
+      const parentFd = fs.openSync(target.parent, 'r');
+      try { fs.fsyncSync(parentFd); } finally { fs.closeSync(parentFd); }
+    }
     log.policyEvent({ tool: 'session_export', source: 'session-history', decision: 'allow', durationMs: 0,
       reason: `committed=${target.file} checksum=${hash(content)}` });
     return target.file;

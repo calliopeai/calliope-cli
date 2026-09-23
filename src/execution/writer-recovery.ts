@@ -16,7 +16,8 @@ export function recoverDeadWriterLock(file:string):boolean {
     const claim=join(recovery,`${basename(file)}-${stat.dev}-${stat.ino}`);fs.linkSync(file,claim);
     const captured=fs.lstatSync(claim),current=fs.lstatSync(file),after=fs.lstatSync(root);
     if(captured.dev!==stat.dev||captured.ino!==stat.ino||current.dev!==stat.dev||current.ino!==stat.ino||after.dev!==parent.dev||after.ino!==parent.ino||canonicalPath(file)!==file)return false;
-    for(const path of [recovery,root]){const directory=fs.openSync(path,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
-    fs.unlinkSync(file);const directory=fs.openSync(root,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}return true;
+    // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+    if(process.platform!=='win32')for(const path of [recovery,root]){const directory=fs.openSync(path,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}
+    fs.unlinkSync(file);if(process.platform!=='win32'){const directory=fs.openSync(root,'r');try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}}return true;
   }catch{return false;}
 }
