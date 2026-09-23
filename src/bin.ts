@@ -237,6 +237,14 @@ async function main(): Promise<void> {
     return completeCommand(code);
   }
 
+  // Handle `attach` subcommand — follow a session on an agent host over the
+  // Agent Host Protocol and answer its tool confirmations (#378). Runs before
+  // the setup/TUI gates; loaded lazily so the default path pays nothing.
+  if (args[0] === 'attach') {
+    const { runAttach } = await import('./attach.js');
+    return completeCommand(await runAttach(args.slice(1)));
+  }
+
   // Handle `acp` subcommand — run as an Agent Client Protocol agent over stdio
   // JSON-RPC (Zed, JetBrains, Neovim, …). Runs before the setup/TUI gates and
   // never touches Ink: stdio carries the protocol, so an interactive prompt
