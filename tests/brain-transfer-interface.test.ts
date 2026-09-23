@@ -17,6 +17,8 @@ import {
   runBrainCommand,
   brainLines,
 } from '../src/brain/index.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
 let f: ReturnType<typeof fixture>;
 const opts = () => ({ base: f.base, confirmation: 'none' as const });
 beforeEach(async () => {
@@ -265,4 +267,25 @@ it('imports a real Studio 1.2.0 producer under both graph aliases and as a nativ
   fs.writeFileSync(join(f.cwd, 'studio-alias.json'), JSON.stringify(graph, null, 2));
   const repeat = await importKnowledgeGraph(f.cwd, 'studio-alias.json', options);
   expect(repeat.unchanged).toBe(true);
+});
+it('exports the knowledge graph on Windows, where the target directory cannot be fsynced (#388)', async () => {
+  await noteBrain(f.cwd, 'SQLite', 'Choose portable storage', 'decision', opts());
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const result = await exportKnowledgeGraphFile(f.cwd, 'graph.json', { ...opts(), allowLoss: true });
+    expect(JSON.parse(fs.readFileSync(result.path, 'utf8')).format).toBe('calliope-kg/v1');
+  } finally {
+    restore();
+  }
+});
+it('exports the brain bundle on Windows, where the target directory cannot be fsynced (#388)', async () => {
+  await noteBrain(f.cwd, 'Design', 'Knowledge system', 'decision', opts());
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const output = await exportBrain(f.cwd, 'full.json', opts());
+    const bundle = parseBrainBundle(JSON.parse(fs.readFileSync(output.path, 'utf8')));
+    expect(bundle.checksum).toBe(output.checksum);
+  } finally {
+    restore();
+  }
 });

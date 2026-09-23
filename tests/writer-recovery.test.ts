@@ -5,6 +5,8 @@ import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {recoverDeadWriterLock} from '../src/execution/index.js';
 import {coordinatorRun} from './helpers/coordinator-run.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
+vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string;
 beforeEach(()=>{root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-writer-recovery-')));fs.chmodSync(root,0o700);});
 afterEach(()=>{vi.restoreAllMocks();fs.rmSync(root,{recursive:true,force:true});});
@@ -25,4 +27,12 @@ it('preserves interrupted reclaim claims and resumes journals after a real write
   const run=await coordinatorRun(root),writer=join(run.store.root,'writer.lock');dead(writer);const before=run.store.read();await run.store.append({type:'agent_stop',agentId:'a'});expect(run.store.read().header).toEqual(before.header);expect(run.store.read().state.stoppedAgents).toEqual(['a']);
   dead(join(run.store.root,'owner.lock'));const lease=run.store.acquire();lease.check();lease.release();
   const file=join(root,'writer.lock');dead(file);const stat=fs.statSync(file),recovery=join(root,'lock-recovery');fs.mkdirSync(recovery,{mode:0o700});fs.linkSync(file,join(recovery,`writer.lock-${stat.dev}-${stat.ino}`));expect(recoverDeadWriterLock(file)).toBe(false);expect(fs.existsSync(file)).toBe(true);
+});
+it('reclaims a confirmed exited writer on Windows, where both directories cannot be fsynced (#388)',()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    const file=join(root,'writer.lock');dead(file);
+    expect(recoverDeadWriterLock(file)).toBe(true);expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readdirSync(join(root,'lock-recovery'))).toHaveLength(1);
+  }finally{restore();}
 });

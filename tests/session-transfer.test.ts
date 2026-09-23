@@ -10,6 +10,7 @@ import { IterationLedger } from '../src/iteration-ledger.js';
 import { RunLog, resetRunLogs, readRunLog, verifyChain } from '../src/runlog.js';
 import { checkTrust } from '../src/trust.js';
 import type { Message } from '../src/types.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
 vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
 let root: string, project: string, source: storage.Session;
 const originalPaths = { ...storage.paths };
@@ -272,4 +273,14 @@ it('distinguishes headless cancellation, policy denial, damaged state and other 
   expect(output[0]).toContain('calliope session');
   output.length = 0; await runSessionCommand([], { ...opts, write: text => output.push(text) });
   expect(JSON.parse(output[0]!).sessions[0].id).toBe(source.id);
+});
+it('exports session history on Windows, where the target directory cannot be fsynced (#388)', async () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const raw = await text();
+    const path = await writeSessionTransfer(project, 'session.json', raw);
+    expect(fs.readFileSync(path, 'utf8')).toBe(raw);
+  } finally {
+    restore();
+  }
 });

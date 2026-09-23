@@ -8,6 +8,7 @@ import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {ExecutionStore,analyzePlan,collectTaskOutput,replayExecution,changePreparedRun,workerReport,workerSummary,readCollectedArtifact,validateExecutionEvent,validateExecutionHeader,validateCollectedArtifact,validateTaskOutput,controlExecution,readArtifactBytes} from '../src/orchestration/index.js';
 import {canonicalJson,digest} from '../src/approvals/index.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
 vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string;
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-coordinator-store-')));fs.chmodSync(root,0o700);vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('No provider call');}));});
@@ -101,4 +102,11 @@ it('detects revoked approval and never recreates missing or damaged execution hi
 it('preserves prior journal state when atomic commit fails and does not reuse a foreign lock',async()=>{
   const {store}=await coordinatorRun(root),before=store.read();vi.spyOn(fs,'renameSync').mockImplementationOnce(()=>{throw new Error('disk failure');});await expect(store.append({type:'started',ownerId:randomUUID()})).rejects.toThrow('disk failure');expect(store.read()).toEqual(before);
   const lock=join(store.root,'writer.lock');fs.writeFileSync(lock,'foreign');const controller=new AbortController(),pending=store.append({type:'started',ownerId:randomUUID()},controller.signal);controller.abort();await expect(pending).rejects.toThrow();expect(fs.readFileSync(lock,'utf8')).toBe('foreign');
+});
+it('creates and appends the execution journal on Windows, where its directories cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    const {store}=await coordinatorRun(root);await store.append({type:'agent_stop',agentId:'a'});
+    expect(store.read().state.stoppedAgents).toEqual(['a']);
+  }finally{restore();}
 });

@@ -11,7 +11,9 @@ import * as config from '../src/config.js';
 import * as fleet from '../src/fleet.js';
 import {executionManifest} from './helpers/execution-manifest.js';
 import {simulateWindowsPathSeparators} from './helpers/windows-path.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
 vi.mock('node:path', async original => ({ ...await original<typeof import('node:path')>() }));
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger;
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-authority-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);for(const name of ['a','b'])fs.mkdirSync(join(project,name));manifest=executionManifest(project);ledger=new ReservationLedger(join(root,'budget'));});
 afterEach(()=>{config.resetConfig();saveHooks([]);vi.restoreAllMocks();fs.rmSync(root,{recursive:true,force:true});});
@@ -93,4 +95,12 @@ it('does not mirror bounded tool arguments to an enabled fleet transport',async(
   vi.spyOn(fleet,'fleetActive').mockReturnValue(true);const mirror=vi.spyOn(fleet,'fleetMirrorToolCall').mockResolvedValue(undefined);
   const g=guard(),file=join(project,'a/source.txt');fs.writeFileSync(file,'public toy');const call={id:'read',name:'read_file',arguments:{path:file}};
   const result=await withScope(project,()=>executeTool(call,project,1000,undefined,{authority:g.check,fs:agentFiles(g,'a',call)}));expect(result.isError).toBeFalsy();expect(result.result).toContain('public toy');expect(mirror).not.toHaveBeenCalled();
+});
+it('writes an agent file on Windows, where the parent directory cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    manifest.accounts[1]!.allowedTools=['edit_file'];const g=guard(),file=join(project,'a/file.txt');fs.writeFileSync(file,'hello');
+    const call={id:'edit',name:'edit_file',arguments:{path:file,old_string:'hello',new_string:'world'}},delegate=agentFiles(g,'a',call);
+    await delegate.readTextFile!(file);await delegate.writeTextFile!(file,'world');expect(fs.readFileSync(file,'utf8')).toBe('world');
+  }finally{restore();}
 });

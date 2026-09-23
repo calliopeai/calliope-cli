@@ -16,7 +16,8 @@ const unavailable=()=>new OrchestrationError('unavailable','Goal records are dam
 function exists(path:string):boolean{try{fs.lstatSync(path);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw unavailable();}}
 function readJson(path:string,max:number):unknown{try{return JSON.parse(readArtifactBytes(path,max,true).toString());}catch{throw unavailable();}}
 function writeNew(path:string,bytes:string):void{const fd=fs.openSync(path,'wx',0o600);try{fs.writeFileSync(fd,bytes);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
-function sync(path:string):void{const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
+// POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+function sync(path:string):void{if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 function outside(project:string,path:string):boolean{const rel=relative(project,path);return isAbsolute(rel)||rel==='..'||rel.startsWith('../');}
 function checkExecution(manifest:GoalManifest,state:GoalProjection,proposal:GoalProposal|null):void {
   if(state.execution&&(!proposal||proposal.hash!==state.approvedProposalHash||proposal.planHash!==state.execution.planHash||proposal.plan.limits.tokenBudget!==state.execution.tokens||Math.floor(proposal.plan.limits.costBudgetUsd*1e9)!==state.execution.costNanos||Date.parse(manifest.createdAt)+proposal.plan.limits.timeBudgetMs!==state.execution.deadline))throw unavailable();

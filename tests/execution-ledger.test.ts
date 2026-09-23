@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {ReservationLedger,manifestHash,replayReservations,requestCostNanos,MAX_RESERVATION_BYTES,type ExecutionManifest,type RequestReservation,type ReservationEvent} from '../src/execution/index.js';
 import {canonicalJson,digest} from '../src/approvals/index.js';
 import {executionManifest} from './helpers/execution-manifest.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
 vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger;
 beforeEach(()=>{root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-budget-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);manifest=executionManifest(project);ledger=new ReservationLedger(join(root,'budget'));});
@@ -68,4 +69,12 @@ it('reserves journal capacity for final settlement and rejects oversized history
   const file=join(ledger.root,'history.json');fs.writeFileSync(file,JSON.stringify({version:1,manifest,events,hash:digest(canonicalJson({manifest:hash,events:events.map(e=>e.hash)}))}));
   const last=request();await ledger.reserve(project,hash,last);await expect(ledger.reserve(project,hash,request())).rejects.toMatchObject({code:'limit'});await ledger.settle(project,hash,{requestId:last.id,outcome:'cancelled'});expect(ledger.read(project).events).toHaveLength(10000);
   fs.truncateSync(file,MAX_RESERVATION_BYTES+1);expect(()=>ledger.read(project)).toThrow();expect(()=>ledger.create(manifest)).toThrow();expect(fs.statSync(file).size).toBe(MAX_RESERVATION_BYTES+1);
+});
+it('creates and appends the budget journal on Windows, where its directories cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    ledger.create(manifest);const hash=manifestHash(manifest),r=request();
+    const reserved=await ledger.reserve(project,hash,r);expect(reserved.spent).toEqual({tokens:1000,costNanos:1100000});
+    expect(new ReservationLedger(ledger.root).read(project).projection).toEqual(reserved);
+  }finally{restore();}
 });

@@ -34,7 +34,8 @@ export function readArtifactBytes(file:string,max=1024*1024,privateFile=false):B
   }finally{fs.closeSync(fd);}
 }
 function writeNew(file:string,data:string|Buffer):void{const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
-function syncDir(path:string):void{const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
+// POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+function syncDir(path:string):void{if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 function parsed(file:string,max=MAX_EXECUTION_BYTES):unknown {try{return JSON.parse(readArtifactBytes(file,max,true).toString());}catch{throw unavailable();}}
 function exists(file:string):boolean{try{fs.lstatSync(file);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw unavailable();}}
 

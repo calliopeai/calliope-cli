@@ -115,11 +115,14 @@ export async function exportKnowledgeGraphFile(
     target.recheck();
     throwIfCancelled(options.signal);
     fs.linkSync(temp, target.file);
-    const parent = fs.openSync(dirname(target.file), 'r');
-    try {
-      fs.fsyncSync(parent);
-    } finally {
-      fs.closeSync(parent);
+    // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
+    if (process.platform !== 'win32') {
+      const parent = fs.openSync(dirname(target.file), 'r');
+      try {
+        fs.fsyncSync(parent);
+      } finally {
+        fs.closeSync(parent);
+      }
     }
     return { ...receipt, preview: false };
   } finally {

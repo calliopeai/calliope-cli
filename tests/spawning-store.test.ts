@@ -9,6 +9,8 @@ import {coordinatorRun} from './helpers/coordinator-run.js';
 import {inspectSpawn,admitSpawn,SpawnProposalStore,inspectSpawnAuthority,spawnCommand,executeSpawn,type SpawnInput} from '../src/spawning/index.js';
 import {ReservationLedger,ExecutionGuard} from '../src/execution/index.js';
 import {ExecutionStore,replayExecution,controlExecution,changePreparedRun} from '../src/orchestration/index.js';
+import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
+vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string;
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-spawn-')));fs.chmodSync(root,0o700);vi.stubGlobal('fetch',vi.fn(()=>{throw new Error('No provider request authorized');}));});
 afterEach(()=>{config.resetConfig();saveHooks([]);vi.restoreAllMocks();vi.unstubAllGlobals();fs.rmSync(root,{recursive:true,force:true});});
@@ -73,4 +75,12 @@ it('rejects renamed proposal records and aliased private storage without grantin
   const r=await setup(),preview=await inspectSpawn(r.project,r.id,'children.json',r.options),proposals=new SpawnProposalStore(r.store);fs.mkdirSync(proposals.root,{mode:0o700});
   fs.writeFileSync(join(proposals.root,'0'.repeat(64)+'.json'),JSON.stringify(preview.proposal),{mode:0o600});expect(()=>proposals.read('0'.repeat(64))).toThrow(/requested hash/);expect(()=>proposals.read('../outside')).toThrow(/hash/);
   fs.rmSync(proposals.root,{recursive:true});const target=join(root,'foreign');fs.mkdirSync(target,{mode:0o700});fs.symlinkSync(target,proposals.root);await expect(admitSpawn(r.project,r.id,preview.proposal,preview.proposal.hash,r.options)).rejects.toThrow(/symlink/);expect(r.authority.ledger.read(r.project).events).toEqual([]);
+});
+it('admits a child spawn proposal on Windows, where its directories cannot be fsynced (#388)',async()=>{
+  const restore=simulateWindowsDirectoryFsyncDenial();
+  try{
+    const r=await setup(),preview=await inspectSpawn(r.project,r.id,'children.json',r.options);
+    const accepted=await admitSpawn(r.project,r.id,preview.proposal,preview.proposal.hash,r.options);
+    expect(accepted.alreadyAdmitted).toBe(false);expect(new SpawnProposalStore(r.store).read(preview.proposal.hash)).toEqual(preview.proposal);
+  }finally{restore();}
 });
