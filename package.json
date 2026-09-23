@@ -72,7 +72,7 @@
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.7",
     "@types/sql.js": "1.4.11",
-    "@vitest/coverage-v8": "^4.0.16",
+    "@vitest/coverage-v8": "^5.0.1",
     "ink-testing-library": "^4.0.0",
     "sharp": "^0.35.3",
     "typescript": "^7.0.2",
