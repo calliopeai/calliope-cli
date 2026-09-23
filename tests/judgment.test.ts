@@ -3,6 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { join } from 'node:path';
 import * as config from '../src/config.js';
+import { ExecutionLimitError } from '../src/execution/index.js';
+import type { ChatOptions } from '../src/providers/index.js';
 import type { LLMResponse, Message } from '../src/types.js';
 
 const mockChat = vi.fn();
@@ -127,6 +129,10 @@ describe('prompted engine', () => {
     expect(onRetry).toBeUndefined();
     expect(options.format).toMatchObject({ type: 'object' });
     expect(options.selectionMode).toBe('explicit');
+    // No bounded-execution controls by default: an unbudgeted judgment call behaves exactly as before #368.
+    expect((options as ChatOptions).maxOutputTokens).toBeUndefined();
+    expect((options as ChatOptions).bounded).toBeUndefined();
+    expect((options as ChatOptions).attemptBudget).toBeUndefined();
     expect(response).toEqual({
       provider: 'ollama', model: 'qwen:latest',
       answers: {
@@ -144,6 +150,22 @@ describe('prompted engine', () => {
     expect(mockChat.mock.calls[0]![6]).toMatchObject({ selectionMode: 'auto' });
     expect(response.provider).toBe('anthropic');
     expect(response.model).toBeTruthy();
+  });
+
+  it('threads maxOutputTokens, bounded and attemptBudget into chat() unchanged, so a governed caller admits the same call it reserved', async () => {
+    mockChat.mockResolvedValueOnce(reply(modelJson));
+    const attemptBudget = { reserve: vi.fn(), settle: vi.fn() };
+    await evaluate(request, { provider: 'openai', maxOutputTokens: 64, bounded: true, attemptBudget });
+    const options = mockChat.mock.calls[0]![6] as ChatOptions;
+    expect(options.maxOutputTokens).toBe(64);
+    expect(options.bounded).toBe(true);
+    expect(options.attemptBudget).toBe(attemptBudget); // same instance: evaluate() never wraps or clones the caller's budget
+  });
+
+  it('propagates a budget or admission failure from chat() unwrapped, so callers already handling ExecutionLimitError see the same shape', async () => {
+    mockChat.mockRejectedValueOnce(new ExecutionLimitError('budget', 'Provider usage exceeded its reservation; further execution is stopped.'));
+    await expect(evaluate(request, { provider: 'openai', maxOutputTokens: 64, attemptBudget: { reserve: vi.fn(), settle: vi.fn() } }))
+      .rejects.toMatchObject({ name: 'ExecutionLimitError', code: 'budget' });
   });
 
   it('surfaces refusals, truncated answers and provider failures as typed errors', async () => {
