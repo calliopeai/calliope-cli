@@ -159,8 +159,8 @@ Any client that can launch a stdio ACP agent works the same way: run the command
 - **Registry listing.** Submitting Calliope to the public ACP agent registry is
   deferred to a later release.
 - **Session modes / model selection** (`session/set_mode`, `session/set_model`).
-- **MCP servers over ACP.** `session/new` accepts an `mcpServers` list; Calliope
-  ignores it for now and uses its own MCP configuration.
+- **MCP servers over ACP.** `session/new` and `session/load` accept an
+  `mcpServers` list; Calliope ignores it for now and uses its own MCP configuration.
 - **Terminals, images, and audio** in prompts/tool calls.
 
 ## Verification status
