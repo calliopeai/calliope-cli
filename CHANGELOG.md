@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Publish per-platform standalone binaries for embedders: the release workflow adds `win-x64`, signs and notarises the macOS binaries with the hardened runtime, and writes an attested `calliope-binaries.json` (`{version, files: [{platform, url, sha256, size}]}`) next to `checksums.txt`. `calliope --version --json` prints `{"version","acp"}` without an update check, and every binary must complete an ACP `initialize` and `session/new` over stdio before it is checksummed (#379).
 - Add `policy.judgment`, an opt-in built-in policy classifier: point it at a judgment rules file and the pre-tool hook decides in process, with `policy.judgmentProvider`/`policy.judgmentModel` naming the backend that answers. Off unless configured, setting it alongside `policy.command` denies rather than picking one, and its timeout defaults to 30000ms because a judged decision waits on a provider rather than a local script (#366).
 - Add `calliope judge --policy <rules.json>`: a judgment-backed pre-tool policy engine for the documented `policy.command` hook. It reads the pending tool call on stdin, evaluates reviewed noul/choice/score questions against it, and exits 0 to allow or non-zero to deny with the reason on stderr. Rules are validated against their own questions when the file loads, and every failure denies (#366).
 - Raise the supported Node.js floor to 24 (engines, CI, Dockerfile, runtime check, docs). Node 20 is end-of-life and current provider SDK majors require 22+.
