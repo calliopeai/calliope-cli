@@ -163,6 +163,12 @@ async function main(): Promise<void> {
 
   // Handle --version
   if (args.includes('--version') || args.includes('-v')) {
+    // Embedders check compatibility before spawning `calliope acp`; offline, no update check.
+    if (args.includes('--json')) {
+      const { PROTOCOL_VERSION } = await import('@zed-industries/agent-client-protocol');
+      console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION }));
+      return completeCommand(0);
+    }
     console.log(`calliope v${getVersion()}`);
     await checkForUpdates();
     process.exit(0);
@@ -436,7 +442,7 @@ ${bold('USAGE')}
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message
-  -v, --version     Show version
+  -v, --version     Show version (with --json: {"version","acp"} for embedders)
   -u, --upgrade     Upgrade to latest version
   --setup           Run setup wizard (reconfigure)
   --config          Show config file path and status
