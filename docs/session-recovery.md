@@ -17,8 +17,9 @@ Terminal, headless and ACP turns save recovery snapshots before provider work,
 before dispatching a response's tools, after each tool result, and on completion,
 failure or cancellation. Headless output includes the session ID in a `status`
 event and retains the existing event envelope and exit codes. ACP session IDs
-identify the saved session too; ACP `session/load` is still unavailable. A saved
-headless or ACP conversation can be resumed from the terminal in its project.
+identify the saved session too, and ACP `session/load` restores one in its
+recorded project under the same rules ([ACP](acp.md#loading-a-session)). A saved
+headless or ACP conversation can also be resumed from the terminal in its project.
 
 If a recovery write fails, execution stops with an actionable error, including
 when cancellation is also in progress. That recovery error takes precedence

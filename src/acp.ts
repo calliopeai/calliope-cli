@@ -9,8 +9,8 @@
  * agent logic.
  *
  * Baseline agent surface implemented: `initialize`, `authenticate`, `session/new`,
- * `session/prompt`; `session/cancel`; streaming `session/update` notifications; and
- * the `session/request_permission` flow. When the client advertises `fs`
+ * `session/load`, `session/prompt`; `session/cancel`; streaming `session/update`
+ * notifications; and the `session/request_permission` flow. When the client advertises `fs`
  * capabilities, file tools are routed through the client's `fs/read_text_file` and
  * `fs/write_text_file` so edits land on the editor's (possibly unsaved) buffers.
  *
@@ -21,6 +21,7 @@
  */
 
 import { ApprovalStore, type ApprovalChoice } from './approvals/index.js';
+import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
@@ -38,6 +39,8 @@ import {
   type InitializeResponse,
   type NewSessionRequest,
   type NewSessionResponse,
+  type LoadSessionRequest,
+  type LoadSessionResponse,
   type AuthenticateResponse,
   type PromptRequest,
   type PromptResponse,
@@ -46,9 +49,9 @@ import {
 
 import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
-import { runTurn } from './runtime/index.js';
-import { createSession, saveSessionConversation } from './storage.js';
-import { SessionRecoveryError } from './sessions/index.js';
+import { completePendingTools, runTurn } from './runtime/index.js';
+import { createSession, getSessionById, getSessionDirById, readSessionConversation, saveSessionConversation } from './storage.js';
+import { SessionRecoveryError, readToolOutputs, type ConversationState } from './sessions/index.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
@@ -187,7 +190,24 @@ interface AcpSession {
   activeTurn?: Promise<PromptResponse['stopReason']>;
 }
 
+/** Provider/model preferences for a session's project; session/new and session/load resolve them alike. */
+function sessionPreferences(cwd: string): Pick<AcpSession, 'preference' | 'provider' | 'resolvedProvider' | 'model'> {
+  let preference: ResolvedPreference;
+  try { preference = resolvePreferences(cwd); }
+  catch (error) { throw RequestError.invalidParams({ error: error instanceof Error ? error.message : String(error) }); }
+  const { provider } = preference, model = preference.model || '';
 
+  // Resolve the provider so 'auto' picks a real backend for the system prompt,
+  // cost model, and local-backend flag (mirrors the headless runner). Fall back
+  // to the raw provider if selection throws (chat() surfaces the real error).
+  let resolvedProvider: LLMProvider;
+  try {
+    resolvedProvider = selectProvider(provider);
+  } catch {
+    resolvedProvider = provider;
+  }
+  return { preference, provider, resolvedProvider, model };
+}
 
 // ============================================================================
 // The agent
@@ -216,8 +236,8 @@ class CalliopeAgent implements Agent {
     return {
       protocolVersion: negotiated,
       agentCapabilities: {
-        // session/load, MCP-over-ACP, and modes are not implemented yet.
-        loadSession: false,
+        // MCP-over-ACP and modes are not implemented yet.
+        loadSession: true,
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
       },
       // Calliope authenticates via locally-configured provider keys, so no ACP
@@ -236,20 +256,7 @@ class CalliopeAgent implements Agent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const cwd = params.cwd || process.cwd();
-    let preference: ResolvedPreference;
-    try { preference = resolvePreferences(cwd); }
-    catch (error) { throw RequestError.invalidParams({ error: error instanceof Error ? error.message : String(error) }); }
-    const { provider } = preference, model = preference.model || '';
-
-    // Resolve the provider so 'auto' picks a real backend for the system prompt,
-    // cost model, and local-backend flag (mirrors the headless runner). Fall back
-    // to the raw provider if selection throws (chat() surfaces the real error).
-    let resolvedProvider: LLMProvider;
-    try {
-      resolvedProvider = selectProvider(provider);
-    } catch {
-      resolvedProvider = provider;
-    }
+    const { preference, provider, resolvedProvider, model } = sessionPreferences(cwd);
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
     const sessionId = createSession(cwd, { activate: false, prefix: 'acp' }).id;
@@ -261,6 +268,10 @@ class CalliopeAgent implements Agent {
     const fullPrompt = memoryContext.trim()
       ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
       : systemPrompt;
+    const messages: Message[] = [{ role: 'system', content: fullPrompt }];
+    // Commit the initial snapshot now, as terminal /new does, so session/load can
+    // restore a session that was never prompted.
+    const { revision } = saveSessionConversation(sessionId, messages, { expectedRevision: null, status: 'completed' });
 
     this.sessions.set(sessionId, {
       id: sessionId,
@@ -269,13 +280,85 @@ class CalliopeAgent implements Agent {
       resolvedProvider,
       model,
       preference,
-      revision: null,
-      messages: [{ role: 'system', content: fullPrompt }],
+      revision,
+      messages,
       runlog,
       cancelled: false,
     });
     debug(`session/new: ${sessionId} cwd=${cwd} provider=${resolvedProvider} model=${costModel}`);
     return { sessionId };
+  }
+
+  // ---- ACP: session/load ------------------------------------------------
+
+  /**
+   * Restore a saved session and replay its conversation as session/update
+   * notifications before responding. Same store and rules as terminal /resume:
+   * the session must belong to `cwd`, its snapshot must verify, and tool calls
+   * without a recorded result are closed as unknown outcomes. No provider
+   * request is made and no tool runs.
+   */
+  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+    const { sessionId, cwd } = params;
+    if (this.sessions.get(sessionId)?.controller) throw RequestError.invalidParams({ error: 'A prompt is already running in this session' });
+    const saved = getSessionById(sessionId);
+    if (!saved) throw RequestError.invalidParams({ error: `unknown session: ${sessionId}` });
+    let state: ConversationState;
+    try {
+      if (!path.isAbsolute(cwd) || realpathSync(cwd) !== realpathSync(saved.projectPath)) {
+        throw new Error(`Session belongs to ${saved.projectPath}; load it with that working directory.`);
+      }
+      state = readSessionConversation(sessionId);
+      if (state.revision === null) throw new Error('No recovery snapshot exists for this session; tool context cannot be reconstructed safely.');
+    } catch (error) {
+      throw RequestError.invalidParams({ error: errMessage(error) });
+    }
+    const session: AcpSession = {
+      id: sessionId, cwd, ...sessionPreferences(cwd), revision: state.revision,
+      messages: state.messages, runlog: RunLog.open(sessionId), cancelled: false,
+    };
+    // An idle copy already open here is replaced by the saved state; a prompt sent
+    // before the load responds is refused as an unknown session.
+    this.sessions.delete(sessionId);
+
+    // Results the snapshot lacks are closed here; they and recorded tool errors replay as failed.
+    const recorded = session.messages.length;
+    const answered = new Set(session.messages.flatMap(m => (m.role === 'tool' ? [m.toolCallId!] : [])));
+    completePendingTools(session.messages, 'Session interrupted; tool outcome unknown');
+    const failed = new Set(session.messages.flatMap(m => (m.role === 'tool' && !answered.has(m.toolCallId!) ? [m.toolCallId!] : [])));
+    // The conversation stores result text only; the bounded tool-output records keep isError.
+    try {
+      for (const record of readToolOutputs(getSessionDirById(sessionId)!).records) if (record.isError) failed.add(record.toolCallId);
+    } catch { /* Records only refine statuses; the verified snapshot is the history. */ }
+
+    const { messageText } = await import('./session-management/index.js');
+    for (const message of session.messages) {
+      if (message.role === 'system') continue;
+      if (message.role === 'tool') {
+        const text = messageText(message);
+        await this.reportToolResult(session, message.toolCallId!, text, failed.has(message.toolCallId!));
+        continue;
+      }
+      const text = messageText({ ...message, toolCalls: undefined });
+      if (text) await this.emit(sessionId, { sessionUpdate: message.role === 'user' ? 'user_message_chunk' : 'agent_message_chunk', content: { type: 'text', text } });
+      for (const call of message.toolCalls ?? []) {
+        await this.emit(sessionId, { sessionUpdate: 'tool_call', toolCallId: call.id, title: toolTitle(call), kind: toolKind(call.name), status: 'pending', rawInput: call.arguments });
+      }
+    }
+    const notices = [
+      session.messages.length !== recorded || state.status === 'active' || state.status === 'interrupted'
+        ? 'Interrupted work: check the project state before retrying tools; no tool has been replayed.' : '',
+      state.droppedMessages ? `${state.droppedMessages} older messages were omitted by retention.` : '',
+    ].filter(Boolean);
+    if (notices.length) await this.emit(sessionId, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[${notices.join(' ')}]\n` } });
+    await this.flush();
+
+    this.sessions.set(sessionId, session);
+    session.runlog.policyEvent({ tool: 'session', source: 'session-recovery', decision: 'allow', durationMs: 0,
+      reason: `session/load revision=${state.revision} messages=${session.messages.length}` });
+    await session.runlog.flush();
+    debug(`session/load: ${sessionId} cwd=${cwd} messages=${session.messages.length} status=${state.status}`);
+    return {};
   }
 
   // ---- ACP: session/prompt ---------------------------------------------
