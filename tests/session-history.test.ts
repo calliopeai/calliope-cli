@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Message } from '../src/types.js';
 import { readConversation, writeConversation, replaySessionHistory, replayEvents, makeEvent, eventLink, applyEvent,
   readSessionEvent, MAX_HISTORY_BYTES, type ConversationState } from '../src/sessions/index.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
 
 vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
 let root: string, dir: string;
@@ -23,6 +24,28 @@ it('records compact deltas and deterministically projects every committed revisi
   const replay = await replaySessionHistory(dir, 'test', two.history!);
   expect(replay.snapshot).toEqual(two); expect(replay.events).toHaveLength(2);
   expect((await replayEvents([...replay.events].reverse(), two.history!, 'test')).snapshot).toEqual(two);
+});
+
+it('saves and replays session history on Windows, where the history directory cannot be fsynced (#384)', async () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const one = save(messages);
+    const two = save([...messages, { role: 'assistant', content: 'toy answer' }], one.revision);
+    expect((await replaySessionHistory(dir, 'test', two.history!)).snapshot).toEqual(two);
+  } finally {
+    restore();
+  }
+});
+
+it('still surfaces a real fsync failure on Windows instead of silently dropping durability', () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    const fail = vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => { throw new Error('disk full'); });
+    expect(() => save(messages)).toThrow(/disk space/);
+    fail.mockRestore();
+  } finally {
+    restore();
+  }
 });
 
 it('records tools, cancellation placeholders and compaction without losing metadata', async () => {

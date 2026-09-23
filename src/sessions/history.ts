@@ -99,8 +99,14 @@ export function appendSessionEvents(dir: string, events: SessionEvent[], signal?
     try { fs.writeFileSync(fd, records[index]!); fs.fsyncSync(fd); }
     finally { fs.closeSync(fd); }
   }
-  const fd = fs.openSync(target, 'r');
-  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  // NTFS journals directory metadata on commit; on Windows, libuv opens a
+  // directory with fs.openSync(dir, 'r') using a read-only (FILE_GENERIC_READ)
+  // handle, and FlushFileBuffers on that handle fails with EPERM, so this
+  // fsync is POSIX-only (#384).
+  if (process.platform !== 'win32') {
+    const fd = fs.openSync(target, 'r');
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  }
 }
 
 export function applyEvent(previous: ConversationState | null, event: SessionEvent): ConversationSnapshot {

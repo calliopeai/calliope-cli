@@ -5,6 +5,8 @@ import * as config from '../src/config.js';
 import { saveHooks } from '../src/hooks.js';
 import { runBrainCommand } from '../src/brain/index.js';
 import { fixture } from './helpers/brain.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
 let f: ReturnType<typeof fixture>;
 let lines: string[] = [];
 beforeEach(() => {
@@ -24,6 +26,22 @@ const call = (args: string[], extra: Parameters<typeof runBrainCommand>[1] = {})
   return runBrainCommand(args, { cwd: f.cwd, base: f.base, write: (l) => lines.push(l), ...extra });
 };
 const data = () => JSON.parse(lines.at(-1)!).data;
+it('allows brain init/ingest mutations on Windows instead of denying them (#382)', async () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    expect(await call(['init', '--json'])).toBe(3);
+    expect(JSON.parse(lines[0]!).error.code).toBe('policy-denied');
+    expect(await call(['init', '--allow-mutations', '--json'])).toBe(0);
+    expect(data().scope).toBe('project');
+    fs.writeFileSync(join(f.cwd, 'design.md'), 'Architecture uses SQLite');
+    expect(await call(['ingest', 'design.md', '--allow-mutations', '--json'])).toBe(0);
+    expect(data().entityId).toBeTruthy();
+    expect(await call(['search', 'SQLite', '--json'])).toBe(0);
+    expect(data().entities).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
 it('provides stable local JSON with safe defaults, compact mutation receipts and restartable search', async () => {
   expect(await call(['init', '--json'])).toBe(3);
   expect(JSON.parse(lines[0]!)).toMatchObject({
