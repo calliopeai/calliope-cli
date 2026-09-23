@@ -67,10 +67,19 @@ jobs:
     needs: build
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    defaults:
+      run:
+        # Git Bash on Windows, so every platform runs the same steps.
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
         os: [macos-14, macos-15-intel, ubuntu-24.04, ubuntu-24.04-arm]
+        # `--native` covers macOS and Linux hosts; Windows names its target and .exe.
+        include:
+          - os: windows-2025
+            target: --target windows-x64
+            binary: packaging/dist/calliope-windows-x64.exe
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,6 +90,6 @@ jobs:
           bun-version: '1.3.11'
       - run: npm ci
       - run: npm run build
-      - run: bun packaging/build-binary.mjs --native
+      - run: bun packaging/build-binary.mjs ${{ matrix.target || '--native' }}
       - name: Exercise the standalone artifact
-        run: node scripts/release/binary-smoke.mjs packaging/dist/calliope-native "$(node -p "require('./package.json').version")"
+        run: node scripts/release/binary-smoke.mjs ${{ matrix.binary || 'packaging/dist/calliope-native' }} "$(node -p "require('./package.json').version")"

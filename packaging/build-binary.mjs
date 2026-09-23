@@ -36,10 +36,12 @@
  *
  * ── Cross-compilation ───────────────────────────────────────────────────────
  * Bun 1.3's `Bun.build({ compile: { target, outfile }, plugins, define })`
- * cross-compiles to any of the four supported targets in-process (it downloads
+ * cross-compiles to any of the supported targets in-process (it downloads
  * and caches the target runtime on first use), so the stub plugin and version
  * define apply uniformly to every target from a single Node/Bun invocation — no
  * shelling out to the CLI, no per-target prebundle. Verified on bun 1.3.11.
+ * Windows output carries `.exe` (Bun appends it otherwise); `--native` covers
+ * macOS and Linux hosts, so build Windows with `--target windows-x64`.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -77,7 +79,7 @@ const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
 const version = pkg.version;
 
 /** All supported Bun compile targets, in the release matrix order. */
-const ALL_TARGETS = ['bun-darwin-arm64', 'bun-darwin-x64', 'bun-linux-x64', 'bun-linux-arm64'];
+const ALL_TARGETS = ['bun-darwin-arm64', 'bun-darwin-x64', 'bun-linux-x64', 'bun-linux-arm64', 'bun-windows-x64'];
 
 /** The Bun target for the host running this script. */
 function nativeTarget() {
@@ -135,7 +137,7 @@ console.log(`Targets: ${targets.map(shortName).join(', ')}\n`);
 
 const built = [];
 for (const target of targets) {
-  const outfile = join(outDir, `calliope-${shortName(target)}`);
+  const outfile = join(outDir, `calliope-${shortName(target)}${target.startsWith('bun-windows-') ? '.exe' : ''}`);
   const t0 = performance.now();
   const result = await Bun.build({
     entrypoints: [entrypoint],

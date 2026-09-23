@@ -18,11 +18,16 @@ jobs:
     needs: checks
     name: Build ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Notarisation waits on Apple's service.
+    timeout-minutes: 45
     permissions:
       contents: read
       id-token: write
       attestations: write
+    defaults:
+      run:
+        # Git Bash on Windows, so every platform runs the same steps.
+        shell: bash
     strategy:
       fail-fast: false
       matrix:
@@ -31,6 +36,7 @@ jobs:
           - { target: bun-darwin-x64, asset: darwin-x64, os: macos-15-intel }
           - { target: bun-linux-x64, asset: linux-x64, os: ubuntu-24.04 }
           - { target: bun-linux-arm64, asset: linux-arm64, os: ubuntu-24.04-arm }
+          - { target: bun-windows-x64, asset: win-x64, os: windows-2025, exe: .exe }
     steps:
       - uses: actions/checkout@v6
         with:
@@ -45,33 +51,115 @@ jobs:
           bun-version: '1.3.11'
       - run: npm ci
       - run: npm run build
-      - name: Compile and smoke the native artifact
+      - name: Compile the native artifact
         env:
           TARGET: ${{ matrix.target }}
-          ASSET: ${{ matrix.asset }}
-          VERSION: ${{ needs.checks.outputs.version }}
+          EXE: ${{ matrix.exe }}
         run: |
           bun packaging/build-binary.mjs --target "$TARGET"
-          node scripts/release/binary-smoke.mjs "packaging/dist/calliope-$ASSET" "$VERSION"
+          echo "BUILT=packaging/dist/calliope-${TARGET#bun-}$EXE" >> "$GITHUB_ENV"
+      # macOS binaries are signed and notarised before the smoke test, checksum and
+      # attestation, so all three cover the bytes that ship. A release never ships
+      # them unsigned; a manual preview without the org secrets builds unsigned.
+      - name: Require signing credentials for a macOS release
+        id: signing
+        if: runner.os == 'macOS'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -n "$CSC_LINK" ] && [ -n "$CSC_KEY_PASSWORD" ] && [ -n "$APPLE_ID" ] && [ -n "$APPLE_APP_SPECIFIC_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = release ]; then
+            echo "::error title=Unsigned macOS release::CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID are required to publish macOS binaries."
+            exit 1
+          else
+            echo "::warning title=Unsigned macOS preview::Signing secrets are unavailable to this run; the preview binary is neither signed nor notarised."
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Sign the macOS binary with the hardened runtime
+        if: steps.signing.outputs.sign == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/calliope-signing.keychain-db"
+          password="$(openssl rand -hex 24)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$RUNNER_TEMP/calliope-signing.p12"
+          security import "$RUNNER_TEMP/calliope-signing.p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -f pkcs12 -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/calliope-signing.p12"
+          curl -fsSL --proto '=https' --proto-redir '=https' https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$keychain" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
+          identity="$(security find-identity -v -p codesigning "$keychain" | awk '/"Developer ID Application: / { print $2; exit }')"
+          if [ -z "$identity" ]; then
+            echo "::error title=No signing identity::CSC_LINK holds no Developer ID Application certificate."
+            exit 1
+          fi
+          # Bun's runtime entitlements: without them the hardened runtime silently disables the JIT.
+          codesign --force --timestamp --options runtime --entitlements packaging/entitlements.plist \
+            --identifier ai.calliope.cli --keychain "$keychain" --sign "$identity" "$BUILT"
+          codesign --verify --strict --verbose=2 "$BUILT"
+          codesign --display --verbose=2 "$BUILT"
+      - name: Remove the signing keychain
+        if: always() && steps.signing.outputs.sign == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/calliope-signing.keychain-db"
+      - name: Notarise the macOS binary
+        if: steps.signing.outputs.sign == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # A bare Mach-O cannot be stapled; Gatekeeper checks the ticket online.
+          archive="$RUNNER_TEMP/calliope-notarise.zip"
+          result="$RUNNER_TEMP/calliope-notarise.json"
+          ditto -c -k --keepParent "$BUILT" "$archive"
+          xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait --timeout 30m --output-format json > "$result" || true
+          status="$(jq -r '.status // empty' "$result" 2> /dev/null || true)"
+          if [ "$status" != Accepted ]; then
+            echo "::error title=Notarisation failed::Apple returned status '${status:-none}'."
+            id="$(jq -r '.id // empty' "$result" 2> /dev/null || true)"
+            if [ -n "$id" ]; then
+              xcrun notarytool log "$id" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            fi
+            exit 1
+          fi
+          echo "Notarised: $(jq -r '.id' "$result")"
+      - name: Smoke-test and stage the bytes that ship
+        env:
+          ASSET: ${{ matrix.asset }}
+          EXE: ${{ matrix.exe }}
+          VERSION: ${{ needs.checks.outputs.version }}
+        run: |
+          node scripts/release/binary-smoke.mjs "$BUILT" "$VERSION"
           mkdir out
-          cp "packaging/dist/calliope-$ASSET" "out/calliope-$VERSION-$ASSET"
-          cd out
-          shasum -a 256 "calliope-$VERSION-$ASSET" > "calliope-$VERSION-$ASSET.sha256"
+          cp "$BUILT" "out/calliope-$VERSION-$ASSET$EXE"
+          node scripts/release/checksum.mjs "out/calliope-$VERSION-$ASSET$EXE"
       - name: Attest the binary
         id: attest
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
-          subject-path: out/calliope-${{ needs.checks.outputs.version }}-${{ matrix.asset }}
+          subject-path: out/calliope-${{ needs.checks.outputs.version }}-${{ matrix.asset }}${{ matrix.exe }}
       - name: Retain and verify the signed bundle
         env:
           GH_TOKEN: ${{ github.token }}
           BUNDLE: ${{ steps.attest.outputs.bundle-path }}
           ASSET: ${{ matrix.asset }}
+          EXE: ${{ matrix.exe }}
           VERSION: ${{ needs.checks.outputs.version }}
           SOURCE_REF: ${{ needs.checks.outputs.ref }}
           SOURCE_SHA: ${{ needs.checks.outputs.sha }}
         run: |
-          file="out/calliope-$VERSION-$ASSET"
+          file="out/calliope-$VERSION-$ASSET$EXE"
           cp "$BUNDLE" "$file.sigstore.json"
           gh attestation verify "$file" --bundle "$file.sigstore.json" --repo calliopeai/calliope-cli \
             --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF" \
@@ -104,7 +192,7 @@ jobs:
           pattern: binary-*
           path: out
           merge-multiple: true
-      - name: Validate all four artifacts and assemble manifest
+      - name: Validate all five artifacts and assemble the manifests
         env:
           VERSION: ${{ needs.checks.outputs.version }}
           GH_TOKEN: ${{ github.token }}
@@ -116,17 +204,26 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: out/checksums.txt
+      - name: Attest the embedder manifest
+        id: attest-binaries
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: out/calliope-binaries.json
       - name: Retain and verify manifest provenance
         env:
           GH_TOKEN: ${{ github.token }}
-          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          CHECKSUMS_BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          BINARIES_BUNDLE: ${{ steps.attest-binaries.outputs.bundle-path }}
           SOURCE_REF: ${{ needs.checks.outputs.ref }}
           SOURCE_SHA: ${{ needs.checks.outputs.sha }}
         run: |
-          cp "$BUNDLE" out/checksums.txt.sigstore.json
-          gh attestation verify out/checksums.txt --bundle out/checksums.txt.sigstore.json --repo calliopeai/calliope-cli \
-            --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF" \
-            --source-ref "$SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          cp "$CHECKSUMS_BUNDLE" out/checksums.txt.sigstore.json
+          cp "$BINARIES_BUNDLE" out/calliope-binaries.json.sigstore.json
+          for manifest in out/checksums.txt out/calliope-binaries.json; do
+            gh attestation verify "$manifest" --bundle "$manifest.sigstore.json" --repo calliopeai/calliope-cli \
+              --cert-identity "https://github.com/calliopeai/calliope-cli/.github/workflows/release-binaries.yml@$SOURCE_REF" \
+              --source-ref "$SOURCE_REF" --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done
       - name: Retain the verified CI artifact set
         uses: actions/upload-artifact@v4
         with:
