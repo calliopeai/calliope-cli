@@ -30,7 +30,11 @@ const run = (args, expectedCode = 0) => {
     maxBuffer: 1024 * 1024,
   });
   assert.equal(result.error, undefined);
-  assert.equal(result.status, expectedCode);
+  assert.equal(
+    result.status,
+    expectedCode,
+    `calliope ${args.join(" ")} exited ${result.status}\n${result.stdout.slice(0, 2000)}\n${result.stderr.slice(0, 2000)}`,
+  );
   return result.stdout;
 };
 /** The handshake an embedding host performs over stdio before its first prompt. */
