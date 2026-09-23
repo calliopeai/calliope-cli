@@ -12,14 +12,23 @@ import {journalHash,replayExecution,validateExecutionHeader,executionEventVersio
 import type {ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionInspection,ExecutionJournal,ExecutionLease,RunPlanContext} from './coordinator-types.js';
 
 const unavailable=()=>new OrchestrationError('unavailable','Execution records are damaged or unavailable. Preserve the run and restore verified evidence; no new work is authorized.');
+// Windows fs.Stats.mode only reflects the read-only DOS attribute (Node docs:
+// "on Windows only the write permission can be changed"), so a directory or
+// file reports ~0o40666/0o40777 or ~0o100666 regardless of the mode requested
+// at creation; the POSIX group/other check can never pass there. These paths
+// are always under the user's own profile on Windows, where privacy comes
+// from the per-user ACL, not these bits, so the group/other assertion below
+// is skipped only on win32; every other check (directory/file, not-a-symlink,
+// size, canonical/no-alias) still applies on every platform, and the POSIX
+// check is unchanged on non-win32.
 export function privateDirectory(path:string):fs.Stats {
-  const stat=fs.lstatSync(path);if(!stat.isDirectory()||stat.isSymbolicLink()||stat.mode&0o077||canonicalPath(path)!==path)throw unavailable();return stat;
+  const stat=fs.lstatSync(path);if(!stat.isDirectory()||stat.isSymbolicLink()||(process.platform!=='win32'&&stat.mode&0o077)||canonicalPath(path)!==path)throw unavailable();return stat;
 }
 export function readArtifactBytes(file:string,max=1024*1024,privateFile=false):Buffer {
   if(canonicalPath(file)!==file)throw unavailable();const parent=fs.statSync(dirname(file));
   const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
   try{
-    const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>max||privateFile&&stat.mode&0o077)throw unavailable();
+    const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>max||privateFile&&process.platform!=='win32'&&stat.mode&0o077)throw unavailable();
     const bytes=Buffer.alloc(stat.size+1);let count=0,n:number;while(count<bytes.length&&(n=fs.readSync(fd,bytes,count,bytes.length-count,null))>0)count+=n;
     const after=fs.statSync(dirname(file)),current=fs.lstatSync(file),final=fs.fstatSync(fd);if(count!==stat.size||current.dev!==stat.dev||current.ino!==stat.ino||final.size!==stat.size||final.mtimeMs!==stat.mtimeMs||final.ctimeMs!==stat.ctimeMs||parent.dev!==after.dev||parent.ino!==after.ino||canonicalPath(file)!==file)throw unavailable();return bytes.subarray(0,count);
   }finally{fs.closeSync(fd);}
