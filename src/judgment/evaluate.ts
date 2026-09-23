@@ -12,7 +12,15 @@ import { throwIfCancelled } from '../cancellation.js';
 import { DEFAULT_MODELS, type LLMProvider, type Message } from '../types.js';
 import { JudgmentError, type Answer, type JudgmentEngine, type JudgmentRequest, type JudgmentResponse, type Question, type ScoreQuestion } from './types.js';
 
-export interface EvaluateOptions {
+/**
+ * The prompted engine's `chat()` call admits the same bounded-execution
+ * controls any other in-runtime caller uses: a reviewed output limit and,
+ * when the caller supplies one, an `attemptBudget` that reserves and settles
+ * the request against its ledger. Neither has an effect on the native
+ * TypeSafe engine, which never calls `chat()`; `evaluate()` rejects them for
+ * `provider: 'typesafe'` rather than silently admitting an unaccounted call.
+ */
+export interface EvaluateOptions extends Pick<ChatOptions, 'maxOutputTokens' | 'bounded' | 'attemptBudget'> {
   provider?: JudgmentEngine;
   model?: string;
   signal?: AbortSignal;
@@ -208,12 +216,19 @@ export function toAnswer(question: Question, probabilities: Record<string, numbe
   return { type: 'score', score: round(score), legend, probabilities: roundAll(probabilities), confidence };
 }
 
-async function evaluatePrompted(request: JudgmentRequest, provider: LLMProvider, model: string | undefined, signal?: AbortSignal): Promise<JudgmentResponse> {
+async function evaluatePrompted(request: JudgmentRequest, provider: LLMProvider, model: string | undefined, options: EvaluateOptions): Promise<JudgmentResponse> {
   const { messages, ids } = buildMessages(request);
   // Mirror chat()'s own resolution so the response names the backend that answered.
   const actualProvider = selectProvider(provider), actualModel = model || DEFAULT_MODELS[actualProvider];
-  const options: ChatOptions = { signal, format: buildOutputSchema(request), selectionMode: provider === 'auto' ? 'auto' : 'explicit' };
-  const response = await chat(provider, messages, [], model, undefined, undefined, options);
+  const chatOptions: ChatOptions = {
+    signal: options.signal,
+    format: buildOutputSchema(request),
+    selectionMode: provider === 'auto' ? 'auto' : 'explicit',
+    maxOutputTokens: options.maxOutputTokens,
+    bounded: options.bounded,
+    attemptBudget: options.attemptBudget,
+  };
+  const response = await chat(provider, messages, [], model, undefined, undefined, chatOptions);
   if (response.finishReason === 'error' || response.errorCode === 'refusal') throw new JudgmentError('model-output', 'The model did not complete the judgment request.');
   const parsed = parseModelOutput(response.content);
   const answers: Record<string, Answer> = {};
@@ -330,6 +345,10 @@ export async function evaluate(input: unknown, options: EvaluateOptions = {}): P
   const request = validateRequest(input);
   throwIfCancelled(options.signal);
   const provider = options.provider ?? 'auto';
-  if (provider === 'typesafe') return evaluateTypesafe(request, options.model ?? TYPESAFE_DEFAULT_MODEL, options);
-  return evaluatePrompted(request, provider, options.model, options.signal);
+  if (provider === 'typesafe') {
+    if (options.attemptBudget || options.bounded || options.maxOutputTokens !== undefined)
+      invalid('Bounded execution controls (maxOutputTokens, bounded, attemptBudget) have no effect on the typesafe engine, which never calls chat().');
+    return evaluateTypesafe(request, options.model ?? TYPESAFE_DEFAULT_MODEL, options);
+  }
+  return evaluatePrompted(request, provider, options.model, options);
 }
