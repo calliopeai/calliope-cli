@@ -6,7 +6,9 @@ import { saveHooks } from '../src/hooks.js';
 import { runBrainCommand } from '../src/brain/index.js';
 import { fixture } from './helpers/brain.js';
 import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
+import { simulateWindowsPathSeparators } from './helpers/windows-path.js';
 vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
+vi.mock('node:path', async original => ({ ...await original<typeof import('node:path')>() }));
 let f: ReturnType<typeof fixture>;
 let lines: string[] = [];
 beforeEach(() => {
@@ -27,11 +29,20 @@ const call = (args: string[], extra: Parameters<typeof runBrainCommand>[1] = {})
 };
 const data = () => JSON.parse(lines.at(-1)!).data;
 it('allows brain init/ingest mutations on Windows instead of denying them (#382)', async () => {
-  const restore = simulateWindowsDirectoryFsyncDenial();
+  const restoreFsync = simulateWindowsDirectoryFsyncDenial();
   try {
     expect(await call(['init', '--json'])).toBe(3);
     expect(JSON.parse(lines[0]!).error.code).toBe('policy-denied');
-    expect(await call(['init', '--allow-mutations', '--json'])).toBe(0);
+    // path.sep is a module-global override (node:path and path share one mock
+    // registration), so it is scoped tightly around just this call: leaving it
+    // active into ingest's read_file check would also perturb src/scope.ts,
+    // which is unrelated to this fix and already covered on real POSIX paths.
+    const restorePath = simulateWindowsPathSeparators();
+    try {
+      expect(await call(['init', '--allow-mutations', '--json'])).toBe(0);
+    } finally {
+      restorePath();
+    }
     expect(data().scope).toBe('project');
     fs.writeFileSync(join(f.cwd, 'design.md'), 'Architecture uses SQLite');
     expect(await call(['ingest', 'design.md', '--allow-mutations', '--json'])).toBe(0);
@@ -39,7 +50,7 @@ it('allows brain init/ingest mutations on Windows instead of denying them (#382)
     expect(await call(['search', 'SQLite', '--json'])).toBe(0);
     expect(data().entities).toHaveLength(1);
   } finally {
-    restore();
+    restoreFsync();
   }
 });
 it('provides stable local JSON with safe defaults, compact mutation receipts and restartable search', async () => {

@@ -2,7 +2,7 @@ import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {ExecutionGuard,ReservationLedger,manifestHash,validateExecutionManifest,agentFiles,type ExecutionManifest} from '../src/execution/index.js';
+import {ExecutionGuard,ReservationLedger,manifestHash,validateExecutionManifest,agentFiles,assertExecutionStoreOutsideProject,type ExecutionManifest} from '../src/execution/index.js';
 import {resolvePermission} from '../src/runtime/permissions.js';
 import {executeTool} from '../src/tools.js';
 import {withScope} from '../src/scope.js';
@@ -10,10 +10,26 @@ import {saveHooks} from '../src/hooks.js';
 import * as config from '../src/config.js';
 import * as fleet from '../src/fleet.js';
 import {executionManifest} from './helpers/execution-manifest.js';
+import {simulateWindowsPathSeparators} from './helpers/windows-path.js';
+vi.mock('node:path', async original => ({ ...await original<typeof import('node:path')>() }));
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger;
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-authority-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);for(const name of ['a','b'])fs.mkdirSync(join(project,name));manifest=executionManifest(project);ledger=new ReservationLedger(join(root,'budget'));});
 afterEach(()=>{config.resetConfig();saveHooks([]);vi.restoreAllMocks();fs.rmSync(root,{recursive:true,force:true});});
 const guard=(agentId='a')=>{ledger.create(manifest);return new ExecutionGuard({ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens:100},project);};
+it('accepts a store outside the project on Windows, where relative() returns backslashes (#382)',()=>{
+  const restore=simulateWindowsPathSeparators();
+  try {
+    const outside=join(root,'store','brain');fs.mkdirSync(outside,{recursive:true});
+    expect(()=>assertExecutionStoreOutsideProject(project,outside)).not.toThrow();
+  } finally { restore(); }
+});
+it('still rejects a store the Windows separator check would otherwise miss, aliased inside the project',()=>{
+  const restore=simulateWindowsPathSeparators();
+  try {
+    const inside=join(project,'a','store');fs.mkdirSync(inside,{recursive:true});
+    expect(()=>assertExecutionStoreOutsideProject(project,inside)).toThrow(/outside worker project scope/);
+  } finally { restore(); }
+});
 it('rejects changed OpenRouter transport prices before writing an agent reservation',async()=>{
   const budget=guard().budget({provider:'openrouter',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),
     capabilities:{chat:true},contextLength:900,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'},[],[],false);
