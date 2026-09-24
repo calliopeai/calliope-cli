@@ -413,7 +413,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
   }
 }
 
-function printHelp(): void {
+export function printHelp(): void {
   console.log(`
 ${bold('calliope')} - Multi-model AI agent CLI
 
@@ -446,6 +446,8 @@ ${bold('USAGE')}
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
   calliope acp                                 Run as an ACP agent over stdio (for editors)
+  calliope attach (--url <ws-url> | --hub <url> --user <name>) [session-uri] [--read-only] [--once]
+    Follow an agent host session and answer its tool approvals (no session-uri: list sessions)
   calliope doctor [providers|provider <name>] [--json] [--probe]   Inspect provider health
 
 ${bold('OPTIONS')}
