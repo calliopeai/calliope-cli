@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 3.3.0: Agent host attach, signed binaries, Windows
+
+- Add `calliope attach`: follow a live session on an Agent Host Protocol host and approve or deny its tool calls from the terminal. `--hub <url> --user <name>` finds the user's agent host through the JupyterHub API with the hub token in `JUPYTERHUB_API_TOKEN` (or `--token-env`); `--url` connects directly; `--read-only` follows without being asked to approve. Approvals already pending when attach joins are not shown yet (#391) (#378).
+- Fix Windows: eleven more stores fsynced their directory through a read-only handle after a rename. Each now skips that step on win32 and keeps POSIX durability unchanged (#388).
 - Fix Windows: every session snapshot and every `brain init`/`ingest` mutation failed, because the durability fsync opened its directory with a read-only handle, and Windows denies `FlushFileBuffers` on that handle (POSIX allows it). The directory fsync is now POSIX-only; NTFS already journals directory metadata on commit (#384, #382).
 - Accept `maxOutputTokens`, `bounded` and `attemptBudget` in the judgment `evaluate()` library entry, so an in-runtime caller that already reserves and settles `chat()` requests through its own ledger can admit a judgment the same way instead of spending outside that accounting. The native `typesafe` engine rejects the same controls before any network call, since it never calls `chat()`. `calliope judge` and `policy.judgment` set none of them, so their behavior is unchanged (#368).
 - Publish per-platform standalone binaries for embedders: the release workflow adds `win-x64`, signs and notarises the macOS binaries with the hardened runtime, and writes an attested `calliope-binaries.json` (`{version, files: [{platform, url, sha256, size}]}`) next to `checksums.txt`. `calliope --version --json` prints `{"version","acp"}` without an update check, and every binary must complete an ACP `initialize` and `session/new` over stdio before it is checksummed (#379).
