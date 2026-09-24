@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `calliope attach` asks about approvals that were already waiting when it joined. It reads the chat snapshot that `subscribe` returns and asks about each tool call pending confirmation, one prompt at a time. Actions the host sends right behind that snapshot are no longer lost before attach starts listening (a new approval, or the end of a `--once` turn), and a prompt closes without sending anything when another client answers the call, the turn ends or the connection drops. `calliope --help` lists `attach` (#391). Hosts report pending confirmations in the snapshot from calliope-vscode#823 on.
+
 ## 3.3.0: Agent host attach, signed binaries, Windows
 
 - Add `calliope attach`: follow a live session on an Agent Host Protocol host and approve or deny its tool calls from the terminal. `--hub <url> --user <name>` finds the user's agent host through the JupyterHub API with the hub token in `JUPYTERHUB_API_TOKEN` (or `--token-env`); `--url` connects directly; `--read-only` follows without being asked to approve. Approvals already pending when attach joins are not shown yet (#391) (#378).
