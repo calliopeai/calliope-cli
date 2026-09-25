@@ -498,6 +498,32 @@ describe('attach: approvals the session lists in inputNeeded, subagents included
     expect(out.join('')).not.toContain('no longer needed');
   });
 
+  it('a default-chat approval the session lists while the chat snapshot is on its way is asked through the chat all the same', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    let answerChat!: (s: ChatSnapshot) => void;
+    follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve },
+      new Promise<ChatSnapshot>(r => { answerChat = r; }), sessionSnapshot(5));
+    await settle();
+    // attach subscribes to the chat once the session answers. The chat's ready is held
+    // until the chat snapshot, while the session's listing of the same call is live.
+    const onDefaultChat = request('c1', chat, 't1');
+    ws.serverSends(on(chat, ready('c1'), 6));
+    ws.serverSends(needed(onDefaultChat, 7));
+    answerChat({ fromSeq: 5, state: { activeTurn: { id: 't1', responseParts: [] } } });
+    await settle();
+    // A host without calliope-vscode#823 then drops the entry while the call still waits.
+    ws.serverSends(on(chat, { type: 'chat/toolCallReady', turnId: 't1', toolCallId: 'c1', invocationMessage: 'Fetching c1', confirmed: 'not-needed' }, 8));
+    ws.serverSends(removed(onDefaultChat, 9));
+    await settle();
+    expect(user.signals.map(s => s.aborted)).toEqual([false]);
+    await user.answer(true);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([answered(chat, 't1', 'c1', 1)]);
+    expect(out.join('')).not.toContain('no longer needed');
+  });
+
   it('a default-chat approval waiting in both snapshots is asked once, on the default chat', async () => {
     const ws = new FakeSocket();
     const user = manualApprove();
