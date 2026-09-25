@@ -606,6 +606,22 @@ describe('attach: approvals the session lists in inputNeeded, subagents included
     }
   });
 
+  it('with once, a subagent prompt still open when the turn completes closes as following ends', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    const { done } = follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve, once: true });
+    ws.serverSends(needed(request('c1'), 10));
+    await settle();
+    ws.serverSends(on(chat, { type: 'chat/turnComplete', turnId: 't1' }, 11));
+    expect(await done).toBe('turnComplete');
+    await settle();
+    // An open readline prompt would keep the process alive after attach returns.
+    expect(user.signals.map(s => s.aborted)).toEqual([true]);
+    expect(ws.sent).toEqual([]);
+    expect(out.join('')).toContain('[approval no longer needed; nothing sent]');
+  });
+
   it('holds session actions that arrive before the session snapshot and applies them after it', async () => {
     const ws = new FakeSocket();
     const user = manualApprove();

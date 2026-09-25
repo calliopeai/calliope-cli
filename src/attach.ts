@@ -256,6 +256,11 @@ export function follow(
       }
     }
   };
+  // Following is over: no prompt outlives it, or its readline keeps the process alive.
+  const end = (reason: string) => {
+    settleAll();
+    finish(reason);
+  };
   const confirm = (target: string, turnId: string, toolCallId: string, confirmationTitle: unknown, toolInput: unknown, request?: string) => {
     if (open.has(toolCallId)) {
       return;
@@ -311,14 +316,14 @@ export function follow(
         settleTurn();
         io.write('\n[turn complete]\n');
         if (io.once) {
-          finish('turnComplete');
+          end('turnComplete');
         }
         break;
       case 'chat/error':
         settleTurn();
         io.write(`\n[turn error] ${JSON.stringify(action.error ?? action).slice(0, 200)}\n`);
         if (io.once) {
-          finish('error');
+          end('error');
         }
         break;
     }
@@ -391,10 +396,7 @@ export function follow(
       ask(request);
     }
   }, sessionSubscribed);
-  conn.closed = detail => {
-    settleAll();
-    finish(detail);
-  };
+  conn.closed = end;
   return { done };
 }
 
