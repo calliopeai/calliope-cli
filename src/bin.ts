@@ -193,6 +193,12 @@ async function main(): Promise<void> {
     return completeCommand(await runBrainCommand(rawArgs.slice(1), { kg:args[0] === 'kg', signal:headlessCancellation.signal }));
   }
 
+  if (args[0] === 'brain-proposals') {
+    headlessCancellation = new AbortController();
+    const { runBrainProposalsCommand } = await import('./brain-proposals.js');
+    return completeCommand(await runBrainProposalsCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
   if (args[0] === 'improve') {
     headlessCancellation = new AbortController();
     const { runImprovementCommand } = await import('./improvement/index.js');
@@ -449,6 +455,10 @@ ${bold('USAGE')}
   calliope attach (--url <ws-url> | --hub <url> --user <name>) [session-uri] [--read-only] [--once]
     Follow an agent host session and answer its tool approvals (no session-uri: list sessions)
   calliope doctor [providers|provider <name>] [--json] [--probe]   Inspect provider health
+  calliope brain-proposals maintenance-report --root <path> --host-config <path> --actor <id> --request <path>
+    Bind an adopted Project Brain's maintenance findings for independent review (never commits)
+  calliope brain-proposals summary-plan --root <path> --host-config <path> --input <path>
+    Preview a maintained-summary amendment against an adopted Project Brain (never proposes or commits)
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message
