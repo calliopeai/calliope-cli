@@ -115,6 +115,9 @@ to the exact reviewer draft, distinguishing future strategy prose from scheduled
 measured outcomes and persistent proposal approval/withdrawal controls from that history.
 [Project brain and knowledge graph](docs/project-brain.md) adds private versioned knowledge,
 portable SQLite indexes, provenance, human corrections, safe transfers and source-policy checks.
+[Brain maintenance proposals](docs/brain-proposals.md) binds an adopted external Project
+Brain's maintenance-report and maintained-summary primitives for independent review, with
+identity only from explicit CLI arguments and no persist path.
 [Agent knowledge retrieval](docs/agent-knowledge.md) adds opt-in read-only planner/worker
 tools with inherited source scopes and recorded evidence.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
