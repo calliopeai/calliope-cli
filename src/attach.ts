@@ -4,7 +4,8 @@
  * `calliope attach` connects to a running agent host over the Agent Host
  * Protocol (JSON-RPC over WebSocket) and follows a session another surface
  * started (the IDE, desktop, AGTerm, Chat Studio), answering its tool-call
- * confirmations from the terminal, including any already waiting when it joins.
+ * confirmations from the terminal, including any already waiting when it joins
+ * and those inside a subagent, which the session's `inputNeeded` lists (#394).
  *
  *   calliope attach --url <ws-url>                 list the host's sessions
  *   calliope attach --url <ws-url> <session-uri>   follow one, approve its tool calls
@@ -172,6 +173,9 @@ export interface FollowIo {
   once?: boolean;
 }
 
+/** A tool call as a chat snapshot or a session `inputNeeded` entry carries it. */
+interface ToolCallState { toolCallId: string; status: string; confirmationTitle?: unknown; invocationMessage?: unknown; toolInput?: unknown }
+
 /** The part of a chat channel's `subscribe` snapshot (`result.snapshot`) that attach reads. */
 export interface ChatSnapshot {
   /** The snapshot's server sequence; later actions carry `serverSeq > fromSeq`. */
@@ -179,9 +183,28 @@ export interface ChatSnapshot {
   state?: {
     activeTurn?: {
       id: string;
-      responseParts?: Array<{ kind: string; toolCall?: { toolCallId: string; status: string; confirmationTitle?: unknown; invocationMessage?: unknown; toolInput?: unknown } }>;
+      responseParts?: Array<{ kind: string; toolCall?: ToolCallState }>;
     };
   };
+}
+
+/**
+ * One entry of a session's `inputNeeded`: input the session waits on in one of
+ * its chats, a subagent's included. A `toolConfirmation` is answered on `chat`,
+ * with `turnId`, without subscribing to that chat.
+ */
+export interface SessionInputRequest {
+  id: string;
+  kind: string;
+  chat: string;
+  turnId?: string;
+  toolCall?: ToolCallState;
+}
+
+/** The part of the session channel's `subscribe` snapshot that attach reads. */
+export interface SessionSnapshot {
+  fromSeq?: number;
+  state?: { inputNeeded?: SessionInputRequest[] };
 }
 
 const text = (value: unknown, fallback: string): string =>
@@ -193,21 +216,28 @@ const text = (value: unknown, fallback: string): string =>
  *
  * `subscribed` is the chat channel's `subscribe` snapshot for a client joining
  * a session already under way: the confirmations it shows waiting are asked
- * first. Actions that arrive before it are held, then applied after it,
- * skipping any the snapshot already includes.
+ * first. `sessionSubscribed` is the session channel's: its `inputNeeded` lists
+ * the confirmations waiting in the session's other chats (a subagent's), which
+ * are answered on their own chat. Each channel's actions that arrive before its
+ * snapshot are held, then applied after it, skipping any the snapshot already
+ * includes.
  */
-export function follow(conn: AhpConnection, session: string, io: FollowIo, subscribed?: Promise<ChatSnapshot | undefined>): { done: Promise<string> } {
+export function follow(
+  conn: AhpConnection, session: string, io: FollowIo,
+  subscribed?: Promise<ChatSnapshot | undefined>, sessionSubscribed?: Promise<SessionSnapshot | undefined>,
+): { done: Promise<string> } {
   const chat = defaultChatUri(session);
   let seq = 0;
   let finish!: (s: string) => void;
   const done = new Promise<string>(resolve => { finish = resolve; });
-  // Confirmations this client knows are open, each able to withdraw its prompt.
-  // One prompt at a time: a snapshot can hold several, and two readline prompts
-  // on one stdin garble each other.
-  const open = new Map<string, AbortController>();
+  // Confirmations this client knows are open, by tool call, each able to
+  // withdraw its prompt. One prompt at a time: a snapshot can hold several, and
+  // two readline prompts on one stdin garble each other. `request` is the
+  // session's `inputNeeded` id of a confirmation asked for another chat.
+  const open = new Map<string, { asked: AbortController; request?: string }>();
   let prompts = Promise.resolve();
   const settled = (toolCallId: string) => {
-    open.get(toolCallId)?.abort();
+    open.get(toolCallId)?.asked.abort();
     open.delete(toolCallId);
   };
   const settleAll = () => {
@@ -215,12 +245,23 @@ export function follow(conn: AhpConnection, session: string, io: FollowIo, subsc
       settled(toolCallId);
     }
   };
-  const confirm = (turnId: string, toolCallId: string, confirmationTitle: unknown, toolInput: unknown) => {
+  // The default chat's turn is over, and so are the prompts asked on it. One
+  // for another chat closes when the session removes its request: the host ends
+  // subagent turns with a cancelled parent's, and a background subagent's turn
+  // can outlive the parent's.
+  const settleTurn = () => {
+    for (const [toolCallId, { request }] of [...open]) {
+      if (request === undefined) {
+        settled(toolCallId);
+      }
+    }
+  };
+  const confirm = (target: string, turnId: string, toolCallId: string, confirmationTitle: unknown, toolInput: unknown, request?: string) => {
     if (open.has(toolCallId)) {
       return;
     }
     const asked = new AbortController();
-    open.set(toolCallId, asked);
+    open.set(toolCallId, { asked, request });
     const title = text(confirmationTitle, 'Run tool');
     const input = typeof toolInput === 'string' ? toolInput : JSON.stringify(toolInput ?? '');
     const approve = io.approve;
@@ -238,7 +279,7 @@ export function follow(conn: AhpConnection, session: string, io: FollowIo, subsc
         return;
       }
       open.delete(toolCallId);
-      conn.dispatch(chat, ++seq, approved
+      conn.dispatch(target, ++seq, approved
         ? { type: 'chat/toolCallConfirmed', turnId, toolCallId, approved: true, confirmed: 'user-action' }
         : { type: 'chat/toolCallConfirmed', turnId, toolCallId, approved: false, reason: 'denied' });
     }).catch(err => io.write(`\n[approval prompt failed] ${(err as Error).message}\n`));
@@ -253,7 +294,7 @@ export function follow(conn: AhpConnection, session: string, io: FollowIo, subsc
         break;
       case 'chat/toolCallReady':
         if (action.confirmationTitle !== undefined) {
-          confirm(action.turnId, action.toolCallId, action.confirmationTitle, action.toolInput);
+          confirm(chat, action.turnId, action.toolCallId, action.confirmationTitle, action.toolInput);
         }
         break;
       case 'chat/toolCallConfirmed':
@@ -264,17 +305,17 @@ export function follow(conn: AhpConnection, session: string, io: FollowIo, subsc
         io.write(`\n[tool ${action.result?.success === false ? 'failed' : 'done'}]\n`);
         break;
       case 'chat/turnCancelled':
-        settleAll();
+        settleTurn();
         break;
       case 'chat/turnComplete':
-        settleAll();
+        settleTurn();
         io.write('\n[turn complete]\n');
         if (io.once) {
           finish('turnComplete');
         }
         break;
       case 'chat/error':
-        settleAll();
+        settleTurn();
         io.write(`\n[turn error] ${JSON.stringify(action.error ?? action).slice(0, 200)}\n`);
         if (io.once) {
           finish('error');
@@ -282,35 +323,74 @@ export function follow(conn: AhpConnection, session: string, io: FollowIo, subsc
         break;
     }
   };
-  let held: Array<{ action: any; serverSeq?: number }> | undefined = subscribed ? [] : undefined;
-  conn.actions.push((action, channel, serverSeq) => {
-    if (channel !== chat) {
-      return;
+  // The session's `inputNeeded` lists the input waiting in every chat. A
+  // confirmation on the default chat is there too, and is asked through that
+  // chat above: a host without calliope-vscode#823 drops its entry while the
+  // call still waits (the provider's late ready moves it to running), so that
+  // removal is no answer. The session is how attach hears about the other
+  // chats, a subagent's.
+  const ask = (request: SessionInputRequest | undefined) => {
+    const call = request?.toolCall;
+    if (request?.kind === 'toolConfirmation' && call?.status === 'pending-confirmation'
+      && typeof request.chat === 'string' && request.chat !== chat && typeof request.turnId === 'string') {
+      confirm(request.chat, request.turnId, call.toolCallId, call.confirmationTitle ?? call.invocationMessage, call.toolInput, request.id);
     }
-    if (held) {
-      held.push({ action, serverSeq });
-      return;
+  };
+  const applySession = (action: any) => {
+    switch (action.type) {
+      case 'session/inputNeededSet':
+        ask(action.request);
+        break;
+      case 'session/inputNeededRemoved':
+        for (const [toolCallId, { request }] of [...open]) {
+          if (request === action.id) {
+            settled(toolCallId);
+          }
+        }
+        break;
     }
-    apply(action);
-  });
-  const join = (snapshot: ChatSnapshot | undefined) => {
+  };
+  // Apply a channel's actions from its snapshot on: those that arrive first are
+  // held, then applied after it, skipping any it already includes.
+  const track = <S extends { fromSeq?: number }>(channel: string, onAction: (action: any) => void, seed: (snapshot: S | undefined) => void, snapshot?: Promise<S | undefined>) => {
+    let held: Array<{ action: any; serverSeq?: number }> | undefined = snapshot ? [] : undefined;
+    conn.actions.push((action, from, serverSeq) => {
+      if (from !== channel) {
+        return;
+      }
+      if (held) {
+        held.push({ action, serverSeq });
+        return;
+      }
+      onAction(action);
+    });
+    const join = (joined: S | undefined) => {
+      seed(joined);
+      const early = held ?? [];
+      held = undefined;
+      const fromSeq = joined?.fromSeq;
+      for (const { action, serverSeq } of early) {
+        if (fromSeq === undefined || serverSeq === undefined || serverSeq > fromSeq) {
+          onAction(action);
+        }
+      }
+    };
+    snapshot?.then(join, () => join(undefined));
+  };
+  track<ChatSnapshot>(chat, apply, snapshot => {
     const turn = snapshot?.state?.activeTurn;
     for (const part of turn?.responseParts ?? []) {
       const call = part.kind === 'toolCall' ? part.toolCall : undefined;
       if (turn && call?.status === 'pending-confirmation') {
-        confirm(turn.id, call.toolCallId, call.confirmationTitle ?? call.invocationMessage, call.toolInput);
+        confirm(chat, turn.id, call.toolCallId, call.confirmationTitle ?? call.invocationMessage, call.toolInput);
       }
     }
-    const early = held ?? [];
-    held = undefined;
-    const fromSeq = snapshot?.fromSeq;
-    for (const { action, serverSeq } of early) {
-      if (fromSeq === undefined || serverSeq === undefined || serverSeq > fromSeq) {
-        apply(action);
-      }
+  }, subscribed);
+  track<SessionSnapshot>(session, applySession, snapshot => {
+    for (const request of snapshot?.state?.inputNeeded ?? []) {
+      ask(request);
     }
-  };
-  subscribed?.then(join, () => join(undefined));
+  }, sessionSubscribed);
   conn.closed = detail => {
     settleAll();
     finish(detail);
@@ -410,15 +490,19 @@ export async function runAttach(args: string[], env: NodeJS.ProcessEnv = process
     conn.close();
     return 0;
   }
-  await conn.call('subscribe', { channel: opts.session });
-  // The chat snapshot holds the confirmations already waiting. follow() listens
-  // from the moment the request goes out: an action can share a network read
-  // with the answer, and Node delivers it before an awaited call resumes.
+  // The session snapshot lists the input waiting in every chat, a subagent's
+  // included; the chat snapshot holds the confirmations waiting on the default
+  // chat, which is subscribed once the session answers. follow() listens from
+  // the moment the first request goes out: an action can share a network read
+  // with an answer, and Node delivers it before an awaited call resumes.
+  const chat = defaultChatUri(opts.session);
+  const sessionAnswer = conn.call('subscribe', { channel: opts.session });
+  const chatAnswer = sessionAnswer.then(() => conn.call('subscribe', { channel: chat }));
   const { done } = follow(conn, opts.session, {
     write: s => process.stdout.write(s),
     approve: opts.readOnly ? undefined : askYesNo,
     once: opts.once,
-  }, conn.call('subscribe', { channel: defaultChatUri(opts.session) }).then(chat => chat.result?.snapshot));
+  }, chatAnswer.then(answer => answer.result?.snapshot), sessionAnswer.then(answer => answer.result?.snapshot));
   process.stderr.write(`attached to ${opts.session} (AHP ${init.result.protocolVersion}); Ctrl+C to detach\n`);
   const ended = await done;
   conn.close();
