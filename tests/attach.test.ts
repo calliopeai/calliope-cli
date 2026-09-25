@@ -1,5 +1,5 @@
 /**
- * `calliope attach` (#378, #391): the Agent Host Protocol client pieces, driven
+ * `calliope attach` (#378, #391, #394): the Agent Host Protocol client pieces, driven
  * with a scripted WebSocket-shaped object and a fake fetch. The live path (a
  * real agent host behind JupyterHub) is verified by hand; see the PRs.
  */
@@ -11,6 +11,7 @@ import * as path from 'path';
 import {
   AhpConnection, FALLBACK_EXIT, SUPPORTED_VERSIONS, checkInitialize, defaultChatUri,
   follow, isDisabled, preflight, resolveHubHost, runAttach, type ChatSnapshot,
+  type SessionInputRequest, type SessionSnapshot,
 } from '../src/attach.js';
 
 class FakeSocket {
@@ -24,6 +25,23 @@ class FakeSocket {
 }
 
 const status = (s: number, location = '') => ({ status: s, ok: s >= 200 && s < 300, headers: new Headers(location ? { location } : {}), json: async () => ({}) }) as unknown as Response;
+const settle = () => new Promise(r => setImmediate(r));
+
+/** An approve() the test answers by hand. Like the terminal prompt, it closes and answers no when withdrawn. */
+function manualApprove() {
+  const asked: string[] = [];
+  const signals: AbortSignal[] = [];
+  const answers: Array<(ok: boolean) => void> = [];
+  const approve = (title: string, input: string, signal: AbortSignal) => {
+    asked.push(`${title}|${input}`);
+    signals.push(signal);
+    return new Promise<boolean>(resolve => {
+      answers.push(resolve);
+      signal.addEventListener('abort', () => resolve(false), { once: true });
+    });
+  };
+  return { asked, signals, approve, answer: async (ok = true) => { answers.shift()!(ok); await settle(); } };
+}
 
 describe('attach: contract pieces', () => {
   it('honours the kill switch values and nothing else', () => {
@@ -166,8 +184,7 @@ describe('attach: confirmations already waiting when it joins (#391)', () => {
   const session = 'claude:/s1';
   const chat = defaultChatUri(session);
   const action = (a: Record<string, unknown>, serverSeq?: number) => ({ jsonrpc: '2.0', method: 'action', params: { channel: chat, serverSeq, action: a } });
-  const settle = () => new Promise(r => setImmediate(r));
-  const pending = (toolCallId: string, extra: Record<string, unknown> = {}) =>
+  const pending =(toolCallId: string, extra: Record<string, unknown> = {}) =>
     ({ kind: 'toolCall', toolCall: { toolCallId, status: 'pending-confirmation', confirmationTitle: `Fetch ${toolCallId}?`, toolInput: `{"url":"https://example.com/${toolCallId}"}`, ...extra } });
   const state = (...responseParts: unknown[]) => ({ activeTurn: { id: 't1', responseParts } }) as ChatSnapshot['state'];
   /** A chat subscribe answer taken at server sequence 7. */
@@ -177,21 +194,6 @@ describe('attach: confirmations already waiting when it joins (#391)', () => {
     jsonrpc: '2.0', method: 'dispatchAction',
     params: { channel: chat, clientSeq, action: { type: 'chat/toolCallConfirmed', turnId: 't1', toolCallId, approved: true, confirmed: 'user-action' } },
   });
-  /** An approve() the test answers by hand. Like the terminal prompt, it closes and answers no when withdrawn. */
-  function manualApprove() {
-    const asked: string[] = [];
-    const signals: AbortSignal[] = [];
-    const answers: Array<(ok: boolean) => void> = [];
-    const approve = (title: string, input: string, signal: AbortSignal) => {
-      asked.push(`${title}|${input}`);
-      signals.push(signal);
-      return new Promise<boolean>(resolve => {
-        answers.push(resolve);
-        signal.addEventListener('abort', () => resolve(false), { once: true });
-      });
-    };
-    return { asked, signals, approve, answer: async (ok = true) => { answers.shift()!(ok); await settle(); } };
-  }
 
   it('asks about a pending call in the snapshot and confirms it on the snapshot turn', async () => {
     const ws = new FakeSocket();
@@ -395,6 +397,341 @@ describe('attach: runAttach reads the chat snapshot (#391)', () => {
     expect(out.join('').match(/\[waiting for approval elsewhere\][^\n]*/g)).toEqual([
       '[waiting for approval elsewhere] Fetch URL?: {"url":"https://example.com"}',
       '[waiting for approval elsewhere] Fetch another URL?: {"url":"https://example.org"}',
+    ]);
+    expect(out.join('')).toContain('[turn complete]');
+  });
+});
+
+/** Shapes of the agent host a session with a Claude subagent produces (calliope-vscode#824). */
+const subagentHost = (session: string) => {
+  const chat = defaultChatUri(session);
+  /** The chat of the subagent that parent tool call `tc-agent` spawned, named the way the host names it. */
+  const subagentChat = `ahp-chat://subagent/${Buffer.from(session).toString('base64url')}/tc-agent`;
+  const on = (channel: string, a: Record<string, unknown>, serverSeq?: number) => ({ jsonrpc: '2.0', method: 'action', params: { channel, serverSeq, action: a } });
+  /** A `toolConfirmation` entry of the session's `inputNeeded`, keyed the way the host keys it. */
+  const request = (toolCallId: string, where = subagentChat, turnId = 'st1', call: Record<string, unknown> = {}): SessionInputRequest => ({
+    id: `toolConfirmation:${where}:${turnId}:${toolCallId}`,
+    kind: 'toolConfirmation', chat: where, turnId,
+    toolCall: {
+      toolCallId, status: 'pending-confirmation', invocationMessage: `Fetching ${toolCallId}`,
+      confirmationTitle: `Fetch ${toolCallId}?`, toolInput: `{"url":"https://example.com/${toolCallId}"}`, ...call,
+    },
+  });
+  return {
+    chat, subagentChat, on, request,
+    needed: (r: SessionInputRequest, serverSeq?: number) => on(session, { type: 'session/inputNeededSet', request: r }, serverSeq),
+    removed: (r: SessionInputRequest, serverSeq?: number) => on(session, { type: 'session/inputNeededRemoved', id: r.id }, serverSeq),
+    ready: (toolCallId: string, turnId = 't1') => ({ type: 'chat/toolCallReady', turnId, toolCallId, toolInput: `{"url":"https://example.com/${toolCallId}"}`, confirmationTitle: `Fetch ${toolCallId}?` }),
+    answered: (where: string, turnId: string, toolCallId: string, clientSeq: number, approved = true) => ({
+      jsonrpc: '2.0', method: 'dispatchAction',
+      params: {
+        channel: where, clientSeq, action: approved
+          ? { type: 'chat/toolCallConfirmed', turnId, toolCallId, approved: true, confirmed: 'user-action' }
+          : { type: 'chat/toolCallConfirmed', turnId, toolCallId, approved: false, reason: 'denied' },
+      },
+    }),
+  };
+};
+
+describe('attach: approvals the session lists in inputNeeded, subagents included (#394)', () => {
+  const session = 'claude:/s1';
+  const { chat, subagentChat, on, request, needed, removed, ready, answered } = subagentHost(session);
+  /** A session subscribe answer taken at server sequence `fromSeq`. */
+  const sessionSnapshot = (fromSeq: number, ...inputNeeded: SessionInputRequest[]): Promise<SessionSnapshot> => Promise.resolve({ fromSeq, state: { inputNeeded } });
+  /** A chat subscribe answer in which the parent turn runs the subagent's `Agent` call. */
+  const chatSnapshot = (fromSeq: number, ...responseParts: unknown[]): Promise<ChatSnapshot> => Promise.resolve({
+    fromSeq, state: { activeTurn: { id: 't1', responseParts: [{ kind: 'toolCall', toolCall: { toolCallId: 'tc-agent', status: 'running' } }, ...responseParts] } },
+  } as ChatSnapshot);
+
+  it('asks about a subagent approval the session lists, and answers on the subagent chat and turn', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve });
+    // The host puts the pending call on the subagent chat, which attach does not follow, and lists it on the session.
+    ws.serverSends(on(subagentChat, ready('c1', 'st1'), 20));
+    ws.serverSends(needed(request('c1'), 21));
+    await settle();
+    expect(user.asked).toEqual(['Fetch c1?|{"url":"https://example.com/c1"}']);
+    await user.answer(true);
+    expect(ws.sent).toEqual([answered(subagentChat, 'st1', 'c1', 1)]);
+  });
+
+  it('a denial goes to the subagent chat as approved: false', async () => {
+    const ws = new FakeSocket();
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: async () => false });
+    ws.serverSends(needed(request('c1')));
+    await settle();
+    expect(ws.sent).toEqual([answered(subagentChat, 'st1', 'c1', 1, false)]);
+  });
+
+  it("today's host: a subagent approval that lands on the default chat is asked there and answered with the parent turn", async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve }, chatSnapshot(7), sessionSnapshot(7));
+    await settle();
+    // Without calliope-vscode#824 the pending ready of a call inside a subagent goes to the
+    // default chat, which has no such call, so the session lists nothing for it.
+    ws.serverSends(on(chat, ready('c1'), 8));
+    await settle();
+    await user.answer(true);
+    expect(user.asked).toEqual(['Fetch c1?|{"url":"https://example.com/c1"}']);
+    expect(ws.sent).toEqual([answered(chat, 't1', 'c1', 1)]);
+  });
+
+  it('a default-chat approval the session also lists is asked once, and a removal while it still waits does not withdraw it', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve });
+    const onDefaultChat = request('c1', chat, 't1');
+    ws.serverSends(on(chat, ready('c1'), 10));
+    ws.serverSends(needed(onDefaultChat, 11));
+    // A host without calliope-vscode#823: the provider's late ready moves the call to running
+    // and the session drops its entry, while the call still waits for the answer.
+    ws.serverSends(on(chat, { type: 'chat/toolCallReady', turnId: 't1', toolCallId: 'c1', invocationMessage: 'Fetching c1', confirmed: 'not-needed' }, 12));
+    ws.serverSends(removed(onDefaultChat, 13));
+    await settle();
+    expect(user.signals.map(s => s.aborted)).toEqual([false]);
+    await user.answer(true);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([answered(chat, 't1', 'c1', 1)]);
+    expect(out.join('')).not.toContain('no longer needed');
+  });
+
+  it('a default-chat approval the session lists while the chat snapshot is on its way is asked through the chat all the same', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    let answerChat!: (s: ChatSnapshot) => void;
+    follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve },
+      new Promise<ChatSnapshot>(r => { answerChat = r; }), sessionSnapshot(5));
+    await settle();
+    // attach subscribes to the chat once the session answers. The chat's ready is held
+    // until the chat snapshot, while the session's listing of the same call is live.
+    const onDefaultChat = request('c1', chat, 't1');
+    ws.serverSends(on(chat, ready('c1'), 6));
+    ws.serverSends(needed(onDefaultChat, 7));
+    answerChat({ fromSeq: 5, state: { activeTurn: { id: 't1', responseParts: [] } } });
+    await settle();
+    // A host without calliope-vscode#823 then drops the entry while the call still waits.
+    ws.serverSends(on(chat, { type: 'chat/toolCallReady', turnId: 't1', toolCallId: 'c1', invocationMessage: 'Fetching c1', confirmed: 'not-needed' }, 8));
+    ws.serverSends(removed(onDefaultChat, 9));
+    await settle();
+    expect(user.signals.map(s => s.aborted)).toEqual([false]);
+    await user.answer(true);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([answered(chat, 't1', 'c1', 1)]);
+    expect(out.join('')).not.toContain('no longer needed');
+  });
+
+  it('a default-chat approval waiting in both snapshots is asked once, on the default chat', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    const pending = { kind: 'toolCall', toolCall: { toolCallId: 'c1', status: 'pending-confirmation', confirmationTitle: 'Fetch c1?', toolInput: '{"url":"https://example.com/c1"}' } };
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve }, chatSnapshot(9, pending), sessionSnapshot(7, request('c1', chat, 't1')));
+    await settle();
+    await user.answer(true);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([answered(chat, 't1', 'c1', 1)]);
+  });
+
+  it('a call that shows up on the default chat and in a subagent entry is asked once', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve });
+    ws.serverSends(needed(request('c1'), 10));
+    ws.serverSends(on(chat, ready('c1'), 11));
+    await settle();
+    await user.answer(true);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([answered(subagentChat, 'st1', 'c1', 1)]);
+  });
+
+  it('asks about a subagent approval already waiting in the session snapshot when it joins', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve }, chatSnapshot(9), sessionSnapshot(7, request('c1')));
+    await settle();
+    expect(user.asked).toEqual(['Fetch c1?|{"url":"https://example.com/c1"}']);
+    await user.answer(true);
+    expect(ws.sent).toEqual([answered(subagentChat, 'st1', 'c1', 1)]);
+  });
+
+  it('read-only reports a waiting subagent approval and sends nothing', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    follow(new AhpConnection(ws), session, { write: s => out.push(s) }, undefined, sessionSnapshot(7, request('c1')));
+    await settle();
+    expect(out.join('')).toContain('[waiting for approval elsewhere] Fetch c1?: {"url":"https://example.com/c1"}');
+    expect(ws.sent).toEqual([]);
+  });
+
+  it('withdraws a subagent prompt another client answers, and never asks about a queued one it answered', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve }, undefined, sessionSnapshot(7, request('c1'), request('c2')));
+    await settle();
+    // The prompt for c1 is open and c2 is queued behind it; another client answers both.
+    ws.serverSends(removed(request('c1'), 8));
+    ws.serverSends(removed(request('c2'), 9));
+    await settle();
+    expect(user.signals.map(s => s.aborted)).toEqual([true]);
+    expect(user.asked).toHaveLength(1);
+    expect(ws.sent).toEqual([]);
+    expect(out.join('')).toContain('[approval no longer needed; nothing sent]');
+  });
+
+  it("the default chat's turn end withdraws its own prompt; a subagent's stays until the session removes it or the connection closes", async () => {
+    for (const end of ['removed', 'close'] as const) {
+      const ws = new FakeSocket();
+      const user = manualApprove();
+      follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve });
+      ws.serverSends(on(chat, ready('c0'), 10));
+      ws.serverSends(needed(request('c1'), 11));
+      await settle();
+      // c0 is on screen and c1 is queued; the parent turn ends while a background subagent still waits.
+      ws.serverSends(on(chat, { type: 'chat/turnComplete', turnId: 't1' }, 12));
+      await settle();
+      expect(user.asked.map(a => a.split('|')[0])).toEqual(['Fetch c0?', 'Fetch c1?']);
+      expect(user.signals.map(s => s.aborted)).toEqual([true, false]);
+      if (end === 'close') {
+        ws.emit('close', { code: 1006 });
+      } else {
+        ws.serverSends(removed(request('c1'), 13));
+      }
+      await settle();
+      expect(user.signals.map(s => s.aborted)).toEqual([true, true]);
+      expect(ws.sent).toEqual([]);
+    }
+  });
+
+  it('with once, a subagent prompt still open when the turn completes closes as following ends', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    const user = manualApprove();
+    const { done } = follow(new AhpConnection(ws), session, { write: s => out.push(s), approve: user.approve, once: true });
+    ws.serverSends(needed(request('c1'), 10));
+    await settle();
+    ws.serverSends(on(chat, { type: 'chat/turnComplete', turnId: 't1' }, 11));
+    expect(await done).toBe('turnComplete');
+    await settle();
+    // An open readline prompt would keep the process alive after attach returns.
+    expect(user.signals.map(s => s.aborted)).toEqual([true]);
+    expect(ws.sent).toEqual([]);
+    expect(out.join('')).toContain('[approval no longer needed; nothing sent]');
+  });
+
+  it('holds session actions that arrive before the session snapshot and applies them after it', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    let answer!: (s: SessionSnapshot) => void;
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve }, undefined, new Promise<SessionSnapshot>(r => { answer = r; }));
+    // Both come after the snapshot (serverSeq > 7) but reach the client first,
+    // as they do when they share a network read with the subscribe answer.
+    ws.serverSends(removed(request('c1'), 8));
+    ws.serverSends(needed(request('c2'), 9));
+    await settle();
+    expect(user.asked).toEqual([]);
+    answer({ fromSeq: 7, state: { inputNeeded: [request('c1')] } });
+    await settle();
+    expect(user.asked.map(a => a.split('|')[0])).toEqual(['Fetch c2?']);
+    await user.answer(true);
+    expect(ws.sent.map(m => m.params.action.toolCallId)).toEqual(['c2']);
+  });
+
+  it('skips a held session action the snapshot already includes', async () => {
+    const ws = new FakeSocket();
+    const user = manualApprove();
+    let answer!: (s: SessionSnapshot) => void;
+    follow(new AhpConnection(ws), session, { write: () => {}, approve: user.approve }, undefined, new Promise<SessionSnapshot>(r => { answer = r; }));
+    // serverSeq 6 is at or before the snapshot, which shows the request answered since.
+    ws.serverSends(needed(request('c1'), 6));
+    answer({ fromSeq: 7, state: {} });
+    await settle();
+    expect(user.asked).toEqual([]);
+    expect(ws.sent).toEqual([]);
+  });
+
+  it('leaves alone the input it does not answer: result confirmations, other kinds, an entry without a chat', async () => {
+    const ws = new FakeSocket();
+    const out: string[] = [];
+    follow(new AhpConnection(ws), session, { write: s => out.push(s) }, undefined, sessionSnapshot(7,
+      request('c1', subagentChat, 'st1', { status: 'pending-result-confirmation' }),
+      { ...request('c2'), kind: 'toolClientExecution' },
+      { id: 'chatInput:q1', kind: 'chatInput', chat: subagentChat },
+      { ...request('c3'), chat: undefined } as unknown as SessionInputRequest,
+    ));
+    ws.serverSends(needed(request('c4', subagentChat, 'st1', { status: 'running' }), 8));
+    await settle();
+    expect(out.join('')).not.toContain('waiting for approval');
+    expect(ws.sent).toEqual([]);
+  });
+});
+
+describe('attach: runAttach reads the session inputNeeded (#394)', () => {
+  const session = 'claude:/s1';
+  const { chat, subagentChat, on, request, needed } = subagentHost(session);
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  /**
+   * A host with a subagent approval already waiting when attach joins, and a
+   * second one sent in the same burst as the session subscribe answer. A
+   * default-chat approval waits in both snapshots.
+   */
+  class SubagentHost {
+    static last: SubagentHost | undefined;
+    sent: any[] = [];
+    private listeners: Record<string, Array<(ev: any) => void>> = {};
+    constructor(readonly url: string) {
+      SubagentHost.last = this;
+      setImmediate(() => this.emit('open', {}));
+    }
+    addEventListener(type: string, fn: (ev: any) => void) { (this.listeners[type] ??= []).push(fn); }
+    emit(type: string, ev: any) { for (const fn of this.listeners[type] ?? []) fn(ev); }
+    close() { this.emit('close', { code: 1000 }); }
+    private reply(...msgs: unknown[]) { setImmediate(() => { for (const msg of msgs) this.emit('message', { data: JSON.stringify(msg) }); }); }
+    send(data: string) {
+      const msg = JSON.parse(data);
+      this.sent.push(msg);
+      if (msg.method === 'initialize') {
+        this.reply({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '1.0.0' } });
+      } else if (msg.method === 'subscribe' && msg.params.channel === session) {
+        this.reply(
+          { jsonrpc: '2.0', id: msg.id, result: { snapshot: { resource: session, fromSeq: 5, state: { inputNeeded: [request('c0', chat, 't1'), request('c1')] } } } },
+          needed(request('c2'), 6),
+        );
+      } else if (msg.method === 'subscribe' && msg.params.channel === chat) {
+        this.reply(
+          { jsonrpc: '2.0', id: msg.id, result: { snapshot: { resource: chat, fromSeq: 7, state: { turns: [], activeTurn: { id: 't1', responseParts: [
+            { kind: 'toolCall', toolCall: { toolCallId: 'tc-agent', status: 'running' } },
+            { kind: 'toolCall', toolCall: { toolCallId: 'c0', status: 'pending-confirmation', confirmationTitle: 'Fetch c0?', toolInput: '{"url":"https://example.com/c0"}' } },
+          ] } } } } },
+          on(chat, { type: 'chat/turnComplete', turnId: 't1' }, 8),
+        );
+      }
+    }
+  }
+
+  it('reports every approval waiting in the session once, including those right behind the session snapshot', async () => {
+    vi.stubGlobal('WebSocket', SubagentHost);
+    vi.stubGlobal('fetch', async () => status(426));
+    const out: string[] = [];
+    vi.spyOn(process.stdout, 'write').mockImplementation(((s: string) => { out.push(String(s)); return true; }) as typeof process.stdout.write);
+    vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
+    const code = await runAttach(['--url', 'ws://host/agent-host/', session, '--read-only', '--once'], {});
+    expect(code).toBe(0);
+    const host = SubagentHost.last!;
+    expect(host.sent.filter(m => m.method === 'subscribe').map(m => m.params.channel)).toEqual([session, chat]);
+    expect(host.sent.some(m => m.params?.channel === subagentChat)).toBe(false);
+    expect(out.join('').match(/\[waiting for approval elsewhere\][^\n]*/g)).toEqual([
+      '[waiting for approval elsewhere] Fetch c1?: {"url":"https://example.com/c1"}',
+      '[waiting for approval elsewhere] Fetch c2?: {"url":"https://example.com/c2"}',
+      '[waiting for approval elsewhere] Fetch c0?: {"url":"https://example.com/c0"}',
     ]);
     expect(out.join('')).toContain('[turn complete]');
   });

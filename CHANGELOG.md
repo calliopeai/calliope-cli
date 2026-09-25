@@ -3,6 +3,7 @@
 ## Unreleased
 
 - `calliope attach` asks about approvals that were already waiting when it joined. It reads the chat snapshot that `subscribe` returns and asks about each tool call pending confirmation, one prompt at a time. Actions the host sends right behind that snapshot are no longer lost before attach starts listening (a new approval, or the end of a `--once` turn), and a prompt closes without sending anything when another client answers the call, the turn ends or the connection drops. `calliope --help` lists `attach` (#391). Hosts report pending confirmations in the snapshot from calliope-vscode#823 on.
+- `calliope attach` asks about approvals inside a Claude subagent. It reads `inputNeeded` from the session channel's `subscribe` snapshot and follows `session/inputNeededSet` and `session/inputNeededRemoved`: a tool confirmation waiting on another chat (a subagent's) is asked like one on the default chat and answered on that chat and turn, and its prompt closes when the session removes the request. The default chat's confirmations are still asked through that chat, so one listed in both places is asked once. Hosts put subagent approvals on the subagent chat from calliope-vscode#824 on; until then attach asks about them on the default chat, as before (#394).
 
 ## 3.3.0: Agent host attach, signed binaries, Windows
 
