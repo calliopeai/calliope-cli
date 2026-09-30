@@ -85,12 +85,13 @@ describe('attach: contract pieces', () => {
   });
 
   it('resolveHubHost: ready server resolves; refused spawn is unentitled; bad token is auth', async () => {
-    const ready = async () => ({ ok: true, status: 200, json: async () => ({ servers: { agenthost: { ready: true, url: '/user/u/agenthost/' } } }) }) as unknown as Response;
+    const ready = async (url: string | URL) => new URL(String(url)).pathname === '/agent-host/status' ? status(404) : ({ ok: true, status: 200, json: async () => ({ servers: { agenthost: { ready: true, url: '/user/u/agenthost/' } } }) }) as unknown as Response;
     expect(await resolveHubHost({ hubUrl: 'https://hub', user: 'u', token: 't', fetchImpl: ready as typeof fetch }))
       .toEqual({ ok: true, url: 'wss://hub/user/u/agenthost/agent-host/' });
 
     const calls: string[] = [];
     const refused = (async (url: string | URL, init?: RequestInit) => {
+      if (new URL(String(url)).pathname === '/agent-host/status') return status(404);
       calls.push(`${init?.method ?? 'GET'} ${new URL(String(url)).pathname}`);
       return init?.method === 'POST' ? status(403) : ({ ok: true, status: 200, json: async () => ({ servers: {} }) }) as unknown as Response;
     }) as typeof fetch;
@@ -758,5 +759,25 @@ describe('attach: top-level help', () => {
       process.env.HOME = prev.home;
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+
+describe('Hub tap discovery', () => {
+  it('uses the verified root route without a server lookup or spawn', async () => {
+    const fetchImpl = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      expect(init?.redirect).toBe('error');
+      expect(init?.credentials).toBe('omit');
+      expect(init?.headers).toEqual({ Authorization: 'token user-token' });
+      return Response.json({ enabled: true, endpoint: '/agent-host/' });
+    });
+    expect(await resolveHubHost({ hubUrl: 'https://hub', user: 'claimed', token: 'user-token', fetchImpl: fetchImpl as typeof fetch }))
+      .toEqual({ ok: true, url: 'wss://hub/agent-host/' });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+  it.each([[401, 'auth'], [403, 'unentitled'], [503, 'unreachable'], [200, 'disabled']])('never bypasses tap refusal %s', async (code, reason) => {
+    const fetchImpl = vi.fn(async () => Response.json({ enabled: false, reason }, { status: Number(code) }));
+    expect(await resolveHubHost({ hubUrl: 'https://hub', user: 'u', token: 't', fetchImpl: fetchImpl as typeof fetch })).toMatchObject({ ok: false, reason });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
