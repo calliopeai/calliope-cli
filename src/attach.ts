@@ -68,40 +68,59 @@ export async function resolveHubHost(opts: {
   const { hubUrl, user, token, serverName = 'agenthost', fetchImpl = fetch, timeoutMs = 60_000 } = opts;
   const api = new URL('hub/api/', hubUrl.endsWith('/') ? hubUrl : `${hubUrl}/`);
   const headers = { Authorization: `token ${token}` };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const request = (url: URL, init: RequestInit = {}) => fetchImpl(url, {
+    ...init, signal: controller.signal, redirect: 'error', credentials: 'omit',
+  });
   const deadline = Date.now() + timeoutMs;
   try {
-    for (let spawned = false; ;) {
-      const res = await fetchImpl(new URL(`users/${encodeURIComponent(user)}`, api), { headers });
-      if (!res.ok) {
-        return fail(res.status === 401 || res.status === 403 ? 'auth' : 'unreachable', `hub user lookup answered ${res.status}`);
-      }
-      const body = await res.json() as { servers?: Record<string, { ready?: boolean; url?: string }> };
-      const server = body.servers?.[serverName];
-      if (server?.ready && server.url) {
-        const ws = new URL(`${server.url}agent-host/`, hubUrl);
+    const tap = await request(new URL('/agent-host/status', hubUrl), { headers });
+    if (tap.status === 401) return fail('auth', 'hub tap refused the credential');
+    if (tap.status !== 404) {
+      const body = await tap.json() as { enabled?: boolean; endpoint?: string; reason?: string };
+      if (tap.ok && body?.enabled === true && body.endpoint === '/agent-host/') {
+        const ws = new URL('/agent-host/', hubUrl);
         ws.protocol = ws.protocol === 'https:' ? 'wss:' : 'ws:';
         return { ok: true, url: ws.toString() };
       }
-      if (!spawned) {
-        const spawn = await fetchImpl(new URL(`users/${encodeURIComponent(user)}/servers/${encodeURIComponent(serverName)}`, api), { method: 'POST', headers });
-        if (spawn.status === 401) {
-          return fail('auth', 'hub refused the token');
-        }
+      const reason = body?.reason === 'disabled' || body?.reason === 'unentitled' || body?.reason === 'auth'
+        ? body.reason : tap.status === 403 ? 'auth' : 'unreachable';
+      return fail(reason, `hub tap answered ${tap.status}`);
+    }
+    for (let spawned = false; ;) {
+      controller.signal.throwIfAborted();
+      const res = await request(new URL(`users/${encodeURIComponent(user)}`, api), { headers });
+      if (!res.ok) {
+        return fail(res.status === 401 || res.status === 403 ? 'auth' : 'unreachable', `hub user lookup answered ${res.status}`);
+      }
+      const body = await res.json() as { servers?: Record<string, { ready?: boolean; pending?: string; url?: string }> };
+      const server = body.servers?.[serverName];
+      if (server?.ready && server.url) {
+        const ws = new URL(`${server.url}agent-host/`, hubUrl);
+        if (ws.origin !== new URL(hubUrl).origin) return fail('unreachable', 'hub answered a foreign server URL');
+        ws.protocol = ws.protocol === 'https:' ? 'wss:' : 'ws:';
+        return { ok: true, url: ws.toString() };
+      }
+      if (!spawned && !server?.pending) {
+        const spawn = await request(new URL(`users/${encodeURIComponent(user)}/servers/${encodeURIComponent(serverName)}`, api), {
+          method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ profile: serverName }),
+        });
+        if (spawn.status === 401) return fail('auth', 'hub refused the token');
         if (spawn.status === 403 || (spawn.status === 400 && !server)) {
           return fail('unentitled', `hub refused to start ${serverName}: ${spawn.status}`);
         }
-        if (!spawn.ok && spawn.status !== 400) {
-          return fail('unreachable', `hub could not start ${serverName}: ${spawn.status}`);
-        }
+        if (!spawn.ok && spawn.status !== 400) return fail('unreachable', `hub could not start ${serverName}: ${spawn.status}`);
         spawned = true;
       }
-      if (Date.now() >= deadline) {
-        return fail('unreachable', `${serverName} not ready within ${Math.round(timeoutMs / 1000)}s`);
-      }
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (Date.now() >= deadline) return fail('unreachable', `${serverName} not ready within ${Math.round(timeoutMs / 1000)}s`);
+      await new Promise(resolve => setTimeout(resolve, Math.min(1000, Math.max(0, deadline - Date.now()))));
     }
   } catch (err) {
-    return fail('unreachable', `hub unreachable: ${(err as Error).message}`);
+    return fail('unreachable', controller.signal.aborted ? 'hub discovery timed out' : `hub unreachable: ${(err as Error).message}`);
+  } finally {
+    clearTimeout(timer);
+    controller.abort();
   }
 }
 
