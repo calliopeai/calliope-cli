@@ -92,6 +92,19 @@ it('a project disappearing during the final wait refuses dispatch without recrea
   expect(existsSync(join(root, 'effect.txt'))).toBe(false);
 });
 
+it.each(['allow', 'allow_session', 'allow_project'] as const)('a shell effect requires approval once rather than %s authority', async choice => {
+  const marker = join(root, 'shell-effect.txt');
+  const invocation: ToolCall = { id: 'native-shell', name: 'shell', arguments: {
+    command: `${shellQuote(process.execPath)} -e ${shellQuote(`require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'authorized-once')`)}`,
+  } };
+  let reason = '';
+  await exercise({ confirmation: 'mutating', approvals: new ApprovalStore(join(root, 'approvals')),
+    approve: async () => choice, onToolResult: (_tool, result) => { reason = result.result; } }, invocation);
+  expect(existsSync(marker)).toBe(choice === 'allow');
+  if (choice === 'allow') expect(readFileSync(marker, 'utf8')).toBe('authorized-once');
+  else expect(reason).toBe('[confirmation] This operation requires approval once; a reusable grant is unavailable.');
+});
+
 it.each(['expire', 'revoke'] as const)('a reusable approval cannot %s during the final wait and still execute', async action => {
   let now = Date.now();
   const approvals = new ApprovalStore(join(root, 'approvals'), () => now);
