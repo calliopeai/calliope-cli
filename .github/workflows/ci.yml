@@ -37,6 +37,43 @@ jobs:
       - name: Check types
         run: npx tsc --noEmit
 
+  ahp-protocol:
+    name: Native AHP ${{ matrix.protocol }} compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - protocol: '1.0.0'
+            source: '08d4889f9ec4a1685d257b9b95de036c8e1ce1e5'
+          - protocol: '0.9.0'
+            source: '07f806f999227108933c2e30515b26eecc1fda74'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/vscode
+          ref: ${{ matrix.source }}
+          path: _ahp_source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.18.0'
+      - run: npm ci
+      - name: Install the pinned compiler and host transport only
+        shell: bash
+        run: |
+          test "$(git -C _ahp_source rev-parse HEAD)" = "${{ matrix.source }}"
+          compiler_spec=$(node -e "const p=require('./_ahp_source/package-lock.json').packages['node_modules/typescript']; process.stdout.write('typescript@npm:'+p.name+'@'+p.version)")
+          transport_spec=$(node -e "const p=require('./_ahp_source/package-lock.json').packages['node_modules/ws']; process.stdout.write('ws@'+p.version)")
+          npm install --prefix "$RUNNER_TEMP/ahp-deps" --ignore-scripts --no-audit --no-fund --no-save "$compiler_spec" "$transport_spec"
+          ln -s "$RUNNER_TEMP/ahp-deps/node_modules" _ahp_source/node_modules
+      - name: Exercise real handler, transport and state reducers
+        env:
+          AHP_SOURCE: _ahp_source
+          AHP_EXPECTED_VERSION: ${{ matrix.protocol }}
+        run: npm run test:ahp-protocol
+
   bench:
     # Performance budgets (issue #186). Runs after build/test so a red build
     # fails fast before we spend time benchmarking.

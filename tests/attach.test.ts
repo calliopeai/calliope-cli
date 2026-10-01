@@ -1,13 +1,16 @@
 /**
  * `calliope attach` (#378, #391, #394): the Agent Host Protocol client pieces, driven
- * with a scripted WebSocket-shaped object and a fake fetch. The live path (a
- * real agent host behind JupyterHub) is verified by hand; see the PRs.
+ * with scripted frames plus real stalled HTTP/WebSocket cleanup. Source-pinned
+ * native host lifecycle qualification lives in scripts/qualification/ahp-protocol.mjs.
  */
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { createServer } from 'node:http';
+import type { Socket } from 'node:net';
+import { WebSocketServer } from 'ws';
 import {
   AhpConnection, FALLBACK_EXIT, SUPPORTED_VERSIONS, checkInitialize, defaultChatUri,
   follow, isDisabled, preflight, resolveHubHost, runAttach, type ChatSnapshot,
@@ -146,6 +149,30 @@ describe('attach: following a session', () => {
     ws.serverSends(action({ type: 'chat/turnComplete', turnId: 't1' }));
     await done;
     expect(ws.sent[0].params.action).toMatchObject({ type: 'chat/toolCallConfirmed', approved: false, toolCallId: 'c1' });
+  });
+
+  it('asks for pending approval without an optional confirmation title', async () => {
+    const ws = new FakeSocket();
+    const approve = vi.fn(async () => false);
+    const { done } = follow(new AhpConnection(ws), session, { write: () => {}, approve, once: true });
+    ws.serverSends(action({ type: 'chat/toolCallReady', turnId: 't1', toolCallId: 'c1', invocationMessage: 'Run command', toolInput: 'touch x' }));
+    await new Promise(r => setImmediate(r));
+    expect(approve).toHaveBeenCalledWith('Run command', 'touch x', expect.any(AbortSignal));
+    expect(ws.sent[0].params.action).toMatchObject({ approved: false, toolCallId: 'c1' });
+    ws.serverSends(action({ type: 'chat/turnComplete', turnId: 't1' }));
+    await done;
+  });
+
+  it('does not ask for an already confirmed call even when it has a title', async () => {
+    const ws = new FakeSocket();
+    const approve = vi.fn(async () => true);
+    const { done } = follow(new AhpConnection(ws), session, { write: () => {}, approve, once: true });
+    ws.serverSends(action({ type: 'chat/toolCallReady', turnId: 't1', toolCallId: 'c1', confirmationTitle: 'Run command', confirmed: 'not-needed' }));
+    await new Promise(r => setImmediate(r));
+    expect(approve).not.toHaveBeenCalled();
+    expect(ws.sent).toEqual([]);
+    ws.serverSends(action({ type: 'chat/turnComplete', turnId: 't1' }));
+    await done;
   });
 
   it('read-only never answers a confirmation', async () => {
@@ -387,12 +414,11 @@ describe('attach: runAttach reads the chat snapshot (#391)', () => {
   }
 
   it('reports the confirmation that was waiting before it joined, and the actions sent right behind the snapshot', async () => {
-    vi.stubGlobal('WebSocket', FakeHost);
     vi.stubGlobal('fetch', async () => status(426));
     const out: string[] = [];
     vi.spyOn(process.stdout, 'write').mockImplementation(((s: string) => { out.push(String(s)); return true; }) as typeof process.stdout.write);
     vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
-    const code = await runAttach(['--url', 'ws://host/agent-host/', session, '--read-only', '--once'], {});
+    const code = await runAttach(['--url', 'ws://host/agent-host/', session, '--read-only', '--once'], {}, { createSocket: url => new FakeHost(url) });
     expect(code).toBe(0);
     expect(FakeHost.last!.sent.filter(m => m.method === 'subscribe').map(m => m.params.channel)).toEqual([session, chat]);
     expect(out.join('').match(/\[waiting for approval elsewhere\][^\n]*/g)).toEqual([
@@ -719,12 +745,11 @@ describe('attach: runAttach reads the session inputNeeded (#394)', () => {
   }
 
   it('reports every approval waiting in the session once, including those right behind the session snapshot', async () => {
-    vi.stubGlobal('WebSocket', SubagentHost);
     vi.stubGlobal('fetch', async () => status(426));
     const out: string[] = [];
     vi.spyOn(process.stdout, 'write').mockImplementation(((s: string) => { out.push(String(s)); return true; }) as typeof process.stdout.write);
     vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
-    const code = await runAttach(['--url', 'ws://host/agent-host/', session, '--read-only', '--once'], {});
+    const code = await runAttach(['--url', 'ws://host/agent-host/', session, '--read-only', '--once'], {}, { createSocket: url => new SubagentHost(url) });
     expect(code).toBe(0);
     const host = SubagentHost.last!;
     expect(host.sent.filter(m => m.method === 'subscribe').map(m => m.params.channel)).toEqual([session, chat]);
@@ -779,5 +804,207 @@ describe('Hub tap discovery', () => {
     const fetchImpl = vi.fn(async () => Response.json({ enabled: false, reason }, { status: Number(code) }));
     expect(await resolveHubHost({ hubUrl: 'https://hub', user: 'u', token: 't', fetchImpl: fetchImpl as typeof fetch })).toMatchObject({ ok: false, reason });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('attach: cross-generation outcomes and bounded setup', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+  it('offers the validated 0.9 generation alongside 1.0 and legacy 0.6', () => {
+    expect(SUPPORTED_VERSIONS).toEqual(['1.0.0', '0.9.0', '0.6.0']);
+    expect(checkInitialize({ result: { protocolVersion: '0.9.0' } })).toBeUndefined();
+  });
+
+  it.each(['legacy', 'response-part'])('renders the %s error shape and withdraws late approval', async shape => {
+    const socket = new FakeSocket();
+    const conn = new AhpConnection(socket);
+    const approval = manualApprove();
+    const output: string[] = [];
+    const session = 'claude:/bounded';
+    const { done } = follow(conn, session, { write: s => output.push(s), approve: approval.approve, once: true });
+    socket.serverSends({ method: 'action', params: { channel: defaultChatUri(session), action: {
+      type: 'chat/toolCallReady', turnId: 'turn', toolCallId: 'call', confirmationTitle: 'Confirm?', toolInput: '{}',
+    } } });
+    await settle();
+    const error = { message: 'specific fixture error' };
+    socket.serverSends({ method: 'action', params: { channel: defaultChatUri(session), action: {
+      type: 'chat/error', turnId: 'turn', ...(shape === 'legacy' ? { error } : { part: { kind: 'error', error } }),
+    } } });
+    expect(await done).toBe('error');
+    expect(approval.signals[0].aborted).toBe(true);
+    await approval.answer(true);
+    expect(socket.sent).toEqual([]);
+    expect(output.join('')).toContain('[turn error] {"message":"specific fixture error"}');
+    conn.close();
+  });
+
+  it('ends once on cancellation and does not confirm after a late answer', async () => {
+    const socket = new FakeSocket();
+    const conn = new AhpConnection(socket);
+    const approval = manualApprove();
+    const session = 'claude:/cancel';
+    const { done } = follow(conn, session, { write: () => {}, approve: approval.approve, once: true });
+    const action = (data: unknown) => socket.serverSends({ method: 'action', params: { channel: defaultChatUri(session), action: data } });
+    action({ type: 'chat/toolCallReady', turnId: 'turn', toolCallId: 'call', confirmationTitle: 'Confirm?' });
+    await settle();
+    action({ type: 'chat/turnCancelled', turnId: 'turn' });
+    expect(await done).toBe('cancelled');
+    await approval.answer(true);
+    expect(socket.sent).toEqual([]);
+    conn.close();
+  });
+
+  it.each(['timeout', 'close', 'malformed', 'abort', 'error'])('settles all outstanding RPCs on %s and refuses future sends', async outcome => {
+    const socket = new FakeSocket();
+    const conn = new AhpConnection(socket);
+    const controller = new AbortController();
+    const first = conn.call('initialize', {}, { timeoutMs: 20, signal: controller.signal });
+    const second = conn.call('listSessions', {}, { timeoutMs: 1000 });
+    if (outcome === 'close') socket.emit('close', { code: 1006 });
+    if (outcome === 'malformed') socket.emit('message', { data: '{invalid' });
+    if (outcome === 'abort') controller.abort();
+    if (outcome === 'error') socket.emit('error', {});
+    for (const answer of await Promise.all([first, second])) expect(answer.error?.code).toBe(-32000);
+    expect((await conn.call('subscribe', {})).error?.code).toBe(-32000);
+    expect(socket.sent).toHaveLength(2);
+  });
+
+  it('ignores a late subscribed approval snapshot after the connection has closed', async () => {
+    const socket = new FakeSocket();
+    const conn = new AhpConnection(socket);
+    let publish!: (snapshot: ChatSnapshot) => void;
+    const subscribed = new Promise<ChatSnapshot>(resolve => { publish = resolve; });
+    const approve = vi.fn(async () => true);
+    const { done } = follow(conn, 'claude:/late', { write: () => {}, approve }, subscribed);
+    socket.emit('close', { code: 1006 });
+    await done;
+    publish({ state: { activeTurn: { id: 'late', responseParts: [{ kind: 'toolCall', toolCall: {
+      toolCallId: 'late-call', status: 'pending-confirmation', confirmationTitle: 'Confirm?',
+    } }] } } });
+    await settle();
+    expect(approve).not.toHaveBeenCalled();
+    expect(socket.sent).toEqual([]);
+  });
+
+  it.each(['open', 'initialize', 'listSessions', 'session', 'chat'])('bounds a silent %s setup stage', async stage => {
+    class SilentHost extends FakeSocket {
+      static last: SilentHost;
+      constructor() {
+        super(); SilentHost.last = this;
+        if (stage !== 'open') queueMicrotask(() => this.emit('open', {}));
+      }
+      send(data: string) {
+        const message = JSON.parse(data); this.sent.push(message);
+        if (message.method === stage || (stage === 'session' && message.params.channel === 'claude:/silent')
+          || (stage === 'chat' && message.params.channel === defaultChatUri('claude:/silent'))) return;
+        const result = message.method === 'initialize' ? { protocolVersion: '0.9.0' }
+          : message.method === 'listSessions' ? { items: [] } : { snapshot: { state: { inputNeeded: [] } } };
+        queueMicrotask(() => this.serverSends({ id: message.id, result }));
+      }
+    }
+    vi.stubGlobal('fetch', async () => status(426));
+    vi.spyOn(process.stdout, 'write').mockImplementation((() => true) as typeof process.stdout.write);
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
+    const args = ['--url', 'ws://host/', '--read-only'];
+    if (stage === 'session' || stage === 'chat') args.push('claude:/silent');
+    expect(await runAttach(args, {}, { timeoutMs: 25, createSocket: () => new SilentHost() })).toBe(FALLBACK_EXIT);
+    expect(stderr.mock.calls.map(call => String(call[0])).join('')).toContain('reason: unreachable');
+    expect(SilentHost.last.sent.some(message => message.method === 'dispatchAction')).toBe(false);
+  });
+});
+
+
+describe('attach: native stalled transport cleanup', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(['HTTP preflight', 'WebSocket upgrade', 'standalone preflight'])('bounds a stalled %s and releases its connection', async stage => {
+    const sockets = new Set<Socket>();
+    const authorization: Array<string | undefined> = [];
+    let observed = false;
+    const server = createServer((request, response) => {
+      authorization.push(request.headers.authorization);
+      observed = stage !== 'WebSocket upgrade';
+      if (stage === 'WebSocket upgrade') response.writeHead(426).end();
+    });
+    server.on('connection', socket => {
+      sockets.add(socket);
+      socket.on('close', () => sockets.delete(socket));
+    });
+    server.on('upgrade', (request, socket) => {
+      authorization.push(request.headers.authorization);
+      observed = true;
+      // Leave the HTTP upgrade unanswered to exercise the native client.
+      socket.on('end', () => socket.end());
+    });
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address() as { port: number };
+      vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
+      const url = `ws://127.0.0.1:${address.port}/`;
+      if (stage === 'standalone preflight') {
+        expect(await preflight(url, { Authorization: 'token loopback-test-token' }, fetch, { timeoutMs: 200 }))
+          .toMatchObject({ ok: false, reason: 'unreachable', detail: 'host preflight timed out' });
+      } else {
+        expect(await runAttach(['--url', url], { JUPYTERHUB_API_TOKEN: 'loopback-test-token' }, { timeoutMs: 200 })).toBe(FALLBACK_EXIT);
+      }
+      expect(observed).toBe(true);
+      expect(authorization).toEqual(stage === 'WebSocket upgrade'
+        ? ['token loopback-test-token', 'token loopback-test-token'] : ['token loopback-test-token']);
+      server.closeIdleConnections();
+      await vi.waitFor(() => expect(sockets.size).toBe(0), { timeout: 1500 });
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+});
+
+
+describe('attach: native command outcomes', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each(['list', 'complete', 'cancel', 'loss', 'version', 'malformed'])('handles %s with the owned transport and never cancels the host', async outcome => {
+    const server = createServer((_request, response) => response.writeHead(426).end());
+    const host = new WebSocketServer({ noServer: true });
+    server.on('upgrade', (request, socket, head) => host.handleUpgrade(request, socket, head, connection => host.emit('connection', connection)));
+    const requests: any[] = [];
+    const session = 'claude:/native';
+    const chat = defaultChatUri(session);
+    host.on('connection', socket => socket.on('message', raw => {
+      const request = JSON.parse(String(raw));
+      requests.push(request);
+      if (outcome === 'malformed') { socket.send('{invalid'); return; }
+      const result = request.method === 'initialize' ? { protocolVersion: outcome === 'version' ? '99.0.0' : '0.9.0' }
+        : request.method === 'listSessions' ? { items: [{ resource: session, title: 'Native list' }] }
+          : { snapshot: { fromSeq: 0, state: {} } };
+      socket.send(JSON.stringify({ id: request.id, result }));
+      if (request.method === 'subscribe' && request.params.channel === chat) {
+        if (outcome === 'loss') socket.terminate();
+        else socket.send(JSON.stringify({ method: 'action', params: { channel: chat, serverSeq: 1,
+          action: { type: outcome === 'cancel' ? 'chat/turnCancelled' : 'chat/turnComplete', turnId: 't1' } } }));
+      }
+    }));
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const address = server.address() as { port: number };
+      const output = vi.spyOn(process.stdout, 'write').mockImplementation((() => true) as typeof process.stdout.write);
+      const error = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as typeof process.stderr.write);
+      const args = ['--url', `ws://127.0.0.1:${address.port}/`];
+      if (!['list', 'version', 'malformed'].includes(outcome)) args.push(session, '--read-only', '--once');
+      expect(await runAttach(args, {}, { timeoutMs: 1000 })).toBe(
+        ['list', 'complete'].includes(outcome) ? 0 : outcome === 'cancel' ? 1 : FALLBACK_EXIT);
+      if (outcome === 'list') expect(output.mock.calls.flat().join('')).toContain(`${session}  Native list`);
+      if (outcome === 'version') expect(error.mock.calls.flat().join('')).toContain('reason: version');
+      if (outcome === 'loss') expect(error.mock.calls.flat().join('')).toContain('the run remains on its host');
+      expect(requests.some(request => request.method === 'dispatchAction')).toBe(false);
+      server.closeIdleConnections();
+      await vi.waitFor(() => expect(host.clients.size).toBe(0), { timeout: 1500 });
+    } finally {
+      for (const socket of host.clients) socket.terminate();
+      await new Promise<void>(resolve => host.close(() => resolve()));
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 });

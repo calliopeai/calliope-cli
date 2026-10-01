@@ -21,6 +21,7 @@ provider backends, and a small, tested command surface.
 - [Governance](./governance.md) — audit run logs, replay, budget caps, policy hook
 - [Typed judgments](./judgments.md) — noul/choice/score primitives over any backend or the native TypeSafe engine
 - [Security](./security.md) — skill & plugin trust (trust-on-first-use integrity gate)
+- [Agent Host Protocol](./agent-host.md) — attach, pending approvals, compatibility and bounded setup
 - [Editors (ACP)](./acp.md) — run Calliope as an Agent Client Protocol agent in Zed, JetBrains, and more
 - [Fleet mode](./fleet.md) — optional multi-agent coordination over IRC
 
