@@ -32,8 +32,8 @@ async function exercise(client, decision) {
   const home = join(root, 'home'), project = join(root, 'project'), config = join(root, 'config');
   await Promise.all([mkdir(home), mkdir(project), mkdir(config)]);
   const inputs = join(root, 'policy-inputs.jsonl'), marker = join(project, args.path);
-  const continuing = decision.endsWith('-child'), shellCancelling = decision === 'cancel-shell';
-  const cancelling = decision === 'cancel' || shellCancelling;
+  const continuing = decision.endsWith('-child'), shellCancelling = decision.startsWith('cancel-shell');
+  const cancelling = decision.startsWith('cancel');
   const outcome = continuing ? decision.slice(0, -6) : decision;
   const ready = join(root, 'policy-ready'), descendantPid = join(root, 'policy-child.pid'), lateEffect = join(root, 'policy-late-effect');
   const shellScript = join(project, 'native-shell.cjs'), shellChild = join(project, 'native-child.cjs');
@@ -84,7 +84,7 @@ async function exercise(client, decision) {
     }
     const script = join(root, 'policy.mjs');
     const descendant = join(root, 'policy-child.mjs');
-    if (continuing) await writeFile(descendant, `import fs from 'node:fs';process.on('SIGTERM',()=>{});` +
+    if (continuing || cancelling && !shellCancelling) await writeFile(descendant, `import fs from 'node:fs';process.on('SIGTERM',()=>{});` +
       `fs.writeFileSync(${JSON.stringify(descendantPid)},String(process.pid));fs.writeFileSync(${JSON.stringify(ready)},'ready');` +
       `setTimeout(()=>{fs.writeFileSync(${JSON.stringify(lateEffect)},'late-effect');process.exit(0)},2000);`);
     await writeFile(script, `import fs from 'node:fs';let raw='';for await(const chunk of process.stdin)raw+=chunk;` +
@@ -93,14 +93,15 @@ async function exercise(client, decision) {
       (continuing ? `const {spawn}=await import('node:child_process');spawn(process.execPath,[${JSON.stringify(descendant)}],{stdio:'ignore'});` +
         `const wait=setInterval(()=>{if(fs.existsSync(${JSON.stringify(ready)})){clearInterval(wait);` +
         (outcome === 'timeout' ? `setInterval(()=>{},1000);` : `process.exit(${outcome === 'allow' ? 0 : 2});`) + `}},5);`
-        : cancelling ? `fs.writeFileSync(${JSON.stringify(ready)},'ready');setInterval(()=>{},1000);`
+        : cancelling ? `const {spawn}=await import('node:child_process');spawn(process.execPath,[${JSON.stringify(descendant)}],{stdio:'ignore'});` +
+          `setTimeout(()=>process.exit(0),2000);`
         : decision === 'timeout' ? 'setTimeout(()=>process.exit(0),3000);' : `process.exit(${decision === 'allow' ? 0 : 2});`));
     const command = decision === 'offline' ? 'calliope-missing-policy-fixture-command'
       : `${shellQuote(process.execPath)} ${shellQuote(script)}`;
     await writeFile(join(config, 'config.json'), JSON.stringify({ setupComplete: true, autoUpgrade: false,
       defaultProvider: 'openai-compat', defaultModel: 'fixture-model', maxIterations: 3, sandboxMode: 'off',
       providers: { 'openai-compat': { apiKey: 'native-fixture-key', baseUrl: `http://127.0.0.1:${server.address().port}/v1`, model: 'fixture-model' } },
-      routing: { enabled: false }, policy: { command, timeoutMs: 500 }, audit: { enabled: true, dir: join(root, 'runs') } }));
+      routing: { enabled: false }, policy: { command, timeoutMs: cancelling ? 5000 : 500 }, audit: { enabled: true, dir: join(root, 'runs') } }));
     // A fresh process environment/home prevents startup dotenv/config loading
     // from finding real provider credentials or touching the operator's stores.
     const env = { PATH: process.env.PATH, HOME: home, USERPROFILE: home, TERM: 'xterm-256color',
@@ -136,7 +137,7 @@ async function exercise(client, decision) {
         assert.equal(result.data.isError, outcome !== 'allow', stdout + stderr);
       }
     } else if (client === 'terminal') {
-      let submitted = false, enterSent = false, finished = false, exitEnterSent = false;
+      let submitted = false, enterSent = false, finished = false, exitEnterSent = false, cancelledAt, finishedAt;
       child.stdout.on('data', chunk => {
         if (!submitted && stdout.includes('calliope>')) {
           submitted = true;
@@ -152,8 +153,10 @@ async function exercise(client, decision) {
           enterSent = true;
           if (!child.stdin.destroyed) child.stdin.write('\r');
         }
-        if (!finished && stdout.includes(finalText) && chunk.toString().includes('calliope>')) {
+        const turnFinished = cancelling ? cancelledAt !== undefined && stdout.includes('Cancellation requested.') : stdout.includes(finalText);
+        if (!finished && turnFinished && chunk.toString().includes('calliope>')) {
           finished = true;
+          finishedAt = Date.now();
           // Wait for the idle input frame and acknowledge the exit text too.
           setTimeout(() => {
             if (child.stdin.destroyed) return;
@@ -165,10 +168,18 @@ async function exercise(client, decision) {
           if (!child.stdin.destroyed) child.stdin.write('\r');
         }
       });
+      if (cancelling) await cancelWhenReady(() => {
+        cancelledAt = Date.now();
+        child.stdin.write(decision.endsWith('-ctrl-c') ? '\x03' : '\x1b');
+      });
       const [code] = await Promise.race([exited, deadline]);
       assert.equal(code, 0, stdout + stderr);
       assert.ok(submitted && finished, stdout + stderr);
       assert.ok(!stdout.includes('Approve once'), '--auto must skip ordinary confirmation while retaining policy');
+      if (cancelling) {
+        assert.ok(finishedAt - cancelledAt < 1500, 'Cancellation must return before the late allow or policy deadline');
+        assert.ok(!stdout.includes(finalText), 'Cancellation must stop the active turn');
+      }
     } else {
       let next = 1; const pending = new Map();
       const send = value => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...value }) + '\n');
@@ -208,7 +219,7 @@ async function exercise(client, decision) {
     assert.ok(completions >= (cancelling ? 1 : 2), 'The real tool result must reach the local fixture model');
     assert.equal(existsSync(marker), outcome === 'allow', `Unexpected native ${client} file effect`);
     if (outcome === 'allow') assert.ok((await readFile(marker, 'utf8')).startsWith(args.content));
-    if (continuing || shellCancelling) {
+    if (continuing || cancelling) {
       assert.ok(existsSync(ready), 'Native descendant must have actually started');
       await new Promise(resolve => setTimeout(resolve, 2200));
       assert.equal(existsSync(lateEffect), false, 'Completed policy group must not retain a child that produces later effects');
@@ -231,5 +242,5 @@ async function exercise(client, decision) {
 }
 
 for (const client of ['headless', 'acp', 'terminal'])
-  for (const decision of ['allow', 'deny', 'timeout', 'offline', 'allow-child', 'deny-child', 'timeout-child', ...(client === 'terminal' ? [] : ['cancel', 'cancel-shell'])])
+  for (const decision of ['allow', 'deny', 'timeout', 'offline', 'allow-child', 'deny-child', 'timeout-child', 'cancel', 'cancel-shell', ...(client === 'terminal' ? ['cancel-ctrl-c', 'cancel-shell-ctrl-c'] : [])])
     test(`built ${client}: ${decision} policy controls the real file effect`, { timeout: 30000 }, () => exercise(client, decision));

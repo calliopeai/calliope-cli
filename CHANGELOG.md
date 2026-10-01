@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Let the terminal input handler process Ctrl+C: the first press cancels the active turn and waits for cleanup, and a second press within two seconds exits. Ink's default exit previously bypassed that handler. Qualify Escape and Ctrl+C through a real PTY against pending policy with a late allow and running shell descendants; neither can produce delayed file effects after cancellation (#403).
+
 ## 3.3.1: attach sees every pending approval
 
 - `calliope attach` asks about approvals that were already waiting when it joined. It reads the chat snapshot that `subscribe` returns and asks about each tool call pending confirmation, one prompt at a time. Actions the host sends right behind that snapshot are no longer lost before attach starts listening (a new approval, or the end of a `--once` turn), and a prompt closes without sending anything when another client answers the call, the turn ends or the connection drops. `calliope --help` lists `attach` (#391). Hosts report pending confirmations in the snapshot from calliope-vscode#823 on.

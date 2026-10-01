@@ -72,10 +72,13 @@ ACP stdio and terminal Ink clients against a loopback inference fixture and real
 policy subprocesses. Each client verifies an allowed file effect and the absence
 of effects for denial, timeout and an unavailable policy command. Ordinary policy
 descendants cannot produce delayed effects after allow, deny or timeout in any
-of the three clients. Headless SIGINT and ACP `session/cancel` also refuse the
-pending file effect and stop a running shell descendant that ignores SIGTERM after
-its parent exits. The terminal
-uses a real PTY with `--auto`; ACP uses actual editor permission and file requests.
+of the three clients. Headless SIGINT, ACP `session/cancel`, and terminal Escape
+and Ctrl+C refuse a pending policy's late allow, stop its ordinary descendants,
+and stop a running shell descendant that ignores SIGTERM after its parent exits.
+The terminal uses a real PTY with `--auto`, waits for the idle prompt after
+cancellation, and exits through `/exit`. Its first Ctrl+C cancels through the
+input handler; a second press within two seconds exits. ACP uses actual editor
+permission and file requests.
 The fixtures use private temporary homes/configuration and remove their own
 process groups and files. This qualification requires POSIX and Python 3; it does
 not establish Windows or hosted-provider conformance. Policy-command output still
