@@ -27,6 +27,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Qualify native policy admission (terminal, headless, ACP)
+        run: node --test scripts/qualification/native-policy.mjs
+
       - name: Run tests
         # Keep worker contention bounded; the release gate uses the same limit.
         run: npm test -- --maxWorkers=2

@@ -364,7 +364,7 @@ async function main(): Promise<void> {
   }
 
   // Start the CLI
-  await startCLI();
+  await startCLI({ skipPermissions });
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
