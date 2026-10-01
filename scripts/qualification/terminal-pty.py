@@ -12,7 +12,8 @@ import termios
 master, slave = pty.openpty()
 fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 48, 160, 0, 0))
 # Inherit the qualification parent's group so its timeout kills this bridge,
-# the CLI, and any policy subprocesses together. No operator process is touched.
+# the CLI and their ordinary children. Policy groups have their own bounded
+# deadline in the CLI. No operator process is touched.
 child = subprocess.Popen(sys.argv[1:], stdin=slave, stdout=slave, stderr=slave)
 os.close(slave)
 try:
