@@ -1,7 +1,7 @@
 /** Production permission, policy process and filesystem dispatch; only inference
  * is a deterministic fixture. This is not client/wire conformance evidence. */
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { LLMResponse, ToolCall } from '../src/types.js';
@@ -75,6 +75,20 @@ it('a model response notification cannot replace the original pending tool invoc
 
 it('policy configuration changed during the final client wait invalidates admission', async () => {
   await exercise({ beforeTool: () => { config.set('policy', { command: policy(1) }); } });
+  expect(existsSync(join(root, 'effect.txt'))).toBe(false);
+});
+
+it('a project disappearing during the final wait refuses dispatch without recreating it', async () => {
+  const original = root;
+  let reason = '';
+  await exercise({ beforeTool: () => {
+    const moved = `${root}-moved`;
+    renameSync(root, moved); root = moved;
+  }, onToolResult: (_tool, result) => {
+    expect(result.isError).toBe(true); reason = result.result;
+  } });
+  expect(reason).toBe('[resolver] Execution admission could not be validated; tool refused.');
+  expect(existsSync(original)).toBe(false);
   expect(existsSync(join(root, 'effect.txt'))).toBe(false);
 });
 
