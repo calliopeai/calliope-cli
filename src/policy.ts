@@ -18,6 +18,7 @@
 
 import { spawn } from 'child_process';
 import * as config from './config.js';
+import { cancellable } from './cancellation.js';
 import type { ToolCall } from './types.js';
 
 export type PolicyDecision = 'allow' | 'deny';
@@ -109,9 +110,9 @@ async function evaluateJudgmentPolicy(toolCall: ToolCall, rulesPath: string, tim
       judgeProvider: settings.judgmentProvider === undefined ? undefined : validateJudgmentEngine(settings.judgmentProvider),
       judgeModel: typeof settings.judgmentModel === 'string' && settings.judgmentModel.trim() ? settings.judgmentModel : undefined,
     };
-    const { verdict } = await judgeToolCall({ id: toolCall.id, name: toolCall.name, arguments: toolCall.arguments }, {
+    const { verdict } = await cancellable(judgeToolCall({ id: toolCall.id, name: toolCall.name, arguments: toolCall.arguments }, {
       rulesPath, signal: controller.signal, ...(judgeProvider ? { provider: judgeProvider } : {}), ...(judgeModel ? { model: judgeModel } : {}),
-    });
+    }), controller.signal);
     if (verdict.decision === 'allow') return { decision: 'allow', source: 'policy', durationMs: Date.now() - started };
     return deny(verdict.reason ?? 'policy denied');
   } catch (error) {
@@ -154,11 +155,6 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
 
   return new Promise<PolicyResult>((resolve) => {
     let settled = false;
-    const done = (result: Omit<PolicyResult, 'durationMs'>): void => {
-      if (settled) return;
-      settled = true;
-      resolve({ ...result, durationMs: Date.now() - started });
-    };
 
     // `detached` runs the command in its own process group so the timeout can
     // kill the whole group, not just the shell.
@@ -167,13 +163,14 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
       proc = spawn('sh', ['-c', command], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     } catch (err) {
       // Fail closed: if we cannot even launch the policy, deny.
-      done({ decision: 'deny', source: 'policy', reason: `policy spawn failed: ${err instanceof Error ? err.message : String(err)}` });
+      resolve({ decision: 'deny', source: 'policy', reason: `policy spawn failed: ${err instanceof Error ? err.message : String(err)}`, durationMs: Date.now() - started });
       return;
     }
 
     let stderr = '';
-    let timedOut = false, cancelled = false;
-    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    // Output is not authority under the exit-code contract. Consume stdout
+    // without retaining it so a verbose policy cannot fill its pipe and stall.
+    proc.stdout?.resume?.();
 
     proc.stderr?.on('data', (d) => {
       stderr = (stderr + d.toString()).slice(0,65536);
@@ -191,22 +188,25 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
       }
     };
 
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTimer = setTimeout(() => signalGroup('SIGKILL'), 2000);
-      signalGroup('SIGTERM');
-    }, timeoutMs);
-
-    const abort = () => { cancelled = true; signalGroup('SIGKILL'); };
-    const cleanup = () => { clearTimeout(timer); if (killTimer) clearTimeout(killTimer); options.signal?.removeEventListener('abort',abort); if (cancelled || timedOut) { try { if (proc.pid) process.kill(-proc.pid,'SIGKILL'); } catch { /* Group already exited. */ } } };
+    const done = (result: Omit<PolicyResult, 'durationMs'>): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', abort);
+      // Ownership lasts through every decision, including a parent that exits
+      // while ordinary descendants keep running with closed stdio. Escaped
+      // groups require sandbox containment; their inherited pipes cannot keep
+      // this decision pending beyond its deadline or cancellation.
+      signalGroup('SIGKILL');
+      proc.stdin?.destroy?.();
+      proc.stdout?.destroy?.();
+      proc.stderr?.destroy?.();
+      resolve({ ...result, durationMs: Date.now() - started });
+    };
+    const timer = setTimeout(() => done({ decision: 'deny', source: 'policy',
+      reason: `policy hook timed out after ${timeoutMs}ms (fail closed)` }), timeoutMs);
+    const abort = () => done({ decision: 'deny', source: 'policy', reason: 'Policy evaluation cancelled' });
     proc.on('close', (code) => {
-      cleanup();
-      if (cancelled) { done({decision:'deny',source:'policy',reason:'Policy evaluation cancelled'}); return; }
-      if (timedOut) {
-        // Fail closed on timeout.
-        done({ decision: 'deny', source: 'policy', reason: `policy hook timed out after ${timeoutMs}ms (fail closed)` });
-        return;
-      }
       if (code === 0) {
         done({ decision: 'allow', source: 'policy' });
       } else {
@@ -219,7 +219,6 @@ export function evaluatePolicy(toolCall: ToolCall, options: PolicyOptions = {}):
     });
 
     proc.on('error', (err) => {
-      cleanup();
       // Fail closed on runtime spawn error (e.g. command not found).
       done({ decision: 'deny', source: 'policy', reason: `policy hook error: ${err.message}` });
     });
