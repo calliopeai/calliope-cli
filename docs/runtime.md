@@ -70,8 +70,15 @@ in [#222](https://github.com/calliopeai/calliope-cli/issues/222).
 `npm run test:native-policy` builds the CLI and exercises its headless JSONL,
 ACP stdio and terminal Ink clients against a loopback inference fixture and real
 policy subprocesses. Each client verifies an allowed file effect and the absence
-of effects for denial, timeout and an unavailable policy command. The terminal
-uses a real PTY with `--auto`; ACP uses actual editor permission and file requests.
+of effects for denial, timeout and an unavailable policy command. Ordinary policy
+descendants cannot produce delayed effects after allow, deny or timeout in any
+of the three clients. Headless SIGINT, ACP `session/cancel`, and terminal Escape
+and Ctrl+C refuse a pending policy's late allow, stop its ordinary descendants,
+and stop a running shell descendant that ignores SIGTERM after its parent exits.
+The terminal uses a real PTY with `--auto`, waits for the idle prompt after
+cancellation, and exits through `/exit`. Its first Ctrl+C cancels through the
+input handler; a second press within two seconds exits. ACP uses actual editor
+permission and file requests.
 The fixtures use private temporary homes/configuration and remove their own
 process groups and files. This qualification requires POSIX and Python 3; it does
 not establish Windows or hosted-provider conformance. Policy-command output still
@@ -96,7 +103,12 @@ Without replacement support, an interrupted partial stream fails without retry.
 `captureToolOutput` persists bounded inspection evidence; a failed output save
 does not rerun the tool. See [streaming and output contracts](streaming.md).
 
-Permission policy and pre-tool hooks receive the turn cancellation signal. The
-resolver waits for their subprocess to settle after cancellation, instead of
-returning while a detached permission process remains alive. POSIX process groups
-are killed on abort; each captured hook/policy stream retains at most 65,536 characters.
+Permission policy and pre-tool hooks receive the turn cancellation signal.
+Policy-command cancellation and deadlines deny immediately, kill the owned POSIX
+process group and close captured pipes; inherited pipes cannot extend the decision
+even when a descendant escapes that group. Ordinary policy descendants are also
+killed after successful or denied completion. Policy stdout is drained without
+retention and stderr retains at most 65,536 characters. General pre-tool hooks
+retain their own subprocess cleanup contract. POSIX groups do not contain escaped
+processes: sandbox containment, other tool paths, remote oversight leases and
+Windows process supervision require separate qualification.

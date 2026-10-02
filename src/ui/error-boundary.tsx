@@ -131,7 +131,7 @@ export function ErrorFallback({
   useInput((input, key) => {
     if (input === 'r' || input === 'R') {
       onRetry();
-    } else if (input === 'q' || input === 'Q' || key.escape) {
+    } else if (input === 'q' || input === 'Q' || key.escape || key.ctrl && input === 'c') {
       exit();
     }
   });
