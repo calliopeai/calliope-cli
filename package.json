@@ -58,7 +58,7 @@
     "capture:semantics": "npm run build && node scripts/conformance/capture-semantic.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.127.0",
+    "@anthropic-ai/sdk": "0.129.0",
     "@google/genai": "^2.22.0",
     "@inquirer/prompts": "^8.5.2",
     "@zed-industries/agent-client-protocol": "^0.4.5",
@@ -67,15 +67,15 @@
     "openai": "^6.46.0",
     "react": "^19.2.3",
     "sql.js": "1.14.2",
-    "string-width": "8.2.2",
-    "ws": "8.21.0",
+    "string-width": "8.3.0",
+    "ws": "8.22.0",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.7",
     "@types/sql.js": "1.4.11",
-    "@types/ws": "8.18.1",
+    "@types/ws": "8.18.2",
     "@vitest/coverage-v8": "^5.0.1",
     "ink-testing-library": "^4.0.0",
     "sharp": "^0.35.3",
