@@ -113,7 +113,7 @@ beforeEach(() => {
 // ============================================================================
 
 describe('isDockerAvailable', () => {
-  it('should return true when docker --version succeeds', async () => {
+  it('should return true when docker info succeeds', async () => {
     // We need a fresh module import to reset the cache
     vi.resetModules();
 
@@ -129,7 +129,7 @@ describe('isDockerAvailable', () => {
     expect(result).toBe(true);
   });
 
-  it('should return false when docker --version fails', async () => {
+  it('should return false when docker info fails', async () => {
     vi.resetModules();
 
     vi.doMock('child_process', () => ({
@@ -295,8 +295,8 @@ describe('executeInSandbox', () => {
 
     vi.doMock('child_process', () => ({
       execFileSync: vi.fn().mockImplementation((cmd: string, args: string[]) => {
-        // docker --version succeeds
-        if (args && args[0] === '--version') return Buffer.from('Docker version 24');
+        // docker info succeeds
+        if (args && args[0] === 'info') return Buffer.from('Docker version 24');
         // docker image inspect fails (image not found)
         throw new Error('not found');
       }),
@@ -516,7 +516,7 @@ describe('execute', () => {
 
     vi.doMock('child_process', () => ({
       execFileSync: vi.fn().mockImplementation((cmd: string, args: string[]) => {
-        if (args && args[0] === '--version') throw new Error('not found');
+        if (args && args[0] === 'info') throw new Error('not found');
         return Buffer.from('');
       }),
       execSync: vi.fn(),
