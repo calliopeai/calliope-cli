@@ -63,7 +63,7 @@ The exact certificate identity binds the repository, workflow path and reference
 
 ## Preview and publication
 
-A manual `Release binaries` dispatch on **main** produces signed CI preview artifacts only. Its source guard rejects other branches and tags. Preview runs execute the quality suite but omit the currently blocked publication-evidence assertion; they cannot attach release assets. Their signed source reference is `refs/heads/main`, so the release installer rejects them as tagged-release evidence. This permits testing the real signing and all five binary paths without creating a release or spending on inference.
+A manual `Release binaries` dispatch on **main** produces signed CI preview artifacts only. Its source guard rejects other branches and tags. Preview runs execute the quality suite but omit the publication-evidence assertion; they cannot attach release assets. Their signed source reference is `refs/heads/main`, so the release installer rejects them as tagged-release evidence. This permits testing the real signing and all five binary paths without creating a release or spending on inference.
 
 `Publish to npm` accepts a published release event or a manual dispatch **on an existing version tag**. Both stable and prerelease paths use `npm publish --provenance --access public`; prereleases keep the `alpha` distribution tag. The job uses GitHub OIDC and the existing npm trusted-publisher configuration, with no new long-lived publishing token. The operator must configure npm to trust this repository and `publish.yml`; repository code cannot prove that registry setting is correct. See [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
