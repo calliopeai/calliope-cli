@@ -43,6 +43,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:ahp-protocol": "npm run build && node --test scripts/qualification/ahp-protocol.mjs",
     "test:native-policy": "npm run build && node --test scripts/qualification/native-policy.mjs",
     "bench": "node bench/run.mjs",
     "bench:cold": "npm run build && node bench/cold-start.mjs",
@@ -67,12 +68,14 @@
     "react": "^19.2.3",
     "sql.js": "1.14.2",
     "string-width": "8.2.2",
+    "ws": "8.21.0",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.7",
     "@types/sql.js": "1.4.11",
+    "@types/ws": "8.18.1",
     "@vitest/coverage-v8": "^5.0.1",
     "ink-testing-library": "^4.0.0",
     "sharp": "^0.35.3",

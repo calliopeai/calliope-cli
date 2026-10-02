@@ -3,6 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
+import { WebSocketServer } from "ws";
 import { Readable, Writable } from "node:stream";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -78,6 +80,54 @@ async function acpHandshake() {
     agent.kill();
   }
 }
+/** Resolve the bundled AHP transport from the executable's virtual filesystem. */
+async function ahpAttach() {
+  const server = createServer((request, response) => {
+    assert.equal(request.headers.authorization, "token binary-smoke-token");
+    response.writeHead(426).end();
+  });
+  const host = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (request, socket, head) => {
+    assert.equal(request.headers.authorization, "token binary-smoke-token");
+    host.handleUpgrade(request, socket, head, connection => host.emit("connection", connection));
+  });
+  const resource = "copilot:/binary-smoke";
+  const methods = [];
+  host.on("connection", socket => socket.on("message", raw => {
+    const message = JSON.parse(String(raw));
+    methods.push(message.method);
+    if (message.method === "initialize") assert.ok(message.params.protocolVersions.includes("0.9.0"));
+    socket.send(JSON.stringify({ id: message.id, result: message.method === "initialize"
+      ? { protocolVersion: "0.9.0" } : { items: [{ resource, title: "Binary fixture" }] } }));
+  }));
+  await new Promise(done => server.listen(0, "127.0.0.1", done));
+  let agent;
+  let deadline;
+  try {
+    agent = spawn(binary, ["attach", "--url", `ws://127.0.0.1:${server.address().port}/`], {
+      cwd: project, env: { ...env, CALLIOPE_AHP: "on", JUPYTERHUB_API_TOKEN: "binary-smoke-token" },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "", stderr = "";
+    agent.stdout.on("data", chunk => { stdout = (stdout + chunk).slice(-4000); });
+    agent.stderr.on("data", chunk => { stderr = (stderr + chunk).slice(-4000); });
+    const exited = new Promise((done, reject) => { agent.once("exit", done); agent.once("error", reject); });
+    const code = await Promise.race([exited, new Promise((_, reject) => {
+      deadline = setTimeout(() => reject(new Error("AHP binary attach timed out")), 30000);
+    })]);
+    assert.equal(code, 0, stdout + stderr);
+    assert.ok(stdout.includes(resource), stdout + stderr);
+    assert.deepEqual(methods, ["initialize", "listSessions"]);
+  } finally {
+    clearTimeout(deadline);
+    agent?.kill();
+    for (const socket of host.clients) socket.terminate();
+    server.closeIdleConnections();
+    await new Promise(done => host.close(done));
+    await new Promise(done => server.close(done));
+  }
+}
+
 try {
   assert.ok(run(["--version"]).includes(`v${version}`));
   assert.deepEqual(JSON.parse(run(["--version", "--json"])), {
@@ -85,6 +135,7 @@ try {
     acp: PROTOCOL_VERSION,
   });
   await acpHandshake();
+  await ahpAttach();
   const doctor = JSON.parse(run(["doctor", "--json"]));
   assert.equal(doctor.version, 1);
   assert.equal(doctor.localOnly, true);
@@ -139,6 +190,7 @@ try {
       packageVersion: version,
       versionJson: true,
       acpHandshake: true,
+      ahpAttach: true,
       doctor: true,
       brainIndexedSearch: true,
       completeLargeJson: true,
