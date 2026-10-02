@@ -235,28 +235,39 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model)) });
     await checkpoint('active');
-    await options.onToolResult?.(call, result, iterations, output);
+    await options.onToolResult?.(structuredClone(call), result, iterations, output);
   };
-  const execute = async (call: ToolCall): Promise<boolean> => {
+  const execute = async (pendingCall: ToolCall): Promise<boolean> => {
+    const call = structuredClone(pendingCall), outputCall = structuredClone(call);
     throwIfCancelled(signal);
     checkBudget();
     runlog.toolCall({ id: call.id, name: call.name, args: call.arguments });
     totals.toolCalls++;
-    await options.onToolStart?.(call, iterations);
-    const decision = await resolvePermission(call, { cwd: options.cwd, mode: options.mode, confirmation: guard && options.confirmation==='none'?'mutating':options.confirmation, signal, sessionId: options.sessionId, approvals: options.approvals, authority:guard?.check,
-      approve: options.approve ? pending => options.approve!(call, pending) : undefined, audit: event => runlog.policyEvent(event) });
-    await options.onPermission?.(call, decision);
+    await options.onToolStart?.(structuredClone(call), iterations);
+    let validateAdmission: (() => PermissionDecision | undefined) | undefined;
+    const authorize = async (): Promise<PermissionDecision> => {
+      validateAdmission = undefined;
+      const decision = await resolvePermission(call, {
+        get cwd() { return options.cwd; }, get mode() { return options.mode; },
+        get confirmation() { return guard && options.confirmation === 'none' ? 'mutating' : options.confirmation; },
+        signal, get sessionId() { return options.sessionId; }, get approvals() { return options.approvals; }, authority: guard?.check,
+        approve: options.approve ? pending => options.approve!(structuredClone(call), structuredClone(pending)) : undefined,
+        audit: event => runlog.policyEvent(event), onAdmission: validate => { validateAdmission = validate; } });
+      await options.onPermission?.(structuredClone(call), structuredClone(decision));
+      return decision;
+    };
+    const decision = await authorize();
     throwIfCancelled(signal);
     if (decision.decision === 'cancelled') { permissionCancelled = true; return true; }
     if (decision.decision !== 'allow') { await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs); return false; }
     await checkpointTail;
     if (options.onSafetyBranch && ['medium', 'high', 'critical'].includes(assessToolRisk(call).level)) {
-      safetyBranch ??= Promise.resolve().then(() => options.onSafetyBranch!(call)).catch(error => { if (!isCancellation(error)) safetyFailed = true; throw error; });
+      safetyBranch ??= Promise.resolve().then(() => options.onSafetyBranch!(structuredClone(call))).catch(error => { if (!isCancellation(error)) safetyFailed = true; throw error; });
       await safetyBranch;
     }
     // A parallel result may have failed to persist while this tool awaited permission.
     await checkpointTail;
-    await options.beforeTool?.(call, iterations);
+    await options.beforeTool?.(structuredClone(call), iterations);
     throwIfCancelled(signal);
     checkBudget();
     const toolStarted = Date.now();
@@ -264,7 +275,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       await checkpointTail;
       if (safetyFailed) await safetyBranch;
       throwIfCancelled(signal);
-      try { return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(call, chunk), {
+      const invalid = validateAdmission?.();
+      if (invalid || !validateAdmission) return { toolCallId: call.id,
+        result: invalid?.reason ?? 'Execution admission is missing; tool refused.', isError: true };
+      try { return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(outputCall, chunk), {
       ...options.toolOptions, ...(guard?{authority:guard.check,brain:{...guard.brainContext(),runlog,mode:options.mode},fs:agentFiles(guard,options.execution!.agentId,call,signal)}:{}), signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
     }); } catch (error) {
         throwIfCancelled(signal);
@@ -276,7 +290,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     for (let attempt = 1; result.isError && attempt <= (options.maxRetries ?? 0) && shouldRetryTool(call.name, result.result); attempt++) {
       await cancellableDelay(Math.min(250 * 2 ** (attempt - 1), 4000), signal);
-      options.onToolRetry?.(call, attempt, result);
+      options.onToolRetry?.(structuredClone(call), attempt, result);
+      const retryDecision = await authorize();
+      throwIfCancelled(signal);
+      if (retryDecision.decision !== 'allow') {
+        await report(call, { toolCallId: call.id, result: retryDecision.reason, isError: true }, Date.now() - toolStarted);
+        if (retryDecision.decision === 'cancelled') permissionCancelled = true;
+        return retryDecision.decision === 'cancelled';
+      }
       result = await runTool();
       throwIfCancelled(signal);
     }
@@ -333,13 +354,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false); checkBudget(); return value; },
           onRepair: options.onRepair });
         throwIfCancelled(signal);
-        messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+        const pendingCalls = response.toolCalls ? structuredClone(response.toolCalls) : undefined;
+        messages.current.push({ role: 'assistant', content: response.content, ...(pendingCalls?.length ? { toolCalls: structuredClone(pendingCalls) } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
         await checkpoint('active');
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
         checkBudget();
         if (stop === 'stop') { reason = 'stopped'; break; }
-        if (!response.toolCalls?.length) {
+        if (!pendingCalls?.length) {
           if (response.finishReason === 'length' && options.continueOnLength) {
             messages.current.push({ role: 'user', content: 'Please continue where you left off.' });
             options.onIterationEnd?.(iterations);
@@ -349,8 +371,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           options.onIterationEnd?.(iterations);
           break;
         }
-        const canParallel = options.parallel && !response.toolCalls.some(call => ['ask_question', 'create_plan'].includes(call.name));
-        const stages = canParallel ? analyzeDependencies(response.toolCalls).stages : response.toolCalls.map(call => [call]);
+        const canParallel = options.parallel && !pendingCalls.some(call => ['ask_question', 'create_plan'].includes(call.name));
+        const stages = canParallel ? analyzeDependencies(pendingCalls).stages : pendingCalls.map(call => [call]);
         let pause = false;
         for (const stage of stages) {
           const results = await Promise.allSettled(stage.map(execute));

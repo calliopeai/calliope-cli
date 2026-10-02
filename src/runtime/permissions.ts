@@ -1,5 +1,5 @@
 /** Canonical permission resolution for terminal, headless and editor clients. */
-import { describeApproval, type ApprovalChoice, type ApprovalStore } from '../approvals/index.js';
+import { describeApproval, type ApprovalChoice, type ApprovalGrant, type ApprovalStore } from '../approvals/index.js';
 import type { Mode, ToolCall } from '../types.js';
 import { redactSecrets, type PolicyEventPayload } from '../runlog.js';
 import { assessToolRisk, requiresConfirmation } from '../risk.js';
@@ -29,6 +29,8 @@ export interface PermissionContext {
   authority?: (call:ToolCall,cwd:string)=>string|undefined;
   approve?: (decision: PermissionDecision) => Promise<ApprovalChoice>;
   audit?: (event: PolicyEventPayload) => void;
+  /** Turn-local validation after client/recovery waits; never a reusable grant. */
+  onAdmission?: (validate: () => PermissionDecision | undefined) => void;
 }
 
 export async function resolvePermission(call: ToolCall, context: PermissionContext): Promise<PermissionDecision> {
@@ -43,6 +45,9 @@ export async function resolvePermission(call: ToolCall, context: PermissionConte
     if (context.mode === 'plan' && !PLAN_TOOLS.has(call.name)) {
       return record('deny', 'mode', 'Plan mode: Tool not executed. Describe what this would do.');
     }
+    const admission = context.onAdmission ? { request: describeApproval(call, context.cwd), id: call.id,
+      mode: context.mode, confirmation: context.confirmation, approvals: context.approvals } : undefined;
+    let admittedGrant: ApprovalGrant | undefined;
     let policyAllowed = false, policyReason = '';
     const gates = async (): Promise<PermissionDecision | undefined> => {
       const authority = context.authority?.(call,context.cwd);
@@ -91,9 +96,33 @@ export async function resolvePermission(call: ToolCall, context: PermissionConte
         return record('deny', 'confirmation', 'Saved approval expired or was revoked; retry for a new decision.');
       const grant = cached ?? (answer === 'allow_session' || answer === 'allow_project'
         ? context.approvals!.grant(request, answer === 'allow_session' ? 'session' : 'project', context.sessionId, context.signal) : undefined);
+      admittedGrant = grant;
       context.audit?.({ tool: call.name, toolCallId: call.id, decision: 'allow', source: 'confirmation',
         reason: grant ? `${cached ? 'Reused' : 'Saved'} ${grant.scope} approval ${grant.id}; expires ${new Date(grant.expiresAt).toISOString()}` : 'Approved once by user',
         durationMs: Date.now() - started, operationKey: request.key, ...(grant ? { grantId: grant.id, grantScope: grant.scope, grantExpiresAt: grant.expiresAt } : {}) });
+    }
+    if (admission) {
+      const validate = (): PermissionDecision | undefined => {
+        try {
+          throwIfCancelled(context.signal);
+          if (call.id !== admission.id || context.sessionId !== initialSessionId || context.mode !== admission.mode ||
+              context.confirmation !== admission.confirmation || context.approvals !== admission.approvals ||
+              describeApproval(call, context.cwd).key !== admission.request.key)
+            return record('deny', 'confirmation', 'Invocation, session, project or policy changed before execution; retry.');
+          const authority = context.authority?.(call, context.cwd);
+          if (authority) return record('deny', 'scope', authority);
+          const boundary = checkToolBoundary(call, context.cwd);
+          if (boundary) return record('deny', boundary.layer, boundary.reason);
+          if (admittedGrant && context.approvals?.find(admission.request, context.sessionId)?.id !== admittedGrant.id)
+            return record('deny', 'confirmation', 'Saved approval expired or was revoked before execution; retry.');
+          return undefined;
+        } catch (error) {
+          if (context.signal?.aborted || isCancellation(error)) throw error;
+          return record('deny', 'resolver', 'Execution admission could not be validated; tool refused.');
+        }
+      };
+      const invalid = validate(); if (invalid) return invalid;
+      context.onAdmission!(validate);
     }
     return record('allow', policyAllowed ? 'policy' : 'default', policyAllowed ? policyReason : 'All applicable checks passed');
   } catch (error) {

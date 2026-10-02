@@ -89,7 +89,7 @@ vi.mock('../src/errors.js', () => ({
 }));
 
 vi.mock('../src/storage.js', () => ({ saveMessageHistory: vi.fn(), recordCost: vi.fn() }));
-vi.mock('../src/hooks.js', () => ({ checkHooksAllow: vi.fn(async () => ({ allowed: true })), executeHooks: vi.fn(() => Promise.resolve()) }));
+vi.mock('../src/hooks.js', () => ({ loadHooks: vi.fn(() => []), checkHooksAllow: vi.fn(async () => ({ allowed: true })), executeHooks: vi.fn(() => Promise.resolve()) }));
 vi.mock('../src/router.js', () => ({ routeRequest: vi.fn(), smartRoute: vi.fn(), getDefaultSmartRoutingConfig: vi.fn(() => ({ enabled: false })) }));
 vi.mock('../src/summarization.js', () => ({
   validateMessageHistory: vi.fn((m: unknown[]) => m),

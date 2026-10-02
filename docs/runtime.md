@@ -9,8 +9,17 @@ streaming notifications, editor file delegates and permission prompts.
 
 `TurnOptions` supplies a session ID, project directory, requested provider/model,
 message reference, confirmation policy and optional `AbortSignal`. Callbacks
-adapt presentation; they do not bypass the canonical permission resolver. All
-provider calls made during a turn, including repair and compression, count
+adapt presentation; they do not bypass the canonical permission resolver.
+
+Pending tool calls are detached from model-response and client-notification
+objects. Editing a callback's arguments or permission notification cannot change
+the call that policy evaluates or turn a denial into execution. After client and
+recovery waits, dispatch validates the original invocation, current session,
+project/policy/scope state, inherited authority and any saved approval. An expired
+or revoked approval refuses execution. Read retries obtain a new permission and
+policy decision before dispatch; a prior allow does not authorize another attempt.
+
+All provider calls made during a turn, including repair and compression, count
 against the same budget. Ordinary per-run counters are checked before requests
 and tools. Project-capped turns and bounded agent contexts additionally reserve
 each attempt before HTTP; missing usage remains charged. See
@@ -57,6 +66,16 @@ Tests in `tests/runtime.test.ts` exercise real file/scope checks with a determin
 provider, including concurrent sessions, budget exhaustion and cancellation.
 They establish runtime behavior; provider wire conformance is tracked separately
 in [#222](https://github.com/calliopeai/calliope-cli/issues/222).
+
+`npm run test:native-policy` builds the CLI and exercises its headless JSONL,
+ACP stdio and terminal Ink clients against a loopback inference fixture and real
+policy subprocesses. Each client verifies an allowed file effect and the absence
+of effects for denial, timeout and an unavailable policy command. The terminal
+uses a real PTY with `--auto`; ACP uses actual editor permission and file requests.
+The fixtures use private temporary homes/configuration and remove their own
+process groups and files. This qualification requires POSIX and Python 3; it does
+not establish Windows or hosted-provider conformance. Policy-command output still
+uses the documented exit-code contract, without a remote expiry/revocation lease.
 
 Recovery snapshots use the optional `onCheckpoint` callback before provider
 work, before dispatching tools, after each result and at turn completion.
