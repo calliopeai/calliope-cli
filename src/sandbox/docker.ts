@@ -68,6 +68,7 @@ const LANGUAGE_IMAGES: Record<Language, string> = {
 // ============================================================================
 
 let dockerAvailable: boolean | null = null;
+const DOCKER_PROBE_TIMEOUT_MS = 3000;
 
 /**
  * Check if Docker is available
@@ -76,7 +77,9 @@ export function isDockerAvailable(): boolean {
   if (dockerAvailable !== null) return dockerAvailable;
 
   try {
-    execFileSync('docker', ['--version'], { stdio: 'pipe' });
+    execFileSync('docker', ['info', '--format', '{{.ServerVersion}}'], {
+      stdio: 'pipe', timeout: DOCKER_PROBE_TIMEOUT_MS, killSignal: 'SIGKILL',
+    });
     dockerAvailable = true;
   } catch {
     dockerAvailable = false;
@@ -90,7 +93,9 @@ export function isDockerAvailable(): boolean {
  */
 export function imageExists(image: string): boolean {
   try {
-    execFileSync('docker', ['image', 'inspect', '--', image], { stdio: 'pipe' });
+    execFileSync('docker', ['image', 'inspect', '--', image], {
+      stdio: 'pipe', timeout: DOCKER_PROBE_TIMEOUT_MS, killSignal: 'SIGKILL',
+    });
     return true;
   } catch {
     return false;

@@ -4,6 +4,7 @@ import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {setTimeout as delay} from 'node:timers/promises';
 import * as config from '../src/config.js';
 import {clearModelCache} from '../src/model-detection.js';
 import {runTurn,type TurnOptions} from '../src/runtime/index.js';
@@ -116,8 +117,30 @@ it('reserves ordinary project-capped turns, preserves unknown usage and freezes 
   expect(loadProjectSpend(project).spentUsd).toBe(0.002213);expect((await runTurn(ordinary())).reason).toBe('budget');expect(requests).toHaveLength(3);
 });
 it('waits for asynchronous post-tool hooks and cancels their process when an agent deadline expires',async()=>{
-  manifest.deadline=manifest.createdAt+500;for(const a of manifest.accounts)a.deadline=manifest.deadline;ledger.create(manifest);
-  const script=join(project,'hook.cjs'),marker=join(project,'hook-started');fs.writeFileSync(script,`require('node:fs').writeFileSync(${JSON.stringify(marker)},'started');setTimeout(()=>{},60000);`);
+  // Exercise the same 500 ms allowance after the real child signals readiness;
+  // process startup under host load must not consume this test's fake clock.
+  vi.useFakeTimers({now:Date.now()-10000,toFake:['Date','setTimeout','clearTimeout']});
+  const controller=new AbortController();let running:ReturnType<typeof runTurn>|undefined;
+  try {
+  ledger=new ReservationLedger(join(root,'budget'));
+  manifest.createdAt=Date.now();manifest.deadline=manifest.createdAt+500;for(const a of manifest.accounts)a.deadline=manifest.deadline;ledger.create(manifest);
+  const script=join(project,'hook.cjs'),marker=join(project,'hook-started');fs.writeFileSync(script,`require('node:fs').writeFileSync(${JSON.stringify(marker)},String(process.pid));setTimeout(()=>{},60000);`);
   saveHooks([{id:'bounded-post',name:'bounded-post',event:'post-tool',enabled:true,async:true,command:`'${process.execPath}' '${script}'`}]);
-  respond=async()=>completion({name:'read_file',args:{path:'a/toy.txt'}});const result=await runTurn(options({tools:getTools}));expect(result.reason).toBe('cancelled');expect(fs.existsSync(marker)).toBe(true);expect(requests).toHaveLength(1);
+  respond=async()=>completion({name:'read_file',args:{path:'a/toy.txt'}});running=runTurn(options({tools:getTools,signal:controller.signal}));
+  let settled=false;void running.then(()=>{settled=true;},()=>{settled=true;});
+  const readyBy=performance.now()+5000;
+  while(!fs.existsSync(marker)){
+    if(settled||performance.now()>readyBy)throw new Error('Post-tool hook did not start before the runtime settled');
+    await delay(10);
+  }
+  const pid=Number(fs.readFileSync(marker,'utf8'));
+  await vi.advanceTimersByTimeAsync(501);const result=await running;expect(result.reason).toBe('cancelled');expect(requests).toHaveLength(1);
+  // Verify the actual child is gone, rather than merely observing cancellation.
+  const reapedBy=performance.now()+5000;
+  while(true){
+    try{process.kill(pid,0);}catch(error){expect((error as NodeJS.ErrnoException).code).toBe('ESRCH');break;}
+    if(performance.now()>reapedBy)throw new Error('Post-tool hook survived deadline cancellation');
+    await delay(10);
+  }
+  }finally{controller.abort();if(running)await running.catch(()=>{});vi.useRealTimers();}
 });
