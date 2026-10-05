@@ -14,6 +14,14 @@ import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from '.
 import * as os from 'os';
 import { colors } from './styles.js';
 
+// Private standalone credential worker: inherit the caller's environment before
+// any project/global env loading. It is only callable through an IPC channel.
+if(process.argv[2]==='--internal-aws-credentials') {
+  if(!process.send)process.exit(2);
+  await (await import('./providers/bedrock-credential-worker.js')).runBedrockCredentialWorker();
+  process.exit(0);
+}
+
 // Load .env / cli.env files (dotenv-style, no dependency)
 function loadEnvFile(filePath: string): void {
   try {

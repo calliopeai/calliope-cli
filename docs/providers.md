@@ -139,8 +139,23 @@ this backend.
   export AWS_PROFILE=dev             # optional named profile
   ```
 
-  Standard AWS credential resolution applies (`AWS_ACCESS_KEY_ID` /
-  `AWS_PROFILE` are detected automatically).
+  The native AWS SDK resolves environment keys, shared profiles (including SSO,
+  role assumption and `credential_process`), web identity, ECS task credentials
+  and EC2 instance roles. The AWS CLI is not required for inference or discovery;
+  use your usual sign-in tool to renew an expired SSO session. An explicitly
+  selected profile must resolve successfully; it cannot fall back to an unrelated
+  ambient identity. `AWS_CONFIG_FILE` and `AWS_SHARED_CREDENTIALS_FILE` are honored.
+
+  Each request resolves credentials afresh so renewed tokens and changed scoped
+  files are picked up. Resolution is bounded to ten seconds; cancellation removes
+  the owned credential-worker process tree, including external helpers. Helpers
+  must finish within that bound. Their output and SDK error details are never
+  included in diagnostics. Region precedence is `AWS_REGION`, `AWS_DEFAULT_REGION`,
+  stored region, then `us-east-1`; set the region explicitly for your workload.
+
+  Containers on AWS can use the task or pod role directly. Containers on GCP or
+  Azure need an AWS identity source, such as a configured web-identity role/token
+  or a credential helper; their cloud identity alone does not grant Bedrock access.
 
 - **Gateway** — if you set a Bedrock gateway/proxy base URL, Calliope treats it
   as an OpenAI-compatible endpoint instead:

@@ -1,7 +1,7 @@
 /**
  * Tests for src/providers/bedrock.ts
  *
- * Covers: parseIniFile, getAWSCredentials, getAWSRegion, signRequest,
+ * Covers: native credential resolution, getAWSRegion, signRequest,
  * toBedrockMessages, toBedrockToolConfig, chatBedrock (non-streaming),
  * chatBedrock (streaming), hasAWSCredentials, and error paths.
  * Uses vi.mock for config and vi.stubGlobal for fetch.
@@ -15,17 +15,6 @@ import * as fs from 'fs';
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
-
-// The no-credentials path shells out to the AWS CLI (twice, 10s timeout each)
-// via a dynamic import of child_process. Real spawns are nondeterministic on
-// CI runners that have the AWS CLI installed — stub them to fail instantly.
-vi.mock('child_process', () => ({
-  execFileSync: vi.fn(() => {
-    const err = new Error('spawn aws ENOENT') as NodeJS.ErrnoException;
-    err.code = 'ENOENT';
-    throw err;
-  }),
-}));
 
 vi.mock('../src/config.js', () => ({
   default: {},

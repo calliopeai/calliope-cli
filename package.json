@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.4.0",
+  "version": "3.4.1",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",
@@ -59,6 +59,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.127.0",
+    "@aws-sdk/credential-provider-ini": "3.973.17",
+    "@aws-sdk/credential-provider-node": "3.972.84",
     "@google/genai": "^2.22.0",
     "@inquirer/prompts": "^8.5.2",
     "@zed-industries/agent-client-protocol": "^0.4.5",

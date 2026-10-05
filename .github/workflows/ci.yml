@@ -30,6 +30,9 @@ jobs:
       - name: Qualify native policy admission (terminal, headless, ACP)
         run: node --test scripts/qualification/native-policy.mjs
 
+      - name: Qualify packaged Bedrock credentials and cancellation
+        run: node --test scripts/qualification/bedrock-credentials.mjs
+
       - name: Run tests
         # Keep worker contention bounded; the release gate uses the same limit.
         run: npm test -- --maxWorkers=2

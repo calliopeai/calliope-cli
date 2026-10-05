@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.1: renewable native Bedrock credentials
+
+- Resolve native inference and model discovery through the official AWS SDK credential chain, including workload roles, SSO and selected profiles. Bound credential-helper lifetime and preserve caller identity in packaged binaries ([release notes](docs/releases/3.4.1.md), #416).
+
 ## Unreleased
 
 - Let the terminal input handler process Ctrl+C: the first press cancels the active turn and waits for cleanup, and a second press within two seconds exits. Ink's default exit previously bypassed that handler. Qualify Escape and Ctrl+C through a real PTY against pending policy with a late allow and running shell descendants; neither can produce delayed file effects after cancellation (#403).
