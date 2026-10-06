@@ -6,7 +6,7 @@ import type { RouteCandidate } from '../routing/index.js';
 import type { ProviderAttemptBudget } from '../providers/types.js';
 import { throwIfCancelled } from '../cancellation.js';
 import { executionToolDenial, executionPathDenial, accountLineage, checkExecutionIdentity, integer,assertExecutionStoreOutsideProject } from './authority.js';
-import { ReservationLedger, requestCostNanos } from './ledger.js';
+import { requestCostNanos, type ReservationLedgerAccess } from './ledger.js';
 import { ExecutionLimitError, type ExecutionManifest } from './types.js';
 import {getBudgetCaps,projectBudgetPath} from '../budget.js';
 import {ProjectSpendLedger} from './project-spend.js';
@@ -17,7 +17,7 @@ import {readBillingEvidence} from './billing.js';
 import {validateRequestAttribution,type RequestAttribution} from './attribution.js';
 
 export interface AgentExecution {
-  ledger: ReservationLedger; manifestHash: string; agentId: string; maxOutputTokens: number;
+  ledger: ReservationLedgerAccess; manifestHash: string; agentId: string; maxOutputTokens: number;
   measuredInputReservation?: boolean;
   attribution?:RequestAttribution;
   /** Trusted coordinator ownership/revocation check; may only narrow authority. */
@@ -30,7 +30,7 @@ export class ExecutionGuard {
   readonly deadline:number;
   private readonly expectedHash:string;
   private readonly agentId:string;
-  private readonly ledger:ReservationLedger;
+  private readonly ledger:ReservationLedgerAccess;
   readonly maxOutputTokens:number;
   private readonly assertAuthority?:()=>void;
   readonly filesRoot:string;

@@ -207,6 +207,11 @@ async function main(): Promise<void> {
     return completeCommand(await runImprovementCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
+  if (args[0] === 'ledger') {
+    const { runLedgerCommand } = await import('./execution/ledger-cli.js');
+    return completeCommand(await runLedgerCommand(rawArgs.slice(1)));
+  }
+
   if (args[0] === 'orchestrate') {
     headlessCancellation = new AbortController();
     const { runGoalCommand } = await import('./goals/index.js');
