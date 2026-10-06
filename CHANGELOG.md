@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.2: approval policies see the plan
+
+- `orchestration_approve` passes the prepared `plan` (agents, tools, paths, limits) to `policy.command` and judgment, beside `runId`, `planHash` and `revision`, so a policy judges the exact plan it approves. Cancellation is unchanged ([release notes](docs/releases/3.5.2.md), #424).
+- Fix: a `delegation-ledger/v1` token is accepted only in its canonical spelling. base64url decoders ignore the last character's padding bits, so a second spelling of the same signature was accepted. It carried no extra authority, but a token now has exactly one valid form.
+
 ## 3.5.1: delegated child runs
 
 - Add `--ledger-url`, `--ledger-token-file` and `--ledger-agent` to headless mode: a child run is admitted by its parent's served ledger, with tools, paths, deadline and budget from its grant. A revoked grant or unreachable parent stops it before any turn ([release notes](docs/releases/3.5.1.md), #415).

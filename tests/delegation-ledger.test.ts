@@ -89,7 +89,11 @@ it('another run, a sibling, the root account or a forged token cannot act', asyn
   expect((await allocate(grant('mine',100,'root'),a.token)).code).toBe('authority');
   const foreign=mintLedgerToken(state.secret(),{v:1,run:randomUUID(),role:'parent',exp:manifest.deadline});
   await expect(connect(foreign)).rejects.toMatchObject({code:'authority'});
-  await expect(connect(a.token.replace(/.$/,c=>c==='A'?'B':'A'))).rejects.toMatchObject({code:'authority'});
+  const [body,mac]=a.token.split('.') as [string,string],alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const swap=(at:number,c:(i:number)=>number)=>`${body}.${mac.slice(0,at)}${alphabet[c(alphabet.indexOf(mac[at]!))]}${mac.slice(at+1)}`;
+  await expect(connect(swap(0,i=>(i+1)%64))).rejects.toMatchObject({code:'authority'});
+  // Same decoded bytes, different spelling: only the canonical token is accepted.
+  await expect(connect(swap(mac.length-1,i=>i^1))).rejects.toMatchObject({code:'authority'});
   expect(ledger.read(project).projection.spent.tokens).toBe(0);
 });
 
