@@ -147,7 +147,9 @@ for (const target of targets) {
     define: {
       'globalThis.__CALLIOPE_BINARY_VERSION__': JSON.stringify(version),
     },
-    compile: { target, outfile },
+    // The CLI owns .env precedence; its private credential worker must inherit
+    // the parent snapshot without Bun importing project credentials first.
+    compile: { target, outfile, autoloadDotenv: false, autoloadBunfig: false },
   });
   if (!result.success) {
     console.error(`Build failed for ${target}:`);

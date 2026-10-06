@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { WebSocketServer } from "ws";
 import { Readable, Writable } from "node:stream";
 import assert from "node:assert/strict";
+import {qualifyBedrock} from "./bedrock-smoke.mjs";
 import { createHash } from "node:crypto";
 import {
   ClientSideConnection,
@@ -136,6 +137,8 @@ try {
   });
   await acpHandshake();
   await ahpAttach();
+  run(["--internal-aws-credentials"], 2);
+  await qualifyBedrock(binary, [], root);
   const doctor = JSON.parse(run(["doctor", "--json"]));
   assert.equal(doctor.version, 1);
   assert.equal(doctor.localOnly, true);
@@ -192,6 +195,7 @@ try {
       acpHandshake: true,
       ahpAttach: true,
       doctor: true,
+      bedrockCredentialsAndCancellation: true,
       brainIndexedSearch: true,
       completeLargeJson: true,
       failureAndDenialExitCodes: true,

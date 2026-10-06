@@ -11,7 +11,6 @@ import * as config from './config.js';
 import type { LLMProvider } from './types.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { cancellable, throwIfCancelled } from './cancellation.js';
-import { bindProcessCancellation, detachedProcess } from './process-cancellation.js';
 import { createHash } from 'node:crypto';
 import { ModelDiscoveryError, compatibleMetadata, anthropicMetadata, openRouterPricing, capability, positiveLimit, price, stringList, validateModels, type ModelInfo, type ModelCapabilities } from './models/index.js';
 export type { ModelInfo, ModelCapabilities } from './models/index.js';
@@ -867,143 +866,19 @@ async function getBedrockModels(): Promise<ModelInfo[]> {
 }
 
 /**
- * Resolve AWS credentials via the `aws` CLI. Handles SSO profiles,
- * role-assumption profiles, and anything else `aws` knows about.
- * Returns null if the CLI isn't installed or the profile resolution fails.
- */
-async function resolveAwsCredentialsViaCli(profile: string): Promise<{
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken?: string;
-} | null> {
-  try {
-    const { execFileSync } = await import('child_process');
-    const signal = discoveryContext.getStore()?.signal;
-    const read = async (format: string): Promise<string> => {
-      const args = ['configure', 'export-credentials', '--profile', profile, '--format', format];
-      if (!signal) return execFileSync('aws', args, { encoding: 'utf-8', timeout: 10000, stdio: ['ignore', 'pipe', 'pipe'] });
-      throwIfCancelled(signal);
-      const { spawn } = await import('node:child_process');
-      throwIfCancelled(signal);
-      return new Promise<string>((resolve, reject) => {
-        const capacity = new AbortController();
-        const combined = AbortSignal.any([signal, AbortSignal.timeout(10000), capacity.signal]);
-        const child = spawn('aws', args, { stdio: ['ignore', 'pipe', 'pipe'], detached: detachedProcess });
-        const cleanup = bindProcessCancellation(child, combined);
-        discoveryContext.getStore()?.cleanups.push(cleanup);
-        const chunks: Buffer[] = []; let size = 0;
-        child.stdout.on('data', (chunk: Buffer) => {
-          size += chunk.length;
-          if (size > 1024 * 1024) capacity.abort();
-          else chunks.push(chunk);
-        });
-        child.stderr.resume();
-        child.once('error', () => { void cleanup.then(() => reject(new Error('AWS profile credential resolution failed'))); });
-        child.once('close', code => { void cleanup.then(() => code === 0 && !combined.aborted
-          ? resolve(Buffer.concat(chunks).toString('utf8')) : reject(new Error('AWS profile credential resolution failed'))); });
-      });
-    };
-    let output = '';
-    try {
-      output = await read('env-no-export');
-    } catch {
-      throwIfCancelled(signal);
-      output = await read('env');
-    }
-    const envs: Record<string, string> = {};
-    for (const rawLine of output.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
-      if (!match) continue;
-      let val = match[2]!.trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      envs[match[1]!] = val;
-    }
-    if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
-      return {
-        accessKeyId: envs.AWS_ACCESS_KEY_ID,
-        secretAccessKey: envs.AWS_SECRET_ACCESS_KEY,
-        sessionToken: envs.AWS_SESSION_TOKEN,
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Discover Bedrock models using the native AWS ListFoundationModels API.
- * Uses SigV4 signing from the bedrock provider — no AWS SDK needed.
+ * Uses the same native AWS credential provider as Converse inference.
  */
 async function discoverBedrockModelsNative(): Promise<ModelInfo[]> {
   const { createHash, createHmac } = await import('crypto');
-  const { join } = await import('path');
-  const { homedir } = await import('os');
-  const { existsSync, readFileSync } = await import('fs');
-
-  // Resolve credentials (same logic as bedrock.ts)
-  let accessKeyId = process.env.AWS_ACCESS_KEY_ID || '';
-  let secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY || '';
-  let sessionToken = process.env.AWS_SESSION_TOKEN;
-  const profile = config.getProviderCred('bedrock').profile || 'default';
-
-  // Parse an INI-style AWS file. Handles both ~/.aws/credentials sections
-  // ([name]) and ~/.aws/config sections ([profile name]).
-  const readIni = (path: string): Record<string, Record<string, string>> => {
-    if (!existsSync(path)) return {};
-    const content = readFileSync(path, 'utf-8');
-    const sections: Record<string, Record<string, string>> = {};
-    let section = '';
-    for (const line of content.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith(';')) continue;
-      const secMatch = trimmed.match(/^\[(.+)\]$/);
-      if (secMatch) {
-        section = secMatch[1]!.replace(/^profile\s+/, '');
-        sections[section] = sections[section] || {};
-        continue;
-      }
-      const kvMatch = trimmed.match(/^([^=]+?)\s*=\s*(.+)$/);
-      if (kvMatch && section) sections[section]![kvMatch[1]!.trim()] = kvMatch[2]!.trim();
-    }
-    return sections;
-  };
-
-  if (!accessKeyId || !secretAccessKey) {
-    // Try ~/.aws/credentials (static keys) first, then ~/.aws/config (also
-    // used by some setups that put static keys alongside SSO config).
-    const credSections = readIni(join(homedir(), '.aws', 'credentials'));
-    const configSections = readIni(join(homedir(), '.aws', 'config'));
-    const cred = credSections[profile] || configSections[profile];
-    if (cred?.aws_access_key_id) {
-      accessKeyId = cred.aws_access_key_id;
-      secretAccessKey = cred.aws_secret_access_key || '';
-      sessionToken = cred.aws_session_token;
-    }
-  }
-
-  // Last resort: shell out to the AWS CLI. This resolves SSO / role-assumption
-  // profiles that can't be parsed from the INI files alone.
-  if (!accessKeyId || !secretAccessKey) {
-    const cliCreds = await resolveAwsCredentialsViaCli(profile);
-    if (cliCreds) {
-      accessKeyId = cliCreds.accessKeyId;
-      secretAccessKey = cliCreds.secretAccessKey;
-      sessionToken = cliCreds.sessionToken;
-    }
-  }
-
-  if (!accessKeyId || !secretAccessKey) {
-    throw new Error(
-      `No AWS credentials found for profile "${profile}". ` +
-      `Try: aws sso login --profile ${profile}  (for SSO), or set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY.`
-    );
-  }
-
+  const {resolveBedrockCredentials}=await import('./providers/bedrock-auth.js');
   const region = config.getProviderCred('bedrock').region || 'us-east-1';
+  const context=discoveryContext.getStore();
+  const pending=resolveBedrockCredentials(context?.signal);
+  // The outer discovery cancellation race must await credential-tree cleanup.
+  context?.cleanups.push(pending.then(()=>{},()=>{}));
+  const {accessKeyId,secretAccessKey,sessionToken}=await pending;
+
   const host = `bedrock.${region}.amazonaws.com`;
 
   const signedGet = async (path: string, query: string): Promise<Response> => {

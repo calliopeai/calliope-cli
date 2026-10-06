@@ -402,7 +402,9 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (getProviderCred('cerebras').apiKey) providers.push('cerebras');
   if (getProviderCred('litellm').baseUrl) providers.push('litellm');
   const bedrock = getProviderCred('bedrock');
-  if (bedrock.apiKey || bedrock.baseUrl || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE) providers.push('bedrock');
+  if (bedrock.apiKey || bedrock.baseUrl || bedrock.profile || process.env.AWS_ACCESS_KEY_ID ||
+      process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI || process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
+      process.env.AWS_ROLE_ARN && process.env.AWS_WEB_IDENTITY_TOKEN_FILE) providers.push('bedrock');
   if (getProviderCred('openai-compat').baseUrl) providers.push('openai-compat');
 
   return providers;
