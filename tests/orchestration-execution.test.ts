@@ -34,3 +34,11 @@ it('never replaces damaged or foreign execution state with a fresh budget',async
   const view=await approved(),execution=await prepareAgentExecution(project,view.run.id,'a',20,{store});
   fs.unlinkSync(join(execution.ledger.root,'history.json'));await expect(prepareAgentExecution(project,view.run.id,'a',20,{store})).rejects.toThrow();expect(fs.existsSync(join(execution.ledger.root,'history.json'))).toBe(false);
 });
+it('shows an approval policy the exact plan it is approving, and only on approval',async()=>{
+  const seen=join(root,'seen.jsonl');config.set('policy',{command:`cat >> '${seen}'; echo >> '${seen}'`});
+  const view=await prepareRun(project,'plan.json',{store});await changePreparedRun(project,view.run.id,'approved',{store});
+  const other=await prepareRun(project,'plan.json',{store});await changePreparedRun(project,other.run.id,'cancelled',{store});
+  const calls=fs.readFileSync(seen,'utf8').trim().split('\n').map(line=>JSON.parse(line)),approval=calls.find(c=>c.name==='orchestration_approve'),cancel=calls.find(c=>c.name==='orchestration_cancel');
+  expect(approval.arguments).toMatchObject({runId:view.run.id,planHash:view.run.planHash,plan:view.manifest.plan});
+  expect(cancel.arguments).not.toHaveProperty('plan');
+});
