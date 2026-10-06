@@ -7,6 +7,10 @@
  */
 
 import { runTurn } from './runtime/index.js';
+import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { AgentExecution } from './execution/guard.js';
 import { createSession, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
 import * as config from './config.js';
@@ -42,6 +46,8 @@ export interface HeadlessOptions {
   maxIterations?: number;
   maxRetries?: number;
   cwd?: string;
+  /** Run as a delegated child admitted through a parent's served ledger (#415). */
+  ledger?: { url: string; tokenFile: string; agentId: string; maxOutputTokens?: number };
 }
 
 // ============================================================================
@@ -181,6 +187,22 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     },
   }, outputMode);
 
+  // ---- Delegated child (#415): every request is admitted by the parent's ledger --
+  let execution: AgentExecution | undefined;
+  if (options.ledger) {
+    try {
+      const { RemoteReservationLedger } = await import('./execution/remote-ledger.js');
+      // Canonical: the guard refuses an authority store reached through an alias (macOS /var -> /private/var).
+      const root = realpathSync(mkdtempSync(join(tmpdir(), 'calliope-child-ledger-')));
+      const ledger = await RemoteReservationLedger.connect({ url: options.ledger.url, token: readFileSync(options.ledger.tokenFile, 'utf8').trim(), root });
+      execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.ledger.agentId, maxOutputTokens: options.ledger.maxOutputTokens ?? 4096 };
+      emit({ type: 'status', timestamp: now(), data: { message: `Delegated child ${options.ledger.agentId}: admitted through the parent ledger` } }, outputMode);
+    } catch (error) {
+      emit({ type: 'error', timestamp: now(), data: { message: `Parent ledger refused this child: ${(error as Error).message}` } }, outputMode);
+      return 1;
+    }
+  }
+
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
   let sessionId: string;
   try { sessionId = createSession(cwd, { activate: false }).id; }
@@ -203,7 +225,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
         revision = saved.revision;
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
-      sessionId, cwd, provider, model, prompt,
+      sessionId, cwd, provider, model, prompt, execution,
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       runlog, confirmation: 'none', tools: getTools,

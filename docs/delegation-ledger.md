@@ -27,6 +27,21 @@ It prints `{"protocol":"delegation-ledger/v1","url":...,"runId":...}` once liste
 token goes to `--token-file` (created new, mode 0600) and is never printed. Server state (signing
 key, grant epochs) lives in a private sibling directory, never inside the budget directory.
 
+## Run a delegated child
+
+A host (Cy, an Astrolift task) grants the child, writes its scoped token to a private file and
+starts a headless run:
+
+```sh
+calliope --headless --json --ledger-url URL --ledger-token-file /private/child.token \
+  --ledger-agent CHILD_ACCOUNT "objective"
+```
+
+The turn runs under `ExecutionGuard` with the parent's ledger: the child's tools, paths, deadline
+and budget come from its grant, and every provider request is reserved and settled with the
+parent. A revoked or unknown grant, or an unreachable parent, stops the child before any turn.
+The three flags go together.
+
 ## Operations
 
 `POST /v1/<op>` with `Authorization: Bearer <token>` and a JSON body.

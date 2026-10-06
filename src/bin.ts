@@ -76,6 +76,7 @@ const skipPermissions = args.includes('--god-mode') ||
 
 // Check for multi-agent orchestration mode
 
+const LEDGER_FLAGS = ['--ledger-url', '--ledger-token-file', '--ledger-agent'];
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || !process.stdout.isTTY;
 
@@ -406,9 +407,15 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
     // Extract prompt from remaining args (non-flag args, skip --max-retries value)
     const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && parsed.args[i - 1] === '--max-retries') return false;
+      if (i > 0 && ['--max-retries', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
+    const flag = (name: string) => { const i = parsed.args.indexOf(name); return i >= 0 ? parsed.args[i + 1] : undefined; };
+    const ledgerUrl = flag('--ledger-url'), ledgerTokenFile = flag('--ledger-token-file'), ledgerAgent = flag('--ledger-agent');
+    if ([ledgerUrl, ledgerTokenFile, ledgerAgent].some(Boolean) && ![ledgerUrl, ledgerTokenFile, ledgerAgent].every(Boolean)) {
+      process.stderr.write('Delegated runs need --ledger-url, --ledger-token-file and --ledger-agent together.\n');
+      return completeCommand(2);
+    }
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
@@ -417,6 +424,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
+      ...(ledgerUrl ? { ledger: { url: ledgerUrl, tokenFile: ledgerTokenFile!, agentId: ledgerAgent! } } : {}),
     });
     return completeCommand(exitCode);
   } else {
