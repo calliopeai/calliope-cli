@@ -1,12 +1,13 @@
 # Changelog
 
+## 3.5.0: one parent allowance across hosts
+
+- Add `delegation-ledger/v1`: a parent serves its run's reservation ledger and children on other processes or hosts reserve and settle against it with scoped, fenced tokens. Same-id retries replay the original admission, revocation fences a grant and its descendants permanently, and a child refuses any history that is not an append-only extension of what it saw. `ExecutionGuard` runs unchanged on the remote ledger. `calliope ledger serve` writes the parent token to a private file ([release notes](docs/releases/3.5.0.md), [protocol](docs/delegation-ledger.md), #415).
+- Let the terminal input handler process Ctrl+C: the first press cancels the active turn and waits for cleanup, and a second press within two seconds exits. Ink's default exit previously bypassed that handler. Qualify Escape and Ctrl+C through a real PTY against pending policy with a late allow and running shell descendants; neither can produce delayed file effects after cancellation (#403).
+
 ## 3.4.1: renewable native Bedrock credentials
 
 - Resolve native inference and model discovery through the official AWS SDK credential chain, including workload roles, SSO and selected profiles. Bound credential-helper lifetime and preserve caller identity in packaged binaries ([release notes](docs/releases/3.4.1.md), #416).
-
-## Unreleased
-
-- Let the terminal input handler process Ctrl+C: the first press cancels the active turn and waits for cleanup, and a second press within two seconds exits. Ink's default exit previously bypassed that handler. Qualify Escape and Ctrl+C through a real PTY against pending policy with a late allow and running shell descendants; neither can produce delayed file effects after cancellation (#403).
 
 ## 3.3.1: attach sees every pending approval
 
