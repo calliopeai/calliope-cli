@@ -35,7 +35,9 @@ policy or pre-tool hook configured, it fails closed before reading the plan,
 because evaluating that program could itself mutate state. Explicit preparation
 checks the source read and `orchestration_prepare` through the shared permission
 resolver, including policy and hooks. Approval and cancellation use
-`orchestration_approve` and `orchestration_cancel`. Plan mode and non-interactive
+`orchestration_approve` and `orchestration_cancel`; an approval's arguments carry
+the exact plan being approved (`plan`) beside `runId`, `planHash` and `revision`,
+so a policy command can judge what it authorizes. Plan mode and non-interactive
 confirmation requirements remain enforced. No operation grants tool permission.
 Cancellation reaches the permission subprocess: its POSIX process group is
 killed, and the resolver waits for settlement before preparation returns. Hook
