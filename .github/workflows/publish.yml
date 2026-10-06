@@ -43,6 +43,22 @@ jobs:
           else
             npm publish --provenance --access public
           fi
+      # npm accepts a publish minutes before it serves it. Downstream rebuilds that
+      # start earlier install the previous release (or fail on the exact version).
+      - name: Wait until the registry serves this release as latest
+        if: steps.version.outputs.prerelease == 'false'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for _ in $(seq 1 60); do
+            if [ "$(npm view "@calliopelabs/cli@${VERSION}" version --prefer-online 2>/dev/null)" = "$VERSION" ] &&
+               [ "$(npm view @calliopelabs/cli dist-tags.latest --prefer-online 2>/dev/null)" = "$VERSION" ]; then
+              echo "Registry serves @calliopelabs/cli@${VERSION} as latest"; exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::Registry did not serve ${VERSION} as latest within 20 minutes; downstream rebuilds not triggered"
+          exit 1
       - name: Trigger desktop rebuild
         if: steps.version.outputs.prerelease == 'false'
         run: |
