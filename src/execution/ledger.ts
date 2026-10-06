@@ -123,6 +123,8 @@ function writeNew(file:string,raw:string):void {const fd=fs.openSync(file,'wx',0
 // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
 function syncDir(path:string):void {if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 
+/** What request admission needs from a ledger: the local file ledger or a parent's served one (#415). */
+export type ReservationLedgerAccess = Pick<ReservationLedger,'root'|'read'|'reserve'|'settle'>;
 export class ReservationLedger {
   readonly root:string;
   constructor(root:string,private readonly now=Date.now){this.root=resolve(root);}
