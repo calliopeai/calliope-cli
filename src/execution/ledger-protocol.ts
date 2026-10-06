@@ -29,7 +29,8 @@ export function verifyLedgerToken(secret:Buffer,token:unknown,runId:string,now=D
   if(typeof token!=='string'||token.length>8192)throw denied('Ledger token is missing.');
   const [body,mac,extra]=token.split('.');if(!body||!mac||extra!==undefined)throw denied('Ledger token is malformed.');
   const expected=sign(secret,body),given=Buffer.from(mac,'base64url');
-  if(given.length!==expected.length||!timingSafeEqual(given,expected))throw denied('Ledger token is not valid for this ledger.');
+  // Only the canonical encoding counts: base64url ignores a final character's padding bits.
+  if(b64(given)!==mac||given.length!==expected.length||!timingSafeEqual(given,expected))throw denied('Ledger token is not valid for this ledger.');
   let claims:LedgerTokenClaims;try{claims=JSON.parse(Buffer.from(body,'base64url').toString('utf8'));}catch{throw denied('Ledger token is malformed.');}
   if(claims?.v!==1||claims.run!==runId||!Number.isSafeInteger(claims.exp)||claims.exp<=now)throw denied('Ledger token expired or belongs to another run.');
   if(claims.role==='child'){
