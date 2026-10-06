@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.1: delegated child runs
+
+- Add `--ledger-url`, `--ledger-token-file` and `--ledger-agent` to headless mode: a child run is admitted by its parent's served ledger, with tools, paths, deadline and budget from its grant. A revoked grant or unreachable parent stops it before any turn ([release notes](docs/releases/3.5.1.md), #415).
+- Fix: the child's local ledger cache is canonical, so macOS's aliased temporary directory no longer refuses every delegated child.
+
 ## 3.5.0: one parent allowance across hosts
 
 - Add `delegation-ledger/v1`: a parent serves its run's reservation ledger and children on other processes or hosts reserve and settle against it with scoped, fenced tokens. Same-id retries replay the original admission, revocation fences a grant and its descendants permanently, and a child refuses any history that is not an append-only extension of what it saw. `ExecutionGuard` runs unchanged on the remote ledger. `calliope ledger serve` writes the parent token to a private file ([release notes](docs/releases/3.5.0.md), [protocol](docs/delegation-ledger.md), #415).
