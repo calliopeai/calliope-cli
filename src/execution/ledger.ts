@@ -147,8 +147,8 @@ export class ReservationLedger {
     directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd);
     return {...journal,projection:replayReservations(journal.manifest,journal.events)};
   }
-  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal):Promise<ReservationProjection> {
-    reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal);
+  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
+    reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal,beforeCommit);
   }
   async grantChildren(cwd:string,expectedManifest:string,grant:ChildGrant,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     validateChildGrant(grant);return this.append(cwd,expectedManifest,{type:'child_grant',grant:structuredClone(grant)},signal,beforeCommit);

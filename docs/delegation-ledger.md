@@ -59,6 +59,10 @@ A token may act for its accounts and their descendants only. A child cannot char
 the root, cannot mint a root allowance, and a revoked grant cannot be reissued. Errors carry the
 ledger's codes (`budget`, `deadline`, `authority`, `conflict`, `limit`, `locked`, `unavailable`).
 
+Admission rechecks token expiry and grant revocation while holding the ledger's
+writer lock, immediately before committing a reservation or nested grant. A
+request queued before revocation cannot acquire authority when the lock opens.
+
 ## Client behaviour
 
 `RemoteReservationLedger` gives `ExecutionGuard` the same read/reserve/settle surface as the local

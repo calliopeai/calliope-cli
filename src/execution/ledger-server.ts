@@ -22,11 +22,14 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const {ledger,cwd,state}=options,now=options.now??Date.now,secret=state.secret();
   const current=()=>ledger.read(cwd);
   const journal=()=>{const {manifest,events}=current();return {manifest,events};};
+  const assertActive=(token:LedgerTokenClaims)=>{
+    if(token.exp<=now())throw new ExecutionLimitError('authority','Ledger token expired; no further requests are authorized.');
+    if(token.role==='child'&&(token.epoch!==state.epoch(token.grant!)||revokedLineage(token.accounts!)))throw new ExecutionLimitError('authority','This child grant or one of its ancestors was revoked; no further requests are authorized.');
+  };
   const claims=(req:http.IncomingMessage):LedgerTokenClaims=>{
     const header=req.headers.authorization??'';const run=current().manifest.runId;
     const token=verifyLedgerToken(secret,header.startsWith('Bearer ')?header.slice(7):undefined,run,now());
-    if(token.role==='child'&&(token.epoch!==state.epoch(token.grant!)||revokedLineage(token.accounts!)))throw new ExecutionLimitError('authority','This child grant or one of its ancestors was revoked; no further requests are authorized.');
-    return token;
+    assertActive(token);return token;
   };
   /** Revoking a grant fences every descendant account, whichever token it was minted under. */
   const revokedLineage=(accounts:string[]):boolean=>{
@@ -47,7 +50,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       const prior=current().projection.requests[reservation?.id];
       // Replay with the same id answers the original admission; a different body is a conflict.
       if(prior){if(canonicalJson(prior.reservation)!==canonicalJson(reservation))throw new ExecutionLimitError('conflict','Reservation id already admitted a different request.');return {...journal(),replayed:true};}
-      try{await ledger.reserve(cwd,hash,reservation);}
+      try{await ledger.reserve(cwd,hash,reservation,undefined,()=>assertActive(token));}
       catch(error){
         // The local operation has finished. Prove non-admission from the same
         // authority before calling this a refusal; failed reads stay unknown.
@@ -69,8 +72,11 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
     },
     grant:async(token,body)=>{
       const grant=body.grant as ChildGrant,hash=String(body.manifestHash);owns(token,grant?.parentId);
-      if(grant?.id&&state.isRevoked(grant.id))throw new ExecutionLimitError('authority','This child grant was revoked and cannot be reissued.');
-      await ledger.grantChildren(cwd,hash,grant);
+      const assertGrant=()=>{
+        assertActive(token);
+        if(grant?.id&&state.isRevoked(grant.id))throw new ExecutionLimitError('authority','This child grant was revoked and cannot be reissued.');
+      };
+      assertGrant();await ledger.grantChildren(cwd,hash,grant,undefined,assertGrant);assertGrant();
       const deadline=Math.min(...grant.accounts.map(a=>a.deadline));
       const child=mintLedgerToken(secret,{v:1,run:current().manifest.runId,role:'child',grant:grant.id,epoch:state.epoch(grant.id),accounts:grant.accounts.map(a=>a.id),exp:deadline});
       return {...journal(),token:child};

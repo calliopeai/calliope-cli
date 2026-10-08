@@ -14,7 +14,7 @@ import {projectBudgetPath} from '../src/budget.js';
 import {ProjectSpendLedger} from '../src/execution/project-spend.js';
 
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger,hash:string,state:LedgerServerState,server:Server,url:string,parent:string;
-const start=async()=>{server=createLedgerServer({ledger,cwd:project,state});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));url=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;};
+const start=async(now?:()=>number)=>{server=createLedgerServer({ledger,cwd:project,state,now});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));url=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;};
 beforeEach(async()=>{
   root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-delegation-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);
   manifest=executionManifest(project);manifest.tokenBudget=manifest.accounts[0]!.tokenBudget=10000;manifest.costBudgetNanos=manifest.accounts[0]!.costBudgetNanos=50000000;
@@ -223,4 +223,32 @@ it('does not mistake a server journal error after commit for non-admission',asyn
   await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:'authority'});
   expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(1);
   expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBe(0.00102);
+});
+
+it.each([['reserve','revoked'],['reserve','expired'],['grant','revoked'],['grant','expired'],['reissue','revoked'],['reissue','expired']] as const)('rechecks %s authority after the ledger writer wait (%s)',async(operation,ending)=>{
+  let clock=Date.now();
+  if(ending==='expired'){await new Promise(resolve=>server.close(resolve));await start(()=>clock);}
+  const g=grant('child',5000),token=(await allocate(g)).token,child=await connect(operation==='reissue'?parent:token);
+  const lock=join(ledger.root,'writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600,flag:'wx'});
+  let entered!:()=>void;
+  const waiting=new Promise<void>(resolve=>{entered=resolve;});
+  if(operation==='reserve'){
+    const reserve=ledger.reserve.bind(ledger);
+    vi.spyOn(ledger,'reserve').mockImplementation((...args)=>{entered();return reserve(...args);});
+  }else{
+    const allocate=ledger.grantChildren.bind(ledger);
+    vi.spyOn(ledger,'grantChildren').mockImplementation((...args)=>{entered();return allocate(...args);});
+  }
+  const pending=operation==='reserve'?child.reserve(project,hash,request('child',100)):child.grantChildren(project,hash,operation==='reissue'?g:grant('grandchild',1000,'child'));
+  const result=pending.then(value=>({value}),error=>({error}));
+  try{
+    await waiting;
+    if(ending==='revoked'){
+      const revoked=await fetch(`${url}/v1/revoke`,{method:'POST',headers:{authorization:`Bearer ${parent}`},body:JSON.stringify({grant:g.id})});
+      expect(revoked.status).toBe(200);
+    }else clock=manifest.deadline;
+  }finally{fs.rmSync(lock,{force:true});}
+  expect(await result).toMatchObject({error:{code:'authority'}});
+  expect(ledger.read(project).projection.spent.tokens).toBe(0);
+  expect(ledger.read(project).projection.childGrants).toHaveLength(1);
 });
