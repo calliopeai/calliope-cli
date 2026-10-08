@@ -103,7 +103,18 @@ export class ExecutionGuard {
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
         let state;
         try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})},signal);}
-        catch(error){await projectLedger.settle(id,0);throw error;}
+        catch(error){
+          // A failed reply is not proof that the parent refused admission. Keep
+          // both reservations charged unless the operation is known to have
+          // ended without admission. A remote journal can lag an in-flight write.
+          try{
+            if(this.ledger.canReleaseFailedReservation?.(error)!==false){
+              const current=this.ledger.read(this.cwd).projection;
+              if(current.manifestHash===this.expectedHash&&!current.requests[id])await projectLedger.settle(id,0);
+            }
+          }catch{/* Unknown admission or failed refund retains the project reservation. */}
+          throw error;
+        }
         onEvent?.({requestId:id,stage:'reserved',revision:state.revision,...state.spent});
         this.assertActive(signal);
         if(billing&&readBillingEvidence(route,this.manifest.project.root)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Billing admission was revoked while committing its reservation.');

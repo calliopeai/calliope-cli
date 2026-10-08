@@ -4,12 +4,14 @@ import * as fs from 'node:fs';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {join,dirname} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {ReservationLedger,manifestHash,requestCostNanos,ExecutionGuard,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type ExecutionManifest,type ChildGrant} from '../src/execution/index.js';
+import {ReservationLedger,manifestHash,requestCostNanos,ExecutionGuard,ExecutionLimitError,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type ExecutionManifest,type ChildGrant} from '../src/execution/index.js';
 import {executionManifest} from './helpers/execution-manifest.js';
 import {runLedgerCommand} from '../src/execution/ledger-cli.js';
 import type {RouteCandidate} from '../src/routing/index.js';
+import {projectBudgetPath} from '../src/budget.js';
+import {ProjectSpendLedger} from '../src/execution/project-spend.js';
 
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger,hash:string,state:LedgerServerState,server:Server,url:string,parent:string;
 const start=async()=>{server=createLedgerServer({ledger,cwd:project,state});await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));url=`http://127.0.0.1:${(server.address() as AddressInfo).port}`;};
@@ -19,7 +21,7 @@ beforeEach(async()=>{
   ledger=new ReservationLedger(join(root,'budget'));ledger.create(manifest);hash=manifestHash(manifest);state=new LedgerServerState(join(root,'ledger-server'));
   parent=mintLedgerToken(state.secret(),{v:1,run:manifest.runId,role:'parent',exp:manifest.deadline});await start();
 });
-afterEach(async()=>{vi.restoreAllMocks();await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});});
+afterEach(async()=>{vi.restoreAllMocks();await new Promise(r=>server.close(r));fs.rmSync(dirname(projectBudgetPath(project)),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 
 let graph:string|undefined;
 const grant=(id:string,tokens:number,parentId='root'):ChildGrant=>{
@@ -117,4 +119,108 @@ it('calliope ledger serve hands the parent token to a private file and serves ch
   const owner=await RemoteReservationLedger.connect({url:served,token:fs.readFileSync(tokenFile,'utf8'),root:join(root,'cache')});
   await owner.reserve(project,hash,request('root',100));expect(ledger.read(project).projection.spent.tokens).toBe(100);
   process.emit('SIGTERM');await expect(running).resolves.toBe(0);
+});
+
+it.each([false,true])('retains project capacity when admission is unknown (parent committed: %s)',async committed=>{
+  let disconnected=false;
+  const child=await connect((await allocate(grant('child',5000))).token,{attempts:1,fetch:async(input,init)=>{
+    if(disconnected)throw new TypeError('connection reset');
+    if(String(input).endsWith('/reserve')){
+      if(committed)await fetch(input,init);
+      disconnected=true;throw new TypeError('connection reset');
+    }
+    return fetch(input,init);
+  }});
+  const guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},project);
+  const route={provider:'deepseek',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:1000,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'} as RouteCandidate;
+  const budget=guard.budget(route,[{role:'user',content:'public toy'}],[],false);
+  await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:'unavailable'});
+  const restarted=new ProjectSpendLedger(projectBudgetPath(project)),saved=restarted.read();
+  expect(saved.spentUsd).toBe(0.00102);
+  expect(saved.events.map(e=>e.change.type)).toEqual(['reserve']);
+  expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(committed?1:0);
+  await expect(restarted.reserve(randomUUID(),manifest.runId,1,1020000)).rejects.toMatchObject({code:'budget'});
+});
+
+it.each([true,false])('requires explicit non-admission evidence to release capacity (server supports evidence: %s)',async evidence=>{
+  const child=await connect((await allocate(grant('child',1))).token,{fetch:async(input,init)=>{
+    const response=await fetch(input,init);
+    if(!evidence&&String(input).endsWith('/reserve')){
+      const body=await response.json() as {admission?:string};delete body.admission;
+      return new Response(JSON.stringify(body),{status:response.status});
+    }
+    return response;
+  }});
+  const guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},project);
+  const route={provider:'deepseek',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:1000,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'} as RouteCandidate;
+  const budget=guard.budget(route,[{role:'user',content:'public toy'}],[],false);
+  await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:'budget'});
+  const saved=new ProjectSpendLedger(projectBudgetPath(project)).read();
+  expect(saved.spentUsd).toBe(evidence?0:0.00102);
+  expect(saved.events.map(e=>e.change.type)).toEqual(evidence?['reserve','settle']:['reserve']);
+  expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(0);
+});
+
+it('does not refund an in-flight admission absent from a fresh journal',async()=>{
+  let release!:()=>void,started!:()=>void,pending:Promise<Response>|undefined;
+  const gate=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{started=resolve;});
+  const reserve=ledger.reserve.bind(ledger);
+  vi.spyOn(ledger,'reserve').mockImplementation(async(...args)=>{started();await gate;return reserve(...args);});
+  const child=await connect((await allocate(grant('child',5000))).token,{attempts:1,fetch:async(input,init)=>{
+    if(String(input).endsWith('/reserve')){
+      pending=fetch(input,init);await entered;throw new TypeError('connection reset');
+    }
+    return fetch(input,init);
+  }});
+  const guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},project);
+  const route={provider:'deepseek',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:1000,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'} as RouteCandidate;
+  try{
+    const budget=guard.budget(route,[{role:'user',content:'public toy'}],[],false);
+    await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:'unavailable'});
+    expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(0);
+    expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBe(0.00102);
+  }finally{release();await pending;}
+  expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(1);
+  expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBe(0.00102);
+});
+
+it.each(['revoked-retry','rewritten-journal'])('retains project capacity after an admitted request returns %s',async failure=>{
+  const g=grant('child',5000);
+  let dropped=false;
+  const child=await connect((await allocate(g)).token,{fetch:async(input,init)=>{
+    const response=await fetch(input,init);
+    if(String(input).endsWith('/reserve')&&!dropped){
+      dropped=true;
+      if(failure==='revoked-retry'){
+        await fetch(`${url}/v1/revoke`,{method:'POST',headers:{authorization:`Bearer ${parent}`},body:JSON.stringify({grant:g.id})});
+        throw new TypeError('connection reset');
+      }
+      const body=await response.json() as {events:unknown[]};body.events=[];
+      return new Response(JSON.stringify(body));
+    }
+    return response;
+  }});
+  const guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},project);
+  const route={provider:'deepseek',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:1000,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'} as RouteCandidate;
+  const budget=guard.budget(route,[{role:'user',content:'public toy'}],[],false);
+  await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:failure==='revoked-retry'?'authority':'conflict'});
+  expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(1);
+  expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBe(0.00102);
+});
+
+it('does not mistake a server journal error after commit for non-admission',async()=>{
+  const child=await connect((await allocate(grant('child',5000))).token);
+  let committed=false;
+  const reserve=ledger.reserve.bind(ledger),read=ledger.read.bind(ledger);
+  vi.spyOn(ledger,'reserve').mockImplementation(async(...args)=>{const result=await reserve(...args);committed=true;return result;});
+  vi.spyOn(ledger,'read').mockImplementation((...args)=>{
+    if(committed){committed=false;throw new ExecutionLimitError('authority','Project changed while preparing the reply.');}
+    return read(...args);
+  });
+  const guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},project);
+  const route={provider:'deepseek',model:'toy',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:1000,maxOutputTokens:100,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'test'} as RouteCandidate;
+  const budget=guard.budget(route,[{role:'user',content:'public toy'}],[],false);
+  await expect(budget.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10})).rejects.toMatchObject({code:'authority'});
+  expect(Object.keys(ledger.read(project).projection.requests)).toHaveLength(1);
+  expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBe(0.00102);
 });
