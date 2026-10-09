@@ -775,7 +775,7 @@ describe('getAvailableModels - bedrock', () => {
 
     const models = await getAvailableModels('bedrock');
     expect(models).toEqual([]);
-    expect(execFileSync).toHaveBeenCalledTimes(2); // Both supported export formats fail.
+    expect(execFileSync).not.toHaveBeenCalled(); // Native resolution does not require the AWS CLI.
   });
 
   it('should fetch from gateway when base URL is configured', async () => {

@@ -104,6 +104,31 @@ it('fails closed when the judgment outruns the configured timeout', async () => 
   expect(await evaluatePolicy(call)).toMatchObject({ decision: 'deny', reason: expect.stringContaining('timed out after 20ms') });
 });
 
+it.each(['timeout', 'cancel'] as const)('refuses a late judgment allow when its provider ignores %s', async ending => {
+  config.set('policy', { judgment: rulesPath, judgmentProvider: 'ollama', timeoutMs: ending === 'timeout' ? 20 : 1000 });
+  const controller = new AbortController();
+  let deliver: (value: LLMResponse) => void = () => { throw new Error('Provider was not called'); };
+  const called = new Promise<void>(resolve => {
+    mockChat.mockImplementationOnce(() => new Promise<LLMResponse>(reply => { deliver = reply; resolve(); }));
+  });
+  const result = evaluatePolicy(call, { signal: controller.signal });
+  await called;
+  if (ending === 'cancel') controller.abort();
+  // This provider deliberately ignores the signal; the gate owns its wait.
+  const late = setTimeout(() => deliver(reply(0.01, 0.02)), 1000);
+  let deadline: ReturnType<typeof setTimeout>;
+  const bounded = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(() => reject(new Error('Gate waited for an uncooperative provider')), 300);
+  });
+  try {
+    expect(await Promise.race([result, bounded])).toMatchObject({ decision: 'deny', reason: expect.stringContaining(ending === 'cancel' ? 'cancelled' : 'timed out') });
+  } finally {
+    clearTimeout(deadline!);
+    clearTimeout(late);
+    deliver(reply(0.01, 0.02));
+  }
+});
+
 it('reports cancellation rather than a timeout when the caller aborts', async () => {
   config.set('policy', { judgment: rulesPath, judgmentProvider: 'ollama' });
   const controller = new AbortController();

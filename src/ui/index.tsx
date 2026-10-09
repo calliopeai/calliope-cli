@@ -159,6 +159,9 @@ export async function startInkCLI(options: { skipPermissions?: boolean; initialP
 
   const { waitUntilExit } = render(<App initialPreference={options.initialPreference} skipPermissions={options.skipPermissions} />, {
     patchConsole: true,  // Prevent console.log during session from mixing with Ink
+    // The input handler owns first-press cancellation and second-press exit.
+    // Ink's default exit bypasses the handler and active-turn cleanup.
+    exitOnCtrlC: false,
   });
   await waitUntilExit();
 

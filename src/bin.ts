@@ -14,6 +14,14 @@ import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from '.
 import * as os from 'os';
 import { colors } from './styles.js';
 
+// Private standalone credential worker: inherit the caller's environment before
+// any project/global env loading. It is only callable through an IPC channel.
+if(process.argv[2]==='--internal-aws-credentials') {
+  if(!process.send)process.exit(2);
+  await (await import('./providers/bedrock-credential-worker.js')).runBedrockCredentialWorker();
+  process.exit(0);
+}
+
 // Load .env / cli.env files (dotenv-style, no dependency)
 function loadEnvFile(filePath: string): void {
   try {
@@ -68,6 +76,7 @@ const skipPermissions = args.includes('--god-mode') ||
 
 // Check for multi-agent orchestration mode
 
+const LEDGER_FLAGS = ['--ledger-url', '--ledger-token-file', '--ledger-agent'];
 // Check for headless mode (no-TTY agent orchestration)
 const useHeadless = args.includes('--headless') || !process.stdout.isTTY;
 
@@ -203,6 +212,11 @@ async function main(): Promise<void> {
     headlessCancellation = new AbortController();
     const { runImprovementCommand } = await import('./improvement/index.js');
     return completeCommand(await runImprovementCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'ledger') {
+    const { runLedgerCommand } = await import('./execution/ledger-cli.js');
+    return completeCommand(await runLedgerCommand(rawArgs.slice(1)));
   }
 
   if (args[0] === 'orchestrate') {
@@ -370,7 +384,7 @@ async function main(): Promise<void> {
   }
 
   // Start the CLI
-  await startCLI();
+  await startCLI({ skipPermissions });
 }
 
 async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<void> {
@@ -399,9 +413,15 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
     // Extract prompt from remaining args (non-flag args, skip --max-retries value)
     const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && parsed.args[i - 1] === '--max-retries') return false;
+      if (i > 0 && ['--max-retries', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
+    const flag = (name: string) => { const i = parsed.args.indexOf(name); return i >= 0 ? parsed.args[i + 1] : undefined; };
+    const ledgerUrl = flag('--ledger-url'), ledgerTokenFile = flag('--ledger-token-file'), ledgerAgent = flag('--ledger-agent');
+    if ([ledgerUrl, ledgerTokenFile, ledgerAgent].some(Boolean) && ![ledgerUrl, ledgerTokenFile, ledgerAgent].every(Boolean)) {
+      process.stderr.write('Delegated runs need --ledger-url, --ledger-token-file and --ledger-agent together.\n');
+      return completeCommand(2);
+    }
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
@@ -410,6 +430,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
+      ...(ledgerUrl ? { ledger: { url: ledgerUrl, tokenFile: ledgerTokenFile!, agentId: ledgerAgent! } } : {}),
     });
     return completeCommand(exitCode);
   } else {

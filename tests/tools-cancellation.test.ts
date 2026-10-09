@@ -11,6 +11,7 @@ vi.mock('../src/sandbox/index.js', async importActual => ({
   getSandboxMode: vi.fn(() => 'off'),
   shouldUseNativeSandbox: vi.fn(() => 'skip'),
   selectCodeSandbox: vi.fn(() => 'unsandboxed'),
+  isDockerAvailable: vi.fn(() => true),
   executeInSandbox: vi.fn(),
 }));
 let cwd: string;
@@ -19,6 +20,8 @@ beforeEach(() => {
   scopeManager.reset(cwd);
   vi.mocked(sandbox.getSandboxMode).mockReturnValue('off');
   vi.mocked(sandbox.selectCodeSandbox).mockReturnValue('unsandboxed');
+  vi.mocked(sandbox.isDockerAvailable).mockReturnValue(true);
+  vi.mocked(sandbox.executeInSandbox).mockReset();
 });
 afterEach(() => fs.rmSync(cwd, { recursive: true, force: true }));
 
@@ -53,15 +56,22 @@ describe('tool cancellation', () => {
     await assertion;
   });
 
-  it.each(['shell', 'execute_code'])('keeps explicit Docker %s execution off the host when Docker is unavailable', async name => {
+  it.each([
+    ['shell', false], ['execute_code', false],
+    ['shell', true], ['execute_code', true],
+  ] as const)('keeps explicit Docker %s off the host (daemon admission: %s)', async (name, admitted) => {
     vi.mocked(sandbox.getSandboxMode).mockReturnValue('docker');
     vi.mocked(sandbox.selectCodeSandbox).mockReturnValue('docker');
+    // Cover refusal before execution as well as a daemon becoming unavailable
+    // after admission, independently of Docker installed on the test host.
+    vi.mocked(sandbox.isDockerAvailable).mockReturnValue(admitted);
     vi.mocked(sandbox.executeInSandbox).mockResolvedValue({ success: false, stdout: '', stderr: 'Docker is not available', exitCode: 1, duration: 0, sandboxed: false });
     const args = name === 'shell' ? { command: 'echo bad > escaped.txt' } : { language: 'bash', code: 'echo bad > escaped.txt' };
     const result = await executeTool({ id: 'docker', name, arguments: args }, cwd);
     expect(result.result).toContain('Docker is not available');
     expect(fs.existsSync(path.join(cwd, 'escaped.txt'))).toBe(false);
-    expect(sandbox.executeInSandbox).toHaveBeenCalled();
+    if (admitted) expect(sandbox.executeInSandbox).toHaveBeenCalledTimes(1);
+    else expect(sandbox.executeInSandbox).not.toHaveBeenCalled();
   });
 });
 

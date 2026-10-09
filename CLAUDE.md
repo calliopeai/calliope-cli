@@ -6,7 +6,7 @@
 
 ## Project
 
-Multi-model AI agent CLI (`@calliopelabs/cli`, 3.2.0 in preparation; published 3.1.0). TypeScript + React/Ink, ESM modules. Node ≥ 24.
+Multi-model AI agent CLI (`@calliopelabs/cli`, source version recorded in `package.json`). TypeScript + React/Ink, ESM modules. Node ≥ 24.
 
 ## Development Rules
 

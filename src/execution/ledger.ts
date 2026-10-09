@@ -123,6 +123,11 @@ function writeNew(file:string,raw:string):void {const fd=fs.openSync(file,'wx',0
 // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
 function syncDir(path:string):void {if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 
+/** What request admission needs from a ledger: the local file ledger or a parent's served one (#415). */
+export type ReservationLedgerAccess = Pick<ReservationLedger,'root'|'read'|'reserve'|'settle'> & {
+  /** A transport must confirm rejection; cached absence cannot rule out an in-flight commit. */
+  canReleaseFailedReservation?:(error:unknown)=>boolean;
+};
 export class ReservationLedger {
   readonly root:string;
   constructor(root:string,private readonly now=Date.now){this.root=resolve(root);}
@@ -142,8 +147,8 @@ export class ReservationLedger {
     directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd);
     return {...journal,projection:replayReservations(journal.manifest,journal.events)};
   }
-  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal):Promise<ReservationProjection> {
-    reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal);
+  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
+    reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal,beforeCommit);
   }
   async grantChildren(cwd:string,expectedManifest:string,grant:ChildGrant,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     validateChildGrant(grant);return this.append(cwd,expectedManifest,{type:'child_grant',grant:structuredClone(grant)},signal,beforeCommit);

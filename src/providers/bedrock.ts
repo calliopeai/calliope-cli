@@ -2,14 +2,15 @@
  * AWS Bedrock Provider - Native Converse API
  *
  * Uses the Bedrock Converse API directly with AWS Signature V4 signing.
- * No AWS SDK dependency required — uses built-in crypto, fetch, and fs.
+ * AWS SDK resolves renewable identity; signing and transport use crypto and fetch.
  */
 
 import { createHmac, createHash } from 'crypto';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import * as config from '../config.js';
+import {resolveBedrockCredentials} from './bedrock-auth.js';
 import { throwIfCancelled } from '../cancellation.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, ImageContent, MessageContent } from '../types.js';
 import { normalizeFinishReason, getTextContent, calculateMaxTokens, debugLog, type StreamCallback } from './types.js';
@@ -22,132 +23,6 @@ interface AWSCredentials {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken?: string;
-}
-
-/**
- * Parse an INI-style AWS config/credentials file into sections.
- */
-function parseIniFile(filePath: string): Record<string, Record<string, string>> {
-  if (!existsSync(filePath)) return {};
-  const content = readFileSync(filePath, 'utf-8');
-  const sections: Record<string, Record<string, string>> = {};
-  let currentSection = '';
-
-  for (const rawLine of content.split('\n')) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
-    const sectionMatch = line.match(/^\[(.+)\]$/);
-    if (sectionMatch) {
-      currentSection = sectionMatch[1]!.replace(/^profile\s+/, '');
-      sections[currentSection] = sections[currentSection] || {};
-      continue;
-    }
-    const kvMatch = line.match(/^([^=]+?)\s*=\s*(.+)$/);
-    if (kvMatch && currentSection) {
-      sections[currentSection]![kvMatch[1]!.trim()] = kvMatch[2]!.trim();
-    }
-  }
-  return sections;
-}
-
-/**
- * Shell out to the AWS CLI to resolve credentials for a profile. This covers
- * SSO profiles, role-assumption profiles, and anything else AWS CLI supports.
- */
-async function resolveCredentialsViaCli(profile: string): Promise<AWSCredentials | null> {
-  try {
-    const { execFileSync } = await import('child_process');
-    // Prefer `--format env-no-export` (simpler KEY=value), fall back to `env`.
-    let output = '';
-    try {
-      output = execFileSync(
-        'aws',
-        ['configure', 'export-credentials', '--profile', profile, '--format', 'env-no-export'],
-        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
-      );
-    } catch {
-      output = execFileSync(
-        'aws',
-        ['configure', 'export-credentials', '--profile', profile, '--format', 'env'],
-        { encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'] }
-      );
-    }
-    const envs: Record<string, string> = {};
-    for (const rawLine of output.split(/\r?\n/)) {
-      const line = rawLine.trim();
-      // Matches both "export KEY=value" and "KEY=value"
-      const match = line.match(/^(?:export\s+)?([A-Z_]+)\s*=\s*(.+)$/);
-      if (!match) continue;
-      // Strip exactly one pair of surrounding quotes (not all quotes).
-      let val = match[2]!.trim();
-      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
-        val = val.slice(1, -1);
-      }
-      envs[match[1]!] = val;
-    }
-    if (envs.AWS_ACCESS_KEY_ID && envs.AWS_SECRET_ACCESS_KEY) {
-      return {
-        accessKeyId: envs.AWS_ACCESS_KEY_ID,
-        secretAccessKey: envs.AWS_SECRET_ACCESS_KEY,
-        sessionToken: envs.AWS_SESSION_TOKEN,
-      };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Resolve AWS credentials from environment variables, shared credential files,
- * or the AWS CLI (for SSO / role-assumption profiles).
- */
-async function getAWSCredentials(): Promise<AWSCredentials> {
-  // 1. Explicit env vars
-  if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) {
-    return {
-      accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-      secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-      sessionToken: process.env.AWS_SESSION_TOKEN,
-    };
-  }
-
-  // 2. Named profile from env or config
-  const profile = config.getProviderCred('bedrock').profile || 'default';
-  const awsDir = join(homedir(), '.aws');
-
-  // Check credentials file
-  const credSections = parseIniFile(join(awsDir, 'credentials'));
-  const cred = credSections[profile];
-  if (cred?.aws_access_key_id && cred?.aws_secret_access_key) {
-    return {
-      accessKeyId: cred.aws_access_key_id,
-      secretAccessKey: cred.aws_secret_access_key,
-      sessionToken: cred.aws_session_token,
-    };
-  }
-
-  // Check config file (some setups put creds here)
-  const configSections = parseIniFile(join(awsDir, 'config'));
-  const cfg = configSections[profile];
-  if (cfg?.aws_access_key_id && cfg?.aws_secret_access_key) {
-    return {
-      accessKeyId: cfg.aws_access_key_id,
-      secretAccessKey: cfg.aws_secret_access_key,
-      sessionToken: cfg.aws_session_token,
-    };
-  }
-
-  // 3. Ask the AWS CLI (handles SSO, role assumption, etc.).
-  const cliCreds = await resolveCredentialsViaCli(profile);
-  if (cliCreds) return cliCreds;
-
-  throw new Error(
-    `AWS credentials not found for profile "${profile}". ` +
-    `For SSO: run \`aws sso login --profile ${profile}\`. ` +
-    `For static keys: set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY, ` +
-    `or configure ~/.aws/credentials.`
-  );
 }
 
 /**
@@ -400,8 +275,8 @@ export async function chatBedrock(
   maxOutputTokens?: number,
 ): Promise<LLMResponse> {
   if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1)) throw new Error('maxOutputTokens must be a positive integer');
-  const credentials = await getAWSCredentials();
   const region = getAWSRegion();
+  const credentials = await resolveBedrockCredentials(signal);
   const service = 'bedrock';
 
   // URL-encode the model ID (colons in model IDs need encoding)
@@ -440,7 +315,7 @@ export async function chatBedrock(
   };
 
   const signed = signRequest('POST', baseUrl, headers, bodyStr, credentials, region, service);
-  debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, access_key_prefix=${credentials.accessKeyId.slice(0, 4)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
+  debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
 
   if (isStreaming) {
     return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal, maxOutputTokens !== undefined);
@@ -749,7 +624,7 @@ async function chatBedrockStreaming(
 }
 
 /**
- * Check if native AWS credentials are available (for provider detection).
+ * Detect declared AWS credential sources; the SDK validates identity at use.
  */
 export function hasAWSCredentials(): boolean {
   // Prefer the live HOME override. Test workers and embedded callers may
@@ -759,18 +634,21 @@ export function hasAWSCredentials(): boolean {
   const awsHome = process.env.HOME || process.env.USERPROFILE || homedir();
   // Check env vars
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) return true;
+  if (process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI || process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI) return true;
+  if (process.env.AWS_ROLE_ARN && process.env.AWS_WEB_IDENTITY_TOKEN_FILE) return true;
 
   // Check for named profile
   if (process.env.AWS_PROFILE) {
     const awsDir = join(awsHome, '.aws');
-    if (existsSync(join(awsDir, 'credentials')) || existsSync(join(awsDir, 'config'))) {
+    if (existsSync(process.env.AWS_SHARED_CREDENTIALS_FILE || join(awsDir, 'credentials')) || existsSync(process.env.AWS_CONFIG_FILE || join(awsDir, 'config'))) {
       return true;
     }
   }
 
   // Check default profile
-  const credPath = join(awsHome, '.aws', 'credentials');
-  if (existsSync(credPath)) return true;
+  const credPath = process.env.AWS_SHARED_CREDENTIALS_FILE || join(awsHome, '.aws', 'credentials');
+  const configPath = process.env.AWS_CONFIG_FILE || join(awsHome, '.aws', 'config');
+  if (existsSync(credPath) || existsSync(configPath)) return true;
 
   return false;
 }

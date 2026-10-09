@@ -305,6 +305,17 @@ Before each tool executes, if `policy.command` is set, Calliope spawns it and:
   built-in `judgment` source, which waits on a provider) — DENY (**fail closed**).
 - **spawn failure** (command missing, etc.) — DENY (**fail closed**).
 
+Command cancellation also denies. On POSIX every completed command decision stops
+remaining members of its process group, including children whose parent has exited.
+Timeout and cancellation settle without waiting for inherited pipes to close;
+stdout is drained without retention and stderr retains at most 65,536 characters.
+The policy command must complete its decision within the original deadline and
+must not rely on background workers surviving that decision. Process groups do
+not contain descendants that create a new group; use a sandbox for that boundary.
+The exit-code contract does not provide a remote expiry or revocation lease.
+The built-in judgment gate also owns its deadline and cancellation wait: a
+provider that ignores its abort signal cannot deliver a late allow to execution.
+
 Every decision is recorded as a `policy_event` in the run log. Failing closed is
 deliberate: a broken or unreachable policy engine must not silently wave tools
 through.

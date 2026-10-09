@@ -37,8 +37,10 @@ export async function prepareRun(cwd: string, path: string, options: RunActionOp
 }
 export async function changePreparedRun(cwd: string, id: string, type: 'approved' | 'cancelled', options: RunActionOptions = {}): Promise<RunInspection> {
   const store = options.store ?? new RunStore(), prior = await store.read(id,cwd,options.signal);
+  // An approval policy (policy.command / judgment) sees the exact plan it is approving.
   await authorizeSessionAction(prior.run.project.root,type === 'approved' ? 'orchestration_approve' : 'orchestration_cancel',
-    {path:prior.run.project.root,runId:id,planHash:prior.run.planHash,revision:prior.run.revision},options);
+    {path:prior.run.project.root,runId:id,planHash:prior.run.planHash,revision:prior.run.revision,
+      ...(type === 'approved' ? {plan:prior.manifest.plan} : {})},options);
   return store.transition(id,cwd,prior.run.revision,{type,source:options.source ?? 'cli'},options.signal);
 }
 export async function inspectRun(cwd: string, id?: string, options: RunActionOptions = {}): Promise<RunInspection> {
