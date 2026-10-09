@@ -59,6 +59,10 @@ A token may act for its accounts and their descendants only. A child cannot char
 the root, cannot mint a root allowance, and a revoked grant cannot be reissued. Errors carry the
 ledger's codes (`budget`, `deadline`, `authority`, `conflict`, `limit`, `locked`, `unavailable`).
 
+Admission rechecks token expiry and grant revocation while holding the ledger's
+writer lock, immediately before committing a reservation or nested grant. A
+request queued before revocation cannot acquire authority when the lock opens.
+
 ## Client behaviour
 
 `RemoteReservationLedger` gives `ExecutionGuard` the same read/reserve/settle surface as the local
@@ -67,6 +71,14 @@ append-only extension of what it has seen, so a server reset or rollback cannot 
 capacity. Writes retry with the same id; if every attempt is lost it inspects the journal, and
 only an outcome the parent recorded counts. Otherwise the result is `unavailable` and nothing is
 authorized (a reservation that was admitted stays charged).
+
+The shared project budget also retains its reservation while admission is unknown.
+An error releases project capacity only after a confirmed rejection before any
+lost response. Even a fresh journal can lag an in-flight admission. Neither a
+disconnect nor restarting the child restores the reserved project capacity.
+Reservation errors optionally report `admission: refused` when the server has
+verified non-admission after the local operation ends, or `unknown` otherwise.
+Clients retain capacity when talking to older v1 servers that omit this evidence.
 
 `tests/delegation-ledger.test.ts` is the local-host conformance suite: concurrent and nested
 children exhausting one allowance, duplicate dispatch and lost acknowledgements, an unreachable

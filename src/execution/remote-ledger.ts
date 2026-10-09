@@ -21,6 +21,7 @@ const CODES=new Set(['invalid','authority','budget','deadline','unavailable','lo
 export class RemoteReservationLedger {
   readonly root:string;
   private journal!:Journal;
+  private readonly confirmedRejections=new WeakSet<Error>();
   private constructor(private readonly options:RemoteLedgerOptions){this.root=options.root;}
 
   static async connect(options:RemoteLedgerOptions):Promise<RemoteReservationLedger> {
@@ -33,6 +34,9 @@ export class RemoteReservationLedger {
     return {...this.journal,projection:replayReservations(this.journal.manifest,this.journal.events)};
   }
   async refresh():Promise<void> {this.accept(await this.call('journal',{}));}
+  canReleaseFailedReservation(error:unknown):boolean {
+    return error instanceof Error&&this.confirmedRejections.has(error);
+  }
   async reserve(_cwd:string,manifestHash:string,reservation:RequestReservation,signal?:AbortSignal):Promise<ReservationProjection> {
     return this.write('reserve',{manifestHash,reservation},reservation.id,signal,'Reservation outcome is unknown; no request was authorized.');
   }
@@ -51,7 +55,7 @@ export class RemoteReservationLedger {
     let lost:unknown;
     for(let attempt=0;attempt<(this.options.attempts??3);attempt++){
       throwIfCancelled(signal);
-      try{this.accept(await this.call(op,body,signal));return this.projection();}
+      try{this.accept(await this.call(op,body,signal,lost===undefined));return this.projection();}
       catch(error){if(error instanceof ExecutionLimitError&&error.code!=='unavailable')throw error;lost=error;await cancellableDelay(100*2**attempt,signal);}
     }
     try{
@@ -71,13 +75,19 @@ export class RemoteReservationLedger {
     }
     this.journal={manifest,events:next.events};
   }
-  private async call(op:string,body:object,signal?:AbortSignal):Promise<unknown> {
+  private async call(op:string,body:object,signal?:AbortSignal,firstAttempt=false):Promise<unknown> {
     const timeout=AbortSignal.timeout(this.options.timeoutMs??10000),combined=signal?AbortSignal.any([signal,timeout]):timeout;
     let response:Response;
     try{response=await (this.options.fetch??fetch)(`${this.options.url.replace(/\/$/,'')}/v1/${op}`,{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${this.options.token}`},body:JSON.stringify(body),signal:combined});}
     catch(error){throwIfCancelled(signal);throw new ExecutionLimitError('unavailable',`Parent ledger unreachable: ${(error as Error).message}`);}
-    let value:{ok?:boolean;code?:string;message?:string};try{value=await response.json() as typeof value;}catch{throw new ExecutionLimitError('unavailable','Parent ledger returned an unreadable response.');}
-    if(!value.ok)throw new ExecutionLimitError(CODES.has(String(value.code))?value.code as ExecutionLimitError['code']:'unavailable',String(value.message??'Parent ledger refused the request.'));
+    let value:{ok?:boolean;code?:string;message?:string;admission?:string};try{value=await response.json() as typeof value;}catch{throw new ExecutionLimitError('unavailable','Parent ledger returned an unreadable response.');}
+    if(!value.ok){
+      const error=new ExecutionLimitError(CODES.has(String(value.code))?value.code as ExecutionLimitError['code']:'unavailable',String(value.message??'Parent ledger refused the request.'));
+      // Only a server rejection before any lost response proves refusal. Client
+      // validation failures and retries can follow an already committed request.
+      if(op==='reserve'&&firstAttempt&&value.admission==='refused'&&error.code!=='unavailable')this.confirmedRejections.add(error);
+      throw error;
+    }
     return value;
   }
 }
