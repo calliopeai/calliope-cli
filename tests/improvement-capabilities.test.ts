@@ -8,13 +8,15 @@ describe('native improvement host discovery',()=>{
     expect(code).toBe(0);expect(approve).not.toHaveBeenCalled();expect(lines).toHaveLength(1);
     const result=JSON.parse(lines[0]!);
     expect(result).toMatchObject({version:1,type:'improvement',action:'capabilities',localOnly:true,data:{
-      version:1,kind:'improvement.capabilities',owner:'calliope-cli',mechanisms:{recursiveTaskStrategy:true,
+      version:2,kind:'improvement.capabilities',owner:'calliope-cli',mechanisms:{recursiveTaskStrategy:true,
         crossRunLearnedStrategy:false,modelTraining:false,externalFeedbackImport:false},
       historyVersions:[1,2,3],scope:{requiredPlanVersion:4,activation:'exact-proposal-hash-and-native-policy'}}});
     expect(result.data.operations.history).toEqual({mode:'read-only',mayCallModel:false});
     expect(result.data.operations.propose.mayCallModel).toBe(true);
     expect(result.data.operations.rollback.mayCallModel).toBe(false);
     expect(result.data.scope.rollback).toContain('no-source-inverse-or-refund');
+    expect(result.data.hostAdmission).toEqual({version:1,option:'expectedExecutionRevision',operations:['propose','run'],
+      semantics:'exact-revision-before-start',controllerReset:'own-committed-event'});
   });
   it.each([{args:['--run','foreign']},{args:['--allow-mutations']},{args:['--approve','hash']},{args:['extra']},{args:['--run=']},{args:['--approve=']}])('rejects execution arguments $args',async({args})=>{
     const lines:string[]=[];

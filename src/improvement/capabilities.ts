@@ -1,7 +1,7 @@
 /** Versioned description of implemented native mechanisms, never a permission grant. */
 export function improvementCapabilities() {
   return {
-    version: 1,
+    version: 2,
     kind: 'improvement.capabilities',
     owner: 'calliope-cli',
     mechanisms: {
@@ -11,6 +11,13 @@ export function improvementCapabilities() {
       externalFeedbackImport: false,
     },
     historyVersions: [1, 2, 3],
+    hostAdmission: {
+      version: 1,
+      option: 'expectedExecutionRevision',
+      operations: ['propose', 'run'],
+      semantics: 'exact-revision-before-start',
+      controllerReset: 'own-committed-event',
+    },
     operations: {
       history: {mode: 'read-only', mayCallModel: false},
       propose: {mode: 'reviewed-mutation', mayCallModel: true},

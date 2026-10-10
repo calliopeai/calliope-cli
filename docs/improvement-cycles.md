@@ -11,6 +11,10 @@ its controller draft is not a second improvement.
 
 `calliope improve capabilities --json` returns a version-1 `improvement` envelope
 whose action is `capabilities` and whose data kind is `improvement.capabilities`.
+The data contract is version 2; its `hostAdmission` field advertises the native
+`expectedExecutionRevision` option for propose/run and binding to the controller's
+own committed reset event. Version-1 declarations do not promise this admission
+contract. The outer CLI response envelope remains version 1.
 This read-only query does not select a project/run, call a model, import feedback,
 or grant execution authority. Run selectors, approval hashes and mutation flags
 are rejected for this action. Hosts must negotiate this declaration instead of
@@ -63,9 +67,8 @@ work. The execution permission request includes that bound `executionRevision`.
 An explicit controller reset advances the binding only to its own committed
 reset event; another writer's revision is never silently adopted. Existing
 callers that omit the option bind to the history inspected by the improvement
-action. This host API does not add a CLI flag or change the discovery contract;
-hosts must not infer this new admission support from the existing capabilities
-envelope. It does not authorize execution, change proposal hashes, or replenish
+action. This host API does not add a CLI flag; hosts negotiate the version-2 data
+contract before relying on it. It does not authorize execution, change proposal hashes, or replenish
 the original budget or deadline.
 
 `rollback` **withdraws the execution strategy**. For a replan it restores the
