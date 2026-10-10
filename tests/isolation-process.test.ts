@@ -42,7 +42,9 @@ else process.exitCode=125;
 afterEach(()=>{vi.unstubAllEnvs();fs.rmSync(root,{recursive:true,force:true});});
 const run=(mode:string,signal?:AbortSignal,timeoutMs=3000)=>runIsolatedCommand(image,{artifactId:'check',argv:[mode],timeoutMs},[{source:root,target:'/project'}],signal);
 const fault=(value:Record<string,string>)=>fs.writeFileSync(join(root,'fault.json'),JSON.stringify(value));
-const operations=()=>fs.readFileSync(join(root,'operations.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+// While the child is writing, only newline-terminated records are published.
+// Completed-command reads remain strict so malformed evidence still fails.
+const operations=(polling=false)=>{const raw=fs.readFileSync(join(root,'operations.jsonl'),'utf8');return (polling?raw.slice(0,raw.lastIndexOf('\n')+1):raw).split('\n').filter(Boolean).map(line=>JSON.parse(line));};
 it('uses pinned images, read-only grants and bounded resources without inherited credentials',async()=>{
   const result=await run('pass');expect(result).toMatchObject({version:1,kind:'isolated-command',exitCode:0,outcome:'passed',stdout:'passed',cleanupConfirmed:true,truncated:false});
   const recorded=JSON.parse(fs.readFileSync(join(root,result.container+'.json'),'utf8'));
@@ -74,8 +76,10 @@ it('does not inspect after acknowledged removal or unconfirmed creation',async()
 });
 it('preserves cancellation and timeout after confirmed creation and uncertain cleanup',async()=>{
   fault({remove:'error',inspect:'absent'});const controller=new AbortController(),pending=run('hang',controller.signal);
-  for(let n=0;n<150;n++){if(fs.existsSync(join(root,'operations.jsonl'))&&operations().some(x=>x.op==='start'))break;await new Promise(resolve=>setTimeout(resolve,10));}
-  expect(operations().some(x=>x.op==='start')).toBe(true);controller.abort();expect(await pending).toMatchObject({outcome:'cancelled',exitCode:130,cleanupConfirmed:true,cleanup:{verification:{outcome:'absent'}}});
+  try {
+    for(let n=0;n<150;n++){if(fs.existsSync(join(root,'operations.jsonl'))&&operations(true).some(x=>x.op==='start'))break;await new Promise(resolve=>setTimeout(resolve,10));}
+    expect(operations(true).some(x=>x.op==='start')).toBe(true);controller.abort();expect(await pending).toMatchObject({outcome:'cancelled',exitCode:130,cleanupConfirmed:true,cleanup:{verification:{outcome:'absent'}}});
+  }finally{controller.abort();await pending;}
   expect(await run('hang',undefined,500)).toMatchObject({outcome:'timeout',exitCode:124,cleanupConfirmed:true});
 });
 it('does not confirm absence when cancellation interrupts creation',async()=>{

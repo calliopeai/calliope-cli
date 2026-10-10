@@ -1,3 +1,4 @@
+import {validateImprovementReviewRequest,validateImprovementReviewEvent} from '../improvement/review-contract.js';
 import {validateRecordedRoute,taskSmartSelection} from './routing.js';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,hex,id,integer,iso,pathName,permits,shape,strings,text,uuid,fail} from './validation.js';
@@ -10,7 +11,7 @@ import {validateQuestionRequest,validateQuestionAnswer} from './question-contrac
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
 export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
-  return change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+  return change.type==='improvement_review_requested'||change.type==='improvement_review_dismissed'?9:change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
 }
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
@@ -54,8 +55,8 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5,6,7,8].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer']);const c=value.change;
+  if(![1,2,3,4,5,6,7,8,9].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer','requestId','executionRevision']);const c=value.change;
   if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
   if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
@@ -77,6 +78,8 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest,header
     if(c.type==='escalated'&&c.target!==manifest.plan.agents.find(a=>a.id===task.agentId)!.escalationPolicy.onFailure)fail('Escalation differs from the reviewed policy.');
   }
   else if(c.type==='tool'){shape(c,['type','taskId','callId','name','path','stage','mutating','success']);text(c.callId,256);text(c.name,128);if(c.path!==null)pathName(c.path);if(!['started','finished'].includes(String(c.stage))||typeof c.mutating!=='boolean'||typeof c.success!=='boolean'||c.stage==='started'&&c.success)fail('Invalid tool evidence.');}
+  else if(c.type==='improvement_review_requested'){shape(c,['type','request']);validateImprovementReviewRequest(c.request);}
+  else if(c.type==='improvement_review_dismissed'){shape(c,['type','requestId','executionRevision']);if(!uuid(c.requestId)||!hex(c.executionRevision))fail('Invalid improvement review dismissal.');}
   else if(c.type==='question_asked'){shape(c,['type','taskId','request']);validateQuestionRequest(c.request);}
   else if(c.type==='question_answered'){shape(c,['type','taskId','questionId','answer']);if(!uuid(c.questionId))fail('Invalid question identity.');validateQuestionAnswer(c.answer);}
   else if(c.type==='artifact'){shape(c,['type','artifact']);const a=validateCollectedArtifact(c.artifact,manifest);if(a.source.eventId!==value.id)fail('Artifact event ID does not match its provenance.');}
@@ -108,6 +111,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     if('requestAttribution'in event.change&&event.change.requestAttribution===1)attributed=true;
     const c=event.change,task='taskId' in c&&c.taskId?state.tasks[c.taskId]!:undefined;
     if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
+    else if(c.type==='improvement_review_requested'||c.type==='improvement_review_dismissed')validateImprovementReviewEvent(event,manifest,header,state,events.slice(0,event.sequence-1));
     else if(c.type==='agent_routed'){
       active();const agent=manifest.plan.agents.find(a=>a.id===c.agentId)!,last=state.routes?.[agent.id],prior=c.taskId?task?.route:last?.sessionId===c.sessionId?last.route:undefined;
       if(agentStopped(state,manifest,agent.id)||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Routing requires active unexpired agent authority.');

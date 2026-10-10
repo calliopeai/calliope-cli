@@ -13,12 +13,10 @@ import {readCollectedArtifact} from '../orchestration/verification.js';
 import {shape} from '../orchestration/validation.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import {projectImprovementHistory} from './projection.js';
-import type {ImprovementCycle} from './types.js';
 import {readRunAccounting} from '../orchestration/accounting.js';
 
-export function improvementProposalHash(cycle:ImprovementCycle):string {
-  return digest(canonicalJson({version:1,runId:cycle.runId,manifestHash:cycle.source.manifestHash,decision:cycle.source.decision,proposal:cycle.proposedChange,deadline:cycle.budget.deadline}));
-}
+export {improvementProposalHash} from './proposal-hash.js';
+import {improvementProposalHash} from './proposal-hash.js';
 /** Inspection may outlive execution; it cannot reset a clock, approval or reservation. */
 export async function inspectImprovements(cwd:string,runId:string|undefined,options:CoordinatorOptions={}) {
   const initial=await inspectRun(cwd,runId,options),current=await inspectExecution(cwd,initial.run.id,options);

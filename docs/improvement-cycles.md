@@ -30,6 +30,42 @@ that an installed run can execute it. Unknown contract versions are not compatib
 by implication. This is the capability-discovery part of #413, not a completed
 external feedback or reinforcement-learning interface.
 
+## Host review requests
+
+The separately negotiated `improvementReviewCapabilities()` API (version 1,
+`improvement.review-capabilities`) advertises `requestImprovementReview`,
+`inspectImprovementReviews` and `dismissImprovementReview`. It is request-only;
+existing version-2 execution capabilities are unchanged. Hosts must negotiate
+this API separately before exposing a model request tool. Hosts supply the model-tool and human-review UI adapters. This API increment
+does not add a CLI subcommand.
+
+Requests carry version 1, `action` (`propose`, `run`, `rollback`), the exact
+`executionRevision`, `cycleId` and `proposalHash` (both null for `propose`), and a
+nonempty untrusted `reason` of at most 1,024 characters. Recording requires an
+inactive approved supervised run and native policy/confirmation. It calls no
+model, starts no worker, approves no proposal, and changes neither task state nor
+budget. Run/withdrawal requests bind the native proposal hash; a new proposal
+request needs retained task outcomes and remaining original controller time and
+round capacity. Withdrawal requests can outlive the original deadline.
+
+Version-9 events append to the existing private execution journal. Each request
+is bound to the immediately preceding revision. Only one request can be current;
+identical retries after a lost acknowledgement return that same request ID after
+rechecking policy and run approval. A competing changed request fails. Native
+ownership, revision and revocation checks run again before commit. At most 64
+requests are retained per run, within the existing journal byte/event bounds.
+Replay independently validates requests and never derives execution authority
+from them. Older readers that do not support event version 9 must refuse these
+journals; do not downgrade a run's owner after recording a request.
+
+Inspection projects `pending`, `expired`, `stale` or `dismissed` from native
+events. Any later execution/control event makes the old request stale, not
+approved or completed. Human execution must use a fresh native inspection and
+the existing proposal/run/withdrawal APIs with their normal review and policy.
+Dismissal requires the exact current request ID/revision and a separate native
+confirmation; it retains all history and does not withdraw the strategy. The
+request reason remains untrusted display data, never an instruction or reward.
+
 ## Controls
 
 ```sh
