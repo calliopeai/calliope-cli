@@ -24,6 +24,44 @@ afterEach(async()=>{for(const child of children)if(child.exitCode===null&&child.
 function child(code:string,payload:unknown){
   const process=spawn(globalThis.process.execPath,['--input-type=module','-e',`const p=JSON.parse(process.argv[1]); const api=await import(process.argv[2]); ${code}`,JSON.stringify(payload),pathToFileURL(join(build,'dist/orchestration/index.js')).href],{env:{...globalThis.process.env},stdio:['ignore','pipe','pipe']});children.push(process);let output='',error='';process.stdout!.on('data',chunk=>{output+=chunk;});process.stderr!.on('data',chunk=>{error+=chunk;});const closed=new Promise<number|null>(resolve=>process.once('exit',resolve));return{process,closed,output:()=>output,error:()=>error};
 }
+it.each(['answer','crash'])('recovers a question across processes and handles %s without replaying its earlier write',async mode=>{
+  const p=verifiedPlan();p.tasks=p.tasks.slice(0,1);p.agents=p.agents.slice(0,2);p.workspace.allowedTools.push('ask_question');
+  p.limits.tokenBudget=30000;p.limits.costBudgetUsd=1;p.limits.timeBudgetMs=60000;
+  for(const a of p.agents){a.allowedTools.push('ask_question');a.tokenBudget=a.parentId?15000:30000;a.costBudgetUsd=a.parentId?0.5:1;a.timeBudgetMs=60000;a.preference={provider:'deepseek',model:'question-process-toy'};}
+  const r=await coordinatorRun(root,p);let calls=0;
+  server=createServer((req,res)=>{
+    res.setHeader('content-type','application/json');
+    if(req.url==='/v1/models'){res.end(JSON.stringify({data:[{id:'question-process-toy',context_length:8192,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]}));return;}
+    if(req.url!=='/v1/chat/completions'){res.writeHead(404);res.end();return;}
+    let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{
+      calls++;const body=JSON.parse(raw),wrote=body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='write'),answered=body.messages.find((m:any)=>m.role==='tool'&&m.tool_call_id==='audience');
+      if(answered)expect(answered.content).toBe('Operators');
+      const call=!wrote?{id:'write',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:'a/report.txt',content:'public toy evidence'})}}:!answered?{id:'audience',type:'function',function:{name:'ask_question',arguments:JSON.stringify({question:'Which audience?',options:['Engineers','Operators']})}}:null;
+      res.end(JSON.stringify({id:'toy',object:'chat.completion',model:'question-process-toy',choices:[{index:0,message:{role:'assistant',content:'public toy evidence',...(call?{tool_calls:[call]}:{})},finish_reason:call?'tool_calls':'stop'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}}));
+    });
+  });
+  await new Promise<void>(resolve=>server!.listen(0,'127.0.0.1',resolve));
+  config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:`http://127.0.0.1:${(server.address() as {port:number}).port}/v1`});config.set('routing',{enabled:true,providerPool:['deepseek']});
+  const payload={project:r.project,runId:r.view.run.id,runs:r.runs.root};
+  const running=child(`process.exitCode=await api.runOrchestrationCommand('run',['resume',p.runId,'--allow-mutations','--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,payload);
+  await vi.waitFor(()=>expect(Object.values(r.store.read().state.questions??{}).some(q=>q.status==='pending')).toBe(true),{timeout:12000});
+  const before=r.store.read(),q=Object.values(before.state.questions!)[0]!,written=fs.statSync(join(r.project,'a/report.txt')).mtimeMs;
+  expect(calls).toBe(2);expect(r.store.owner()?.pid).toBe(running.process.pid);
+  if(mode==='crash'){running.process.kill('SIGKILL');await running.closed;expect(r.store.owner()?.alive).toBe(false);}
+  const reloaded=child(`process.exitCode=await api.runOrchestrationCommand('run',['status',p.runId,'--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,payload);
+  expect(await reloaded.closed).toBe(0);const inspected=JSON.parse(reloaded.output()).data;
+  expect(inspected.execution.state.questions[q.id]).toEqual(q);expect(inspected.interrupted).toBe(mode==='crash');
+  const answer=child(`process.exitCode=await api.runOrchestrationCommand('run',['answer',p.runId,p.id,'--revision',p.revision,'--answer','Operators','--allow-mutations','--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,{...payload,id:q.id,revision:before.state.revision});
+  expect(await answer.closed,answer.output()+answer.error()).toBe(mode==='crash'?1:0);
+  if(mode==='answer'){
+    expect(await running.closed,running.error()+running.output()).toBe(0);
+    const result=r.store.read();expect(result.state.status).toBe('completed');expect(result.header).toEqual(before.header);
+    expect(result.state.tasks['inspect-a']).toMatchObject({attempts:1,sessionId:q.sessionId});
+    expect(result.state.questions![q.id]).toMatchObject({status:'answered',answer:'Operators'});expect(calls).toBe(3);
+    expect(result.events.filter(e=>e.change.type==='tool'&&e.change.stage==='started'&&e.change.name==='write_file')).toHaveLength(1);
+  }else{expect(r.store.read()).toEqual(before);expect(calls).toBe(2);}
+  expect(fs.statSync(join(r.project,'a/report.txt')).mtimeMs).toBe(written);
+},30000);
 it('excludes a second OS process and reclaims only an owner whose process has exited',async()=>{
   const {store,view,runs}=await coordinatorRun(root),payload={runDirectory:join(runs.root,view.run.id),manifest:view.manifest};
   const first=child(`const store=new api.ExecutionStore(p.runDirectory,p.manifest);store.acquire();process.stdout.write('owned');setInterval(()=>{},1000);`,payload);

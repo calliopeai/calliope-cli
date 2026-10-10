@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {clearModelCache} from '../src/model-detection.js';
-import {executeReviewedRun,prepareRun,changePreparedRun,prepareAgentExecution,controlExecution,inspectExecution,runOrchestrationCommand,agentPreference,RunStore,ExecutionStore,type ProjectPlan} from '../src/orchestration/index.js';
+import {executeReviewedRun,prepareRun,changePreparedRun,prepareAgentExecution,controlExecution,inspectExecution,runOrchestrationCommand,agentPreference,answerExecutionQuestion,RunStore,ExecutionStore,type ProjectPlan} from '../src/orchestration/index.js';
 import {verifiedPlan} from './helpers/coordinator-run.js';
 import {projectBudgetPath} from '../src/budget.js';
 import {inspectSpawn,admitSpawn,executeSpawn,spawnCommand,type SpawnInput} from '../src/spawning/index.js';
@@ -28,6 +28,45 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 const plan=()=>{const p=verifiedPlan();p.limits.tokenBudget=30000;p.limits.costBudgetUsd=1;for(const a of p.agents){a.tokenBudget=a.parentId?10000:30000;a.costBudgetUsd=a.parentId?0.2:1;a.preference={provider:'deepseek',model:'coordinator-toy'};}return p;};
 const reviewed=async(p:ProjectPlan=plan())=>{fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const v=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,v.run.id,'approved',{store:runs});};
+const questionPlan=()=>{const p=plan();p.workspace.allowedTools.push('ask_question');for(const a of p.agents)a.allowedTools.push('ask_question');return p;};
+function questionReply(task:any,body:any) {
+  const wrote=body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='call-'+task.id),answered=body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='audience');
+  if(task.id==='inspect-a'&&wrote&&!answered)return json({id:'question',object:'chat.completion',model:'coordinator-toy',choices:[{index:0,message:{role:'assistant',content:'Please choose an audience.',tool_calls:[{id:'audience',type:'function',function:{name:'ask_question',arguments:JSON.stringify({question:'Which audience?',options:['Engineers','Operators']})}}]},finish_reason:'tool_calls'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}});
+  if(task.id==='inspect-a'&&answered)expect(body.messages.find((m:any)=>m.tool_call_id==='audience').content).toBe('Operators');
+  return reply(task,body);
+}
+it('answers a durable nested worker question within the same session without replaying a completed write or resetting its budget',async()=>{
+  const v=await reviewed(questionPlan());respond=async(task,body)=>questionReply(task,body);
+  let notify!:(id:string)=>void;const asked=new Promise<string>(resolve=>{notify=resolve;}),controller=new AbortController();
+  const running=executeReviewedRun(project,v.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow',onEvent:e=>{if(e.change.type==='question_asked')notify(e.change.request.id);}});
+  try{
+    const id=await asked,store=new ExecutionStore(join(runs.root,v.run.id),v.manifest);
+    await vi.waitFor(()=>expect(store.read().state.tasks['inspect-b']!.status).toBe('completed'));
+    const before=store.read(),session=before.state.tasks['inspect-a']!.sessionId;
+    expect(before.state.questions![id]).toMatchObject({status:'pending',taskId:'inspect-a',attempt:1,sessionId:session});
+    expect(requests.filter(r=>r.task==='inspect-a')).toHaveLength(2);
+    expect(fs.readFileSync(join(project,'a/report.txt'),'utf8')).toBe('public toy artifact for inspect-a');
+    await answerExecutionQuestion(project,v.run.id,id,before.state.revision,'Operators',{store:runs,approve:async()=> 'allow'});
+    const result=await running;expect(result.status,JSON.stringify(result.execution.state.tasks)).toBe('completed');
+    expect(result.execution.header).toEqual(before.header);expect(result.execution.state.tasks['inspect-a']).toMatchObject({attempts:1,sessionId:session});
+    expect(requests.filter(r=>r.task==='inspect-a')).toHaveLength(3);
+    expect(result.execution.events.filter(e=>e.change.type==='tool'&&e.change.taskId==='inspect-a'&&e.change.name==='write_file'&&e.change.stage==='started')).toHaveLength(1);
+    expect(result.execution.state.questions![id]).toMatchObject({status:'answered',answer:'Operators'});
+    expect(result.accounting).toMatchObject({status:'available',run:{accounted:{tokens:70}}});
+  }finally{controller.abort();await running;}
+});
+it('cancels a waiting worker question and closes it without another provider call or mutation replay',async()=>{
+  const v=await reviewed(questionPlan());respond=async(task,body)=>questionReply(task,body);
+  let notify!:(id:string)=>void;const asked=new Promise<string>(resolve=>{notify=resolve;}),controller=new AbortController();
+  const running=executeReviewedRun(project,v.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow',onEvent:e=>{if(e.change.type==='question_asked')notify(e.change.request.id);}});
+  try{
+    const id=await asked;await controlExecution(project,v.run.id,'agent-stop','a',{store:runs});
+    const result=await running;expect(result.execution.state.questions![id]!.status).toBe('closed');
+    expect(result.execution.state.tasks['inspect-a']).toMatchObject({status:'cancelled',attempts:1});
+    expect(requests.filter(r=>r.task==='inspect-a')).toHaveLength(2);
+    await expect(answerExecutionQuestion(project,v.run.id,id,result.execution.state.revision,'Operators',{store:runs,approve:async()=> 'allow'})).rejects.toThrow(/waiting/);
+  }finally{controller.abort();await running;}
+});
 const spawnPlan=()=>{const p=plan();p.limits.maxConcurrent=3;p.limits.tokenBudget=p.agents[0]!.tokenBudget=40000;p.limits.timeBudgetMs=120000;for(const a of p.agents)a.timeBudgetMs=a.parentId?60000:120000;return p;};
 function childInput(p:ProjectPlan):SpawnInput {
   const agent=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);agent.id='c';agent.allowedPaths=[{path:'c',access:'write'}];task.id='inspect-c';task.agentId='c';task.outputs[0]!.id='report-c';task.outputs[0]!.path='c/report.txt';task.acceptanceChecks![0]!.artifactId='report-c';

@@ -5,11 +5,12 @@ import {OrchestrationError,type RunManifest} from './types.js';
 import type {CollectedArtifact,ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput,RunPlanContext} from './coordinator-types.js';
 import {validateSpawnAdmission,extendPlan} from '../spawning/validation.js';
 import {newSupervision,validateSupervisionChange,replaySupervisionChange,supervisionEvidence,assertSupervisionProposal} from '../supervision/journal.js';
+import {validateQuestionRequest,validateQuestionAnswer} from './question-contract.js';
 
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
 export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
-  return change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+  return change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
 }
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
@@ -53,8 +54,8 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5,6,7].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution']);const c=value.change;
+  if(![1,2,3,4,5,6,7,8].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer']);const c=value.change;
   if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
   if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
@@ -76,6 +77,8 @@ export function validateExecutionEvent(value:unknown,manifest:RunManifest,header
     if(c.type==='escalated'&&c.target!==manifest.plan.agents.find(a=>a.id===task.agentId)!.escalationPolicy.onFailure)fail('Escalation differs from the reviewed policy.');
   }
   else if(c.type==='tool'){shape(c,['type','taskId','callId','name','path','stage','mutating','success']);text(c.callId,256);text(c.name,128);if(c.path!==null)pathName(c.path);if(!['started','finished'].includes(String(c.stage))||typeof c.mutating!=='boolean'||typeof c.success!=='boolean'||c.stage==='started'&&c.success)fail('Invalid tool evidence.');}
+  else if(c.type==='question_asked'){shape(c,['type','taskId','request']);validateQuestionRequest(c.request);}
+  else if(c.type==='question_answered'){shape(c,['type','taskId','questionId','answer']);if(!uuid(c.questionId))fail('Invalid question identity.');validateQuestionAnswer(c.answer);}
   else if(c.type==='artifact'){shape(c,['type','artifact']);const a=validateCollectedArtifact(c.artifact,manifest);if(a.source.eventId!==value.id)fail('Artifact event ID does not match its provenance.');}
   else if(c.type==='task_finished'){shape(c,['type','taskId','status','output']);if(!['completed','review_required','failed','denied','cancelled','unknown'].includes(String(c.status)))fail('Invalid task outcome.');if(validateTaskOutput(c.output,manifest).taskId!==c.taskId)fail('Task result ID differs.');}
   else if(c.type==='task_reset'){shape(c,['type','taskId','source']);if(!['automatic','manual'].includes(String(c.source)))fail('Invalid retry authority.');}
@@ -155,6 +158,19 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       if(c.stage==='started'){if(toolStarts.has(key))conflict('Duplicate tool start.');toolStarts.set(key,scope);}else{if(toolStarts.get(key)!==scope)conflict('Tool result has no matching start.');toolStarts.set(key,'finished');}
       if(!agent.allowedTools.includes(c.name)||c.path!==null&&!permits(agent.allowedPaths,c.path,c.mutating?'write':'read')){if(c.success)fail('Successful tool evidence exceeds agent authority.');}
       if(c.mutating){task!.mutations=true;if(c.success&&c.path&&!task!.changedFiles.includes(c.path)){if(task!.changedFiles.length>=256)conflict('Task changed-file limit reached.');task!.changedFiles.push(c.path);}}
+    }else if(c.type==='question_asked'||c.type==='question_answered'){
+      active();const agent=manifest.plan.agents.find(a=>a.id===task!.agentId)!;
+      if(task!.status!=='running'||agentStopped(state,manifest,agent.id)||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Question requires the original active task and deadline.');
+      if(c.type==='question_asked'){
+        const q=c.request,key=c.taskId+':'+task!.attempts+':'+q.callId;
+        if(q.ownerId!==state.ownerId||q.sessionId!==task!.sessionId||q.attempt!==task!.attempts||!agent.allowedTools.includes('ask_question')||toolStarts.get(key)!==canonicalJson({name:'ask_question',path:null,mutating:false}))conflict('Question does not match an active permitted tool call.');
+        if(state.questions?.[q.id]||Object.values(state.questions??{}).some(prior=>prior.taskId===c.taskId&&(prior.status==='pending'||prior.attempt===q.attempt&&prior.callId===q.callId)))conflict('Question identity or task call is already recorded.');
+        state.questions??=Object.create(null);state.questions![q.id]={...q,taskId:c.taskId,status:'pending',answer:null};
+      }else{
+        const q=state.questions?.[c.questionId];
+        if(!q||q.status!=='pending'||q.taskId!==c.taskId||q.ownerId!==state.ownerId||q.sessionId!==task!.sessionId||q.attempt!==task!.attempts||toolStarts.get(c.taskId+':'+task!.attempts+':'+q.callId)!==canonicalJson({name:'ask_question',path:null,mutating:false}))conflict('Question is no longer awaiting an answer in this task.');
+        q!.answer=c.answer;q!.status='answered';
+      }
     }else if(c.type==='artifact'){
       active();const t=state.tasks[c.artifact.taskId]!;if(t.status!=='running'||t.artifactIds.includes(c.artifact.id))conflict('Artifact needs a running task and unique ID.');state.artifacts[c.artifact.id]=c.artifact;t.artifactIds.push(c.artifact.id);
     }else if(c.type==='proposal_validated'){
@@ -187,7 +203,12 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       active();if(c.status==='completed'&&state.supervision){const reviewedStop=state.supervision.phase==='halted'&&state.supervision.halt?.outcome==='stop'&&!state.supervision.forceReview;if(!reviewedStop&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');}
       if(c.ownerId!==state.ownerId||Object.values(state.tasks).some(t=>t.status==='running')||c.status==='completed'&&!Object.values(state.tasks).every(t=>t.status==='completed'))conflict('Coordinator cannot finish with active or unverified work.');state.status=c.status;state.ownerId=null;
     }
-    if(state.routes)state.version=5;if(attributed)state.version=6;state.revision=event.hash;
+    if(state.routes)state.version=5;if(attributed)state.version=6;
+    if(state.questions){
+      state.version=7;
+      for(const q of Object.values(state.questions))if(q.status==='pending'&&(state.ownerId!==q.ownerId||state.tasks[q.taskId]!.status!=='running'||toolStarts.get(q.taskId+':'+q.attempt+':'+q.callId)==='finished'||agentStopped(state,manifest,state.tasks[q.taskId]!.agentId)))q.status='closed';
+    }
+    state.revision=event.hash;
   }
   return state;
 }

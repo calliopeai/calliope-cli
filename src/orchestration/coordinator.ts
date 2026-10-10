@@ -32,6 +32,7 @@ import type {ExecutionEvent,ExecutionInspection,ExecutionLease,ExecutionStatus,T
 import {taskWorktree,verifyInWorktree} from '../isolation/index.js';
 import {needsSupervision,supervise,reviewEvidence} from '../supervision/index.js';
 import {workerAttemptContext,workerRetryEvidenceIds} from './worker-context.js';
+import {waitForExecutionAnswer} from './questions.js';
 
 export interface CoordinatorOptions extends RunActionOptions {
   measuredInputReservation?: boolean;
@@ -178,6 +179,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
           if(decision.decision!=='allow'&&!(workspace&&(['shell','read_file','list_files'].includes(call.name))))throw new SessionPolicyError();
         },
         onToolStart:call=>toolEvent(call,'started'),onToolResult:(call,result)=>toolEvent(call,'finished',!result.isError),
+        answerQuestion:(call,signal)=>waitForExecutionAnswer(store,task.id,call,signal,execution.assertAuthority),
       });
       throwIfCancelled(child.signal);assertRun();
       if(result.reason!=='completed'){

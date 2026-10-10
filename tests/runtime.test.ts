@@ -159,6 +159,38 @@ describe('shared turn runtime', () => {
     expect(opts.messages.current.filter(m => m.toolCallId === 'pause')).toHaveLength(1);
     expect(opts.messages.current.find(m => m.toolCallId === 'write')?.content).toContain('Do not assume completion');
   });
+  it('delivers a question answer as one tool result and continues the same bounded turn', async () => {
+    chatMock.mockResolvedValueOnce(response(tool('ask_question','audience',{question:'Who is the audience?',options:['Engineers','Operators']})))
+      .mockResolvedValueOnce(text('Report for operators.'));
+    const answerQuestion=vi.fn(async()=> 'Operators'),onToolResult=vi.fn(),opts=options({answerQuestion,onToolResult});
+    const result=await runTurn(opts);
+    expect(result.reason).toBe('completed');expect(result.iterations).toBe(2);expect(result.totals.toolCalls).toBe(1);
+    expect(answerQuestion).toHaveBeenCalledOnce();expect(onToolResult).toHaveBeenCalledOnce();expect(executeMock).toHaveBeenCalledOnce();
+    expect(opts.messages.current.filter(m=>m.toolCallId==='audience')).toEqual([{role:'tool',toolCallId:'audience',content:'Operators'}]);
+    expect(chatMock.mock.calls[1][1]).toContainEqual({role:'tool',toolCallId:'audience',content:'Operators'});
+  });
+  it('cancels a pending question without accepting its late answer or issuing another provider request', async () => {
+    chatMock.mockResolvedValue(response(tool('ask_question','audience',{question:'Who is the audience?'})));
+    let begin!:()=>void,answer!:(value:string)=>void;
+    const began=new Promise<void>(resolve=>{begin=resolve;}),held=new Promise<string>(resolve=>{answer=resolve;}),controller=new AbortController();
+    const opts=options({signal:controller.signal,answerQuestion:async(_call,signal)=>{expect(signal).toBe(controller.signal);begin();return held;}});
+    const running=runTurn(opts);await began;controller.abort();expect((await running).reason).toBe('cancelled');
+    answer('Too late');await Promise.resolve();expect(chatMock).toHaveBeenCalledOnce();
+    expect(opts.messages.current.find(m=>m.toolCallId==='audience')?.content).toContain('Do not assume completion');
+  });
+  it('does not treat a question answer as permission for the next file mutation',async()=>{
+    chatMock.mockResolvedValueOnce(response(tool('ask_question','permission-question',{question:'May I change the file?'})))
+      .mockResolvedValueOnce(response(tool('write_file','write',{path:'ok.txt',content:'changed'}))).mockResolvedValueOnce(text('Denied.'));
+    const approve=vi.fn(async()=> 'deny' as const),opts=options({confirmation:'mutating',approve,answerQuestion:async()=> 'Yes'});
+    expect((await runTurn(opts)).reason).toBe('completed');expect(approve).toHaveBeenCalledOnce();
+    expect(executeMock).toHaveBeenCalledOnce();expect(readFileSync(join(root,'ok.txt'),'utf8')).toBe('hello');
+    expect(opts.messages.current.find(m=>m.toolCallId==='write')?.content).toMatch(/denied|declined/i);
+  });
+  it.each(['','x'.repeat(8193)])('rejects an invalid question answer without continuing inference',async answer=>{
+    chatMock.mockResolvedValue(response(tool('ask_question','audience',{question:'Who is the audience?'})));
+    await expect(runTurn(options({answerQuestion:async()=>answer}))).rejects.toThrow(/8192/);
+    expect(chatMock).toHaveBeenCalledOnce();
+  });
   it('halts before tool execution when the primary response exhausts the token cap', async () => {
     config.set('budget', { maxTokensPerRun: 3 });
     chatMock.mockResolvedValue(response(tool()));

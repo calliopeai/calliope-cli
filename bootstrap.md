@@ -69,6 +69,8 @@ append-only client failures, parallel progress and bounded private inspection.
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
 with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
+Worker questions persist in the native execution journal; exact revision-bound
+answers resume the same live task without refreshing its session, budget or clock.
 Worker context binds an explicit versioned initial/retry phase to the current
 task-start event and prior outcomes instead of asking models to infer attempt state.
 Supervised worker feedback intersects controller evidence with those task-local
