@@ -443,7 +443,7 @@ ${bold('USAGE')}
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
   calliope brain init|ingest|search|entity|neighbors|path|export [--json]   Local project knowledge
   calliope kg search|graph [--json]   Knowledge graph
-  calliope improve history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
+  calliope improve capabilities|history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
   calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
   calliope orchestrate <goal> --supervise --isolation-image sha256:ID [--principle robustness]
     [--controller-provider NAME --controller-model ID] [--supervision-reviewer-provider NAME --supervision-reviewer-model ID]

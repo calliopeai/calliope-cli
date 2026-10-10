@@ -7,6 +7,25 @@ for the reviewed principle (`speed`, `robustness`, `stability`, `security`,
 cycles' measured outcomes. A reviewer, when configured, owns the final decision;
 its controller draft is not a second improvement.
 
+## Host capability discovery
+
+`calliope improve capabilities --json` returns a version-1 `improvement` envelope
+whose action is `capabilities` and whose data kind is `improvement.capabilities`.
+This read-only query does not select a project/run, call a model, import feedback,
+or grant execution authority. Run selectors, approval hashes and mutation flags
+are rejected for this action. Hosts must negotiate this declaration instead of
+inferring learning support from the package version or command names.
+
+The current declaration advertises native recursive task-strategy improvement,
+history schema versions, operation effects, exact-proposal approval, inherited
+limits and withdrawal semantics. External feedback import, cross-run learned
+strategy selection and model training are explicitly unavailable. Project brain
+memory remains a separate interface. A supported operation still requires the
+exact native run's current state and policy; this declaration is not evidence
+that an installed run can execute it. Unknown contract versions are not compatible
+by implication. This is the capability-discovery part of #413, not a completed
+external feedback or reinforcement-learning interface.
+
 ## Controls
 
 ```sh
