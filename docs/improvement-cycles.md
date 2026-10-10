@@ -54,6 +54,20 @@ execution journal before application, and checked again under coordinator
 ownership. All subsequent decisions remain subject to the original reviewed
 supervision policy. To inspect and retire a strategy, stop the coordinator first.
 
+Native hosts can pass `expectedExecutionRevision` to `proposeImprovement` and
+`runImprovement`. It must match the execution revision from their reviewed
+inspection. Malformed, missing-history and stale bindings are refused before
+execution approval. The coordinator rechecks after asynchronous authorization,
+under its ownership lease and inside the journal append lock before starting
+work. The execution permission request includes that bound `executionRevision`.
+An explicit controller reset advances the binding only to its own committed
+reset event; another writer's revision is never silently adopted. Existing
+callers that omit the option bind to the history inspected by the improvement
+action. This host API does not add a CLI flag or change the discovery contract;
+hosts must not infer this new admission support from the existing capabilities
+envelope. It does not authorize execution, change proposal hashes, or replenish
+the original budget or deadline.
+
 `rollback` **withdraws the execution strategy**. For a replan it restores the
 previous unwithdrawn applied strategy; for decomposition it stops the admitted
 child agents and their descendants. It stops controller continuation and preserves

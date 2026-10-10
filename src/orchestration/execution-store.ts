@@ -44,6 +44,12 @@ export class ExecutionStore {
   readonly root:string;readonly manifest:RunManifest;
   constructor(runDirectory:string,manifest:RunManifest,private readonly onEvent?:(event:ExecutionEvent)=>void){this.root=join(resolve(runDirectory),'execution');this.manifest=JSON.parse(canonicalJson(validateRunManifest(manifest)));}
   exists():boolean{return exists(this.root);}
+  /** Optional host review binding. Recheck inside the append lock before admitting work. */
+  assertRevision(expected:string|undefined,observed?:string):void {
+    if(expected===undefined)return;
+    if(!hex(expected))throw new OrchestrationError('invalid','Invalid reviewed execution revision.');
+    if(observed!==undefined&&observed!==expected||!this.exists()||this.read().state.revision!==expected)throw new OrchestrationError('conflict','Execution changed since review; inspect its current history before continuing.');
+  }
   private identity():fs.Stats {
     if(projectIdentity(this.manifest.project.root).projectKey!==this.manifest.project.key)throw new ExecutionLimitError('authority','Project identity changed during coordinator execution.');
     privateDirectory(dirname(this.root));return privateDirectory(this.root);

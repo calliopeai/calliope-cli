@@ -8,6 +8,7 @@ import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {clearModelCache} from '../src/model-detection.js';
 import {providerTarget} from '../src/health/index.js';
+import {describeApproval} from '../src/approvals/index.js';
 import {RunStore,ExecutionStore,prepareRun,changePreparedRun,executeReviewedRun,controlExecution,recoverTaskEvidence,runOrchestrationCommand,replayExecution,type ProjectPlan} from '../src/orchestration/index.js';
 import {ReservationLedger,type RequestReservation} from '../src/execution/index.js';
 import {coordinatorProgress} from '../src/orchestration/progress.js';
@@ -428,6 +429,62 @@ it('proposes without applying work, then runs the exact reviewed cycle under the
   expect(improvementFeedback(current.history).cycles[0]!.status).toBe('verified');expect(hud.some(s=>s.includes('improvement 1 verified'))).toBe(true);
   expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);
   const lines:string[]=[];expect(await runImprovementCommand(['history','--run',view.run.id,'--json'],{cwd:project,store:runs,write:l=>lines.push(l)})).toBe(0);expect(JSON.parse(lines[0]!).data).toEqual(current.history);
+});
+
+it('binds host proposal and execution reviews to exact revisions through the native controller reset',async()=>{
+  verificationExits=[1,0];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed(),first=await execute(view.run.id);
+  decide=async context=>context.outcomes.some((o:any)=>o.status==='failed')?retry(context):keepGoing(context);
+  const proposal=await proposeImprovement(project,view.run.id,{store:runs,expectedExecutionRevision:first.execution.state.revision,approve:async()=> 'allow'});
+  const current=await inspectImprovements(project,view.run.id,{store:runs}),revision=current.execution!.state.revision;
+  const budget=new ReservationLedger(join(runs.root,view.run.id,'budget')),before=budget.read(project),calls=requests.length;
+  for(const expectedExecutionRevision of ['', 'bad', null as unknown as string, '0'.repeat(64),first.execution.state.revision]){
+    const options={store:runs,expectedExecutionRevision,approve:vi.fn(async()=> 'allow' as const)};
+    await expect(proposeImprovement(project,view.run.id,options)).rejects.toThrow(/revision|changed since review/);
+    await expect(runImprovement(project,view.run.id,proposal.cycle.id,proposal.proposalHash,options)).rejects.toThrow(/revision|changed since review/);
+    expect(options.approve).not.toHaveBeenCalled();
+  }
+  expect(current.store.read()).toEqual(current.execution);expect(budget.read(project)).toEqual(before);expect(requests).toHaveLength(calls);
+  const result=await runImprovement(project,view.run.id,proposal.cycle.id,proposal.proposalHash,{store:runs,expectedExecutionRevision:revision,approve:async()=> 'allow'});
+  expect(result.status).toBe('completed');expect(result.execution.header).toEqual(first.execution.header);expect(result.execution.state.tasks['inspect-a']!.attempts).toBe(2);
+});
+
+it('rejects a host revision for a run with no execution without creating execution or budget state',async()=>{
+  const view=await reviewed(),approve=vi.fn(async()=> 'allow' as const);
+  await expect(execute(view.run.id,{expectedExecutionRevision:'0'.repeat(64),approve})).rejects.toThrow('changed since review');
+  expect(approve).not.toHaveBeenCalled();expect(requests).toEqual([]);
+  expect(fs.existsSync(join(runs.root,view.run.id,'execution'))).toBe(false);expect(fs.existsSync(join(runs.root,view.run.id,'budget'))).toBe(false);
+});
+
+it.each(['approval','append'])('rejects a journal change at %s admission without starting work or retaining a lease',async boundary=>{
+  decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed(),first=await execute(view.run.id);
+  const store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),budget=ledger.read(project),calls=requests.length;
+  let raced=false,after=first.execution;
+  const change=async()=>{await store.append({type:'agent_stop',agentId:'a'});after=store.read();raced=true;};
+  if(boundary==='append'){
+    const append=ExecutionStore.prototype.append;
+    vi.spyOn(ExecutionStore.prototype,'append').mockImplementation(async function(this:ExecutionStore,...args){
+      if(args[0].type==='started'&&!raced)await change();
+      return append.apply(this,args);
+    });
+  }
+  await expect(execute(view.run.id,{resume:true,expectedExecutionRevision:first.execution.state.revision,confirmation:'mutating',approve:async(d:any)=>{
+    if(boundary==='approval'&&d.request?.tool==='orchestration_execute'&&!raced)await change();return 'allow';
+  }})).rejects.toThrow('changed since review');
+  expect(raced).toBe(true);expect(store.read()).toEqual(after);expect(store.owner()).toBeNull();expect(ledger.read(project)).toEqual(budget);expect(requests).toHaveLength(calls);
+});
+
+it('does not adopt another writer revision after its own controller reset',async()=>{
+  verificationExits=[1];decide=async context=>({...keepGoing(context),action:'stop'});const view=await reviewed(),first=await execute(view.run.id);
+  const store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),ledger=new ReservationLedger(join(runs.root,view.run.id,'budget')),budget=ledger.read(project),calls=requests.length;
+  let raced=false,after=first.execution;
+  await expect(proposeImprovement(project,view.run.id,{store:runs,expectedExecutionRevision:first.execution.state.revision,confirmation:'mutating',approve:async d=>{
+    if(d.request?.tool==='orchestration_execute'){
+      const reset=store.read();expect(reset.events.at(-1)!.change.type).toBe('supervision_reset');
+      expect(d.request.key).toBe(describeApproval({name:'orchestration_execute',arguments:{path:project,runId:view.run.id,planHash:view.manifest.planHash,revision:view.run.revision,resume:true,executionRevision:reset.state.revision}},project).key);
+      await store.append({type:'agent_stop',agentId:'a'});after=store.read();raced=true;
+    }return 'allow';
+  }})).rejects.toThrow('changed since review');
+  expect(raced).toBe(true);expect(store.read()).toEqual(after);expect(store.owner()).toBeNull();expect(ledger.read(project)).toEqual(budget);expect(requests).toHaveLength(calls);
 });
 
 it('withdraws an unexecuted proposal, retains reservations and refuses a stale approval after a permission race',async()=>{

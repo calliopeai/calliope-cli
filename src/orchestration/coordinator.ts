@@ -38,6 +38,8 @@ export interface CoordinatorOptions extends RunActionOptions {
   measuredInputReservation?: boolean;
   /** Restrict this invocation to a bounded review; never start workers or apply its decision. */
   proposalOnly?:boolean;expectedDecisionId?:string;expectedProposalHash?:string;
+  /** Bind admission to the execution history inspected by the host. */
+  expectedExecutionRevision?:string;
   resume?:boolean;maxOutputTokens?:number;approvals?:ApprovalStore;
   approve?:(decision:PermissionDecision,signal?:AbortSignal)=>Promise<ApprovalChoice>;
   onEvent?:(event:ExecutionEvent)=>void;
@@ -80,11 +82,15 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   throwIfCancelled(options.signal);const runs=options.store??new RunStore(),view=await runs.read(runId,cwd,options.signal);
   if(view.run.status!=='approved')throw new OrchestrationError('policy-denied','Approve the reviewed plan before execution.');
   const outputCap=options.maxOutputTokens??1024;if(!Number.isSafeInteger(outputCap)||outputCap<1||outputCap>100000000)throw new OrchestrationError('invalid','Invalid coordinator output budget.');
-  await authorizeSessionAction(cwd,'orchestration_execute',{path:cwd,runId,planHash:view.manifest.planHash,revision:view.run.revision,resume:!!options.resume},options);
-  const rootAuthority=await prepareAgentExecution(cwd,runId,view.analysis.coordinatorId,outputCap,{...options,store:runs});
   let eventCursor=0;
   const notifyEvents=(events:ExecutionEvent[])=>{for(const event of events)if(event.sequence>eventCursor){options.onEvent?.(event);eventCursor=event.sequence;}if(options.onProgress){const execution=store.read();options.onProgress(coordinatorProgress(store,execution));}};
-  const budget=rootAuthority.ledger.read(cwd).manifest,store=new ExecutionStore(join(runs.root,runId),view.manifest,event=>{if(event.sequence>eventCursor+1)notifyEvents(store.read().events);else notifyEvents([event]);});
+  const store=new ExecutionStore(join(runs.root,runId),view.manifest,event=>{if(event.sequence>eventCursor+1)notifyEvents(store.read().events);else notifyEvents([event]);});
+  store.assertRevision(options.expectedExecutionRevision);
+  await authorizeSessionAction(cwd,'orchestration_execute',{path:cwd,runId,planHash:view.manifest.planHash,revision:view.run.revision,resume:!!options.resume,...(options.expectedExecutionRevision===undefined?{}:{executionRevision:options.expectedExecutionRevision})},options);
+  store.assertRevision(options.expectedExecutionRevision);
+  const rootAuthority=await prepareAgentExecution(cwd,runId,view.analysis.coordinatorId,outputCap,{...options,store:runs});
+  store.assertRevision(options.expectedExecutionRevision);
+  const budget=rootAuthority.ledger.read(cwd).manifest;
   if(store.exists()&&!options.resume)throw new OrchestrationError('conflict','Run already has execution history; inspect it and resume explicitly.');
   store.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(budget.createdAt).toISOString(),deadline:budget.deadline},options.signal);
   eventCursor=store.read().events.length;
@@ -223,12 +229,13 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   };
   try {
     assertRun();
+    store.assertRevision(options.expectedExecutionRevision);
     if(options.proposalOnly&&!view.manifest.plan.supervision)throw new OrchestrationError('invalid','Improvement proposals require reviewed supervision.');
     if(options.expectedDecisionId&&store.read().state.supervision?.decisionId!==options.expectedDecisionId)throw new OrchestrationError('conflict','The reviewed improvement decision changed before execution.');
     const held=store.read().state.supervision?.review;
     if(!options.proposalOnly&&store.read().state.supervision?.operatorReview&&!held)throw new OrchestrationError('policy-denied','The interrupted proposal review must be resumed with improve propose.');
     if(!options.proposalOnly&&held&&!held.approved&&(options.expectedDecisionId!==held.decisionId||options.expectedProposalHash!==held.proposalHash))throw new OrchestrationError('policy-denied','The proposed improvement requires its exact reviewed approval; use improve run.');
-    await store.append({type:'started',ownerId:lease.id,...(options.proposalOnly?{proposalOnly:true as const}:{})},controller.signal);
+    await store.append({type:'started',ownerId:lease.id,...(options.proposalOnly?{proposalOnly:true as const}:{})},controller.signal,undefined,()=>{assertRun();store.assertRevision(options.expectedExecutionRevision);});
     if(!options.proposalOnly&&held&&!held.approved)await store.append({type:'supervision_approved',decisionId:held.decisionId,proposalHash:held.proposalHash,source:options.source==='repl'?'repl':'cli'},controller.signal,undefined,assertRun);
     while(true){
       observe();let inspected=store.read(),state=inspected.state;const context=store.context(inspected),analysis=analyzePlan(context.plan),graphHash=state.graph?.hash??view.manifest.planHash;
