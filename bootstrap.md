@@ -79,6 +79,8 @@ outcomes, preserving cross-task evidence in the journal without widening read sc
 graph without resetting its original scope, budget or clock.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
+Explicit `read-only-v1` isolated tasks return scoped structured reports without file
+mutation or command execution; native checks and reviewed supervision still apply.
 Uncertain cleanup gets one bounded exact-container absence check after confirmed
 creation, with versioned diagnostics and unchanged failure/cancellation outcomes.
 Supervision availability also reports retry capacity separately from child

@@ -31,6 +31,7 @@ export async function taskWorktree(store: ExecutionStore, task: ProjectTask, opt
     fs.mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); fs.writeFileSync(file, content, { mode: 0o600 }); copied.set(path, artifact.sha256);
   }
   options.runlog?.policyEvent({ tool: 'orchestration_workspace', source: 'isolation', decision: 'allow', reason: canonicalJson({ taskId: task.id, base, root, inputs: [...copied] }), durationMs: 0 });
+  if(task.isolation?.mode==='read-only-v1')workspace.rememberVerification(agent.allowedPaths,workspace.snapshot(agent.allowedPaths,options.signal));
   return workspace;
 }
 export async function verifyInWorktree(store: ExecutionStore, task: ProjectTask, workspace: WorkerWorktree, guard: ExecutionGuard, options: RunActionOptions&{expectedWorkspaceHash?:string}): Promise<Map<string, string>> {
@@ -55,6 +56,8 @@ export async function verifyInWorktree(store: ExecutionStore, task: ProjectTask,
     if (result.outcome !== 'passed') break;
     workspace.rememberVerification(agent.allowedPaths,before);
   }
-  guard.assertActive(options.signal); const patch = await workspace.patch(options.signal);
+  guard.assertActive(options.signal);
+  if(task.isolation?.mode==='read-only-v1')workspace.assertVerified(options.signal);
+  const patch = await workspace.patch(options.signal);
   outputs.set(task.isolation!.patchArtifactId, patch); return outputs;
 }

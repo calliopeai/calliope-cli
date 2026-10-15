@@ -599,3 +599,65 @@ it('records actual controller routing in Smart mode without granting mutation or
   const event=result.execution.events.find(e=>e.change.type==='agent_routed'&&e.change.agentId==='coordinator')!;expect(event.change).not.toHaveProperty('taskId');
   expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);expect(requests.filter(r=>r.context.kind==='controller-review').every(r=>!r.body.tools?.length)).toBe(true);
 },20000);
+
+function readOnlyPlan():ProjectPlan {
+  const p=plan(),task=p.tasks[0]!,agent=p.agents[1]!;
+  agent.allowedTools=['read_file'];agent.allowedPaths=agent.allowedPaths.map(grant=>({...grant,access:'read'}));
+  task.outputs=task.outputs.filter(output=>output.kind!=='test_result');task.outputs[0]!.kind='report';delete task.outputs[0]!.path;
+  task.isolation={mode:'read-only-v1',patchArtifactId:'patch',commands:[]};task.acceptanceChecks=task.acceptanceChecks!.filter(check=>check.kind!=='command');return p;
+}
+function readOnlyResponses(forge=false) {
+  const transport=fetch;vi.stubGlobal('fetch',async(input,init)=>{
+    const response=await transport(input,init),body=await response.clone().json();
+    if(body.model==='worker-toy') {
+      const context=requests.at(-1).context;
+      expect(requests.at(-1).body.tools.map((tool:any)=>tool.function.name)).toEqual(['read_file']);
+      body.choices[0].message={role:'assistant',content:JSON.stringify({version:1,summary:'Returned report; executor checks its bytes.',outputs:[{id:context.task.outputs[0].id,content:context.attempt.number===1?'incorrect result':'public toy analysis'},{id:'patch',content:'forged model patch'}]})};
+      body.choices[0].finish_reason='stop';
+      if(forge){body.choices[0].message.tool_calls=[{id:'forged-write',type:'function',function:{name:'write_file',arguments:JSON.stringify({path:'a/seed.txt',content:'forbidden'})}}];body.choices[0].finish_reason='tool_calls';}
+    }
+    return json(body);
+  });
+}
+it('repairs a read-only report under exact improvement review without edits or commands and replays its evidence',async()=>{
+  const view=await reviewed(readOnlyPlan());readOnlyResponses();decide=async context=>({...keepGoing(context),action:'stop'});
+  const held=await execute(view.run.id);expect(held.status).toBe('failed');expect(held.execution.state.tasks['inspect-a']).toMatchObject({status:'failed',mutations:false,attempts:1});
+  decide=async context=>context.outcomes.some((o:any)=>o.status==='failed')?retry(context):keepGoing(context);
+  await proposeImprovement(project,view.run.id,{store:runs,approve:async()=> 'allow',maxOutputTokens:100,expectedExecutionRevision:held.execution.state.revision});
+  const observed=await inspectImprovements(project,view.run.id,{store:runs}),cycle=observed.history.cycles[0]!;expect(cycle.status).toBe('proposed');
+  const done=await runImprovement(project,view.run.id,cycle.id,improvementProposalHash(cycle),{store:runs,approve:async()=> 'allow',maxOutputTokens:100,expectedExecutionRevision:observed.history.revision});
+  expect(done.status).toBe('completed');expect(done.execution.events.filter(e=>e.change.type==='task_finished').map(e=>e.change.type==='task_finished'&&e.change.status)).toEqual(['failed','completed']);
+  expect(done.execution.state.tasks['inspect-a']).toMatchObject({attempts:2,mutations:false,changedFiles:[]});expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+  const patch=done.execution.state.tasks['inspect-a']!.output!.artifacts.find(a=>a.id==='patch')!;
+  expect(fs.readFileSync(join(runs.root,view.run.id,'execution/artifacts',patch.path),'utf8')).toBe('');
+  expect(fs.readFileSync(join(project,'a/seed.txt'),'utf8')).toBe('public fixture');expect(git('status','--porcelain')).toBe('?? plan.json\n');
+  const calls=requests.length,restarted=await inspectImprovements(project,view.run.id,{store:new RunStore(runs.root)});
+  expect(restarted.history.cycles[0]).toMatchObject({status:'verified',hypothesis:{state:'proposed'}});expect(requests).toHaveLength(calls);
+  expect(replayExecution(done.execution.header,view.manifest,done.execution.events)).toEqual(done.execution.state);
+});
+it('refuses a model-selected write in a read-only report task',async()=>{
+  const view=await reviewed(readOnlyPlan());readOnlyResponses(true);const result=await execute(view.run.id);
+  expect(result.status).toBe('denied');expect(result.execution.state.tasks['inspect-a']).toMatchObject({status:'denied',mutations:true,changedFiles:[]});
+  expect(result.execution.events.some(e=>e.change.type==='tool'&&e.change.mutating&&e.change.success)).toBe(false);
+  expect(fs.readFileSync(join(project,'a/seed.txt'),'utf8')).toBe('public fixture');expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+it.each(['mode','write-tool','custom-tool','write-path','file-output','command','test-claim'])('rejects read-only task authority widening: %s',async kind=>{
+  const p=readOnlyPlan(),task=p.tasks[0]!,agent=p.agents[1]!;
+  if(kind==='mode')(task.isolation as any).mode='read-only-v2';
+  if(kind==='write-tool')agent.allowedTools.push('write_file');
+  if(kind==='custom-tool'){p.workspace.allowedTools.push('custom');p.agents[0]!.allowedTools.push('custom');agent.allowedTools.push('custom');}
+  if(kind==='write-path')agent.allowedPaths[0]!.access='write';
+  if(kind==='file-output')task.outputs[0]!.path='a/report.txt';
+  if(kind==='command')task.isolation!.commands.push({artifactId:'tests',argv:['true'],timeoutMs:100});
+  if(kind==='test-claim')task.outputs[0]!.kind='test_result';
+  await expect(reviewed(p)).rejects.toThrow();expect(requests).toHaveLength(0);expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});
+it('detects a changed read-only worktree before collecting report claims',async()=>{
+  const view=await reviewed(readOnlyPlan());readOnlyResponses();
+  const original=isolation.verifyInWorktree;vi.spyOn(isolation,'verifyInWorktree').mockImplementation(async(store,task,workspace,guard,options)=>{
+    fs.writeFileSync(join(workspace.filesRoot,'a/seed.txt'),'external alteration');return original(store,task,workspace,guard,options);
+  });
+  decide=async context=>({...keepGoing(context),action:'stop'});const result=await execute(view.run.id);
+  expect(result.status).not.toBe('completed');expect(result.execution.state.tasks['inspect-a']!.output!.summary).toContain('Workspace changed after verification');
+  expect(commands.runIsolatedCommand).not.toHaveBeenCalled();expect(fs.readFileSync(join(project,'a/seed.txt'),'utf8')).toBe('public fixture');
+});
