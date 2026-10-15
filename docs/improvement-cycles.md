@@ -238,6 +238,32 @@ must explicitly support the separate versioned source-change capability before
 offering the action. Desktop integration and platform qualification are separate
 from native API validation.
 
+## Ordinary task evidence
+
+`taskOutcomeCapabilities()` and `inspectTaskOutcome(project, runId, selection,
+options)` expose the same native evidence for an ordinary task outside an
+improvement cycle. Select `{taskId, attempt, executionRevision}` from an inactive
+run. The reader replays the journal at that attempt's start, retains its task,
+agent and strategy configuration hash, and revalidates each artifact's bytes
+under the native read policy. It refuses active ownership, stale selections and
+changed or missing evidence. In particular, a historical live project file that
+a later retry overwrote cannot be freshly verified; retained run artifacts allow
+independent inspection of both attempts.
+
+The returned `{value, hash}` separates executor status from native human task
+acceptance, includes original event/check/artifact references, and attributes
+charges to the exact start event using the reservation ledger. Missing or
+unsettled costs remain `null`; reservations are not reported as settled cost.
+Duration, tool calls and failures are recorded observations. An interrupted
+attempt without a finish remains unknown. The accounting snapshot carries its
+own ledger revision and may advance independently of the execution journal.
+
+This read-only API performs no inference, artifact execution, ledger writes,
+user assessment, feedback import or reward assignment. A host may separately
+propose a human assessment for memory review; doing so does not change the
+executor evidence. Ordinary-task UI and memory feedback require their own host
+qualification.
+
 ## Native validation
 
 The [native Brain-loop receipt](docs/evidence/native-brain-loop-smoke.json) records a

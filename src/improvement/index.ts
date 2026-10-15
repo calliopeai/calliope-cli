@@ -8,3 +8,4 @@ export * from './capabilities.js';
 export * from './review-contract.js';
 export * from './review-requests.js';
 export * from './source-changes.js';
+export * from './task-outcomes.js';
