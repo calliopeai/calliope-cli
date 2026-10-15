@@ -207,6 +207,35 @@ The [project Brain](project-brain.md) can explicitly ingest verified run evidenc
 improvement hypotheses remain proposed. [Opt-in agent retrieval](agent-knowledge.md)
 lets planners and workers read that knowledge within their inherited source scopes.
 
+## Reviewed source proposals
+
+The native `sourceChangeCapabilities`, `previewSourceChange`,
+`proposeSourceChange` and `inspectSourceChange` APIs let a host offer verified
+source changes for human review. A source-owned skill or interface uses the Git
+repository that owns its files. Installed skills keep their separate installation
+and trust lifecycle.
+
+The selection binds the original run, execution revision, verified cycle, task
+and executor-collected patch hash. Preview checks the original approval, task
+write scope, pinned source commit and repository-local author. It returns the
+patch, affected paths and a review hash without creating Git objects or refs.
+Creating a proposal requires the exact `orchestration_source_proposal` permission
+and rechecks those inputs under the execution lease.
+
+The writer creates one commit and one local branch under
+`refs/heads/calliope-proposals/<run>/<review hash>` using a temporary private
+index. It leaves the source checkout/index and execution journal unchanged.
+Immutable intent and candidate records support retry after cancellation or a lost
+response; repeated publication recovers the same branch instead of overwriting
+it. Inspection reports `prepared` when the branch is absent and `proposed` when
+the exact recorded commit is present. Absence alone does not establish whether
+someone previously removed the branch. A moved branch is a conflict.
+
+This API does not install skills, merge, push, release or invoke a model. A host
+must explicitly support the separate versioned source-change capability before
+offering the action. Desktop integration and platform qualification are separate
+from native API validation.
+
 ## Native validation
 
 The [native Brain-loop receipt](docs/evidence/native-brain-loop-smoke.json) records a
