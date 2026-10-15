@@ -20,3 +20,5 @@ export {readRunAccounting,type RunAccounting,type AccountBalance} from './accoun
 
 export type {RecordedAgentRoute} from './routing.js';
 export type {AttributedCharge,RequestAccounting} from './request-accounting.js';
+
+export * from './interruption.js';

@@ -8,7 +8,7 @@ import {createServer,type Server} from 'node:http';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
-import {ExecutionStore,changePreparedRun} from '../src/orchestration/index.js';
+import {ExecutionStore,changePreparedRun,recoverInterruptedExecution} from '../src/orchestration/index.js';
 import {inspectSpawn,inspectSpawnAuthority} from '../src/spawning/index.js';
 
 let build:string,root:string,server:Server|undefined,children:ChildProcess[];
@@ -100,3 +100,33 @@ it('recovers a killed child admitter while another process coordinates the run, 
   expect(await recovered.closed).toBe(0);expect(await running.closed).toBe(0);expect(calls).toBe(8);const result=JSON.parse(recovered.output().trim().split('\n').at(-1)!);expect(result.data.status).toBe('completed');expect(result.data.execution.state.tasks['inspect-c'].output.testEvidence).toEqual(['output-check']);
   const records=running.output().trim().split('\n').map(line=>JSON.parse(line)),events=records.filter(r=>r.type==='orchestration.event').map(r=>r.event);expect(events).toEqual(r.store.read().events);expect(events.filter(e=>e.change.type==='graph_admitted')).toHaveLength(1);expect(r.authority.ledger.read(r.project).projection.childGrants).toEqual(budget.projection.childGrants);expect(r.store.read().header.deadline).toBe(preview.deadline);
 },30000);
+
+it.each(['recover','cli','denied','stale','revoked','changed'])('records a dead coordinator without inference or budget changes: %s',async mode=>{
+  const r=await coordinatorRun(root),payload={runDirectory:join(r.runs.root,r.view.run.id),manifest:r.view.manifest};
+  const running=child(`const store=new api.ExecutionStore(p.runDirectory,p.manifest),lease=store.acquire();await store.append({type:'started',ownerId:lease.id});await store.append({type:'task_started',taskId:'inspect-a',attempt:1,sessionId:'interrupted-worker'});await store.append({type:'tool',taskId:'inspect-a',callId:'write',name:'write_file',path:'a/report.txt',stage:'started',mutating:true,success:false});process.stdout.write('interrupted');setInterval(()=>{},1000);`,payload);
+  await vi.waitFor(()=>expect(running.output()).toBe('interrupted'),{timeout:5000});
+  const initial=r.store.read(),budget=fs.readFileSync(join(r.authority.ledger.root,'history.json'));
+  await expect(recoverInterruptedExecution(r.project,r.view.run.id,initial.state.revision,{store:r.runs})).rejects.toThrow(/dead/);
+  running.process.kill('SIGKILL');await running.closed;expect(r.store.owner()?.alive).toBe(false);
+  if(mode==='revoked')await changePreparedRun(r.project,r.view.run.id,'cancelled',{store:r.runs});
+  const options={store:r.runs,confirmation:'mutating' as const,approve:async()=>{
+    if(mode==='changed')await r.store.append({type:'agent_stop',agentId:'a'});
+    return mode==='denied'?'deny' as const:'allow' as const;
+  }};
+  if(!['recover','cli'].includes(mode)){
+    await expect(recoverInterruptedExecution(r.project,r.view.run.id,mode==='stale'?'a'.repeat(64):initial.state.revision,options)).rejects.toThrow();
+    const after=r.store.read();if(mode==='changed')expect(after.state.stoppedAgents).toContain('a');expect(after.events.filter(e=>e.change.type==='interruption_recovered')).toHaveLength(0);expect(after.state.tasks['inspect-a']).toMatchObject({status:'running',attempts:1,mutations:true});
+  }else{
+    if(mode==='cli'){
+      const recovered=child(`process.exitCode=await api.runOrchestrationCommand('run',['recover-interruption',p.runId,'--revision',p.revision,'--allow-mutations','--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,{runId:r.view.run.id,project:r.project,runs:r.runs.root,revision:initial.state.revision});
+      expect(await recovered.closed,recovered.output()+recovered.error()).toBe(0);
+    }else await recoverInterruptedExecution(r.project,r.view.run.id,initial.state.revision,options);
+    const after=r.store.read();
+    expect(after.header).toEqual(initial.header);expect(after.events.slice(0,-1)).toEqual(initial.events);
+    expect(after.events.at(-1)).toMatchObject({version:10,change:{type:'interruption_recovered',ownerId:initial.state.ownerId,source:'cli'}});
+    expect(after.state).toMatchObject({status:'failed',ownerId:null,tasks:{'inspect-a':{status:'unknown',attempts:1,sessionId:'interrupted-worker',mutations:true,output:null},'inspect-b':{status:'pending',attempts:0}}});
+    expect(r.store.owner()).toBeNull();await expect(recoverInterruptedExecution(r.project,r.view.run.id,initial.state.revision,options)).rejects.toThrow(/dead/);
+    expect(r.store.read()).toEqual(after);
+  }
+  expect(fs.readFileSync(join(r.authority.ledger.root,'history.json'))).toEqual(budget);
+},15000);

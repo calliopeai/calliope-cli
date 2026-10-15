@@ -1,3 +1,4 @@
+import {recoverInterruptedExecution} from './interruption.js';
 import {readRunAccounting,type RunAccounting} from './accounting.js';
 import {parseArgs} from 'node:util';
 import {approvalDisplayText} from '../approvals/index.js';
@@ -15,7 +16,7 @@ import type {ExecutionInspection} from './coordinator-types.js';
 import type {OrchestrationNamespace} from './cli.js';
 import {analyzePlan} from './validation.js';
 
-export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run recover-evidence <run-id> <task-id> [--allow-mutations] [--json] | run answer <run-id> <question-id> --revision <hash> --answer <text> [--allow-mutations] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
+export const EXECUTION_USAGE='calliope run execute|resume <run-id> [--allow-mutations] [--max-output-tokens N] [--json] | run recover-interruption <run-id> --revision <hash> [--allow-mutations] [--json] | run recover-evidence <run-id> <task-id> [--allow-mutations] [--json] | run answer <run-id> <question-id> --revision <hash> --answer <text> [--allow-mutations] [--json] | run retry|accept <run-id> <task-id> | run retry-controller <run-id> | agents stop|retry <agent-id> --run <run-id>';
 export type ExecutionCommandOptions=CoordinatorOptions&{cwd?:string;write?:(text:string)=>void};
 export function formatExecutionData(action:string,value:unknown):string {
   const data=value as {runId?:string;status?:string;interrupted?:boolean;execution?:ExecutionInspection;accounting?:RunAccounting;agents?:{id:string;parentId:string|null;role:string}[];runs?:{runId:string;status:string;completed:number;total:number}[]};
@@ -41,23 +42,27 @@ export async function executionCommand(namespace:OrchestrationNamespace,args:str
   let parsed:ReturnType<typeof parseArgs>;
   try{parsed=parseArgs({args,allowPositionals:true,options:{json:{type:'boolean'},'allow-mutations':{type:'boolean'},'max-output-tokens':{type:'string'},run:{type:'string'},tree:{type:'boolean'},graph:{type:'boolean'},'dry-run':{type:'boolean'},answer:{type:'string'},revision:{type:'string'}}});}catch{return null;}
   const {positionals:p,values:v}=parsed,action=p[0]??'list',cwd=options.cwd??process.cwd();
-  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept','retry-controller','recover-evidence','answer'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
-  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept','retry-controller','recover-evidence','answer']].includes(action)&&p.length===1&&!v['dry-run'];
+  const controls=namespace==='agents'&&['stop','retry'].includes(action),execution=namespace==='run'&&['execute','resume','retry','accept','retry-controller','recover-evidence','recover-interruption','answer'].includes(action),taskApproval=namespace==='run'&&action==='approve'&&p.length===3;
+  const candidate=namespace==='run'&&!['list','status','replay','prepare','approve','cancel',...['execute','resume','retry','accept','retry-controller','recover-evidence','recover-interruption','answer']].includes(action)&&p.length===1&&!v['dry-run'];
   if(v['dry-run'])return null;
   const write=options.write??(text=>{process.stdout.write(text);});
   const emit=(value:unknown,text:string)=>write(json?JSON.stringify(value)+'\n':approvalDisplayText(text)+'\n');
   const report=(data:unknown,code=0)=>{emit({version:2,type:'orchestration.execution',action,data},formatExecutionData(action,data));return code;};
   try {
     if(args.some(arg=>arg.length>4096||/[\x00-\x1f\x7f]/.test(arg)))throw new OrchestrationError('invalid',EXECUTION_USAGE);
-    if(action!=='answer'&&(v.answer!==undefined||v.revision!==undefined))throw new OrchestrationError('invalid',EXECUTION_USAGE);
+    if(action!=='answer'&&v.answer!==undefined||!['answer','recover-interruption'].includes(action)&&v.revision!==undefined)throw new OrchestrationError('invalid',EXECUTION_USAGE);
     if(execution||controls||taskApproval||candidate){
       if(v.tree||v.graph||namespace==='run'&&v.run||candidate&&p.length!==1)throw new OrchestrationError('invalid',EXECUTION_USAGE);
-      if(v['allow-mutations']&&!candidate&&!['execute','resume','recover-evidence','answer'].includes(action)||v['max-output-tokens']&&!candidate&&!['execute','resume'].includes(action))throw new OrchestrationError('invalid',EXECUTION_USAGE);
+      if(v['allow-mutations']&&!candidate&&!['execute','resume','recover-evidence','recover-interruption','answer'].includes(action)||v['max-output-tokens']&&!candidate&&!['execute','resume'].includes(action))throw new OrchestrationError('invalid',EXECUTION_USAGE);
       const raw=v['max-output-tokens'];if(raw!==undefined&&(!/^\d+$/.test(String(raw))||!Number.isSafeInteger(Number(raw))||Number(raw)<1||Number(raw)>100000000))throw new OrchestrationError('invalid',EXECUTION_USAGE);
       const opts={...options,...(v['allow-mutations']?{approve:async()=> 'allow' as const}:{}),...(raw?{maxOutputTokens:Number(raw)}:{})};
       if(action==='answer'){
         if(p.length!==3||typeof v.answer!=='string'||typeof v.revision!=='string')throw new OrchestrationError('invalid',EXECUTION_USAGE);
         const state=await answerExecutionQuestion(cwd,p[1]!,p[2]!,v.revision,v.answer,opts);return report({runId:p[1],status:state.state.status,execution:state});
+      }
+      if(action==='recover-interruption'){
+        if(p.length!==2||typeof v.revision!=='string')throw new OrchestrationError('invalid',EXECUTION_USAGE);
+        const state=await recoverInterruptedExecution(cwd,p[1]!,v.revision,opts);return report({runId:p[1],status:state.state.status,execution:state});
       }
       if(action==='recover-evidence'){
         if(p.length!==3)throw new OrchestrationError('invalid',EXECUTION_USAGE);

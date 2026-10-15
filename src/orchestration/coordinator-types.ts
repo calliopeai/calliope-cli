@@ -23,6 +23,7 @@ export type ExecutionChange=
   |{type:'proposal_validated';taskId:string;artifactId:string;artifactHash:string;goalManifestHash:string;valid:boolean;diagnostics:import('./types.js').PlanDiagnostic[]}
   |import('../supervision/types.js').SupervisionChange
   |{type:'graph_admitted';admission:SpawnAdmission}
+  |{type:'interruption_recovered';ownerId:string;source:'cli'|'repl'}
   |{type:'started';ownerId:string;proposalOnly?:true}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string;requestAttribution?:1}
   |{type:'task_recovery_started';taskId:string;outcomeId:string}
@@ -40,7 +41,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5|6|7|8|9;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6|7|8|9|10;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;

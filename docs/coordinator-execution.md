@@ -247,3 +247,24 @@ matching containment exists. Trusted host policy/hook programs remain outside
 the worker sandbox boundary. Merge, publish, deploy and external communication
 are not coordinator powers. These limitations and real-provider certification
 remain release work, alongside brain/KG and controlled improvement loops.
+
+
+### Record an interrupted coordinator without executing work
+
+`calliope run recover-interruption RUN --revision HASH --allow-mutations --json`
+records a confirmed dead matching coordinator at the exact inspected revision.
+It appends a version-10 `interruption_recovered` event: running tasks become
+unknown, an interrupted controller/reviewer becomes halted, and ownership is
+cleared. It retains task attempts, sessions, files, artifacts, prior events,
+request reservations and the original deadline. It does not call a provider,
+run tools, retry work, admit children or settle/refund usage. Reads never perform
+this mutation. A live owner, stale revision, changed ownership/approval or denied
+policy refuses recovery. Inspect uncertain effects before authorizing task or
+controller retries separately. Already committed supervision decisions remain
+recorded; ordinary resume can apply them under the original authority.
+
+The library exports `recoverInterruptedExecution(cwd, runId, revision, options)`
+and `interruptionRecoveryCapabilities()` for hosts that expose an explicit
+review. The operation uses the `orchestration_recover` permission and native
+lease/write checks. Recorded death is a process observation, not proof that an
+external side effect did not occur.
