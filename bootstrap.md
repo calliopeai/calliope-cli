@@ -73,6 +73,8 @@ Worker questions persist in the native execution journal; exact revision-bound
 answers resume the same live task without refreshing its session, budget or clock.
 Worker context binds an explicit versioned initial/retry phase to the current
 task-start event and prior outcomes instead of asking models to infer attempt state.
+[Native artifact hosts](docs/artifact-host.md) expose a bounded product draft tool
+only with a reviewed tool grant and executor-owned task/attempt context.
 Supervised worker feedback intersects controller evidence with those task-local
 outcomes, preserving cross-task evidence in the journal without widening read scope.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active

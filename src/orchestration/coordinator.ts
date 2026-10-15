@@ -33,8 +33,11 @@ import {taskWorktree,verifyInWorktree} from '../isolation/index.js';
 import {needsSupervision,supervise,reviewEvidence} from '../supervision/index.js';
 import {workerAttemptContext,workerRetryEvidenceIds} from './worker-context.js';
 import {waitForExecutionAnswer} from './questions.js';
+import {prepareArtifactHost,bindArtifactHost,type ArtifactHost} from './artifact-host.js';
 
 export interface CoordinatorOptions extends RunActionOptions {
+  /** Trusted native integration; never inferred from worker arguments or project files. */
+  artifactHost?:ArtifactHost;
   measuredInputReservation?: boolean;
   /** Restrict this invocation to a bounded review; never start workers or apply its decision. */
   proposalOnly?:boolean;expectedDecisionId?:string;expectedProposalHash?:string;
@@ -53,7 +56,7 @@ function incompleteOutput(store:ExecutionStore,task:ProjectTask,status:TaskOutpu
   return{version:1,taskId:task.id,agentId:task.agentId,status,summary:workerSummary(message),changedFiles:[...t.changedFiles],artifacts:t.artifactIds.map(id=>state.artifacts[id]!),testEvidence:[],checks:[],unresolvedRisks:[t.mutations?'A tool mutation may have completed; inspect its session and files before retrying.':'Acceptance criteria were not verified.'],recommendedNextAction:'Inspect recorded evidence and remaining budget before an explicit retry.'};
 }
 function toolPath(cwd:string,call:ToolCall):string|null {
-  if(typeof call.arguments.path!=='string')return null;const path=relative(cwd,resolve(cwd,call.arguments.path));return !path||path==='..'||path.startsWith('../')||isAbsolute(path)?null:path;
+  if(call.name==='artifact'||typeof call.arguments.path!=='string')return null;const path=relative(cwd,resolve(cwd,call.arguments.path));return !path||path==='..'||path.startsWith('../')||isAbsolute(path)?null:path;
 }
 async function taskMessages(store:ExecutionStore,task:ProjectTask,options:RunActionOptions,workspace?:{base:string}):Promise<Message[]> {
   const inspected=store.read(),context=store.context(inspected),agent=context.plan.agents.find(a=>a.id===task.agentId)!,state=inspected.state;
@@ -79,6 +82,7 @@ async function taskMessages(store:ExecutionStore,task:ProjectTask,options:RunAct
 }
 /** Execute the reviewed hierarchy and explicitly admitted child graphs. */
 export async function executeReviewedRun(cwd:string,runId:string,options:CoordinatorOptions={}):Promise<CoordinatorResult> {
+  const artifactHost=options.artifactHost?prepareArtifactHost(options.artifactHost):undefined;
   throwIfCancelled(options.signal);const runs=options.store??new RunStore(),view=await runs.read(runId,cwd,options.signal);
   if(view.run.status!=='approved')throw new OrchestrationError('policy-denied','Approve the reviewed plan before execution.');
   const outputCap=options.maxOutputTokens??1024;if(!Number.isSafeInteger(outputCap)||outputCap<1||outputCap>100000000)throw new OrchestrationError('invalid','Invalid coordinator output budget.');
@@ -129,7 +133,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // full model context reservation can starve the second turn after a
       // successful write, preventing the required read-back verification.
       const measuredInputReservation=options.measuredInputReservation??true;
-      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),measuredInputReservation,attribution,...(workspace?{workspace}:{})};
+      const provisional={...rootAuthority,agentId:agent.id,maxOutputTokens:Math.min(outputCap,agentOutputCap),measuredInputReservation,attribution,artifactHost:!!artifactHost,...(workspace?{workspace}:{})};
       let tools:ReturnType<ExecutionGuard['tools']>;
       try {
         // Real proposal calls should spend one bounded inference turn. The
@@ -138,7 +142,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         const compactProposal=task.id==='propose'&&!preference.model?.includes('toy');
         const creationTarget=task.outputs.find(output=>output.kind==='file'&&output.path);
         const creationMissing=!!creationTarget&&workspace!==undefined&&!existsSync(resolve(workspace.filesRoot,creationTarget.path!));
-        const admittedTools=getTools().filter(tool=>
+        const admittedTools=[...getTools().filter(tool=>tool.name!=='artifact'),...(artifactHost?[artifactHost.tool]:[])].filter(tool=>
           // Isolated verification is coordinator-owned. Workers may mutate
           // files and reason, but must not issue model-selected shell commands
           // that bypass the reviewed verifier and network/container policy.
@@ -168,9 +172,13 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // the planner's bounded planning account.
       const proposalOutputCap=task.id==='propose'?Math.min(4096,outputCap):outputCap;
       const execution={...provisional,maxOutputTokens:Math.min(proposalOutputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
-      const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{const mutating=['write_file','edit_file'].includes(call.name)||workspace!==undefined&&call.name==='shell';await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating,success});};
+      const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{const mutating=['artifact','write_file','edit_file'].includes(call.name)||workspace!==undefined&&call.name==='shell';await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating,success});};
+      const artifact=artifactHost?bindArtifactHost(artifactHost,{version:1,project:{...view.manifest.project},runId,manifestHash:view.manifest.hash,
+        planHash:view.run.planHash,approvalRevision:view.run.revision,taskId:task.id,agentId:agent.id,sessionId:session.id,attempt,
+        startEventId:start.id,startEventHash:start.hash},()=>{execution.assertAuthority();new ExecutionGuard(execution,cwd).assertActive(child.signal);}):undefined;
       const singleMutation=/\b(exactly one|single mutation|one write_file|one edit_file)\b/i.test(`${task.objective} ${agent.objective}`);
       const result=await runTurn({execution,cwd,sessionId:session.id,smart,measuredInputReservation,disableCompression:task.id==='propose',...(smart?{onRoute:(decision)=>recordAgentRoute(store,agent.id,session.id,decision,child.signal,execution.assertAuthority,task.id)}:{}),provider:preference.provider,model:preference.model,prompt:task.objective,messages,tools:()=>tools,signal:child.signal,mode:options.mode,confirmation:'mutating',approvals:options.approvals,
+        toolOptions:artifact?{artifact}:undefined,
         approve:options.approve?(_call,decision)=>options.approve!(decision,child.signal):undefined,runlog:log,
         // Planning is a bounded proposal pass. Limiting tool turns prevents
         // the growing conversation from consuming the remaining planning
@@ -209,7 +217,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         }
         const status=result.reason==='budget'?'denied':result.reason==='cancelled'?'cancelled':'failed';await finish(status,incompleteOutput(store,task,status,`Worker stopped: ${result.reason}.`));return;
       }
-      if(workspace&&task.isolation?.mode!=='read-only-v1'&&task.isolation?.patchArtifactId&&!store.read().state.tasks[task.id]!.mutations){
+      if(workspace&&task.isolation?.mode!=='read-only-v1'&&task.isolation?.patchArtifactId&&!store.read().events.some(event=>event.sequence>start.sequence&&event.change.type==='tool'&&event.change.taskId===task.id&&['write_file','edit_file'].includes(event.change.name)&&event.change.stage==='finished'&&event.change.success)){
         const status:TaskOutput['status']='denied';
         await finish(status,incompleteOutput(store,task,status,'Mutating isolated tasks must record a write or edit before verification.'),false);return;
       }

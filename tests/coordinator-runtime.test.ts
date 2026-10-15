@@ -28,6 +28,31 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 const plan=()=>{const p=verifiedPlan();p.limits.tokenBudget=30000;p.limits.costBudgetUsd=1;for(const a of p.agents){a.tokenBudget=a.parentId?10000:30000;a.costBudgetUsd=a.parentId?0.2:1;a.preference={provider:'deepseek',model:'coordinator-toy'};}return p;};
 const reviewed=async(p:ProjectPlan=plan())=>{fs.writeFileSync(join(project,'plan.json'),JSON.stringify(p));const v=await prepareRun(project,'plan.json',{store:runs});return changePreparedRun(project,v.run.id,'approved',{store:runs});};
+const artifactTool={name:'artifact',description:'Work on scoped draft artifacts.',parameters:{type:'object' as const,properties:{operation:{type:'string',description:'Artifact operation'}}}};
+function artifactReply(task:any,body:any) {
+  if(task.id==='inspect-a'&&!body.messages.some((m:any)=>m.tool_call_id==='artifact-call'))return json({id:'artifact-response',object:'chat.completion',model:'coordinator-toy',choices:[{index:0,message:{role:'assistant',content:'Read the shared draft.',tool_calls:[{id:'artifact-call',type:'function',function:{name:'artifact',arguments:JSON.stringify({operation:'read',sessionId:'forged-session'})}}]},finish_reason:'tool_calls'}],usage:{prompt_tokens:7,completion_tokens:3,total_tokens:10}});
+  return reply(task,{...body,messages:body.messages.filter((m:any)=>m.tool_call_id!=='artifact-call')});
+}
+it('binds the artifact callback to the native attempt and journals its possible mutation under existing accounting',async()=>{
+  const p=plan();p.workspace.allowedTools.push('artifact');p.agents[0]!.allowedTools.push('artifact');p.agents[1]!.allowedTools.push('artifact');
+  const view=await reviewed(p),seen:any[]=[];respond=async(task,body)=>{
+    expect(body.tools.some((t:any)=>t.function.name==='artifact')).toBe(task.id!=='inspect-b');return artifactReply(task,body);
+  };
+  const result=await executeReviewedRun(project,view.run.id,{store:runs,approve:async()=> 'allow',artifactHost:{version:1,tool:artifactTool,execute:async(args,identity,control)=>{control.assertActive();seen.push({args,identity});return {content:{draft:'public toy'}};}}});
+  expect(result.status).toBe('completed');expect(seen).toHaveLength(1);
+  const start=result.execution.events.find(e=>e.change.type==='task_started'&&e.change.taskId==='inspect-a')!;
+  expect(seen[0]).toMatchObject({args:{sessionId:'forged-session'},identity:{version:1,project:view.manifest.project,runId:view.run.id,manifestHash:view.manifest.hash,planHash:view.run.planHash,approvalRevision:view.run.revision,taskId:'inspect-a',agentId:'a',sessionId:result.execution.state.tasks['inspect-a']!.sessionId,attempt:1,startEventId:start.id,startEventHash:start.hash}});
+  const events=result.execution.events.filter(e=>e.change.type==='tool'&&e.change.name==='artifact');expect(events).toHaveLength(2);
+  expect(events.every(e=>e.version===11&&e.change.type==='tool'&&e.change.mutating&&e.change.path===null)).toBe(true);
+  expect(new ExecutionStore(join(runs.root,view.run.id),view.manifest).read()).toEqual(result.execution);
+  expect(result.accounting).toMatchObject({status:'available',run:{accounted:{tokens:70}}});
+});
+it.each(['missing-grant','missing-host','denied-review'] as const)('refuses artifact invocation with %s despite a forged model tool call',async failure=>{
+  const p=plan();if(failure!=='missing-grant'){p.workspace.allowedTools.push('artifact');p.agents[0]!.allowedTools.push('artifact');p.agents[1]!.allowedTools.push('artifact');}
+  const view=await reviewed(p),execute=vi.fn(async()=>({content:{ok:true}}));respond=async(task,body)=>artifactReply(task,body);
+  const result=await executeReviewedRun(project,view.run.id,{store:runs,approve:async decision=>failure==='denied-review'&&decision.request?.tool==='artifact'?'deny':'allow',...(failure==='missing-host'?{}:{artifactHost:{version:1 as const,tool:artifactTool,execute}})});
+  expect(execute).not.toHaveBeenCalled();expect(result.status).not.toBe('completed');
+});
 const questionPlan=()=>{const p=plan();p.workspace.allowedTools.push('ask_question');for(const a of p.agents)a.allowedTools.push('ask_question');return p;};
 function questionReply(task:any,body:any) {
   const wrote=body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='call-'+task.id),answered=body.messages.some((m:any)=>m.role==='tool'&&m.tool_call_id==='audience');

@@ -74,7 +74,7 @@ export function executionToolDenial(manifest: ExecutionManifest, agentId: string
   checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;
   if (now >= Math.min(manifest.deadline,account.deadline)) return 'Agent deadline expired.';
   if (!account.allowedTools.includes(call.name)) return 'Tool is outside the declared agent authority.';
-  if (['think','ask_question','create_plan',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
+  if (['think','ask_question','create_plan','artifact',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
   if (!['read_file','write_file','edit_file','list_files'].includes(call.name)) return 'This tool requires containment that enforces the agent path and network grants; execution is unavailable.';
   const arg = call.arguments.path ?? (call.name === 'list_files' ? '.' : undefined);
   if (typeof arg !== 'string' || !arg || arg.length > 4096) return 'Tool requires a bounded path inside the agent scope.';

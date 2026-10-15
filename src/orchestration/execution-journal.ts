@@ -11,7 +11,7 @@ import {validateQuestionRequest,validateQuestionAnswer} from './question-contrac
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
 export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
-  return change.type==='interruption_recovered'?10:change.type==='improvement_review_requested'||change.type==='improvement_review_dismissed'?9:change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+  return change.type==='tool'&&change.name==='artifact'&&change.mutating?11:change.type==='interruption_recovered'?10:change.type==='improvement_review_requested'||change.type==='improvement_review_dismissed'?9:change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
 }
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
@@ -55,7 +55,7 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5,6,7,8,9,10].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  if(![1,2,3,4,5,6,7,8,9,10,11].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
   shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer','requestId','executionRevision']);const c=value.change;
   if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
   if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
@@ -165,7 +165,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     }else if(c.type==='tool'){
       active();if(task!.status!=='running')conflict('Tool evidence requires an active task.');
       const agent=manifest.plan.agents.find(a=>a.id===manifest.plan.tasks.find(t=>t.id===c.taskId)!.agentId)!;
-      const expectedMutation=['write_file','edit_file'].includes(c.name)||!!manifest.plan.workspace.isolation&&c.name==='shell';
+      const expectedMutation=c.name==='artifact'&&event.version===11||['write_file','edit_file'].includes(c.name)||!!manifest.plan.workspace.isolation&&c.name==='shell';
       if(c.mutating!==expectedMutation)fail(`Tool mutation classification differs from the executor (tool=${c.name}, mutating=${String(c.mutating)}, expected=${String(expectedMutation)}).`);
       const key=c.taskId+':'+task!.attempts+':'+c.callId,scope=canonicalJson({name:c.name,path:c.path,mutating:c.mutating});
       if(c.stage==='started'){if(toolStarts.has(key))conflict('Duplicate tool start.');toolStarts.set(key,scope);}else{if(toolStarts.get(key)!==scope)conflict('Tool result has no matching start.');toolStarts.set(key,'finished');}

@@ -115,3 +115,14 @@ it('denies case variants of Git metadata before a worker can redirect its reposi
   const p=plan();p.agents[1]!.allowedPaths=[{path:'.',access:'write'}];toolSteps=[{name:'write_file',arguments:{path:'.GIT',content:'gitdir: elsewhere'}}];
   const v=await reviewed(p),result=await executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow'});expect(result.status).toBe('denied');expect(commands.runIsolatedCommand).not.toHaveBeenCalled();expect(fs.readFileSync(join(runs.root,v.run.id,'execution','worker-inspect-a-1','files','.git'),'utf8')).toMatch(/^gitdir: /);
 });
+
+it('does not treat an artifact-host mutation as the required isolated source edit',async()=>{
+  const p=plan();p.workspace.allowedTools.push('artifact');for(const a of p.agents)a.allowedTools.push('artifact');
+  toolSteps=[{name:'artifact',arguments:{operation:'propose'}}];
+  const execute=vi.fn(async()=>({content:{proposal:'pending'}}));
+  const v=await reviewed(p),result=await executeReviewedRun(project,v.run.id,{store:runs,approve:async()=> 'allow',artifactHost:{version:1,tool:{name:'artifact',description:'Reviewed draft operations.',parameters:{type:'object',properties:{operation:{type:'string',description:'Operation'}}}},execute}});
+  expect(execute).toHaveBeenCalledTimes(1);expect(result.status).toBe('denied');
+  expect(result.execution.state.tasks['inspect-a']!.mutations).toBe(true);
+  expect(result.execution.state.tasks['inspect-a']!.output!.summary).toContain('record a write or edit');
+  expect(commands.runIsolatedCommand).not.toHaveBeenCalled();
+});

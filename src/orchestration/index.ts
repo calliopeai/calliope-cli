@@ -15,6 +15,7 @@ export * from './questions.js';
 export * from './recovery.js';
 export * from './execution-cli.js';
 export * from './worker-context.js';
+export * from './artifact-host.js';
 export type {CoordinatorProgress} from './progress.js';
 export {readRunAccounting,type RunAccounting,type AccountBalance} from './accounting.js';
 

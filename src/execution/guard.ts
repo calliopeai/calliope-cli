@@ -17,6 +17,8 @@ import {readBillingEvidence} from './billing.js';
 import {validateRequestAttribution,type RequestAttribution} from './attribution.js';
 
 export interface AgentExecution {
+  /** Native coordinator supplied a scoped artifact host for this invocation. */
+  artifactHost?:boolean;
   ledger: ReservationLedgerAccess; manifestHash: string; agentId: string; maxOutputTokens: number;
   measuredInputReservation?: boolean;
   attribution?:RequestAttribution;
@@ -37,7 +39,9 @@ export class ExecutionGuard {
   private readonly workspace?:AgentExecution['workspace'];
   private readonly attribution?:RequestAttribution;
   private readonly measuredInputReservation:boolean;
+  private readonly artifactHost:boolean;
   constructor(execution:AgentExecution,private readonly cwd:string) {
+    this.artifactHost=execution.artifactHost===true;
     this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution); this.measuredInputReservation=execution.measuredInputReservation===true;
     this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();this.workspace=execution.workspace;this.workspace?.assertIdentity();
     const saved=execution.ledger.read(cwd);
@@ -51,6 +55,7 @@ export class ExecutionGuard {
   }
   check= (call:ToolCall,cwd=this.cwd):string|undefined => {
     this.assertAuthority?.();this.workspace?.assertIdentity();
+    if(call.name==='artifact'&&!this.artifactHost)return 'Artifact tools require a native host binding.';
     if(this.workspace&&call.name==='shell')return 'Isolated workers cannot issue model-selected shell commands; use the declared coordinator verifier.';
     const denial=executionToolDenial(this.manifest,this.agentId,call,cwd);if(denial||!this.workspace)return denial;
     if(['read_file','write_file','edit_file','list_files'].includes(call.name))try{this.filePath(resolve(cwd,String(call.arguments.path??'.')));}catch{return 'Isolated file path is outside its workspace or aliases Git metadata.';}
@@ -64,7 +69,7 @@ export class ExecutionGuard {
   }
   tools(tools:Tool[]):Tool[] {
     const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
-    return [...tools.filter(t=>!BRAIN_TOOL_NAMES.includes(t.name as typeof BRAIN_TOOL_NAMES[number])),...BRAIN_TOOLS].filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files',...BRAIN_TOOL_NAMES].includes(tool.name));
+    return [...tools.filter(t=>!BRAIN_TOOL_NAMES.includes(t.name as typeof BRAIN_TOOL_NAMES[number])),...BRAIN_TOOLS].filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files',...BRAIN_TOOL_NAMES,...(this.artifactHost?['artifact']:[])].includes(tool.name));
   }
   brainContext():BrainToolContext {
     return {assertActive:signal=>this.assertActive(signal),sourceDenial:source=>{

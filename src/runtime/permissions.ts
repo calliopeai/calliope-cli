@@ -16,6 +16,7 @@ for(const tool of ['orchestration_goal_plan','orchestration_goal_approve','orche
 for(const tool of ['orchestration_workspace','orchestration_improve','orchestration_improvement_rollback','orchestration_improvement_review_request','orchestration_improvement_review_dismiss','orchestration_evidence_recovery','orchestration_source_proposal'])MUTATING_TOOLS.add(tool);
 
 for(const tool of ['brain_init','brain_write','brain_reverse','brain_reindex'])MUTATING_TOOLS.add(tool);
+MUTATING_TOOLS.add('artifact');
 
 export interface PermissionContext {
   cwd: string;
