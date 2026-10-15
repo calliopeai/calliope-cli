@@ -11,7 +11,7 @@ import {collectTaskOutput,changePreparedRun} from '../src/orchestration/index.js
 import {taskWorktree} from '../src/isolation/index.js';
 import {supervisionEvidence} from '../src/supervision/index.js';
 import {inspectImprovements,improvementProposalHash,previewSourceChange,proposeSourceChange,inspectSourceChange,
-  sourceChangeCapabilities,withdrawImprovement,type SourceChangeSelection} from '../src/improvement/index.js';
+  sourceChangeCapabilities,listSourceChanges,withdrawImprovement,type SourceChangeSelection} from '../src/improvement/index.js';
 vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string;
 beforeEach(()=>{config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-source-proposals-')));vi.stubGlobal('fetch',vi.fn(()=>{throw Error('No inference in source proposals.');}));});
@@ -94,6 +94,15 @@ it('rechecks source after permission and detects a moved proposal branch',async(
 
 it('advertises source authoring without skill installation, merging, inference or remote publication',()=>{
   expect(sourceChangeCapabilities()).toMatchObject({version:1,writer:'git',installation:false,merge:false,push:false,mayCallModel:false});
+});
+
+it('lists original proposal identities after source advances and refuses a moved branch',async()=>{
+  const f=await fixture();expect(await listSourceChanges(f.project,f.source.runId,f.options)).toEqual([]);
+  const preview=await f.preview(),saved=await proposeSourceChange(f.project,f.source,preview.hash,f.options);
+  git(f.project,'commit','--allow-empty','-qm','Source advanced after proposal');
+  expect(await listSourceChanges(f.project,f.source.runId,{...f.options,approve:async()=> 'deny'})).toEqual([saved]);
+  git(f.project,'update-ref',saved.branch,f.base);
+  await expect(listSourceChanges(f.project,f.source.runId,f.options)).rejects.toThrow('branch changed');
 });
 
 it('recovers the same candidate after cancellation between commit creation and branch publication',async()=>{

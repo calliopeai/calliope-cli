@@ -210,7 +210,7 @@ lets planners and workers read that knowledge within their inherited source scop
 ## Reviewed source proposals
 
 The native `sourceChangeCapabilities`, `previewSourceChange`,
-`proposeSourceChange` and `inspectSourceChange` APIs let a host offer verified
+`proposeSourceChange`, `inspectSourceChange` and `listSourceChanges` APIs let a host offer verified
 source changes for human review. A source-owned skill or interface uses the Git
 repository that owns its files. Installed skills keep their separate installation
 and trust lifecycle.
@@ -230,6 +230,8 @@ response; repeated publication recovers the same branch instead of overwriting
 it. Inspection reports `prepared` when the branch is absent and `proposed` when
 the exact recorded commit is present. Absence alone does not establish whether
 someone previously removed the branch. A moved branch is a conflict.
+Listing retains original review identities across restart and source HEAD changes;
+it reads the same native intent/candidate records and checks each branch.
 
 This API does not install skills, merge, push, release or invoke a model. A host
 must explicitly support the separate versioned source-change capability before

@@ -35,7 +35,7 @@ const git=(project:string,args:string[],options:RunActionOptions,input?:Paramete
   worktreeGit(project,['--no-replace-objects',...args],options.signal,accepted,input);
 
 export function sourceChangeCapabilities(){return {version:1,owner:'calliope-cli',writer:'git',
-  operations:['preview','propose','inspect'],semantics:'verified-patch-to-local-review-branch',
+  operations:['preview','propose','inspect','list'],semantics:'verified-patch-to-local-review-branch',
   installation:false,merge:false,push:false,mayCallModel:false} as const;}
 
 function selection(value:SourceChangeSelection):void {
@@ -132,6 +132,19 @@ export async function inspectSourceChange(cwd:string,runId:string,hash:string,op
   }
   return {version:1 as const,status:ref?'proposed' as const:'prepared' as const,hash,branch:intent.branch,
     review:intent.review,createdAt:intent.createdAt,commit:ref||null,tree:candidate?.tree??null};
+}
+
+/** Discover original review identities after restart, without consulting current HEAD. */
+export async function listSourceChanges(cwd:string,runId:string,options:RunActionOptions={}) {
+  if(!uuid(runId))throw new OrchestrationError('invalid','Select the exact source run.');
+  const current=await inspectExecution(cwd,runId,options),root=join(current.store.root,'source-proposals');
+  if(!fs.existsSync(root))return [];
+  privateDirectory(root);
+  const names=fs.readdirSync(root).filter(name=>/^[a-f0-9]{64}\.json$/.test(name)).sort();
+  if(names.length>100)throw new OrchestrationError('limit','Source proposal inventory exceeds its native bound.');
+  const result=[];
+  for(const name of names)result.push(await inspectSourceChange(cwd,runId,name.slice(0,-5),options));
+  return result;
 }
 
 /** One new local branch; the source checkout/index, installed skills and run journal stay unchanged. */
