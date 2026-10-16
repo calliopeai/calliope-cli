@@ -9,7 +9,7 @@ import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {RunStore,prepareRun,changePreparedRun,prepareAgentExecution,type RunInspection} from '../src/orchestration/index.js';
-import {ReservationLedger,ExecutionGuard,ProjectSpendLedger,parentRequestId,validateExecutionManifest,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type AgentExecution,type ParentBudgetLink} from '../src/execution/index.js';
+import {ReservationLedger,ExecutionGuard,ProjectSpendLedger,parentRequestId,readParentBudgetAccounting,validateExecutionManifest,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type AgentExecution,type ParentBudgetLink} from '../src/execution/index.js';
 import {projectBudgetPath} from '../src/budget.js';
 import type {RouteCandidate} from '../src/routing/index.js';
 import {toyPlan} from './helpers/orchestration-plan.js';
@@ -146,4 +146,53 @@ it('a served child ledger enforces persisted parent funding without a client-sup
   await expect(remote.reserve(project,child.manifestHash,request())).rejects.toMatchObject({code:'authority'});
   await remote.settle(project,child.manifestHash,{requestId:value.id,outcome:'cancelled'});
   expect(snapshot(p.exec).projection.spent.tokens).toBe(100);
+});
+
+it('reads shared account balances without creating execution, changing clocks or exposing provider details',async()=>{
+  const p=await parent(),child=await execution(await reviewed(),p.link),value={...request(),inputPrice:1,outputPrice:2,costNanos:101000};
+  await reserve(child,value);
+  const before=snapshot(p.exec),first=await readParentBudgetAccounting(snapshot(child).manifest,project);
+  expect(first).toMatchObject({version:1,status:'available',basis:'reservations-and-settlements',parents:[{
+    runId:p.view.run.id,agentId:'coordinator',authority:'active',deadline:before.manifest.deadline,
+    tokens:{limit:5000,accounted:100,remaining:4900},costNanos:{limit:50000000,accounted:101000,remaining:49899000},requests:{pending:1,settled:0,unknown:0,exceeded:0}}]});
+  expect(JSON.stringify(first)).not.toMatch(/deepseek|fixture|runsRoot|allowedPaths|target|inputPrice/);
+  expect(snapshot(p.exec)).toEqual(before);expect(fs.existsSync(join(store.root,p.view.run.id,'execution'))).toBe(false);
+  await child.ledger.settle(project,child.manifestHash,{requestId:value.id,outcome:'success',usage:{inputTokens:5,outputTokens:1}});
+  const next=await readParentBudgetAccounting(snapshot(child).manifest,project);
+  expect(next).toMatchObject({status:'available',parents:[{tokens:{accounted:6},costNanos:{accounted:7000},requests:{settled:1}}]});
+  if(next.status!=='available'||first.status!=='available')throw Error('Missing balances');
+  expect(next.parents[0]!.revision).not.toBe(first.parents[0]!.revision);
+});
+
+it('retains unknown charges and balances while reporting cancelled parent authority',async()=>{
+  const p=await parent(),child=await execution(await reviewed(),p.link),value=request();await reserve(child,value);
+  await child.ledger.settle(project,child.manifestHash,{requestId:value.id,outcome:'cancelled'});
+  await changePreparedRun(project,p.view.run.id,'cancelled',{store});const before=snapshot(p.exec);
+  expect(await readParentBudgetAccounting(snapshot(child).manifest,project)).toMatchObject({status:'available',parents:[{authority:'inactive',tokens:{accounted:100,remaining:4900},requests:{unknown:1}}]});
+  expect(snapshot(p.exec)).toEqual(before);
+});
+
+it('shows each funding ancestor independently and retains expired or exceeded accounting',async()=>{
+  const p=await parent(10000),aView=await reviewed(),a=await execution(aView,p.link),b=await execution(await reviewed(1000,0.01,5000),link(aView,a));
+  const value=request();await reserve(b,value);
+  expect(await readParentBudgetAccounting(snapshot(b).manifest,project)).toMatchObject({status:'available',parents:[{runId:aView.run.id,tokens:{accounted:100}},{runId:p.view.run.id,tokens:{accounted:100}}]});
+  const clock=vi.spyOn(Date,'now').mockReturnValue(snapshot(p.exec).manifest.deadline+1);
+  expect(await readParentBudgetAccounting(snapshot(b).manifest,project)).toMatchObject({status:'available',parents:[{authority:'expired'},{authority:'expired'}]});clock.mockRestore();
+  await b.ledger.settle(project,b.manifestHash,{requestId:value.id,outcome:'invalid-usage'});
+  expect(await readParentBudgetAccounting(snapshot(b).manifest,project)).toMatchObject({status:'available',parents:[{authority:'exceeded',requests:{exceeded:1}},{authority:'exceeded',requests:{exceeded:1}}]});
+});
+
+it('reports unavailable funding without replacing damaged histories with zero balances',async()=>{
+  const p=await parent(),child=await execution(await reviewed(),p.link),manifest=snapshot(child).manifest;
+  const file=join(p.exec.ledger.root,'history.json'),raw=fs.readFileSync(file);
+  for(const content of ['PRIVATE malformed state',null]){
+    if(content===null)fs.unlinkSync(file);else fs.writeFileSync(file,content);
+    expect(await readParentBudgetAccounting(manifest,project)).toEqual({version:1,status:'unavailable'});
+    expect(fs.existsSync(file)).toBe(content!==null);if(content!==null)expect(fs.readFileSync(file,'utf8')).toBe(content);
+    fs.writeFileSync(file,raw,{mode:0o600});
+  }
+  const elsewhere=join(root,'elsewhere');fs.mkdirSync(elsewhere);
+  expect(await readParentBudgetAccounting(manifest,elsewhere)).toEqual({version:1,status:'unavailable'});
+  expect(await readParentBudgetAccounting(manifest,project,AbortSignal.abort())).toEqual({version:1,status:'unavailable'});
+  expect(await readParentBudgetAccounting(snapshot(p.exec).manifest,project)).toEqual({version:1,status:'unlinked'});
 });
