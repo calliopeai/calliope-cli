@@ -39,7 +39,7 @@ function settlement(value: unknown): asserts value is RequestSettlement {
   if (value.usage !== undefined) { shape(value.usage,['inputTokens','outputTokens']); integer(value.usage.inputTokens,0,100000000); integer(value.usage.outputTokens,0,100000000); }
 }
 function validateEvent(value: unknown): asserts value is ReservationEvent {
-  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3,4].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
+  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3,4,5].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
   shape(value.change,['type'],['reservation','settlement','grant']);
   if (value.change.type === 'reserve') { shape(value.change,['type','reservation']); reservation(value.change.reservation); }
   else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); }
@@ -73,7 +73,7 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
         throw new ExecutionLimitError('budget','Request reservation exceeds the available agent, ancestor or run budget.');
       if(state.childGrants?.length)assertChildCapacity(manifest,state,next.agentId,tokens,next.costNanos);
       apply(next.agentId,tokens,next.costNanos); state.requests[next.id] = {reservation:structuredClone(next),state:'pending',...(next.attribution?{accounted:{tokens,costNanos:next.costNanos}}:{})};
-      if(next.attribution)state.version=3;
+      if(next.attribution&&state.version<3)state.version=3;
     } else {
       const result = event.change.settlement, entry = state.requests[result.requestId];
       if (!entry || entry.state !== 'pending') throw new ExecutionLimitError('conflict','Request was already settled or was never reserved.');
@@ -94,7 +94,7 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
 }
 interface Journal { version:1; manifest:ExecutionManifest; events:ReservationEvent[]; hash:string }
 function reservationVersion(change:ReservationEvent['change']):ReservationEvent['version'] {
-  return change.type==='reserve'&&change.reservation.quoteEvidence?.version===2?4:change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
+  return change.type==='child_grant'&&change.grant.version===2?5:change.type==='reserve'&&change.reservation.quoteEvidence?.version===2?4:change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
 }
 function decode(raw: string): Journal {
   let value: unknown; try { value = JSON.parse(raw); } catch { throw unavailable(); }
@@ -127,6 +127,8 @@ function syncDir(path:string):void {if(process.platform==='win32')return;const f
 export type ReservationLedgerAccess = Pick<ReservationLedger,'root'|'read'|'reserve'|'settle'> & {
   /** A transport must confirm rejection; cached absence cannot rule out an in-flight commit. */
   canReleaseFailedReservation?:(error:unknown)=>boolean;
+  /** Native transport verified this exact account's owner-declared local workspace. */
+  executionProject?:(cwd:string,agentId:string)=>ExecutionManifest['project'];
 };
 export class ReservationLedger {
   readonly root:string;

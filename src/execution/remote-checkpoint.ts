@@ -57,8 +57,8 @@ export class RemoteLedgerCheckpoint {
       return verifiedJournal(value.journal);
     }catch{throw damaged();}
   }
-  save(next:RemoteJournal,current?:RemoteJournal):RemoteJournal {
-    assertExecutionStoreOutsideProject(next.manifest.project.root,this.root);
+  save(next:RemoteJournal,current?:RemoteJournal,projectRoot=next.manifest.project.root):RemoteJournal {
+    assertExecutionStoreOutsideProject(projectRoot,this.root);
     if(!exists(this.root))fs.mkdirSync(this.root,{mode:0o700});directory(this.root);
     let fresh=false;
     try{fs.mkdirSync(this.dir,{mode:0o700});fresh=true;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw error;}

@@ -8,7 +8,7 @@ import {ExecutionLimitError} from './types.js';
 import {uuid,identifier} from './authority.js';
 
 export const LEDGER_PROTOCOL='delegation-ledger/v1';
-export const LEDGER_OPERATIONS=['hello','journal','reserve','settle','grant','revoke'] as const;
+export const LEDGER_OPERATIONS=['hello','journal','execution','reserve','settle','grant','revoke'] as const;
 export type LedgerOperation=typeof LEDGER_OPERATIONS[number];
 export const MAX_LEDGER_REQUEST_BYTES=256*1024;
 

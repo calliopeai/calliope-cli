@@ -3,7 +3,9 @@
  * every reserve/settle. A server history that is not an append-only extension of what this child
  * already saw is refused, so a reset or rollback can never return spent capacity. */
 import {cancellableDelay,throwIfCancelled} from '../cancellation.js';
-import {checkExecutionIdentity} from './authority.js';
+import {canonicalJson,projectIdentity} from '../approvals/index.js';
+import {checkExecutionIdentity,shape,validateExecutionProject} from './authority.js';
+import {executionProjectForAccount} from './child-grants.js';
 import {replayReservations} from './ledger.js';
 import {ExecutionLimitError,type ChildGrant,type ExecutionManifest,type ReservationEvent,type RequestReservation,type RequestSettlement,type ReservationProjection} from './types.js';
 import {LEDGER_PROTOCOL} from './ledger-protocol.js';
@@ -13,6 +15,8 @@ export interface RemoteLedgerOptions {
   url:string; token:string;
   /** Persistent private directory outside the project; reuse it after reconnect/restart. */
   root:string;
+  /** Explicit host invocation; the server must verify the account and local project binding. */
+  execution?:{cwd:string;agentId:string};
   fetch?:typeof fetch; attempts?:number; timeoutMs?:number;
 }
 const CODES=new Set(['invalid','authority','budget','deadline','unavailable','locked','conflict','limit']);
@@ -22,19 +26,33 @@ export class RemoteReservationLedger {
   private journal!:Journal;
   private readonly checkpoint:RemoteLedgerCheckpoint;
   private readonly confirmedRejections=new WeakSet<Error>();
+  private binding?:{agentId:string;project:ExecutionManifest['project']};
   private constructor(private readonly options:RemoteLedgerOptions){
     this.checkpoint=new RemoteLedgerCheckpoint(options.root);this.root=this.checkpoint.root;
     const saved=this.checkpoint.read();if(saved)this.journal=saved;
   }
 
   static async connect(options:RemoteLedgerOptions):Promise<RemoteReservationLedger> {
-    const ledger=new RemoteReservationLedger(options),hello=await ledger.call('hello',{}) as {protocol?:string};
+    const ledger=new RemoteReservationLedger(options),hello=await ledger.call('hello',{}) as {protocol?:string;operations?:string[]};
     if(hello.protocol!==LEDGER_PROTOCOL)throw new ExecutionLimitError('unavailable',`Parent ledger speaks ${String(hello.protocol)}, not ${LEDGER_PROTOCOL}.`);
-    ledger.accept(await ledger.call('journal',{}));return ledger;
+    if(options.execution){
+      if(!Array.isArray(hello.operations)||!hello.operations.includes('execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
+      const {project,projectKey}=projectIdentity(options.execution.cwd),expected={agentId:options.execution.agentId,project:{root:project,key:projectKey}};
+      const response=await ledger.call('execution',expected) as Journal&{binding:unknown};
+      shape(response.binding,['version','agentId','project']);
+      if(response.binding.version!==1||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
+      ledger.accept(response);ledger.binding=expected;ledger.executionProject(options.execution.cwd,expected.agentId);
+    }else ledger.accept(await ledger.call('journal',{}));
+    return ledger;
   }
   read(cwd:string):{manifest:ExecutionManifest;events:ReservationEvent[];projection:ReservationProjection} {
-    checkExecutionIdentity(this.journal.manifest,cwd);
+    if(this.binding)this.executionProject(cwd,this.binding.agentId);else checkExecutionIdentity(this.journal.manifest,cwd);
     return {...structuredClone(this.journal),projection:replayReservations(this.journal.manifest,this.journal.events)};
+  }
+  executionProject(cwd:string,agentId:string):ExecutionManifest['project'] {
+    const declared=executionProjectForAccount(this.journal.manifest,this.projection(),agentId);
+    if(this.binding?agentId!==this.binding.agentId||canonicalJson(declared)!==canonicalJson(this.binding.project):canonicalJson(declared)!==canonicalJson(this.journal.manifest.project))throw new ExecutionLimitError('authority','Account requires its own verified workspace binding.');
+    checkExecutionIdentity({...this.journal.manifest,project:declared},cwd);return declared;
   }
   async refresh():Promise<void> {const floor=this.journal;this.accept(await this.call('journal',{}),floor);}
   canReleaseFailedReservation(error:unknown):boolean {
@@ -72,7 +90,7 @@ export class RemoteReservationLedger {
   private accept(value:unknown,floor=this.journal):void {
     const next=verifiedJournal(value);
     if(floor&&!extendsJournal(floor,next))throw new ExecutionLimitError('conflict','Parent ledger history was rewritten or rolled back; execution stopped.');
-    this.journal=this.checkpoint.save(next,this.journal);
+    this.journal=this.checkpoint.save(next,this.journal,this.options.execution?projectIdentity(this.options.execution.cwd).project:undefined);
   }
   private async call(op:string,body:object,signal?:AbortSignal,firstAttempt=false):Promise<unknown> {
     const timeout=AbortSignal.timeout(this.options.timeoutMs??10000),combined=signal?AbortSignal.any([signal,timeout]):timeout;

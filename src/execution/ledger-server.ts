@@ -4,8 +4,8 @@ import * as http from 'node:http';
 import {canonicalJson} from '../approvals/index.js';
 import {ReservationLedger} from './ledger.js';
 import {ExecutionLimitError,type ChildGrant,type RequestReservation,type RequestSettlement} from './types.js';
-import {accountLineage} from './authority.js';
-import {effectiveExecutionManifest} from './child-grants.js';
+import {accountLineage,identifier,validateExecutionProject} from './authority.js';
+import {effectiveExecutionManifest,executionProjectForAccount} from './child-grants.js';
 import {LEDGER_PROTOCOL,LEDGER_OPERATIONS,MAX_LEDGER_REQUEST_BYTES,LedgerServerState,mintLedgerToken,verifyLedgerToken,type LedgerTokenClaims} from './ledger-protocol.js';
 
 export interface LedgerServerOptions {
@@ -49,6 +49,13 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const handlers:Record<string,(token:LedgerTokenClaims,body:Record<string,unknown>,outcome:AdmissionOutcome)=>Promise<unknown>>={
     hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations:LEDGER_OPERATIONS,runId:manifest.runId};},
     journal:async()=>journal(),
+    execution:async(token,body)=>{
+      identifier(body.agentId);owns(token,body.agentId);
+      const project=validateExecutionProject(body.project),saved=current();
+      if(canonicalJson(project)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,body.agentId)))throw new ExecutionLimitError('authority','Workspace does not match the owner-declared child project.');
+      options.assertAuthority?.();
+      return {...journal(),binding:{version:1,agentId:body.agentId,project}};
+    },
     reserve:async(token,body,outcome)=>{
       const reservation=body.reservation as RequestReservation,hash=String(body.manifestHash);owns(token,reservation?.agentId);
       const prior=current().projection.requests[reservation?.id];
@@ -80,6 +87,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
     },
     grant:async(token,body)=>{
       const grant=body.grant as ChildGrant,hash=String(body.manifestHash);owns(token,grant?.parentId);
+      if(grant?.version===2&&token.role!=='parent')throw new ExecutionLimitError('authority','Only the ledger owner can bind a child to another workspace.');
       const assertGrant=()=>{
         assertActive(token);
         options.assertAuthority?.();

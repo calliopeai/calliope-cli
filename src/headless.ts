@@ -199,7 +199,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       const stat=lstatSync(parent);
       if(!stat.isDirectory()||stat.isSymbolicLink()||stat.mode&0o077)throw new Error('Delegation history directory is not private.');
       const root=join(parent,digest(canonicalJson({project:projectIdentity(cwd),tokenFile:resolve(options.ledger.tokenFile),agentId:options.ledger.agentId})));
-      const ledger = await RemoteReservationLedger.connect({ url: options.ledger.url, token: readFileSync(options.ledger.tokenFile, 'utf8').trim(), root });
+      const ledger = await RemoteReservationLedger.connect({ url: options.ledger.url, token: readFileSync(options.ledger.tokenFile, 'utf8').trim(), root, execution:{cwd,agentId:options.ledger.agentId} });
       execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.ledger.agentId, maxOutputTokens: options.ledger.maxOutputTokens ?? 4096 };
       emit({ type: 'status', timestamp: now(), data: { message: `Delegated child ${options.ledger.agentId}: admitted through the parent ledger` } }, outputMode);
     } catch (error) {

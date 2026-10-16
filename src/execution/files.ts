@@ -1,5 +1,5 @@
 import * as fs from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { canonicalPath } from '../approvals/index.js';
 import { throwIfCancelled } from '../cancellation.js';
@@ -44,7 +44,7 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
       while(!fs.existsSync(dir)){missing.push(dir);const next=dirname(dir);if(next===dir||missing.length>64)throw new ExecutionLimitError('authority','Parent directory is outside the bounded write scope.');dir=next;}
       const account=accountLineage(guard.manifest,agentId)[0]!;
       for(const path of missing.reverse()){
-        if(!permits(account.allowedPaths,relative(guard.filesRoot,path),'write')||canonicalPath(path)!==path)throw new ExecutionLimitError('authority','Creating a parent directory exceeds the agent write grant.');
+        if(!permits(account.allowedPaths,relative(guard.filesRoot,path).split(sep).join('/'),'write')||canonicalPath(path)!==path)throw new ExecutionLimitError('authority','Creating a parent directory exceeds the agent write grant.');
         check(file);fs.mkdirSync(path,{mode:0o700});
       }
       const before=fs.statSync(parent),temp=join(parent,`.calliope-${randomUUID()}.tmp`);

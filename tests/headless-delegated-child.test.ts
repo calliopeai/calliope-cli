@@ -20,6 +20,7 @@ vi.mock('../src/runtime/index.js', async original => ({
 import {runHeadless} from '../src/headless.js';
 import {ReservationLedger,manifestHash,createLedgerServer,LedgerServerState,mintLedgerToken,ExecutionGuard,type ChildGrant,type AgentExecution} from '../src/execution/index.js';
 import {executionManifest} from './helpers/execution-manifest.js';
+import {projectIdentity} from '../src/approvals/index.js';
 
 let root:string,project:string,server:Server,url:string,parent:string,hash:string,ledger:ReservationLedger,manifest:ReturnType<typeof executionManifest>;
 beforeEach(async()=>{
@@ -33,14 +34,24 @@ beforeEach(async()=>{
 });
 afterEach(async()=>{vi.restoreAllMocks();await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});});
 
-const grantChild=async()=>{
-  const g:ChildGrant={version:1,id:randomUUID(),proposalHash:'b'.repeat(64),previousGraphHash:manifest.planHash,planHash:'c'.repeat(64),runManifestHash:'d'.repeat(64),approvalRevision:randomUUID(),parentId:'root',
+const grantChild=async(workspace?:string)=>{
+  let g:ChildGrant={version:1,id:randomUUID(),proposalHash:'b'.repeat(64),previousGraphHash:manifest.planHash,planHash:'c'.repeat(64),runManifestHash:'d'.repeat(64),approvalRevision:randomUUID(),parentId:'root',
     accounts:[{...structuredClone(manifest.accounts[1]!),id:'child',parentId:'root',tokenBudget:2000,costBudgetNanos:5000000}]};
+  if(workspace){const p=projectIdentity(workspace);g={...g,version:2,project:{root:p.project,key:p.projectKey}};}
   const r=await fetch(`${url}/v1/grant`,{method:'POST',headers:{authorization:`Bearer ${parent}`},body:JSON.stringify({manifestHash:hash,grant:g})});
   const token=(await r.json() as {token:string}).token,file=join(root,'child.token');fs.writeFileSync(file,token,{mode:0o600});return {g,file};
 };
 
 describe('headless delegated child',()=>{
+  it('uses the owner-bound copy while retaining the source manifest and denies an unbound copy',async()=>{
+    const copy=join(root,'copy');fs.mkdirSync(copy);const {file}=await grantChild(copy);
+    await runHeadless({prompt:'work',outputMode:'json',cwd:copy,ledger:{url,tokenFile:file,agentId:'child'}});
+    expect(captured).toHaveLength(1);const execution=captured[0]!.execution as AgentExecution;
+    const guard=new ExecutionGuard(execution,copy);expect(guard.filesRoot).toBe(copy);expect(guard.manifest.project).toEqual(manifest.project);
+    captured.length=0;
+    expect(await runHeadless({prompt:'work',outputMode:'json',cwd:project,ledger:{url,tokenFile:file,agentId:'child'}})).toBe(1);
+    expect(captured).toHaveLength(0);
+  });
   it('runs the turn under the parent ledger for its granted account',async()=>{
     const {file}=await grantChild();
     await runHeadless({prompt:'work',outputMode:'json',cwd:project,ledger:{url,tokenFile:file,agentId:'child'}});

@@ -50,6 +50,7 @@ The three flags go together.
 | --- | --- | --- |
 | `hello` | any | protocol and operations |
 | `journal` | any | the full hash-chained history (`manifest`, `events`) |
+| `execution` | account owner | verify `{agentId, project: {root, key}}` against the retained owner grant and return its native workspace binding |
 | `reserve` | owner of `reservation.agentId` | charge before dispatch; same id replays the original admission |
 | `settle` | owner of the reserved request | record usage or an outcome; same settlement replays |
 | `grant` | parent, or a child for its own accounts | allocate child accounts; returns the child's scoped token |
@@ -111,6 +112,42 @@ disconnect nor restarting the child restores the reserved project capacity.
 Reservation errors optionally report `admission: refused` when the server has
 verified non-admission after the local operation ends, or `unknown` otherwise.
 Clients retain capacity when talking to older v1 servers that omit this evidence.
+
+## Owner-bound remote workspaces
+
+A copied checkout has a different path and filesystem identity. It cannot use a
+parent grant just because its files look the same. The ledger owner may issue a
+version 2 child grant with `project: {root, key}`, captured using the CLI's
+`projectIdentity()` on the intended child host. The existing proposal hash,
+review revision and native run manifest references remain part of that immutable
+grant. The trusted host must establish the identity and authorize the binding;
+model output or an unauthenticated workspace claim is not sufficient.
+
+Only a parent token may issue these workspace grants. Child-issued version 1
+grants inherit the nearest owner-bound workspace, and cannot change it. Workspace
+grants use reservation event version 5 and projection version 4; existing grant
+events, manifests and hashes are unchanged. A restarted client replays the same
+grant through its retained verified checkpoint.
+
+Headless invocations negotiate `execution` before starting their turn. The server
+checks the token's account scope, live owner authority and exact project identity.
+The client independently checks the response against the native journal and its
+actual local directory. Missing protocol support, another account, a substituted
+binding or a replaced directory stops execution. Library callers opt in with
+`RemoteReservationLedger.connect({..., execution: {cwd, agentId}})`.
+
+File and brain-path checks use the bound child root and key, with the original
+relative tool/path grants. Filesystem separators are normalized for grant checks;
+parent traversal and symlink aliases remain denied. The immutable source budget
+manifest, account ancestry, reservations and deadline remain on the parent ledger.
+The checkpoint stays outside the child's project, and local project spending
+limits still apply. Binding a folder does not copy files, mount a volume, import
+brain content, install credentials or create another allowance.
+
+The protocol now supports explicit workspace identity binding. Astrolift must
+still establish that identity from its native runtime authority, enroll the task
+under its owner, and connect lifecycle cancellation and funding. The raw ledger
+service and a parent task UUID do not establish those bindings automatically.
 
 `tests/delegation-ledger.test.ts` is the local-host conformance suite: concurrent and nested
 children exhausting one allowance, duplicate dispatch and lost acknowledgements, an unreachable
