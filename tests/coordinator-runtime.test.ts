@@ -63,10 +63,16 @@ function questionReply(task:any,body:any) {
 it('answers a durable nested worker question within the same session without replaying a completed write or resetting its budget',async()=>{
   const v=await reviewed(questionPlan());respond=async(task,body)=>questionReply(task,body);
   let notify!:(id:string)=>void;const asked=new Promise<string>(resolve=>{notify=resolve;}),controller=new AbortController();
-  const running=executeReviewedRun(project,v.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow',onEvent:e=>{if(e.change.type==='question_asked')notify(e.change.request.id);}});
+  let siblingFinished!:()=>void;const sibling=new Promise<void>(resolve=>{siblingFinished=resolve;});
+  const running=executeReviewedRun(project,v.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow',onEvent:e=>{
+    if(e.change.type==='question_asked')notify(e.change.request.id);
+    // The worker's final agent event advances the revision after its task outcome.
+    if(e.change.type==='agent_finished'&&e.change.taskId==='inspect-b')siblingFinished();
+  }});
   try{
     const id=await asked,store=new ExecutionStore(join(runs.root,v.run.id),v.manifest);
-    await vi.waitFor(()=>expect(store.read().state.tasks['inspect-b']!.status).toBe('completed'));
+    await Promise.race([sibling,running.then(()=>{throw new Error('Run ended before its independent worker finished.');})]);
+    expect(store.read().state.tasks['inspect-b']!.status).toBe('completed');
     const before=store.read(),session=before.state.tasks['inspect-a']!.sessionId;
     expect(before.state.questions![id]).toMatchObject({status:'pending',taskId:'inspect-a',attempt:1,sessionId:session});
     expect(requests.filter(r=>r.task==='inspect-a')).toHaveLength(2);

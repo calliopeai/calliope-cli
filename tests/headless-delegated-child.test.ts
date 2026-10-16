@@ -56,4 +56,16 @@ describe('headless delegated child',()=>{
     expect(await runHeadless({prompt:'work',outputMode:'json',cwd:project,ledger:{url,tokenFile:file,agentId:'child'}})).toBe(1);
     expect(captured).toHaveLength(0);
   });
+  it.each(['file','rotating-link'] as const)('reuses verified history with a %s token path and refuses a rolled-back parent',async mode=>{
+    const {file}=await grantChild(),parentHistory=join(ledger.root,'history.json'),before=fs.readFileSync(parentHistory);
+    const tokenFile=mode==='file'?file:join(root,'projected.token');
+    if(mode==='rotating-link')fs.symlinkSync(file,tokenFile);
+    await runHeadless({prompt:'work',outputMode:'json',cwd:project,ledger:{url,tokenFile,agentId:'child'}});
+    const execution=captured[0]!.execution as AgentExecution;
+    await execution.ledger.reserve(project,hash,{id:randomUUID(),agentId:'child',provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:9,outputTokens:1,inputPrice:1,outputPrice:1,costNanos:10000});
+    if(mode==='rotating-link'){const rotated=join(root,'rotated.token');fs.copyFileSync(file,rotated);fs.unlinkSync(tokenFile);fs.symlinkSync(rotated,tokenFile);}
+    fs.writeFileSync(parentHistory,before);captured.length=0;
+    expect(await runHeadless({prompt:'work',outputMode:'json',cwd:project,ledger:{url,tokenFile,agentId:'child'}})).toBe(1);
+    expect(captured).toHaveLength(0);
+  });
 });

@@ -87,6 +87,23 @@ capacity. Writes retry with the same id; if every attempt is lost it inspects th
 only an outcome the parent recorded counts. Otherwise the result is `unavailable` and nothing is
 authorized (a reservation that was admitted stays charged).
 
+The verified history is checkpointed atomically beneath the client's private
+`root` as `verified-parent/history.json`. Reuse that root after reconnect or
+restart. A missing, damaged, public or linked history file is an error; it is
+never replaced with an empty allowance. Concurrent clients retain the longest
+verified history, so an older response cannot overwrite a newer checkpoint.
+The checkpoint contains no bearer token and never admits a provider request by
+itself. Only the parent service can reserve or settle usage.
+
+Headless children keep this state under `~/.calliope-cli/delegation-ledgers`,
+keyed by the canonical project, configured token-file location and account. Rotating
+the token or its projected-secret symlink at that location preserves verified history; restarting against a
+rolled-back parent stops before the turn starts. Keep this directory on the
+child's persistent private volume when running in a container. A new configured
+token path is a separate connection, not recovery of the old one. These client
+checkpoints do not by themselves wire Astrolift task admission or cancellation
+to the ledger service.
+
 The shared project budget also retains its reservation while admission is unknown.
 An error releases project capacity only after a confirmed rejection before any
 lost response. Even a fresh journal can lag an in-flight admission. Neither a
