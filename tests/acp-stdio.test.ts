@@ -12,6 +12,10 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
+import { ReservationLedger, manifestHash, createLedgerServer, LedgerServerState, mintLedgerToken, type ChildGrant } from '../src/execution/index.js';
+import { executionManifest } from './helpers/execution-manifest.js';
+import { projectIdentity } from '../src/approvals/index.js';
 import { join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { ClientSideConnection, ndJsonStream, type Client, type SessionNotification } from '@zed-industries/agent-client-protocol';
@@ -45,7 +49,7 @@ beforeAll(async () => {
     req.on('end', () => {
       if (req.url === '/v1/models') {
         res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ data: [{ id: 'stdio-model', context_length: 32768, max_output_tokens: 1024, capabilities: { chat: true, tools: true, streaming: true } }] }));
+        res.end(JSON.stringify({ data: [{ id: 'stdio-model', context_length: 32768, max_output_tokens: 8192, pricing: { input: 1, output: 2 }, capabilities: { chat: true, tools: true, streaming: true } }] }));
         return;
       }
       if (req.url !== '/v1/chat/completions') { res.writeHead(404).end(); return; }
@@ -53,6 +57,8 @@ beforeAll(async () => {
       requests.push(request);
       const last = request.messages.at(-1)!;
       const reply = last.role === 'tool' ? completion(request.stream, { content: 'Read it.' }, 'stop')
+        : last.content === 'write notes.txt'
+          ? completion(request.stream, { tool_calls: [{ index: 0, id: 'stdio-write', type: 'function', function: { name: 'write_file', arguments: JSON.stringify({ path: 'notes.txt', content: 'approved edit' }) } }] }, 'tool_calls')
         : last.content === 'read notes.txt'
           ? completion(request.stream, { tool_calls: [{ index: 0, id: 'stdio-read', type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: 'notes.txt' }) } }] }, 'tool_calls')
           : completion(request.stream, { content: `Continuing after ${request.messages.length} messages.` }, 'stop');
@@ -81,9 +87,9 @@ afterEach(async () => {
 });
 
 /** Start `calliope acp` the way an agent host does: stdio pipes, logs on stderr. */
-function start(project: string) {
+function start(project: string, args: string[] = []) {
   const home = join(root, 'home');
-  const child = spawn(process.execPath, [join(build, 'dist', 'bin.js'), 'acp'], {
+  const child = spawn(process.execPath, [join(build, 'dist', 'bin.js'), 'acp', ...args], {
     cwd: project,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: {
@@ -104,8 +110,8 @@ function start(project: string) {
   };
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
   const conn = new ClientSideConnection(() => client, stream);
-  const exited = new Promise<number | null>(done => child.once('exit', code => done(code)));
-  return { child, conn, updates, exited, stderr: () => stderr };
+  const exited = new Promise<number | null>(done => child.once('close', code => done(code)));
+  return { child, conn, client, updates, exited, stderr: () => stderr };
 }
 
 it('restores a session with its history in a new process after the first one is killed', async () => {
@@ -118,7 +124,7 @@ it('restores a session with its history in a new process after the first one is 
   const first = start(project);
   expect((await first.conn.initialize({ protocolVersion: 1, clientCapabilities: {} })).agentCapabilities?.loadSession).toBe(true);
   const { sessionId } = await first.conn.newSession({ cwd: project, mcpServers: [] });
-  expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr()).toBe('end_turn');
+  expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
   expect(requests).toHaveLength(2);
   first.child.kill('SIGKILL');
   await first.exited;
@@ -146,3 +152,114 @@ it('restores a session with its history in a new process after the first one is 
   second.child.stdin!.end();
   expect(await second.exited).toBe(0);
 }, 60000);
+
+
+it('retains the parent account, workspace, history and spent allowance over a native ACP process restart', async () => {
+  requests = [];
+  root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'calliope-acp-delegated-')));
+  const project = join(root, 'source'), copy = join(root, 'copy');
+  for (const directory of [project, copy]) fs.mkdirSync(directory);
+  fs.writeFileSync(join(copy, 'notes.txt'), 'delegated evidence');
+  fs.writeFileSync(join(copy, 'README.md'), 'allowed automatic context');
+  fs.writeFileSync(join(copy, 'CALLIOPE.md'), '## Context\n- DENIED automatic context\n');
+  const home = join(root, 'home'); fs.mkdirSync(join(home, '.calliope-cli'), { recursive: true });
+  fs.writeFileSync(join(home, '.calliope-cli', 'trusted-projects.json'), JSON.stringify({ [copy]: { trusted: true, addedAt: new Date().toISOString() } }));
+  const manifest = executionManifest(project);
+  manifest.deadline = Date.now() + 120000;
+  manifest.tokenBudget = 300000; manifest.costBudgetNanos = 1000000000;
+  for (const account of manifest.accounts) account.deadline = manifest.deadline;
+  Object.assign(manifest.accounts[0]!, { tokenBudget: manifest.tokenBudget, costBudgetNanos: manifest.costBudgetNanos });
+  const ledger = new ReservationLedger(join(root, 'budget')); ledger.create(manifest);
+  const hash = manifestHash(manifest), state = new LedgerServerState(join(root, 'ledger-server'));
+  const token = mintLedgerToken(state.secret(), { v: 1, run: manifest.runId, role: 'parent', exp: manifest.deadline });
+  const service = createLedgerServer({ ledger, cwd: project, state });
+  await new Promise<void>(ready => service.listen(0, '127.0.0.1', ready));
+  const url = `http://127.0.0.1:${(service.address() as { port: number }).port}`;
+  try {
+    const identity = projectIdentity(copy);
+    const grant: ChildGrant = { version: 2, project: { root: identity.project, key: identity.projectKey },
+      id: randomUUID(), proposalHash: 'b'.repeat(64), previousGraphHash: manifest.planHash,
+      planHash: 'c'.repeat(64), runManifestHash: 'd'.repeat(64), approvalRevision: randomUUID(), parentId: 'root',
+      accounts: ['child', 'sibling'].map(id => ({ ...manifest.accounts[1]!, id, parentId: 'root', tokenBudget: 100000, costBudgetNanos: 100000000,
+        allowedPaths: [{ path: 'notes.txt', access: 'write' as const }, { path: 'README.md', access: 'read' as const }] })) };
+    const response = await fetch(`${url}/v1/grant`, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ manifestHash: hash, grant }) });
+    const grantResponse = await response.json() as { token: string };
+    expect(response.ok, JSON.stringify(grantResponse)).toBe(true);
+    const childToken = grantResponse.token, file = join(root, 'child.token');
+    fs.writeFileSync(file, childToken, { mode: 0o600 });
+    const args = ['--ledger-url', url, '--ledger-token-file', file, '--ledger-agent', 'child'];
+    const first = start(copy, args);
+    const init = await first.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
+    expect(init.agentCapabilities?._meta).toMatchObject({ calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 } });
+    await expect(first.conn.newSession({ cwd: project, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+    const { sessionId } = await first.conn.newSession({ cwd: copy, mcpServers: [] });
+    expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
+    expect(requests).toHaveLength(2);
+    expect(JSON.stringify(requests)).toContain('allowed automatic context');
+    expect(JSON.stringify(requests)).not.toContain('DENIED automatic context');
+    expect(ledger.read(project).projection.accounts.child!.tokens).toBe(24);
+    first.child.kill('SIGKILL'); await first.exited;
+
+    // A plain process and a different valid account both refuse the retained session.
+    for (const options of [[], [...args.slice(0, -1), 'sibling']]) {
+      const denied = start(copy, options);
+      await denied.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
+      await expect(denied.conn.loadSession({ sessionId, cwd: copy, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+      expect(denied.updates).toEqual([]);
+      denied.child.stdin!.end(); expect(await denied.exited, denied.stderr()).toBe(0);
+    }
+    expect(requests).toHaveLength(2);
+    const second = start(copy, args);
+    await second.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
+    expect(await second.conn.loadSession({ sessionId, cwd: copy, mcpServers: [] })).toEqual({});
+    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason, second.stderr()).toBe('end_turn');
+    expect(requests).toHaveLength(3);
+    expect(JSON.stringify(requests.at(-1)!.messages)).toContain('delegated evidence');
+    const spent = ledger.read(project);
+    expect(spent.projection.accounts.child!.tokens).toBe(36);
+    expect(spent.projection.accounts.root!.tokens).toBe(36);
+    expect(spent.manifest).toEqual(manifest);
+
+    // Delegation retains native one-time permissions and cancellation.
+    second.client.requestPermission = async () => ({ outcome: { outcome: 'selected', optionId: 'reject' } });
+    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
+    expect(fs.readFileSync(join(copy, 'notes.txt'), 'utf8')).toBe('delegated evidence');
+    second.client.requestPermission = async () => ({ outcome: { outcome: 'selected', optionId: 'allow' } });
+    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
+    expect(fs.readFileSync(join(copy, 'notes.txt'), 'utf8')).toBe('approved edit');
+    let notifyPermission!: () => void;
+    const permissionReady = new Promise<void>(ready => { notifyPermission = ready; });
+    let resolvePermission!: (value: import('@zed-industries/agent-client-protocol').RequestPermissionResponse) => void;
+    second.client.requestPermission = async () => { notifyPermission(); return new Promise(resolve => { resolvePermission = resolve; }); };
+    const pending = second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] });
+    await permissionReady;
+    await second.conn.cancel({ sessionId });
+    expect((await pending).stopReason).toBe('cancelled');
+    resolvePermission({ outcome: { outcome: 'selected', optionId: 'allow' } });
+    const requestsBeforeExhaustion = requests.length;
+    expect(requestsBeforeExhaustion).toBe(8);
+    const charged = ledger.read(project).projection.accounts.child!.tokens;
+    expect(charged).toBe(96);
+
+    // Pending work consumes the remaining allowance. Continuing cannot mint another.
+    await ledger.reserve(project, hash, { id: randomUUID(), agentId: 'child', provider: 'deepseek', model: 'stdio-model', target: 'a'.repeat(64), inputTokens: 100000 - charged - 1, outputTokens: 1, inputPrice: 0, outputPrice: 0, costNanos: 0 });
+    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'exhausted' }] })).stopReason, second.stderr()).toBe('refusal');
+    expect(requests).toHaveLength(requestsBeforeExhaustion);
+    expect(ledger.read(project).projection.accounts.child!.tokens).toBe(100000);
+    second.child.stdin!.end(); expect(await second.exited, second.stderr()).toBe(0);
+  } finally { await new Promise<void>(done => service.close(() => done())); }
+}, 60000);
+
+
+it.each([
+  ['--ledger-agent', 'child'],
+  ['--ledger-url=x', '--ledger-token-file=y', '--ledger-agent=z'],
+  ['--ledger-agent', 'child', '--ledger-agent', 'sibling'],
+].map(args => ({ args })))('rejects malformed ACP delegation arguments before protocol or inference: $args', async ({ args }) => {
+  requests = [];
+  root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'calliope-acp-bad-args-')));
+  const child = start(root, args);
+  expect(await child.exited, child.stderr()).toBe(2);
+  expect(requests).toEqual([]);
+  expect(child.updates).toEqual([]);
+});

@@ -272,7 +272,11 @@ async function main(): Promise<void> {
   // default path pays nothing for it.
   if (args[0] === 'acp') {
     const { runAcpAgent } = await import('./acp.js');
-    const code = await runAcpAgent();
+    const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
+    let ledger: ReturnType<typeof parseDelegatedExecutionOptions>;
+    try { ledger = parseDelegatedExecutionOptions(args.slice(1)); }
+    catch (error) { process.stderr.write(String((error as Error).message) + '\n'); return completeCommand(2); }
+    const code = await runAcpAgent({ ledger });
     return completeCommand(code);
   }
 
@@ -410,12 +414,10 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       if (i > 0 && ['--max-retries', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
-    const flag = (name: string) => { const i = parsed.args.indexOf(name); return i >= 0 ? parsed.args[i + 1] : undefined; };
-    const ledgerUrl = flag('--ledger-url'), ledgerTokenFile = flag('--ledger-token-file'), ledgerAgent = flag('--ledger-agent');
-    if ([ledgerUrl, ledgerTokenFile, ledgerAgent].some(Boolean) && ![ledgerUrl, ledgerTokenFile, ledgerAgent].every(Boolean)) {
-      process.stderr.write('Delegated runs need --ledger-url, --ledger-token-file and --ledger-agent together.\n');
-      return completeCommand(2);
-    }
+    const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
+    let ledger: ReturnType<typeof parseDelegatedExecutionOptions>;
+    try { ledger = parseDelegatedExecutionOptions(parsed.args); }
+    catch (error) { process.stderr.write(String((error as Error).message) + '\n'); return completeCommand(2); }
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
@@ -424,7 +426,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
-      ...(ledgerUrl ? { ledger: { url: ledgerUrl, tokenFile: ledgerTokenFile!, agentId: ledgerAgent! } } : {}),
+      ...(ledger ? { ledger } : {}),
     });
     return completeCommand(exitCode);
   } else {

@@ -30,17 +30,22 @@ key, grant epochs) lives in a private sibling directory, never inside the budget
 ## Run a delegated child
 
 A host (Cy, an Astrolift task) grants the child, writes its scoped token to a private file and
-starts a headless run:
+starts a headless run or native ACP process:
 
 ```sh
 calliope --headless --json --ledger-url URL --ledger-token-file /private/child.token \
   --ledger-agent CHILD_ACCOUNT "objective"
+
+calliope acp --ledger-url URL --ledger-token-file /private/child.token \
+  --ledger-agent CHILD_ACCOUNT
 ```
 
 The turn runs under `ExecutionGuard` with the parent's ledger: the child's tools, paths, deadline
 and budget come from its grant, and every provider request is reserved and settled with the
 parent. A revoked or unknown grant, or an unreachable parent, stops the child before any turn.
-The three flags go together.
+The three flags go together, using separate flag/value arguments. Partial, repeated,
+unknown or equals-form ledger flags fail before execution; they never select an
+undelegated fallback.
 
 ## Operations
 
@@ -96,7 +101,7 @@ verified history, so an older response cannot overwrite a newer checkpoint.
 The checkpoint contains no bearer token and never admits a provider request by
 itself. Only the parent service can reserve or settle usage.
 
-Headless children keep this state under `~/.calliope-cli/delegation-ledgers`,
+Headless and ACP children keep this state under `~/.calliope-cli/delegation-ledgers`,
 keyed by the canonical project, configured token-file location and account. Rotating
 the token or its projected-secret symlink at that location preserves verified history; restarting against a
 rolled-back parent stops before the turn starts. Keep this directory on the
@@ -129,7 +134,7 @@ grants use reservation event version 5 and projection version 4; existing grant
 events, manifests and hashes are unchanged. A restarted client replays the same
 grant through its retained verified checkpoint.
 
-Headless invocations negotiate `execution` before starting their turn. The server
+Headless and ACP invocations negotiate `execution` before starting their turn. The server
 checks the token's account scope, live owner authority and exact project identity.
 The client independently checks the response against the native journal and its
 actual local directory. Missing protocol support, another account, a substituted
@@ -163,3 +168,34 @@ validation. Embedders must verify these fields before supplying delegated tasks;
 a matching package version alone does not establish those capabilities. This
 probe does not grant authority: each invocation still negotiates with the live
 parent and validates its token, journal and workspace before inference.
+
+
+### Native ACP session continuity
+
+ACP connects to the parent's ledger before opening its protocol transport. The
+process has one trusted execution context; `session/new` and `session/load` cannot
+replace it through client parameters. `initialize` advertises
+`agentCapabilities._meta.calliopeDelegation` with `version: 1`,
+`workspaceBinding: 1` and `sessionBinding: 1`. A host must negotiate this metadata
+before relying on delegated ACP behavior.
+
+New delegated sessions retain a versioned restriction containing the original
+manifest hash and account ID in private session metadata. Saving a conversation
+or creating a manual/safety branch preserves it. This marker does not mint a
+grant, reserve tokens or confer authority. Loading requires the same live ledger
+and account, an exact workspace match and an unexpired original deadline. A
+plain ACP process cannot load a bound session, and a delegated process cannot
+attach its allowance to old unbound history. The shared turn engine also checks
+the restriction before inference through other clients.
+
+Follow-up prompts use the original account's reservations, costs and clock.
+Native one-time approvals, tool results, cancellation and protocol replay remain
+in use. Automatic project memory/context is filtered through the granted read
+scope before inclusion in the system prompt; project trust alone does not widen
+that scope. Operator-owned global preferences remain trusted configuration.
+
+This is a CLI capability, not completed Astrolift enrollment. The runtime adapter
+must still pass the trusted tuple, retain its task binding across restarts, verify
+the capability and connect owner lifecycle/funding. Retained metadata is a
+restriction within the private store, not protection against an administrator
+rewriting that store or explicitly transferring conversation content elsewhere.

@@ -21,12 +21,13 @@ import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
 import { withSession, makeToolOutput, saveToolOutput, type CapturedToolOutput, type RecoveryStatus } from '../sessions/index.js';
-import { getSessionDirById } from '../storage.js';
+import { getSessionDirById, getSessionById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
+import { assertExecutionBinding } from '../execution/delegated.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -104,6 +105,7 @@ export function completePendingTools(messages: Message[], reason: string): void 
 }
 
 export async function runTurn(options: TurnOptions): Promise<TurnResult> {
+  assertExecutionBinding(getSessionById(options.sessionId)?.executionBinding, options.execution);
   const guard=options.execution?new ExecutionGuard(options.execution,options.cwd):undefined;
   if(!guard)return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
   const controller=new AbortController(),abort=()=>controller.abort(options.signal?.reason);

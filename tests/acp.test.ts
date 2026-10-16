@@ -144,9 +144,9 @@ async function waitFor(cond: () => boolean, tries = 200): Promise<void> {
 }
 
 /** Spin up an agent + connected test client over an in-memory pair. */
-function connect(): { client: TestClient; conn: ClientSideConnection; agent: ReturnType<typeof serveAcp> } {
+function connect(execution?: import('../src/execution/guard.js').AgentExecution): { client: TestClient; conn: ClientSideConnection; agent: ReturnType<typeof serveAcp> } {
   const { agentStream, clientStream } = streamPair();
-  const agent = serveAcp(agentStream);
+  const agent = serveAcp(agentStream, { execution });
   const client = new TestClient();
   const conn = new ClientSideConnection((_agent: Agent) => client, clientStream);
   return { client, conn, agent };
@@ -898,4 +898,28 @@ describe('session/load', () => {
     expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content))
       .toEqual(['first answer', 'second answer']);
   });
+});
+
+it('refuses expired delegated new/load sessions and refuses attaching a ledger to unbound history', async () => {
+  const { ReservationLedger, manifestHash } = await import('../src/execution/index.js');
+  const { executionManifest } = await import('./helpers/execution-manifest.js');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpHome, 'acp-binding-')));
+  const project = path.join(root, 'project'); fs.mkdirSync(project);
+  const manifest = executionManifest(project), ledger = new ReservationLedger(path.join(root, 'budget'));
+  ledger.create(manifest);
+  const execution = { ledger, manifestHash: manifestHash(manifest), agentId: 'a', maxOutputTokens: 100 };
+  const plain = connect(); await handshake(plain.conn);
+  const plainId = await newSession(plain.conn, project); await plain.agent.shutdown();
+  const bounded = connect(execution); await handshake(bounded.conn);
+  await expect(bounded.conn.loadSession({ sessionId: plainId, cwd: project, mcpServers: [] }))
+    .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('original parent ledger') } });
+  const boundId = await newSession(bounded.conn, project); await bounded.agent.shutdown();
+  const expired = connect(execution); await handshake(expired.conn);
+  const now = vi.spyOn(Date, 'now').mockReturnValue(manifest.deadline + 1);
+  try {
+    await expect(newSession(expired.conn, project)).rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('deadline expired') } });
+    await expect(expired.conn.loadSession({ sessionId: boundId, cwd: project, mcpServers: [] }))
+      .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('deadline expired') } });
+    expect(expired.client.updates).toEqual([]); expect(mockChat).not.toHaveBeenCalled();
+  } finally { now.mockRestore(); await expired.agent.shutdown(); }
 });

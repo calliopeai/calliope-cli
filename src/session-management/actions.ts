@@ -41,7 +41,7 @@ export async function branchSession(id: string, options: SessionActionOptions & 
   if (options.expectedRevision !== undefined && replay.snapshot.revision !== options.expectedRevision) throw new SessionRecoveryError('conflict', 'another terminal saved this session; use /resume before branching.');
   const files = readToolState(storage.getSessionDirById(id)!);
   throwIfCancelled(options.signal);
-  const session = storage.createSession(source.projectPath, { activate: false, lineage: {
+  const session = storage.createSession(source.projectPath, { activate: false, executionBinding: source.executionBinding, lineage: {
     version: 1, toolStateHash: toolStateHash(files), kind: options.kind ?? 'manual', ...(options.name ? { name: options.name } : {}), sessionId: id,
     revision: replay.snapshot.revision, stateHash: stateHash(replay.snapshot), at: new Date().toISOString(),
   } });
