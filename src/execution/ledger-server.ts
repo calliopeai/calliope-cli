@@ -14,6 +14,10 @@ export interface LedgerServerOptions {
   cwd:string;
   state:LedgerServerState;
   now?:()=>number;
+  /** Trusted owner lifecycle check, e.g. prepareAgentExecution().assertAuthority.
+   * Fences new reservations/grants under the writer lock; reads, replay and
+   * settlement remain available to reconcile already admitted requests. */
+  assertAuthority?:()=>void;
 }
 const STATUS:Record<ExecutionLimitError['code'],number>={invalid:400,authority:403,budget:409,deadline:409,conflict:409,limit:409,locked:503,unavailable:503};
 interface AdmissionOutcome {admission:'refused'|'unknown'}
@@ -50,7 +54,8 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       const prior=current().projection.requests[reservation?.id];
       // Replay with the same id answers the original admission; a different body is a conflict.
       if(prior){if(canonicalJson(prior.reservation)!==canonicalJson(reservation))throw new ExecutionLimitError('conflict','Reservation id already admitted a different request.');return {...journal(),replayed:true};}
-      try{await ledger.reserve(cwd,hash,reservation,undefined,()=>assertActive(token));}
+      const assertAdmission=()=>{assertActive(token);options.assertAuthority?.();};
+      try{assertAdmission();await ledger.reserve(cwd,hash,reservation,undefined,assertAdmission);}
       catch(error){
         // The local operation has finished. Prove non-admission from the same
         // authority before calling this a refusal; failed reads stay unknown.
@@ -74,6 +79,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       const grant=body.grant as ChildGrant,hash=String(body.manifestHash);owns(token,grant?.parentId);
       const assertGrant=()=>{
         assertActive(token);
+        options.assertAuthority?.();
         if(grant?.id&&state.isRevoked(grant.id))throw new ExecutionLimitError('authority','This child grant was revoked and cannot be reissued.');
       };
       assertGrant();await ledger.grantChildren(cwd,hash,grant,undefined,assertGrant);assertGrant();

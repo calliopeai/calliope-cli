@@ -63,6 +63,21 @@ Admission rechecks token expiry and grant revocation while holding the ledger's
 writer lock, immediately before committing a reservation or nested grant. A
 request queued before revocation cannot acquire authority when the lock opens.
 
+An embedded owner can also supply `createLedgerServer({ledger, cwd, state,
+assertAuthority: execution.assertAuthority})`, using the handle returned by
+`prepareAgentExecution`. The server rechecks this trusted callback before new
+admission and under the writer lock, including grant reissue. Cancelling the
+native reviewed run then fences remote reservations and grants even before a
+coordinator journal exists. The callback is host code, never a request argument.
+The standalone `ledger serve --budget ...` command serves an explicitly selected
+raw ledger; it does not infer a reviewed-run binding.
+
+Owner cancellation still permits authenticated journal inspection, replay of an
+already admitted reservation, and settlement of existing requests. These reconcile
+prior work; they do not authorize another provider call. Unknown/cancelled usage
+retains its reserved charge. Token expiry and grant revocation continue to apply
+to every operation, so a revoked child needs its owner to reconcile its requests.
+
 ## Client behaviour
 
 `RemoteReservationLedger` gives `ExecutionGuard` the same read/reserve/settle surface as the local

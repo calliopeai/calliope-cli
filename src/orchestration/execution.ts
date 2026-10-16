@@ -32,6 +32,6 @@ export async function prepareAgentExecution(cwd:string,runId:string,agentId:stri
   if(manifest.runId!==runId||manifest.planHash!==view.manifest.planHash)throw new OrchestrationError('conflict','Budget belongs to another run plan.');
   goalAuthority?.checkBudget(manifest);
   ledger.create(manifest,options.signal);
-  const assertAuthority=()=>{goalAuthority?.assertActive();if(executionStore.exists()){const current=inspectSpawnAuthority(executionStore,ledger);executionStore.assertApproval(current.view.header);if(!current.context.plan.agents.some(a=>a.id===agentId))throw new OrchestrationError('policy-denied','Agent is not admitted to the current graph.');}};
+  const assertAuthority=()=>{executionStore.assertApproval({approvalRevision:view.run.revision});goalAuthority?.assertActive();if(executionStore.exists()){const current=inspectSpawnAuthority(executionStore,ledger);executionStore.assertApproval(current.view.header);if(!current.context.plan.agents.some(a=>a.id===agentId))throw new OrchestrationError('policy-denied','Agent is not admitted to the current graph.');}};
   assertAuthority();return {ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens,assertAuthority};
 }

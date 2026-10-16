@@ -54,7 +54,8 @@ export class ExecutionStore {
     if(projectIdentity(this.manifest.project.root).projectKey!==this.manifest.project.key)throw new ExecutionLimitError('authority','Project identity changed during coordinator execution.');
     privateDirectory(dirname(this.root));return privateDirectory(this.root);
   }
-  assertApproval(header:ExecutionHeader):void {
+  /** Approval also fences prepared budget handles before the coordinator journal exists. */
+  assertApproval(header:Pick<ExecutionHeader,'approvalRevision'>):void {
     const head=parsed(join(dirname(this.root),'head.json'),4096);shape(head,['version','runId','manifestHash','event','hash']);shape(head.event,['id','hash']);const {hash,...body}=head;
     if(hash!==digest(canonicalJson(body))||head.runId!==this.manifest.id||head.manifestHash!==this.manifest.hash||head.event.id!==header.approvalRevision)
       throw new ExecutionLimitError('authority','Run approval was revoked or changed; coordinator execution stopped.');

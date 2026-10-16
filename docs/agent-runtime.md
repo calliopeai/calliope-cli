@@ -4,7 +4,11 @@ The shared runtime accepts `runTurn({ execution, ... })`. A trusted caller gets
 that context from `prepareAgentExecution(cwd, runId, agentId, maxOutputTokens,
 options)`, which requires an approved run, checks `orchestration_budget` through
 the permission resolver and rechecks approval after waiting. Preparation sends
-no provider request and grants no file permission.
+no provider request and grants no file permission. The returned handle checks the
+original native approval on every admission, including before a coordinator
+journal exists. Local reservations recheck that authority inside the writer lock;
+cancellation while waiting cannot reserve fresh capacity. Previously admitted
+unknown spend stays charged, and late known usage can still settle.
 
 This library boundary is used by the [coordinator](coordinator-execution.md) for
 reviewed task graphs, artifact verification and resumable execution. The coordinator

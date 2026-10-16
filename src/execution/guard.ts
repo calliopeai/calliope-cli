@@ -107,7 +107,7 @@ export class ExecutionGuard {
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
         let state;
-        try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})},signal);}
+        try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})},signal,()=>this.assertActive(signal));}
         catch(error){
           // A failed reply is not proof that the parent refused admission. Keep
           // both reservations charged unless the operation is known to have
