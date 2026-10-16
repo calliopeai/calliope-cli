@@ -27,6 +27,50 @@ It prints `{"protocol":"delegation-ledger/v1","url":...,"runId":...}` once liste
 token goes to `--token-file` (created new, mode 0600) and is never printed. Server state (signing
 key, grant epochs) lives in a private sibling directory, never inside the budget directory.
 
+## Serve a reviewed native run
+
+```sh
+calliope ledger serve-reviewed --run RUN_ID --agent AGENT_ID \
+  --max-output-tokens 1024 --project /path/to/project \
+  --token-file /private/owner.token
+```
+
+This mode calls `prepareReviewedLedger`, reuses the run's native permission gates,
+original budget, parent funding and deadline, and serves only the selected agent's
+subtree. The token file must be outside the project in a private canonical directory;
+it is created exclusively and never printed. Output includes the owner, original
+deadline and versioned reviewed-host capability. SIGINT/SIGTERM close the listener.
+Failed credential delivery also closes it without replacing an existing file.
+Library hosts can call `prepareReviewedLedger(cwd, runId, agentId, maxOutputTokens,
+options)` for the unbound server and private credential. They control where it listens.
+
+Version 2 credentials bind the owner scope and exact native run review. Older
+servers reject that token version; current raw-ledger endpoints reject its reviewed
+authority binding. Child credentials retain that binding. A sibling owner endpoint
+cannot accept the token, and reservations, settlements and revocations enforce the
+selected subtree. Each new request also checks the target account's native admission,
+stop/escalation state and the host's output cap. Existing requests can still settle
+after owner cancellation; grant revocation and token expiry retain their existing
+semantics.
+
+The HTTP grant operation only returns credentials for an **exact, already admitted**
+native child grant. It cannot create a proposal, approve children, bypass native
+depth/count limits or promote an interrupted ledger grant into the execution graph.
+Use the existing native proposal review/admission flow first. Reissuing a credential
+preserves its account, deadline and all recorded spending; revoked grants stay revoked.
+
+All owners of a run share its private signing key and revocation history. A native
+writer lock serializes revocations from separate processes; only confirmed dead locks
+are reclaimed. Malformed, missing, public or linked revocation/key files are refused.
+New keys initialize an empty revocation history once. A retained legacy key without
+that history requires verified restoration or an explicit owner-managed credential
+rotation; opening it never silently treats missing revocations as an empty history.
+
+This is reviewed ledger hosting, not automatic Cykick/Astrolift enrollment. Remote
+workspace identity, dispatcher credential delivery, task-attempt ownership, transport
+reachability and any narrower Cykick file-mutation policy still need their native
+bindings. A loopback listener does not make a desktop reachable from a remote pod.
+
 ## Run a delegated child
 
 A host (Cy, an Astrolift task) grants the child, writes its scoped token to a private file and

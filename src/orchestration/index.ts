@@ -23,3 +23,4 @@ export type {RecordedAgentRoute} from './routing.js';
 export type {AttributedCharge,RequestAccounting} from './request-accounting.js';
 
 export * from './interruption.js';
+export * from './reviewed-ledger.js';

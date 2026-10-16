@@ -4,7 +4,7 @@ import * as http from 'node:http';
 import {canonicalJson} from '../approvals/index.js';
 import {ReservationLedger} from './ledger.js';
 import {ExecutionLimitError,type ChildGrant,type RequestReservation,type RequestSettlement} from './types.js';
-import {accountLineage,identifier,validateExecutionProject} from './authority.js';
+import {accountLineage,identifier,hex,validateExecutionProject} from './authority.js';
 import {effectiveExecutionManifest,executionProjectForAccount} from './child-grants.js';
 import {LEDGER_PROTOCOL,LEDGER_OPERATIONS,MAX_LEDGER_REQUEST_BYTES,LedgerServerState,mintLedgerToken,verifyLedgerToken,type LedgerTokenClaims} from './ledger-protocol.js';
 
@@ -14,6 +14,14 @@ export interface LedgerServerOptions {
   cwd:string;
   state:LedgerServerState;
   now?:()=>number;
+  /** Restrict this endpoint to one owner subtree, even for otherwise valid tokens. */
+  ownerAgentId?:string;
+  /** Exact reviewed-host audience; authenticated tokens cannot downgrade to raw serving. */
+  authority?:string;
+  /** Trusted reviewed host: target-account lifecycle and existing native grant checks. */
+  assertAccountAuthority?:(agentId:string)=>void;
+  assertReservationAuthority?:(reservation:RequestReservation)=>void;
+  assertGrantAuthority?:(grant:ChildGrant)=>void;
   /** Trusted owner lifecycle check, e.g. prepareAgentExecution().assertAuthority.
    * Fences new reservations/grants under the writer lock; reads, replay and
    * settlement remain available to reconcile already admitted requests. */
@@ -24,7 +32,9 @@ interface AdmissionOutcome {admission:'refused'|'unknown'}
 
 export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const {ledger,cwd,state}=options,now=options.now??Date.now,secret=state.secret();
+  if(options.authority!==undefined&&!hex(options.authority))throw new ExecutionLimitError('invalid','Invalid ledger authority binding.');
   const current=()=>ledger.read(cwd);
+  if(options.ownerAgentId!==undefined){identifier(options.ownerAgentId);const saved=current();accountLineage(effectiveExecutionManifest(saved.manifest,saved.projection),options.ownerAgentId);}
   const journal=()=>{const {manifest,events}=current();return {manifest,events};};
   const assertActive=(token:LedgerTokenClaims)=>{
     if(token.exp<=now())throw new ExecutionLimitError('authority','Ledger token expired; no further requests are authorized.');
@@ -33,18 +43,29 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const claims=(req:http.IncomingMessage):LedgerTokenClaims=>{
     const header=req.headers.authorization??'';const run=current().manifest.runId;
     const token=verifyLedgerToken(secret,header.startsWith('Bearer ')?header.slice(7):undefined,run,now());
-    assertActive(token);return token;
+    if(token.authority!==options.authority)throw new ExecutionLimitError('authority','Ledger token belongs to another authority binding.');
+    assertActive(token);
+    if(options.ownerAgentId!==undefined){
+      const roots=token.role==='child'?token.accounts!:token.v===2?[token.owner!]:[];
+      if(!roots.length||roots.some(id=>!within(id,options.ownerAgentId!)))throw new ExecutionLimitError('authority','Ledger token belongs to another owner scope.');
+    }
+    return token;
   };
   /** Revoking a grant fences every descendant account, whichever token it was minted under. */
   const revokedLineage=(accounts:string[]):boolean=>{
     const saved=current(),effective=effectiveExecutionManifest(saved.manifest,saved.projection),records=saved.projection.childGrants??[];
     return accounts.some(id=>accountLineage(effective,id).some(a=>records.some(r=>state.isRevoked(r.grant.id)&&r.grant.accounts.some(g=>g.id===a.id))));
   };
-  /** A child may act only for its own accounts and their descendants (grandchildren it granted). */
+  const within=(agentId:string,owner:string):boolean=>{
+    const saved=current();return accountLineage(effectiveExecutionManifest(saved.manifest,saved.projection),agentId).some(a=>a.id===owner);
+  };
+  /** Token scope survives reuse at another endpoint serving the same run. */
   const owns=(token:LedgerTokenClaims,agentId:string)=>{
-    if(token.role==='parent')return;
-    const saved=current(),effective=effectiveExecutionManifest(saved.manifest,saved.projection);
-    if(!accountLineage(effective,agentId).some(a=>token.accounts!.includes(a.id)))throw new ExecutionLimitError('authority','This token cannot act for that account.');
+    identifier(agentId);
+    if(options.ownerAgentId!==undefined&&!within(agentId,options.ownerAgentId))throw new ExecutionLimitError('authority','This endpoint cannot act for that account.');
+    if(token.role==='parent'){
+      if(token.v===2&&!within(agentId,token.owner!))throw new ExecutionLimitError('authority','This parent token cannot act for that account.');
+    }else if(!token.accounts!.some(owner=>within(agentId,owner)))throw new ExecutionLimitError('authority','This token cannot act for that account.');
   };
   const handlers:Record<string,(token:LedgerTokenClaims,body:Record<string,unknown>,outcome:AdmissionOutcome)=>Promise<unknown>>={
     hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations:LEDGER_OPERATIONS,runId:manifest.runId};},
@@ -53,7 +74,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       identifier(body.agentId);owns(token,body.agentId);
       const project=validateExecutionProject(body.project),saved=current();
       if(canonicalJson(project)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,body.agentId)))throw new ExecutionLimitError('authority','Workspace does not match the owner-declared child project.');
-      options.assertAuthority?.();
+      options.assertAuthority?.();options.assertAccountAuthority?.(body.agentId);
       return {...journal(),binding:{version:1,agentId:body.agentId,project}};
     },
     reserve:async(token,body,outcome)=>{
@@ -61,7 +82,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       const prior=current().projection.requests[reservation?.id];
       // Replay with the same id answers the original admission; a different body is a conflict.
       if(prior){if(canonicalJson(prior.reservation)!==canonicalJson(reservation))throw new ExecutionLimitError('conflict','Reservation id already admitted a different request.');return {...journal(),replayed:true};}
-      const assertAdmission=()=>{assertActive(token);options.assertAuthority?.();};
+      const assertAdmission=()=>{assertActive(token);owns(token,reservation.agentId);options.assertAuthority?.();options.assertAccountAuthority?.(reservation.agentId);options.assertReservationAuthority?.(reservation);};
       try{assertAdmission();await ledger.reserve(cwd,hash,reservation,undefined,assertAdmission);}
       catch(error){
         // The local operation has finished. Prove non-admission from the same
@@ -90,18 +111,18 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       if(grant?.version===2&&token.role!=='parent')throw new ExecutionLimitError('authority','Only the ledger owner can bind a child to another workspace.');
       const assertGrant=()=>{
         assertActive(token);
-        options.assertAuthority?.();
+        owns(token,grant?.parentId);options.assertAuthority?.();options.assertAccountAuthority?.(grant?.parentId);options.assertGrantAuthority?.(grant);
         if(grant?.id&&state.isRevoked(grant.id))throw new ExecutionLimitError('authority','This child grant was revoked and cannot be reissued.');
       };
       assertGrant();await ledger.grantChildren(cwd,hash,grant,undefined,assertGrant);assertGrant();
-      const deadline=Math.min(...grant.accounts.map(a=>a.deadline));
-      const child=mintLedgerToken(secret,{v:1,run:current().manifest.runId,role:'child',grant:grant.id,epoch:state.epoch(grant.id),accounts:grant.accounts.map(a=>a.id),exp:deadline});
+      const deadline=Math.min(token.exp,...grant.accounts.map(a=>a.deadline));
+      const child=mintLedgerToken(secret,{v:token.authority?2:1,...(token.authority?{authority:token.authority}:{}),run:current().manifest.runId,role:'child',grant:grant.id,epoch:state.epoch(grant.id),accounts:grant.accounts.map(a=>a.id),exp:deadline});
       return {...journal(),token:child};
     },
     revoke:async(token,body)=>{
       if(token.role!=='parent')throw new ExecutionLimitError('authority','Only the parent can revoke a child grant.');
-      const grant=String(body.grant);if(!current().projection.childGrants?.some(r=>r.grant.id===grant))throw new ExecutionLimitError('conflict','No such child grant.');
-      return {grant,epoch:state.revoke(grant)};
+      const grant=String(body.grant),record=current().projection.childGrants?.find(r=>r.grant.id===grant);if(!record)throw new ExecutionLimitError('conflict','No such child grant.');
+      owns(token,record.grant.parentId);return {grant,epoch:state.revoke(grant)};
     },
   };
   return http.createServer((req,res)=>{
