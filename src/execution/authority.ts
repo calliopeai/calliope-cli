@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
 import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
-import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath } from './types.js';
+import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath, type ParentBudgetLink } from './types.js';
 
 export const MAX_EXECUTION_ACCOUNTS = 256;
 export const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
@@ -21,9 +21,15 @@ export function pathName(v: unknown): asserts v is string {
 }
 export const covers = (parent: string, child: string): boolean => parent === '.' || parent === child || child.startsWith(parent+'/');
 export const permits = (grants: ExecutionPath[], path: string, access: 'read' | 'write'): boolean => grants.some(g => covers(g.path,path) && (access === 'read' || g.access === 'write'));
+export function validateParentBudgetLink(value:unknown):ParentBudgetLink {
+  shape(value,['version','runsRoot','runId','runManifestHash','approvalRevision','budgetManifestHash','agentId']);
+  if(value.version!==1||typeof value.runsRoot!=='string'||!value.runsRoot||value.runsRoot.length>4096||!isAbsolute(value.runsRoot)||resolve(value.runsRoot)!==value.runsRoot||/[\x00-\x1f\x7f]/.test(value.runsRoot)||!uuid(value.runId)||!uuid(value.approvalRevision)||!hex(value.runManifestHash)||!hex(value.budgetManifestHash))invalid();
+  identifier(value.agentId);return JSON.parse(canonicalJson(value)) as ParentBudgetLink;
+}
 export function validateExecutionManifest(value: unknown): ExecutionManifest {
-  shape(value,['version','runId','planHash','project','createdAt','deadline','tokenBudget','costBudgetNanos','accounts']);
-  if (value.version !== 1 || !uuid(value.runId) || !hex(value.planHash)) invalid();
+  shape(value,['version','runId','planHash','project','createdAt','deadline','tokenBudget','costBudgetNanos','accounts'],['parent']);
+  if (![1,2].includes(value.version as number) || !uuid(value.runId) || !hex(value.planHash)) invalid();
+  if(value.version===2)validateParentBudgetLink(value.parent);else if(value.parent!==undefined)invalid();
   shape(value.project,['root','key']);
   if (typeof value.project.root !== 'string' || value.project.root.length > 4096 || !isAbsolute(value.project.root) || !hex(value.project.key)) invalid();
   integer(value.createdAt,1,8640000000000000); integer(value.deadline,value.createdAt+1,Math.min(8640000000000000,value.createdAt+86400000));

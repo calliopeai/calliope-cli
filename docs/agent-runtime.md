@@ -125,6 +125,37 @@ provider evidence with human review; no automatic forgiveness/repair command is
 provided. Archive only after accounting for pending requests and preserving the
 project total.
 
+### Shared allowances across reviewed runs
+
+Trusted embedders can pass `RunActionOptions.parentBudget` when first preparing
+an execution. The version 1 link identifies a native run store, run manifest,
+approval revision, budget manifest and agent account. Execution manifest version
+2 persists that link; reopening without the option retains it. An existing budget
+cannot acquire or switch parents. Older clients reject version 2 rather than
+silently running without its funding boundary. `parentBudgetCapabilities()`
+advertises the embedding contract.
+
+Both runs must belong to the same canonical local project. Child caps, absolute
+deadline and every account's tool/path scope must fit the parent account. Up to
+eight acyclic funding links are supported. Native plans and approvals remain
+independent; funding does not create or approve work or extend a deadline.
+
+Admission reserves the same provider request in each ancestor ledger before
+committing its child reservation. Shared parent writer locks serialize competing
+runs. Parent cancellation, stopped/completed accounts and expired or corrupt
+authority refuse new admission. A deterministic child-manifest/request identity
+prevents sibling collisions and permits an identical interrupted admission to
+recover its existing pending charge. A partial write retains reservations; there
+is no cross-file transaction or automatic refund.
+
+Settlement records the child's result before propagating it upward, including
+after cancellation. If propagation fails, the parent charge remains reserved;
+retry the identical settlement to reconcile it. Conflicting usage is refused.
+Unknown usage stays charged; invalid usage stops further admission. Project spend
+is charged once at the provider boundary. Parent and child totals describe the
+same requests and must never be added together as separate expenses. This local
+funding contract does not implement remote placement or conversation budget UI.
+
 Synthetic tests exercise installed SDKs, concurrent agent/ordinary project spend,
 restart, approval races, policy denial, file conflicts, cancellation, malformed
 state and retention. They do not replace real-wire captures. See

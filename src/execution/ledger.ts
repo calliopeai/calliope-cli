@@ -155,7 +155,21 @@ export class ReservationLedger {
   }
   /** Settlement is allowed after cancellation/deadline so known spend can still be recorded. */
   async settle(cwd:string,expectedManifest:string,value:RequestSettlement):Promise<ReservationProjection> {
-    settlement(value);return this.append(cwd,expectedManifest,{type:'settle',settlement:structuredClone(value)});
+    settlement(value);const saved=this.read(cwd);
+    if(saved.projection.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; settlement denied.');
+    let result:ReservationProjection;
+    const entry=saved.projection.requests[value.requestId];
+    if(saved.manifest.parent&&entry&&entry.state!=='pending'){
+      const event=saved.events.find(event=>event.change.type==='settle'&&event.change.settlement.requestId===value.requestId);
+      if(!event||event.change.type!=='settle'||canonicalJson(event.change.settlement)!==canonicalJson(value))throw new ExecutionLimitError('conflict','Request was already settled differently.');
+      result=saved.projection;
+    }else result=await this.append(cwd,expectedManifest,{type:'settle',settlement:structuredClone(value)});
+    if(saved.manifest.parent){
+      const {parentBudgetAuthority,settleParent}=await import('./parent-budget.js');
+      const parent=await parentBudgetAuthority(saved.manifest,cwd,false);
+      await settleParent(parent!,cwd,parent!.settlement(value));
+    }
+    return result;
   }
   private async append(cwd:string,expectedManifest:string,change:ReservationEvent['change'],signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     throwIfCancelled(signal);const before=directory(this.root),file=join(this.root,'history.json'),lock=join(this.root,'writer.lock');let fd:number|undefined;
@@ -168,16 +182,22 @@ export class ReservationLedger {
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
       const raw=read(file),journal=decode(raw),current=replayReservations(journal.manifest,journal.events);checkExecutionIdentity(journal.manifest,cwd);
       if(current.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; request denied.');
-      if(change.type==='child_grant'){const prior=current.childGrants?.find(r=>r.grant.id===change.grant.id);if(prior){if(canonicalJson(prior.grant)!==canonicalJson(change.grant))throw new ExecutionLimitError('conflict','Child grant identity already belongs to another proposal.');beforeCommit?.();throwIfCancelled(signal);return current;}}
+      const funding=journal.manifest.parent&&change.type!=='settle'
+        ?await (await import('./parent-budget.js')).parentBudgetAuthority(journal.manifest,cwd,true,signal):undefined;
+      if(change.type==='child_grant'){const prior=current.childGrants?.find(r=>r.grant.id===change.grant.id);if(prior){if(canonicalJson(prior.grant)!==canonicalJson(change.grant))throw new ExecutionLimitError('conflict','Child grant identity already belongs to another proposal.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);return current;}}
       // Leave enough room to settle every pending reservation.
       const pending=Object.values(current.requests).filter(r=>r.state==='pending').length;
       if(journal.events.length+(change.type!=='settle'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
       const body={version:reservationVersion(change),id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
       const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=replayReservations(journal.manifest,events),output=encode(journal.manifest,events);
+      if(funding&&change.type==='reserve'){
+        const {reserveParent}=await import('./parent-budget.js');
+        await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);
+      }
       temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd);
       const effective=effectiveExecutionManifest(journal.manifest,next);
       if(change.type==='reserve'&&this.now()>=Math.min(effective.deadline,...accountLineage(effective,change.reservation.agentId).map(a=>a.deadline))||change.type==='child_grant'&&change.grant.accounts.some(a=>this.now()>=a.deadline))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation or grant commit.');
-      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
+      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
     }finally{
       fs.closeSync(fd!);try{sameDirectory(this.root,before);if(temp)fs.unlinkSync(temp);const current=fs.lstatSync(lock);if(current.ino===identity.ino&&current.dev===identity.dev)fs.unlinkSync(lock);}catch{/* Preserve foreign directories and locks. */}
     }

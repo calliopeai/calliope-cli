@@ -5,12 +5,18 @@ export interface ExecutionAccount {
   tokenBudget: number; costBudgetNanos: number; deadline: number;
   allowedTools: string[]; allowedPaths: ExecutionPath[];
 }
+export interface ParentBudgetLink {
+  version:1;runsRoot:string;runId:string;runManifestHash:string;
+  approvalRevision:string;budgetManifestHash:string;agentId:string;
+}
 export interface ExecutionManifest {
-  version: 1; runId: string; planHash: string;
+  version: 1|2; runId: string; planHash: string;
   project: { root: string; key: string };
   createdAt: number; deadline: number;
   tokenBudget: number; costBudgetNanos: number;
   accounts: ExecutionAccount[];
+  /** Version 2 persists the funding boundary; reopening cannot omit it. */
+  parent?:ParentBudgetLink;
 }
 export interface RequestReservation {
   id: string; agentId: string; provider: string; model: string; target: string;

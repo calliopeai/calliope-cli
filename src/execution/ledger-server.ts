@@ -70,7 +70,10 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       if(!entry)throw new ExecutionLimitError('conflict','Request was never reserved.');owns(token,entry.reservation.agentId);
       if(entry.state!=='pending'){
         const settled=saved.events.find(e=>e.change.type==='settle'&&e.change.settlement.requestId===settlement.requestId);
-        if(settled&&settled.change.type==='settle'&&canonicalJson(settled.change.settlement)===canonicalJson(settlement))return {...journal(),replayed:true};
+        if(settled&&settled.change.type==='settle'&&canonicalJson(settled.change.settlement)===canonicalJson(settlement)){
+          if(saved.manifest.parent)await ledger.settle(cwd,hash,settlement);
+          return {...journal(),replayed:true};
+        }
         throw new ExecutionLimitError('conflict','Request was already settled differently.');
       }
       await ledger.settle(cwd,hash,settlement);return journal();
