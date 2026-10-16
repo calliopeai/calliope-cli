@@ -22,7 +22,7 @@ beforeAll(() => {
 
 afterAll(() => fs.rmSync(build, { recursive: true, force: true }));
 
-it('prints only {version, acp} and never checks npm for updates', () => {
+it('advertises offline runtime capabilities without checking npm for updates', () => {
   const home = join(build, 'home');
   fs.mkdirSync(home);
   for (const args of [['--version', '--json'], ['-v', '--json']]) {
@@ -33,8 +33,8 @@ it('prints only {version, acp} and never checks npm for updates', () => {
       timeout: 20000,
     });
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toBe(`${JSON.stringify({ version, acp: PROTOCOL_VERSION })}\n`);
-    expect(JSON.parse(result.stdout)).toEqual({ version, acp: 1 });
+    expect(result.stdout).toBe(`${JSON.stringify({ version, acp: PROTOCOL_VERSION, headless: { protocol: 1, delegation: 1, workspaceBinding: 1 } })}\n`);
+    expect(JSON.parse(result.stdout)).toEqual({ version, acp: 1, headless: { protocol: 1, delegation: 1, workspaceBinding: 1 } });
   }
   // Plain --version records its npm lookup in this cache; the JSON form must not make one.
   expect(fs.existsSync(join(home, '.config', 'calliope', 'version-cache.json'))).toBe(false);

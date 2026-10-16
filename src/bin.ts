@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     // Embedders check compatibility before spawning `calliope acp`; offline, no update check.
     if (args.includes('--json')) {
       const { PROTOCOL_VERSION } = await import('@zed-industries/agent-client-protocol');
-      console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION }));
+      console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION, headless: { protocol: 1, delegation: 1, workspaceBinding: 1 } }));
       return completeCommand(0);
     }
     console.log(`calliope v${getVersion()}`);

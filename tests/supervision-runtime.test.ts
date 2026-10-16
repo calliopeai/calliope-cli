@@ -539,7 +539,7 @@ it.each(['approve','reject'] as const)('keeps a child replan sequential at full 
     expect(JSON.stringify(childRetry.context.supervision.feedback)).not.toContain(parentFailure!.id);expect(result.execution.state.supervision?.strategies['child-task']?.evidence).toEqual([parentFailure!.id,childFailure!.id]);
   }
   const calls=requests.length,store=new ExecutionStore(join(runs.root,view.run.id),view.manifest),fresh=store.read();expect(replayExecution(fresh.header,view.manifest,fresh.events)).toEqual(result.execution.state);expect(requests).toHaveLength(calls);
-});
+},60000); // Four sequential real-worktree attempts; keep the native 60s budget unchanged.
 
 it('links recursive improvements to the admitting cycle without claiming comparable metrics for new tasks',async()=>{
   const p=plan(),child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);

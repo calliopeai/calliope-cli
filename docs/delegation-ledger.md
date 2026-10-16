@@ -153,3 +153,13 @@ service and a parent task UUID do not establish those bindings automatically.
 children exhausting one allowance, duplicate dispatch and lost acknowledgements, an unreachable
 parent, restart and rollback, revocation of a child and its descendants, foreign runs, siblings
 and forged tokens, and `ExecutionGuard` admission through the parent.
+
+### Runner capability negotiation
+
+`calliope --version --json` is an offline, credential-free probe.
+`headless: {protocol: 1, delegation: 1, workspaceBinding: 1}` advertises
+NDJSON terminal events, native parent-ledger admission and owner-bound workspace
+validation. Embedders must verify these fields before supplying delegated tasks;
+a matching package version alone does not establish those capabilities. This
+probe does not grant authority: each invocation still negotiates with the live
+parent and validates its token, journal and workspace before inference.
