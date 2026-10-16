@@ -6,8 +6,11 @@ options)`, which requires an approved run, checks `orchestration_budget` through
 the permission resolver and rechecks approval after waiting. Preparation sends
 no provider request and grants no file permission. The returned handle checks the
 original native approval on every admission, including before a coordinator
-journal exists. Local reservations recheck that authority inside the writer lock;
-cancellation while waiting cannot reserve fresh capacity. Previously admitted
+journal exists. With execution history present, it also checks that the run has
+not completed and neither the selected agent nor its ancestors has an explicit
+stop control. Independent active siblings keep their own authority. Local
+reservations recheck that authority inside the writer lock; cancellation while
+waiting cannot reserve fresh capacity. Previously admitted
 unknown spend stays charged, and late known usage can still settle.
 
 This library boundary is used by the [coordinator](coordinator-execution.md) for

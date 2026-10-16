@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import {canonicalJson} from '../approvals/index.js';
 import { authorizeSessionAction } from '../session-management/index.js';
 import { throwIfCancelled } from '../cancellation.js';
-import { ReservationLedger, manifestHash, validateExecutionManifest, assertExecutionStoreOutsideProject,type ExecutionManifest, type AgentExecution } from '../execution/index.js';
+import { ReservationLedger, ExecutionLimitError, manifestHash, validateExecutionManifest, assertExecutionStoreOutsideProject,type ExecutionManifest, type AgentExecution } from '../execution/index.js';
 import {ExecutionStore} from './execution-store.js';
 import {inspectSpawnAuthority} from '../spawning/authority.js';
 import { RunStore, validateRunManifest } from './store.js';
@@ -43,6 +43,20 @@ export async function prepareAgentExecution(cwd:string,runId:string,agentId:stri
   goalAuthority?.checkBudget(manifest);
   const funding=await parentBudgetAuthority(manifest,cwd,true,options.signal);
   ledger.create(manifest,options.signal);
-  const assertAuthority=()=>{executionStore.assertApproval({approvalRevision:view.run.revision});goalAuthority?.assertActive();funding?.assertActive();if(executionStore.exists()){const current=inspectSpawnAuthority(executionStore,ledger);executionStore.assertApproval(current.view.header);if(!current.context.plan.agents.some(a=>a.id===agentId))throw new OrchestrationError('policy-denied','Agent is not admitted to the current graph.');}};
+  const assertAuthority=()=>{
+    executionStore.assertApproval({approvalRevision:view.run.revision});goalAuthority?.assertActive();funding?.assertActive();
+    if(executionStore.exists()){
+      const current=inspectSpawnAuthority(executionStore,ledger);executionStore.assertApproval(current.view.header);
+      if(!current.context.plan.agents.some(a=>a.id===agentId))throw new OrchestrationError('policy-denied','Agent is not admitted to the current graph.');
+      if(current.view.state.status==='completed')throw new ExecutionLimitError('authority','Agent execution is completed; no new work is authorized.');
+      // Explicit stop controls fence handles. Task failures/escalations stay with
+      // the coordinator, which must still finalize their original outcomes.
+      let agent=current.context.plan.agents.find(a=>a.id===agentId);
+      while(agent){
+        if(current.view.state.stoppedAgents.includes(agent.id))throw new ExecutionLimitError('authority','Agent execution is stopped; no new work is authorized.');
+        agent=current.context.plan.agents.find(a=>a.id===agent!.parentId);
+      }
+    }
+  };
   assertAuthority();return {ledger,manifestHash:manifestHash(manifest),agentId,maxOutputTokens,assertAuthority};
 }

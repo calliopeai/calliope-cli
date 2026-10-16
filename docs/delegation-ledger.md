@@ -74,12 +74,17 @@ assertAuthority: execution.assertAuthority})`, using the handle returned by
 `prepareAgentExecution`. The server rechecks this trusted callback before new
 admission and under the writer lock, including grant reissue. Cancelling the
 native reviewed run then fences remote reservations and grants even before a
-coordinator journal exists. The callback is host code, never a request argument.
+coordinator journal exists. Once the journal exists, completing the run or stopping
+the handle's selected agent (or an ancestor) through an explicit stop control also
+fences new work. Reopening the handle does not bypass those controls; an independently active sibling remains
+eligible under its own handle. These checks reuse native execution history.
+The callback is host code, never a request argument.
 The standalone `ledger serve --budget ...` command serves an explicitly selected
 raw ledger; it does not infer a reviewed-run binding.
 
-Owner cancellation still permits authenticated journal inspection, replay of an
-already admitted reservation, and settlement of existing requests. These reconcile
+Owner cancellation, agent stops and run completion still permit authenticated
+journal inspection, replay of an already admitted reservation, and settlement
+of existing requests. These reconcile
 prior work; they do not authorize another provider call. Unknown/cancelled usage
 retains its reserved charge. Token expiry and grant revocation continue to apply
 to every operation, so a revoked child needs its owner to reconcile its requests.

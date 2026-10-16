@@ -1,14 +1,14 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import * as fs from 'node:fs';
 import {spawnSync} from 'node:child_process';
-import {join} from 'node:path';
+import {dirname,join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
-import {RunStore,prepareRun,changePreparedRun,prepareAgentExecution} from '../src/orchestration/index.js';
+import {RunStore,prepareRun,changePreparedRun,prepareAgentExecution,ExecutionStore,controlExecution,collectTaskOutput} from '../src/orchestration/index.js';
 import {ExecutionGuard,ReservationLedger,ProjectSpendLedger,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,requestCostNanos,type AgentExecution,type ChildGrant} from '../src/execution/index.js';
 import {projectBudgetPath} from '../src/budget.js';
 import type {RouteCandidate} from '../src/routing/index.js';
@@ -36,7 +36,7 @@ afterEach(async()=>{
   fs.rmSync(root,{recursive:true,force:true});
 });
 const cancel=()=>changePreparedRun(project,ledger.read(project).manifest.runId,'cancelled',{store});
-const request=()=>({id:randomUUID(),agentId:'coordinator',provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:1,outputPrice:2,costNanos:requestCostNanos(99,1,1,2)});
+const request=()=>({id:randomUUID(),agentId:execution.agentId,provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:1,outputPrice:2,costNanos:requestCostNanos(99,1,1,2)});
 const budget=()=>{
   const route={provider:'deepseek',model:'fixture',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:100,maxOutputTokens:10,price:{input:1,output:2},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'fixture'} as RouteCandidate;
   const quote=new ExecutionGuard(execution,project).budget(route,[{role:'user',content:'public fixture'}],[],false);
@@ -119,4 +119,63 @@ it.each(['missing','damaged'] as const)('fails closed when the prepared run appr
   await expect(reserve()).rejects.toThrow();
   await expect(remote.reserve(project,execution.manifestHash,request())).rejects.toMatchObject({code:'unavailable'});
   expect(ledger.read(project).events).toEqual([]);
+});
+
+const journal=async()=>{
+  const manifest=ledger.read(project).manifest,view=await store.read(manifest.runId,project);
+  const journal=new ExecutionStore(join(store.root,manifest.runId),view.manifest);
+  journal.create({version:1,runId:manifest.runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(manifest.createdAt).toISOString(),deadline:manifest.deadline});
+  return journal;
+};
+
+it.each(['a','coordinator'] as const)('stopping %s fences a saved descendant handle while preserving settlement',async stopped=>{
+  const history=await journal(),runId=history.manifest.id;
+  execution=await prepareAgentExecution(project,runId,'a',10,{store});
+  const remote=await start(),saved=request(),reserve=budget();await remote.reserve(project,execution.manifestHash,saved);
+  await controlExecution(project,runId,'agent-stop',stopped,{store});const before=ledger.read(project);
+  expect(()=>new ExecutionGuard(execution,project)).toThrow(/stopped/i);
+  await expect(reserve()).rejects.toMatchObject({code:'authority'});
+  await expect(prepareAgentExecution(project,runId,'a',10,{store})).rejects.toMatchObject({code:'authority'});
+  await expect(remote.reserve(project,execution.manifestHash,request())).rejects.toMatchObject({code:'authority'});
+  expect(ledger.read(project)).toEqual(before);
+  await remote.reserve(project,execution.manifestHash,saved);
+  await remote.settle(project,execution.manifestHash,{requestId:saved.id,outcome:'success',usage:{inputTokens:5,outputTokens:1}});
+  expect(ledger.read(project).projection.spent.tokens).toBe(6);
+  if(stopped==='a'){
+    const sibling=await prepareAgentExecution(project,runId,'b',10,{store});expect(()=>new ExecutionGuard(sibling,project)).not.toThrow();
+  }
+});
+
+it.each(['reserve','grant'] as const)('rechecks an agent stop after remote %s waits for the budget writer',async operation=>{
+  const history=await journal(),remote=await start(),lock=join(ledger.root,'writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600,flag:'wx'});
+  let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;});
+  if(operation==='reserve'){const original=ledger.reserve.bind(ledger);vi.spyOn(ledger,'reserve').mockImplementation((...args)=>{entered();return original(...args);});}
+  else{const original=ledger.grantChildren.bind(ledger);vi.spyOn(ledger,'grantChildren').mockImplementation((...args)=>{entered();return original(...args);});}
+  const child={...grant(),runManifestHash:history.manifest.hash,approvalRevision:history.read().header.approvalRevision};
+  const pending=operation==='reserve'?remote.reserve(project,execution.manifestHash,request()):remote.grantChildren(project,execution.manifestHash,child);
+  const result=pending.then(value=>({value}),error=>({error}));
+  try{await waiting;await controlExecution(project,history.manifest.id,'agent-stop','coordinator',{store});}finally{fs.unlinkSync(lock);}
+  expect(await result).toMatchObject({error:{code:'authority'}});expect(ledger.read(project).events).toEqual([]);
+});
+
+it('completed execution cannot reopen a saved allowance, but can settle an admitted request',async()=>{
+  const history=await journal(),remote=await start(),saved=request(),ownerId=randomUUID(),reserve=budget();
+  await remote.reserve(project,execution.manifestHash,saved);await history.append({type:'started',ownerId});
+  for(const task of history.manifest.plan.tasks){
+    await history.append({type:'task_started',taskId:task.id,attempt:1,sessionId:randomUUID()});
+    for(const output of task.outputs){const file=join(project,output.path!);fs.mkdirSync(dirname(file),{recursive:true});fs.writeFileSync(file,'public toy evidence');}
+    const result=await collectTaskOutput(history,task,'Public fixture inspected.');expect(result.status).toBe('review_required');
+    await history.append({type:'task_finished',taskId:task.id,status:result.status,output:result.output});
+  }
+  await history.append({type:'finished',ownerId,status:'partial'});
+  for(const task of history.manifest.plan.tasks)await controlExecution(project,history.manifest.id,'accept',task.id,{store});
+  expect(history.read().state.status).toBe('completed');const before=ledger.read(project);
+  expect(()=>new ExecutionGuard(execution,project)).toThrow(/completed/i);
+  await expect(reserve()).rejects.toMatchObject({code:'authority'});
+  await expect(prepareAgentExecution(project,history.manifest.id,'coordinator',10,{store})).rejects.toMatchObject({code:'authority'});
+  await expect(remote.reserve(project,execution.manifestHash,request())).rejects.toMatchObject({code:'authority'});
+  await expect(remote.grantChildren(project,execution.manifestHash,grant())).rejects.toMatchObject({code:'authority'});
+  expect(ledger.read(project)).toEqual(before);
+  await remote.settle(project,execution.manifestHash,{requestId:saved.id,outcome:'success',usage:{inputTokens:5,outputTokens:1}});
+  expect(ledger.read(project).projection.spent.tokens).toBe(6);
 });

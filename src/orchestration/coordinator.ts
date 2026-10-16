@@ -92,6 +92,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   store.assertRevision(options.expectedExecutionRevision);
   await authorizeSessionAction(cwd,'orchestration_execute',{path:cwd,runId,planHash:view.manifest.planHash,revision:view.run.revision,resume:!!options.resume,...(options.expectedExecutionRevision===undefined?{}:{executionRevision:options.expectedExecutionRevision})},options);
   store.assertRevision(options.expectedExecutionRevision);
+  if(store.exists()&&!options.resume)throw new OrchestrationError('conflict','Run already has execution history; inspect it and resume explicitly.');
   const rootAuthority=await prepareAgentExecution(cwd,runId,view.analysis.coordinatorId,outputCap,{...options,store:runs});
   store.assertRevision(options.expectedExecutionRevision);
   const budget=rootAuthority.ledger.read(cwd).manifest;
