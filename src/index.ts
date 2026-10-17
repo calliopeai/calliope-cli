@@ -50,3 +50,6 @@ export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode } from './headl
 
 // Shared runtime for terminal, editor and programmatic clients.
 export * from './runtime/index.js';
+
+export { inventorySource, runMigrationCommand, MigrationError, INVENTORY_SCHEMA } from './migration/index.js';
+export type { MigrationInventory } from './migration/index.js';
