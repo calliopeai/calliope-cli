@@ -39,7 +39,7 @@ function dependencyKind(spec: string): string {
   return /^(?:[~^<>=v0-9.*xX| -]+|[a-z][a-z0-9.-]*)$/.test(spec) ? 'registry' : 'opaque';
 }
 /** Return dependency-first batches or the exact strongly connected components. */
-export function dependencyGraph(packages: Package[]): { order: string[] | null; cycles: string[][] } {
+export function dependencyGraph(packages: { path: string; dependencies: { target: string | null }[] }[]): { order: string[] | null; cycles: string[][] } {
   const edges = new Map(packages.map(p => [p.path, sorted(p.dependencies.flatMap(d => d.target ? [d.target] : []))]));
   const indices = new Map<string, number>(), low = new Map<string, number>(), active = new Set<string>(), stack: string[] = [], cycles: string[][] = [], order: string[] = [];
   let index = 0;

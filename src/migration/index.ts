@@ -7,3 +7,8 @@ export { analyzeVerificationPlan, verifyMigration, compareBehavior, comparatorHe
 export type { VerificationPlan, VerificationOptions, BehaviorFingerprint, ExpectedBehavior } from './verification.js';
 export { migrationExample } from './example.js';
 export { analyzeVerificationEvidence } from './evidence.js';
+export { assessMigration } from './assessment.js';
+export type { AssessmentOptions, AssessmentReview, AssessmentReviewRequest, AssessmentImplementation } from './assessment.js';
+export { analyzeAssessmentRequest, ASSESSMENT_VERSION } from './assessment-contract.js';
+export type { AssessmentRequest, PilotMeasurement } from './assessment-contract.js';
+export { ASSESSMENT_SCHEMAS } from './assessment-schema.js';

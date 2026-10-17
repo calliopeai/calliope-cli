@@ -57,3 +57,5 @@ export { analyzeVerificationPlan, verifyMigration, VERIFICATION_SCHEMAS } from '
 export type { VerificationPlan, VerificationOptions } from './migration/index.js';
 export { comparatorHealthy, compareBehavior, migrationExample } from './migration/index.js';
 export { analyzeVerificationEvidence, EVIDENCE_REVIEW_SCHEMA } from './migration/index.js';
+export { assessMigration, analyzeAssessmentRequest, ASSESSMENT_SCHEMAS } from './migration/index.js';
+export type { AssessmentRequest, AssessmentOptions, AssessmentReview, AssessmentReviewRequest, AssessmentImplementation, PilotMeasurement } from './migration/index.js';
