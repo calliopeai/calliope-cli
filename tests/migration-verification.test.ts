@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { analyzeVerificationPlan, verifyMigration, migrationExample, comparatorHealthy, behaviorFingerprint, compareBehavior, runMigrationCommand, VERIFICATION_SCHEMAS, type VerificationPlan } from '../src/migration/index.js';
+import { analyzeVerificationEvidence, analyzeVerificationPlan, verifyMigration, migrationExample, comparatorHealthy, behaviorFingerprint, compareBehavior, runMigrationCommand, VERIFICATION_SCHEMAS, type VerificationPlan } from '../src/migration/index.js';
 import { digest, canonicalJson } from '../src/approvals/index.js';
 import { runIsolatedCommand, assertLocalIsolationImage } from '../src/isolation/process.js';
 const faults = vi.hoisted(() => ({ mode: '', calls: 0 }));
@@ -22,7 +22,8 @@ vi.mock('../src/isolation/process.js', async () => {
       let stdout = Buffer.alloc(0), stderr = Buffer.alloc(0), exitCode = 0;
       try { stdout = execFileSync(process.execPath, args, { encoding: 'buffer', stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: process.env.PATH }, timeout: 2000 }); }
       catch (error) { const e = error as { status: number; stdout: Buffer; stderr: Buffer }; exitCode = e.status; stdout = e.stdout; stderr = e.stderr; }
-      return { version: 1, kind: 'isolated-command', image, argv: command.argv, container: 'calliope-check-fixture', cleanupConfirmed: faults.mode !== 'cleanup',
+      return { version: 1, kind: 'isolated-command', image, argv: command.argv, container: 'calliope-check-fixture-' + faults.calls, cleanupConfirmed: faults.mode !== 'cleanup',
+        cleanup: { version: 1, removal: { outcome: faults.mode === 'cleanup' ? 'error' : 'removed', exitCode: faults.mode === 'cleanup' ? 1 : 0 } },
         outcome: faults.mode === 'timeout' ? 'timeout' : exitCode === 0 ? 'passed' : 'failed', exitCode, stdout: stdout.toString(), stderr: stderr.toString(), truncated: faults.mode === 'truncated', durationMs: 1,
         ...(faults.mode === 'old-receipt' ? {} : { outputDigests: { version: 1, stdout: fingerprint(stdout), stderr: fingerprint(stderr) } }) };
     }),
@@ -57,6 +58,7 @@ describe('native migration behavior verification', () => {
     expect(value.observations[0]?.evidence).not.toHaveProperty('stdout');
     expect(fs.readFileSync(join(root, 'candidate.mts'), 'utf8')).toBe('dirty work that must not execute');
     expect(value.planDigest).toBe(analyzeVerificationPlan(plan).digest);
+    expect(analyzeVerificationEvidence(plan, value).status).toBe('passing-observations');
     const { digest: hash, ...body } = value; expect(hash).toBe(digest(canonicalJson(body)));
     const mount = vi.mocked(runIsolatedCommand).mock.calls[0]![2][0]!.source; expect(fs.existsSync(mount)).toBe(false);
   });

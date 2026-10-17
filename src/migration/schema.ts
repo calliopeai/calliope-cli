@@ -46,3 +46,15 @@ export const VERIFICATION_SCHEMAS = {
       commandsUsed: { type: 'integer', minimum: 0, maximum: 19 }, commandLimit: { type: 'integer', minimum: 4, maximum: 18 }, retainedWorkspace: nullableText, limitations: strings, digest: hash,
     }) },
 };
+
+export const EVIDENCE_REVIEW_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: 'https://calliope.ai/schemas/migration/evidence-review-v1',
+  ...object({
+    format: { const: 'calliope.migration.evidence-review/v1' }, planDigest: hash, reportDigest: hash,
+    status: { enum: ['passing-observations', 'not-passing'] },
+    caseIds: { ...strings, minItems: 1, maxItems: 8, uniqueItems: true },
+    findings: { type: 'array', maxItems: 128, items: object({ code: text, observation: { type: ['integer', 'null'], minimum: 0, maximum: 17 } }) },
+    authority: { const: 'Supplied observation integrity only. No producer authentication, independent review or execution approval is implied.' }, digest: hash,
+  }),
+};

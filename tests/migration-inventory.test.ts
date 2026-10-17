@@ -110,7 +110,7 @@ describe('pinned migration inventory', () => {
   });
   it('provides CLI capabilities/schema without credentials and structured failures without leaking input', async () => {
     const lines: string[] = [], write = (line: string) => { lines.push(line); };
-    expect(await runMigrationCommand(['capabilities', '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!).phases).toEqual(['inventory', 'verify']);
+    expect(await runMigrationCommand(['capabilities', '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!).phases).toEqual(['inventory', 'verify', 'review-evidence']);
     expect(await runMigrationCommand(['schema', '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!)).toEqual(INVENTORY_SCHEMA);
     const r = repo(); expect(await runMigrationCommand(['inventory', '--repository', r.root, '--revision', r.revision, '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!).digest).toBe((await inspect(r)).digest);
     expect(await runMigrationCommand(['inventory', '--repository', '/missing/SECRET', '--revision', r.revision, '--json'], { write })).toBe(1); expect(lines.pop()).not.toContain('SECRET');

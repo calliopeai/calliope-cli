@@ -99,3 +99,33 @@ verify imported project modules, dispatch migration workers or approve rollout.
 Application/framework adapters, source dependency analysis, rule-update review,
 unit invalidation, headless tool discovery and Cykick/Astrolift workflow integration
 remain separate work. Keep generated, reviewed and verified states distinct.
+## Review saved observations
+
+`calliope migration review-evidence --plan plan.json --report report.json --json`
+re-evaluates a saved report without Docker, repository access, provider credentials
+or executing any program. Exit 0 means `passing-observations`; exit 1 means
+nonpassing or invalid evidence. `migration evidence-schema` returns the packaged
+JSON Schema. Hosts can import `analyzeVerificationEvidence` from `migration/index`.
+
+The review binds the exact plan digest, source/candidate/negative/rules pins,
+runtime, case order and command arguments. It checks report integrity, complete
+command coverage, distinct container identities, cleanup receipts, raw output
+fingerprints and exit status. It recomputes every comparison, including baseline
+and known-regression observations. A rewritten `passed` label or `matches` value
+cannot override contradictory observations, even after recomputing the JSON digest.
+The comparator runs its adversarial self-check before inspecting a report.
+
+A valid interrupted report remains `not-passing`, with finding codes and observation
+indexes; malformed or differently bound reports are refused. Legacy receipts that
+lack explicit cleanup or raw output evidence cannot receive passing status. Review
+accepts native confirmed absence and bounded cleanup recovery receipts. It does
+not contact the daemon to assert that a recorded container is absent now.
+
+The result contains plan/report digests, case IDs and findings, never raw program
+output, retained workspace paths or free-form report reasons. A digest proves
+consistency, not provenance: anyone able to fabricate all observations can also
+fabricate their digest. **Passing observations do not authenticate their producer,
+supply independent review, establish general behavioral equivalence, or authorize
+migration dispatch.** Assessment hosts must establish trusted evidence provenance
+and review coverage separately. Changing the source, cases, rules or target/runtime
+requires evidence for a new exact plan; old evidence is never silently rebound.

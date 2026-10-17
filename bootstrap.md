@@ -69,7 +69,8 @@ append-only client failures, parallel progress and bounded private inspection.
 and declared package dependencies without executing project code or granting work.
 [Migration behavior verification](docs/migration-verification.md) compares pinned
 JavaScript/TypeScript CLI fixtures through bounded native commands, with baseline
-and known-regression gates before candidate execution.
+and known-regression gates before candidate execution. Its read-only evidence review
+rechecks saved observations and exact plan bindings without granting execution.
 [Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
