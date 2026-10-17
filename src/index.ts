@@ -53,3 +53,6 @@ export * from './runtime/index.js';
 
 export { inventorySource, runMigrationCommand, MigrationError, INVENTORY_SCHEMA } from './migration/index.js';
 export type { MigrationInventory } from './migration/index.js';
+export { analyzeVerificationPlan, verifyMigration, VERIFICATION_SCHEMAS } from './migration/index.js';
+export type { VerificationPlan, VerificationOptions } from './migration/index.js';
+export { comparatorHealthy, compareBehavior, migrationExample } from './migration/index.js';

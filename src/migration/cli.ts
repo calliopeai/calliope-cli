@@ -1,18 +1,34 @@
-import { INVENTORY_SCHEMA } from './schema.js';
+import { INVENTORY_SCHEMA, VERIFICATION_SCHEMAS } from './schema.js';
+import { analyzeVerificationPlan, verifyMigration } from './verification.js';
+import { realpathSync } from 'node:fs';
+import { readArtifactBytes } from '../orchestration/execution-store.js';
+import { migrationExample } from './example.js';
 import { parseArgs } from 'node:util';
 import { isCancellation } from '../cancellation.js';
 import { inventorySource, MigrationError, KIT_VERSION } from './inventory.js';
-export const MIGRATION_USAGE = 'calliope migration capabilities|schema|inventory --repository <root> --revision <full-commit> [--path <relative-prefix>] [--json]';
+export const MIGRATION_USAGE = 'calliope migration capabilities|schema|verification-schema|example|inventory|review-verification|verify [--repository <root>] [--revision <full-commit>] [--path <relative-prefix>] [--plan <file>] [--approve <digest>] [--json]';
 export async function runMigrationCommand(args: string[], options: { signal?: AbortSignal; write?: (line: string) => void } = {}): Promise<number> {
   const write = options.write ?? (line => process.stdout.write(line));
   const json = args.includes('--json');
   try {
     if (args.length > 140 || args.some(arg => arg.length > 4096 || /[\x00-\x1f\x7f]/.test(arg))) throw new MigrationError('invalid', MIGRATION_USAGE);
-    const { positionals, values } = parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' }, repository: { type: 'string' }, revision: { type: 'string' }, path: { type: 'string', multiple: true } } });
+    const { positionals, values } = parseArgs({ args, allowPositionals: true, options: { json: { type: 'boolean' }, repository: { type: 'string' }, revision: { type: 'string' }, path: { type: 'string', multiple: true }, plan: { type: 'string' }, approve: { type: 'string' } } });
     if (positionals.length !== 1) throw new MigrationError('invalid', MIGRATION_USAGE);
+    if (['review-verification', 'verify'].includes(positionals[0]!)) {
+      if (!values.plan || values.path || values.revision || (positionals[0] === 'verify' ? !values.repository || !values.approve : values.repository || values.approve)) throw new MigrationError('invalid', MIGRATION_USAGE);
+      const input: unknown = JSON.parse(readArtifactBytes(realpathSync(values.plan), 262144).toString('utf8'));
+      const analysis = analyzeVerificationPlan(input);
+      if (positionals[0] === 'review-verification') { write(JSON.stringify(analysis) + '\n'); return 0; }
+      const result = await verifyMigration(values.repository!, input, { signal: options.signal, approve: async request => request.digest === values.approve });
+      write(json ? JSON.stringify(result) + '\n' : `${result.outcome}: ${result.reason}\nVerification ${result.digest}\n`);
+      return result.outcome === 'passed' ? 0 : result.outcome === 'cancelled' ? 130 : 1;
+    }
+    if (values.plan || values.approve) throw new MigrationError('invalid', MIGRATION_USAGE);
+    if (positionals[0] === 'example' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(migrationExample()) + '\n'); return 0; }
+    if (positionals[0] === 'verification-schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(VERIFICATION_SCHEMAS) + '\n'); return 0; }
     if (positionals[0] === 'schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(INVENTORY_SCHEMA) + '\n'); return 0; }
     if (positionals[0] === 'capabilities' && !values.repository && !values.revision && !values.path) {
-      write(JSON.stringify({ kit: KIT_VERSION, phases: ['inventory'], dependencyAnalysis: ['npm-declarations'], schemas: ['calliope.migration.inventory/v1'], execution: false }) + '\n'); return 0;
+      write(JSON.stringify({ kit: 'migration-v1', inventoryVersion: KIT_VERSION, phases: ['inventory', 'verify'], dependencyAnalysis: ['npm-declarations'], schemas: ['calliope.migration.inventory/v1', 'calliope.migration.verification-plan/v1', 'calliope.migration.verification-report/v1'], execution: { verification: 'explicit-plan-digest-approval', adapters: ['javascript-to-typescript-cli/v1'], backend: 'native-isolated-command' } }) + '\n'); return 0;
     }
     if (positionals[0] !== 'inventory' || !values.repository || !values.revision) throw new MigrationError('invalid', MIGRATION_USAGE);
     const result = await inventorySource({ repository: values.repository, revision: values.revision, ...(values.path ? { readPaths: values.path } : {}) }, options);

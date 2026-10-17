@@ -57,3 +57,7 @@ Cykick's assessment/execution work (#42/#43). It does not establish a behavioral
 baseline, detect dynamic imports, test installability, estimate migration cost,
 recommend a language adapter, approve compatibility exceptions or authorize
 workers. Those conclusions require their own evidence and reviewed contracts.
+
+The separate [behavior verification phase](migration-verification.md) compares
+one supported public interface after explicit plan approval. Running inventory
+alone never invokes that phase.

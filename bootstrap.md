@@ -67,6 +67,9 @@ use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
 append-only client failures, parallel progress and bounded private inspection.
 [Pinned migration inventory](docs/migration-inventory.md) captures committed source
 and declared package dependencies without executing project code or granting work.
+[Migration behavior verification](docs/migration-verification.md) compares pinned
+JavaScript/TypeScript CLI fixtures through bounded native commands, with baseline
+and known-regression gates before candidate execution.
 [Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs

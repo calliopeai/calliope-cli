@@ -18,3 +18,31 @@ export const INVENTORY_SCHEMA = {
     limitations: strings,
   }),
 };
+
+const pin = object({ revision: oid, path: text, object: oid });
+const runtime = object({ image: { type: 'string', pattern: '^sha256:[a-f0-9]{64}$' }, node: { type: 'string', pattern: '^v24\\.\\d+\\.\\d+$' } });
+const expected = object({ exitCode: { type: 'integer', minimum: 0, maximum: 124 }, stdout: text, stderr: text });
+const fingerprint = object({ sha256: hash, bytes: { type: 'integer', minimum: 0, maximum: 65536 } });
+const cleanupResult = object({ outcome: { enum: ['removed', 'absent', 'timeout', 'error', 'present'] }, exitCode: { type: ['integer', 'null'] } });
+const evidence = object({
+  version: { const: 1 }, kind: { const: 'isolated-command' }, argv: strings, image: runtime.properties.image,
+  exitCode: { type: 'integer' }, outcome: { enum: ['passed', 'failed', 'cancelled', 'timeout', 'unavailable'] },
+  truncated: { type: 'boolean' }, durationMs: { type: 'integer', minimum: 0 }, container: text, cleanupConfirmed: { type: 'boolean' },
+  cleanup: object({ version: { const: 1 }, removal: cleanupResult, verification: cleanupResult }, ['verification']),
+  outputDigests: object({ version: { const: 1 }, stdout: fingerprint, stderr: fingerprint }),
+}, ['cleanup', 'outputDigests']);
+export const VERIFICATION_SCHEMAS = {
+  plan: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://calliope.ai/schemas/migration/verification-plan-v1',
+    ...object({ format: { const: 'calliope.migration.verification-plan/v1' }, adapter: { const: 'javascript-to-typescript-cli/v1' }, verifier: { const: 'byte-parity-v1' }, runtime,
+      source: pin, candidate: pin, negative: pin, rules: pin,
+      cases: { type: 'array', minItems: 1, maxItems: 8, items: object({ id: { type: 'string', pattern: '^[a-zA-Z0-9_-]{1,64}$' }, argument: { type: 'string', minLength: 1, maxLength: 8192 }, expected }) },
+      negativeControl: object({ caseId: text, expected }), limits: object({ commandTimeoutMs: { type: 'integer', minimum: 100, maximum: 10000 }, totalMs: { type: 'integer', minimum: 100, maximum: 300000 } }),
+    }) },
+  report: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://calliope.ai/schemas/migration/verification-report-v1',
+    ...object({ format: { const: 'calliope.migration.verification-report/v1' }, verifier: { const: 'byte-parity-v1' }, adapter: { const: 'javascript-to-typescript-cli/v1' }, planDigest: hash, runtime,
+      pins: object({ source: pin, candidate: pin, negative: pin, rules: pin }),
+      outcome: { enum: ['passed', 'input-failure', 'baseline-failure', 'verifier-failure', 'regression', 'environment-failure', 'cancelled'] }, reason: text,
+      observations: { type: 'array', maxItems: 18, items: object({ phase: { enum: ['runtime', 'baseline', 'negative-control', 'candidate'] }, caseId: nullableText, matches: { type: ['boolean', 'null'] }, evidence }) },
+      commandsUsed: { type: 'integer', minimum: 0, maximum: 19 }, commandLimit: { type: 'integer', minimum: 4, maximum: 18 }, retainedWorkspace: nullableText, limitations: strings, digest: hash,
+    }) },
+};

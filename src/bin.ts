@@ -452,6 +452,7 @@ ${bold('USAGE')}
   calliope brain init|ingest|search|entity|neighbors|path|export [--json]   Local project knowledge
   calliope kg search|graph [--json]   Knowledge graph
   calliope migration inventory --repository <root> --revision <commit> [--json]   Inspect pinned migration inputs
+  calliope migration review-verification|verify --plan <file> [--repository <root> --approve <digest>] [--json]   Verify pinned CLI behavior
   calliope improve capabilities|history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
   calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
   calliope orchestrate <goal> --supervise --isolation-image sha256:ID [--principle robustness]
