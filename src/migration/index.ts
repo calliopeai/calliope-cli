@@ -16,3 +16,6 @@ export { analyzeBaselinePlan, verifyMigrationBaseline } from './verification.js'
 export type { BaselinePlan } from './verification.js';
 export { analyzeBaselineEvidence } from './evidence.js';
 export { BASELINE_SCHEMAS } from './schema.js';
+
+export {sourceCandidateCapabilities,previewSourceCandidate,createSourceCandidate,inspectSourceCandidate,listSourceCandidates} from '../orchestration/source-candidates.js';
+export type {SourceCandidateSelection,SourceCandidateReview} from '../orchestration/source-candidates.js';

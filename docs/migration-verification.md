@@ -74,6 +74,12 @@ candidate commit and obtain separate approval. Full verification still repeats
 baseline and known-regression checks before testing the candidate. Baseline
 approval digests and reports cannot be substituted for full verification.
 
+For a native isolated implementation task, the host can create that commit with
+the [generated source candidate](source-candidates.md) capability. It consumes the
+exact collected task/attempt patch, requires separate review and preserves the
+source checkout. Its `candidate` status explicitly requires independent
+verification; it cannot stand in for a passing verification report.
+
 The existing full-verification v1 formats and digests are unchanged. Baseline
 evidence also cannot satisfy assessment's passing candidate-pilot requirement.
 

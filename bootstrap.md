@@ -74,6 +74,10 @@ rechecks saved observations and exact plan bindings without granting execution.
 Separate baseline plans establish original behavior and known-regression rejection
 before a candidate exists; their reports and approvals cannot stand in for full
 candidate verification.
+[Generated source candidates](docs/source-candidates.md) stage exact native task
+patches for independent verification through the existing durable Git writer.
+They retain an explicitly unverified status and cannot replace verified
+improvement proposals; interrupted publication recovers the original commit.
 [Migration assessment](docs/migration-assessment.md) derives read-only feasibility,
 rulebooks, declared work graphs and measured pilot ranges. Trusted host evidence
 and coverage review is required for `go`; assessment never dispatches workers.
