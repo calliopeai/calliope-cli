@@ -1,15 +1,22 @@
 import {smartPolicyWithin} from '../routing/smart.js';
 import {canonicalJson,digest} from '../approvals/index.js';
-import {analyzePlan,array,shape,id,hex,uuid,integer,pathName,fail} from '../orchestration/validation.js';
+import {analyzePlan,array,shape,id,hex,uuid,integer,pathName,fail,text} from '../orchestration/validation.js';
 import type {ProjectPlan,RunManifest} from '../orchestration/types.js';
 import type {ExecutionHeader} from '../orchestration/coordinator-types.js';
+import {validateExecutionProject} from '../execution/authority.js';
 import {validateChildGrant} from '../execution/child-grants.js';
 import type {ChildGrant} from '../execution/types.js';
 import type {SpawnInput,SpawnProposal,SpawnAdmission} from './types.js';
 
+export const DELEGATED_ADMISSION_CAPABILITY={version:1,proposalVersion:2,workspaceBinding:1,scheduling:'external'} as const;
 export const MAX_SPAWN_BYTES=65536,MAX_SPAWN_PROPOSALS=256;
 export function validateSpawnInput(value:unknown):SpawnInput {
-  shape(value,['version','parentId','agents','tasks']);if(value.version!==1)fail('Unsupported child proposal version.');id(value.parentId);array(value.agents,16,1);array(value.tasks,64,1);
+  shape(value,['version','parentId','agents','tasks'],['delegation']);if(value.version!==1&&value.version!==2)fail('Unsupported child proposal version.');id(value.parentId);array(value.agents,16,1);array(value.tasks,64,value.version===2?0:1);
+  if(value.version===2){
+    shape(value.delegation,['project','reference','observationHash']);validateExecutionProject(value.delegation.project);text(value.delegation.reference,1024);
+    if(!hex(value.delegation.observationHash)||value.tasks.length)fail('Delegated allowances require observed workspace evidence and no locally scheduled tasks.');
+    for(const agent of value.agents){shape(agent,['id','parentId','role','objective','inputs','allowedTools','allowedPaths','preference','tokenBudget','costBudgetUsd','timeBudgetMs','maxChildDepth','maxChildCount','acceptanceCriteria','escalationPolicy'],['routing','childRouting']);array(agent.inputs,100);if(agent.inputs.some(input=>!input||typeof input!=='object'||!('kind'in input)||input.kind!=='text'))fail('Delegated account inputs must be text; its external executor owns file and artifact preparation.');}
+  }else if(value.delegation!==undefined)fail('Local child proposals cannot declare delegated placement.');
   if(Buffer.byteLength(canonicalJson(value))>MAX_SPAWN_BYTES)fail('Child proposal exceeds 64 KiB.');return value as unknown as SpawnInput;
 }
 /** Existing agents, tasks, scopes and limits remain byte-for-byte unchanged. */
@@ -29,16 +36,18 @@ export function proposalId(hash:string):string {
   if(!hex(hash))fail('Invalid proposal hash.');const raw=hash.slice(0,12)+'4'+hash.slice(13,16)+(8+(parseInt(hash[16]!,16)%4)).toString(16)+hash.slice(17,32);return `${raw.slice(0,8)}-${raw.slice(8,12)}-${raw.slice(12,16)}-${raw.slice(16,20)}-${raw.slice(20)}`;
 }
 export function proposalGrant(proposal:SpawnProposal,header:ExecutionHeader):ChildGrant {
-  return validateChildGrant({version:1,id:proposalId(proposal.hash),proposalHash:proposal.hash,previousGraphHash:proposal.graphHash,planHash:proposal.planHash,runManifestHash:proposal.runManifestHash,approvalRevision:proposal.approvalRevision,parentId:proposal.parentId,
+  return validateChildGrant({version:proposal.version,...(proposal.version===2?{project:proposal.delegation.project}:{}),id:proposalId(proposal.hash),proposalHash:proposal.hash,previousGraphHash:proposal.graphHash,planHash:proposal.planHash,runManifestHash:proposal.runManifestHash,approvalRevision:proposal.approvalRevision,parentId:proposal.parentId,
     accounts:proposal.agents.map(agent=>({id:agent.id,parentId:agent.parentId,tokenBudget:agent.tokenBudget,costBudgetNanos:Math.floor(agent.costBudgetUsd*1e9),deadline:Date.parse(header.createdAt)+agent.timeBudgetMs,allowedTools:agent.allowedTools,allowedPaths:agent.allowedPaths}))});
 }
 export function validateSpawnProposal(value:unknown,manifest:RunManifest,header:ExecutionHeader,base:ProjectPlan):SpawnProposal {
-  shape(value,['version','parentId','agents','tasks','runId','runManifestHash','approvalRevision','graphHash','planHash','source','hash']);
+  shape(value,['version','parentId','agents','tasks','runId','runManifestHash','approvalRevision','graphHash','planHash','source','hash'],['delegation']);
   if(value.runId!==manifest.id||value.runManifestHash!==manifest.hash||value.approvalRevision!==header.approvalRevision||!hex(value.graphHash)||!hex(value.planHash)||!hex(value.hash))fail('Child proposal belongs to another run, approval or graph.');
   shape(value.source,['path','sha256'],['kind','eventId']);pathName(value.source.path);
   if(value.source.kind!==undefined||value.source.eventId!==undefined){if(value.source.kind!=='supervision'||!uuid(value.source.eventId)||value.source.path!==`supervision/${value.source.eventId}.json`)fail('Invalid controller proposal source.');}if(!hex(value.source.sha256))fail('Child proposal source needs its byte hash.');
   const {hash,...body}=value;if(hash!==digest(canonicalJson(body)))fail('Child proposal hash is invalid.');
-  const proposal=value as unknown as SpawnProposal,input={version:proposal.version,parentId:proposal.parentId,agents:proposal.agents,tasks:proposal.tasks},next=extendPlan(base,input);
+  if(value.version!==1&&value.version!==2||value.version===1&&value.delegation!==undefined)fail('Invalid child proposal placement version.');
+  const proposal=value as unknown as SpawnProposal,next=extendPlan(base,spawnInput(proposal));
+  if(proposal.version===2&&proposal.source.kind==='supervision')fail('Delegated placement requires an operator proposal, not a controller decision.');
   if(analyzePlan(base).hash!==proposal.graphHash||analyzePlan(next).hash!==proposal.planHash)fail('Child proposal graph revision changed.');
   if(Buffer.byteLength(canonicalJson(value))>MAX_SPAWN_BYTES)fail('Child proposal exceeds 64 KiB.');proposalGrant(proposal,header);return proposal;
 }
@@ -50,4 +59,14 @@ export function validateSpawnAdmission(value:unknown,manifest:RunManifest,header
   shape(value,['version','proposal','grant']);if(value.version!==1)fail('Unsupported spawn admission.');const proposal=validateSpawnProposal(value.proposal,manifest,header,base);
   shape(value.grant,['grant','eventId','eventHash','at']);if(!uuid(value.grant.eventId)||!hex(value.grant.eventHash))fail('Spawn admission requires its budget event.');integer(value.grant.at,Date.parse(header.createdAt),header.deadline);
   if(canonicalJson(validateChildGrant(value.grant.grant))!==canonicalJson(proposalGrant(proposal,header)))fail('Child authority differs from the approved graph.');return value as unknown as SpawnAdmission;
+}
+
+export function spawnInput(proposal:SpawnProposal):SpawnInput {
+  const common={parentId:proposal.parentId,agents:proposal.agents,tasks:proposal.tasks};
+  return proposal.version===2?{...common,version:2,delegation:proposal.delegation}:{...common,version:1};
+}
+/** Externally managed accounts cannot acquire locally scheduled descendants. */
+export function assertSpawnPlacement(proposal:SpawnProposal,admissions:SpawnAdmission[]):void {
+  const delegated=new Set(admissions.filter(entry=>entry.proposal.version===2).flatMap(entry=>entry.proposal.agents.map(agent=>agent.id)));
+  if(proposal.version===1&&(delegated.has(proposal.parentId)||proposal.agents.some(agent=>agent.parentId!==null&&delegated.has(agent.parentId))))fail('Delegated accounts require externally scheduled child allowances.');
 }

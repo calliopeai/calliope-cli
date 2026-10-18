@@ -11,6 +11,7 @@ export async function executeSpawn(cwd:string,admission:SpawnAdmission,options:C
   const runId=admission.proposal.runId,initial=await inspectExecution(cwd,runId,options),store=initial.store;
   const recorded=initial.execution?.state.graph?.admissions.find(a=>a.proposal.hash===admission.proposal.hash);
   if(!initial.execution||!recorded||canonicalJson(recorded)!==canonicalJson(admission))throw new OrchestrationError('conflict','Child graph has not been admitted or differs from its recorded authority.');
+  if(recorded.proposal.version===2)return{version:1 as const,type:'orchestration.spawn' as const,runId,proposalHash:recorded.proposal.hash,status:'delegated' as const,execution:initial.execution,exitCode:0};
   let cursor=initial.execution.events.length,resumed=false,cancelled=false;
   const roots=admission.proposal.agents.filter(agent=>!admission.proposal.agents.some(a=>a.id===agent.parentId));
   const stopChildren=async()=>{if(cancelled)return;cancelled=true;await store.appendBatch(roots.map(agent=>({change:{type:'agent_stop',agentId:agent.id}})));};

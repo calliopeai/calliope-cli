@@ -94,7 +94,9 @@ only with a reviewed tool grant and executor-owned task/attempt context.
 Supervised worker feedback intersects controller evidence with those task-local
 outcomes, preserving cross-task evidence in the journal without widening read scope.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active
-graph without resetting its original scope, budget or clock.
+graph without resetting its original scope, budget or clock. Reviewed external
+allowances bind observed workspaces without adding locally scheduled tasks; the
+external host retains execution and outcome ownership.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
 Explicit `read-only-v1` isolated tasks return scoped structured reports without file

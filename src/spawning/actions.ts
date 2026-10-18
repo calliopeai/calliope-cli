@@ -18,7 +18,7 @@ import type {ExecutionInspection} from '../orchestration/coordinator-types.js';
 import type {CoordinatorOptions} from '../orchestration/coordinator.js';
 import {inspectSpawnAuthority} from './authority.js';
 import {SpawnProposalStore} from './store.js';
-import {makeSpawnProposal,validateSpawnInput,validateSpawnProposal,proposalGrant,MAX_SPAWN_BYTES} from './validation.js';
+import {makeSpawnProposal,validateSpawnInput,validateSpawnProposal,proposalGrant,MAX_SPAWN_BYTES,assertSpawnPlacement} from './validation.js';
 import type {SpawnProposal,SpawnAdmission} from './types.js';
 import {assertSupervisionProposal} from '../supervision/journal.js';
 const bytesHash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
@@ -49,7 +49,7 @@ export async function inspectSpawn(cwd:string,runId:string,path:string,options:S
   try{input=JSON.parse(bytes.toString());}catch{throw new OrchestrationError('invalid','Child proposal is not valid JSON.');}
   const authority=inspectSpawnAuthority(current.store,current.ledger);current.assertActive(authority.view);
   const proposal=makeSpawnProposal(current.store.manifest,authority.view.header,authority.context.plan,validateSpawnInput(input),{path:sourcePath,sha256:bytesHash(bytes)});
-  bindPlan(analyzePlan({...authority.context.plan,agents:[...authority.context.plan.agents,...proposal.agents],tasks:[...authority.context.plan.tasks,...proposal.tasks]}),root);
+  bindAdmission(authority.context.plan,proposal,authority.view.state.graph?.admissions??[],root);
   return{proposal,deadline:authority.view.header.deadline,budget:authority.budget.projection,pending:authority.pending.map(record=>record.grant.proposalHash)};
 }
 
@@ -61,7 +61,7 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
   const before=current.store.read(),existing=before.state.graph?.admissions.find(a=>a.proposal.hash===proposal.hash);
   if(existing){if(canonicalJson(existing.proposal)!==canonicalJson(proposal))throw new OrchestrationError('conflict','Child proposal differs from its admitted graph.');return{admission:existing,execution:before,alreadyAdmitted:true};}
   validateSpawnProposal(proposal,current.store.manifest,before.header,current.store.context(before).plan);
-  await authorizeSessionAction(cwd,'orchestration_spawn',{path:cwd,operation:`Admit ${proposal.agents.length} children and ${proposal.tasks.length} tasks under ${proposal.parentId}, proposal ${proposal.hash}, original deadline ${new Date(before.header.deadline).toISOString()}.`,runId,parentId:proposal.parentId,proposalHash:proposal.hash,graphHash:proposal.graphHash,source:proposal.source,agents:proposal.agents,tasks:proposal.tasks,recovery},{...options,confirmation:options.source==='repl'?'mutating':options.confirmation});
+  await authorizeSessionAction(cwd,'orchestration_spawn',{path:cwd,operation:`Admit ${proposal.agents.length} children and ${proposal.tasks.length} tasks under ${proposal.parentId}, proposal ${proposal.hash}, original deadline ${new Date(before.header.deadline).toISOString()}.${proposal.version===2?` External work ${proposal.delegation.reference}; workspace ${proposal.delegation.project.root}, key ${proposal.delegation.project.key}; observation ${proposal.delegation.observationHash}. No local tasks will be scheduled.`:''}`,runId,parentId:proposal.parentId,proposalHash:proposal.hash,graphHash:proposal.graphHash,source:proposal.source,agents:proposal.agents,tasks:proposal.tasks,...(proposal.version===2?{delegation:proposal.delegation}:{}),recovery},{...options,confirmation:options.source==='repl'?'mutating':options.confirmation});
   const checkSource=()=>{if(proposal.source.kind==='supervision')assertSupervisionProposal(proposal,current.store.read().state);else if(!recovery){const file=resolve(current.store.manifest.project.root,proposal.source.path);if(bytesHash(readArtifactBytes(file,MAX_SPAWN_BYTES))!==proposal.source.sha256)throw new OrchestrationError('conflict','Child proposal source changed after review.');}};
   let admission:SpawnAdmission|undefined,alreadyAdmitted=false;
   await current.store.transaction(async prior=>{
@@ -69,7 +69,7 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
     const existing=prior.state.graph?.admissions.find(a=>a.proposal.hash===proposal.hash);
     if(existing){if(canonicalJson(existing.proposal)!==canonicalJson(proposal))throw new OrchestrationError('conflict','Child proposal changed.');admission=existing;alreadyAdmitted=true;return[];}
     validateSpawnProposal(proposal,current.store.manifest,prior.header,authority.context.plan);checkSource();
-    bindPlan(analyzePlan({...authority.context.plan,agents:[...authority.context.plan.agents,...proposal.agents],tasks:[...authority.context.plan.tasks,...proposal.tasks]}),current.store.manifest.project.root);
+    bindAdmission(authority.context.plan,proposal,prior.state.graph?.admissions??[],current.store.manifest.project.root);
     if(prior.state.status==='completed'||agentStopped(prior.state,authority.context,proposal.parentId)||Object.values(prior.state.tasks).some(task=>task.agentId===proposal.parentId&&task.escalation))throw new OrchestrationError('conflict','Parent is completed, stopped or escalated; no child admission is available.');
     const grant=proposalGrant(proposal,prior.header);if(grant.accounts.some(a=>Date.now()>=a.deadline))throw new ExecutionLimitError('deadline','Original child deadline expired.');
     const reserve=4*authority.context.plan.limits.maxConcurrent+(authority.context.plan.supervision?4:2);
@@ -80,4 +80,12 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
     return[{change:{type:'graph_admitted',admission}}];
   },options.signal,()=>{current.assertActive(current.store.read());checkSource();});
   return{admission:admission!,execution:current.store.read(),alreadyAdmitted};
+}
+
+function bindAdmission(base:import('../orchestration/types.js').ProjectPlan,proposal:SpawnProposal,admissions:SpawnAdmission[],root:string):void {
+  assertSpawnPlacement(proposal,admissions);
+  const analysis=analyzePlan({...base,agents:[...base.agents,...proposal.agents],tasks:[...base.tasks,...proposal.tasks]});
+  const external=new Set([...admissions.map(entry=>entry.proposal),proposal].filter(p=>p.version===2).flatMap(p=>p.agents.map(agent=>agent.id)));
+  // Logical scope is checked above. Only local accounts may resolve paths on this host.
+  bindPlan({...analysis,plan:{...analysis.plan,agents:analysis.plan.agents.filter(agent=>!external.has(agent.id))}},root);
 }

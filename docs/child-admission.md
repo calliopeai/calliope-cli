@@ -98,3 +98,54 @@ the worker project, including symlink aliases. Hashes detect corruption but are
 not signatures against an account owner who can rewrite every local record.
 Shell, network, custom tools, merge/publish/deploy and external communication
 remain outside worker authority. Automated model-initiated spawning is not enabled.
+
+## Externally scheduled allowances
+
+A trusted host can admit a version 2 proposal for work whose lifecycle belongs
+outside the native coordinator, such as an Astrolift task. Discover
+`DELEGATED_ADMISSION_CAPABILITY` from `spawning/index.js` before using this form:
+`{version:1, proposalVersion:2, workspaceBinding:1, scheduling:'external'}`.
+
+The proposal retains `parentId` and full reviewed `agents` contracts, requires
+`tasks: []`, and adds:
+
+```json
+{
+  "delegation": {
+    "project": {"root": "/observed/worker/project", "key": "<native project identity SHA-256>"},
+    "reference": "<external task identity>",
+    "observationHash": "<SHA-256 of the owner's retained workspace observation>"
+  }
+}
+```
+
+The host must obtain and retain the observation from its authorized execution
+backend, revalidate the task before credential delivery, and bind the proposal
+to that exact evidence. The CLI binds this declaration to the approval and
+native journal; it does not independently attest a remote cluster or schedule
+that task. A digest alone is not evidence that a workspace was observed.
+
+Use the same `agents spawn ... --dry-run` review and exact `--approve` hash.
+Approval displays the external reference, root, project identity and observation
+digest. Version 2 admits only budget accounts: no native task is added or
+executed. `executeSpawn` and the command return `status: "delegated"`, not a
+completed task result. Agent inputs must be text; the external executor owns
+file/artifact preparation and outcome verification. Supervision cannot propose
+external placement. A delegated account's descendants must also use reviewed
+version 2 allowances, so a later local spawn cannot execute in the wrong project.
+
+The original graph's scope, routing, child-count/depth and aggregate allowance
+checks still apply. A version 2 native ledger grant carries the exact child
+project. Parent-side filesystem checks apply only to local agents; the remote
+CLI validates its actual canonical workspace identity and tool scope when it
+connects, before inference. Wrong-workspace, revoked, stopped and expired
+requests fail through the existing ledger gates. Admission recovery reuses the
+original grant, evidence, budget and deadline.
+
+`prepareReviewedLedger` now establishes an empty native execution history from
+the existing budget's creation time and deadline when no coordinator has run.
+This permits reviewed admission without launching local work. It does not
+extend the allowance. Cancellation or completion of the owning native run
+fences its delegated accounts; the external scheduler still owns stopping its
+containers, collecting outcomes and reconciling retained charges. Token delivery,
+transport and external task enrollment remain trusted-host responsibilities.

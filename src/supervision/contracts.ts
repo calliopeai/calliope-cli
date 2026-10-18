@@ -56,7 +56,7 @@ export function validateSupervisionDecision(value:unknown,policy:SupervisionPoli
     text(value.hypothesis);shape(value.expectedMetric,['name','direction']);text(value.expectedMetric.name,128);
     if(!['increase','decrease'].includes(String(value.expectedMetric.direction)))fail('An improvement metric needs an explicit direction.');
     if(value.action==='decompose'){
-      extendPlan(plan,validateSpawnInput(value.children));
+      const children=validateSpawnInput(value.children);if(children.version!==1)fail('Supervision may propose only locally scheduled children.');extendPlan(plan,children);
       // A structurally valid graph still needs current policy and a recorded ledger grant.
     }else {
       id(value.taskId);
