@@ -15,3 +15,4 @@ export * from './remote-ledger.js';
 export * from './parent-budget.js';
 export * from './parent-accounting.js';
 export * from './delegated.js';
+export * from './ledger-tunnel.js';
