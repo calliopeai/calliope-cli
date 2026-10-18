@@ -10,7 +10,7 @@ import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {projectIdentity,canonicalJson,digest} from '../src/approvals/index.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
-import {inspectSpawn,admitSpawn,executeSpawn,spawnCommand,proposalGrant,validateSpawnInput,validateSpawnProposal,makeSpawnProposal,type SpawnInput} from '../src/spawning/index.js';
+import {inspectSpawn,inspectDelegatedSpawn,admitSpawn,executeSpawn,spawnCommand,proposalGrant,validateSpawnInput,validateSpawnProposal,makeSpawnProposal,type SpawnInput} from '../src/spawning/index.js';
 import {prepareReviewedLedger,controlExecution,changePreparedRun,ExecutionStore,replayExecution} from '../src/orchestration/index.js';
 import {ReservationLedger,RemoteReservationLedger,ExecutionGuard} from '../src/execution/index.js';
 
@@ -48,10 +48,10 @@ async function host(){
 }
 const request=(agentId='c')=>({id:randomUUID(),agentId,provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 
-it('admits exact observed placement without local tasks, binds remote spending, and preserves replay and stop authority',async()=>{
+it.each(['file','host'])('admits exact observed %s placement without local tasks, binds remote spending, and preserves replay and stop authority',async origin=>{
   // A parent-side alias is irrelevant to a separately observed remote workspace.
   fs.symlinkSync(remoteProject,join(r.project,'c'));
-  const h=await host(),p=await preview(),original=r.authority.ledger.read(r.project),grant=proposalGrant(p,r.store.read().header);
+  const h=await host(),p=origin==='host'?(await inspectDelegatedSpawn(r.project,r.view.run.id,input(),options())).proposal:await preview(),original=r.authority.ledger.read(r.project),grant=proposalGrant(p,r.store.read().header);
   await expect(h.parent.grantChildren(r.project,h.execution.manifestHash,grant)).rejects.toMatchObject({code:'authority'});
   expect(r.authority.ledger.read(r.project)).toEqual(original);
   const accepted=await admitSpawn(r.project,r.view.run.id,p,p.hash,options());
@@ -63,6 +63,7 @@ it('admits exact observed placement without local tasks, binds remote spending, 
   expect(await executeSpawn(r.project,accepted.admission,options())).toMatchObject({status:'delegated',exitCode:0});
   expect(r.store.owner()).toBeNull();expect(r.store.read()).toEqual(saved);
   const issued=await h.parent.grantChildren(r.project,h.execution.manifestHash,grant);
+  expect((await h.parent.grantChildren(r.project,h.execution.manifestHash,grant)).token).toBe(issued.token);
   const child=await RemoteReservationLedger.connect({url:h.url,token:issued.token,root:join(root,'child'),execution:{cwd:remoteProject,agentId:'c'}});
   const execution={ledger:child,agentId:'c',manifestHash:h.execution.manifestHash,maxOutputTokens:10};
   const guard=new ExecutionGuard(execution,remoteProject);
@@ -79,14 +80,63 @@ it('admits exact observed placement without local tasks, binds remote spending, 
   await expect(h.parent.grantChildren(r.project,h.execution.manifestHash,grant)).rejects.toMatchObject({code:'authority'});
 });
 
-it('recovers an interrupted allocation once without changing its workspace, allowance or clock',async()=>{
-  const p=await preview(),controller=new AbortController(),original=ReservationLedger.prototype.grantChildren;
+it.each(['file','host'])('recovers an interrupted %s allocation once without changing its workspace, allowance or clock',async origin=>{
+  const p=origin==='host'?(await inspectDelegatedSpawn(r.project,r.view.run.id,input(),options())).proposal:await preview(),controller=new AbortController(),original=ReservationLedger.prototype.grantChildren;
   const spy=vi.spyOn(ReservationLedger.prototype,'grantChildren').mockImplementation(async function(...args){const result=await original.apply(this,args);controller.abort();return result;});
   await expect(admitSpawn(r.project,r.view.run.id,p,p.hash,{...options(),signal:controller.signal})).rejects.toMatchObject({name:'AbortError'});spy.mockRestore();
   const saved=r.authority.ledger.read(r.project);expect(saved.projection.childGrants).toHaveLength(1);expect(r.store.read().state.graph).toBeUndefined();
   const h=await host();await expect(h.parent.grantChildren(r.project,h.execution.manifestHash,proposalGrant(p,r.store.read().header))).rejects.toMatchObject({code:'authority'});
-  fs.unlinkSync(join(r.project,'delegation.json'));
+  if(origin==='file')fs.unlinkSync(join(r.project,'delegation.json'));
+  else expect((await inspectDelegatedSpawn(r.project,r.view.run.id,input(),options())).pending).toEqual([p.hash]);
   const accepted=await admitSpawn(r.project,r.view.run.id,p.hash,p.hash,options());expect(accepted.admission.grant).toEqual(saved.projection.childGrants![0]);expect(r.authority.ledger.read(r.project)).toEqual(saved);
+});
+
+it('previews a content-bound host proposal without writing the project or admitting capacity',async()=>{
+  const files=fs.readdirSync(r.project),before=r.authority.ledger.read(r.project),journal=r.store.read(),value=input();
+  const result=await inspectDelegatedSpawn(r.project,r.view.run.id,value,options()),hash=digest(canonicalJson(value));
+  expect(result.proposal.source).toEqual({kind:'delegation',path:`delegation/${hash}.json`,sha256:hash});
+  expect(result.deadline).toBe(journal.header.deadline);expect(result.pending).toEqual([]);
+  value.agents[0]!.objective='Changed after preview';expect(result.proposal.agents[0]!.objective).not.toBe(value.agents[0]!.objective);
+  expect(fs.readdirSync(r.project)).toEqual(files);expect(r.authority.ledger.read(r.project)).toEqual(before);expect(r.store.read()).toEqual(journal);
+  await expect(admitSpawn(r.project,r.view.run.id,result.proposal,result.proposal.hash,{...options(),confirmation:'mutating',approve:async()=> 'reject'})).rejects.toThrow(/policy/i);
+  expect(r.authority.ledger.read(r.project)).toEqual(before);expect(r.store.read()).toEqual(journal);
+});
+
+it('refuses local tasks and expanded scope in a host proposal before reserving capacity',async()=>{
+  await expect(inspectDelegatedSpawn(r.project,r.view.run.id,{version:1,parentId:'coordinator',agents:input().agents,tasks:[r.view.manifest.plan.tasks[0]!]},options())).rejects.toThrow(/externally scheduled/);
+  const expanded=input();expanded.agents[0]!.allowedTools=['shell'];
+  await expect(inspectDelegatedSpawn(r.project,r.view.run.id,expanded,options())).rejects.toThrow();
+  expect(r.authority.ledger.read(r.project).events).toEqual([]);expect(r.store.read().events).toEqual([]);
+});
+
+it.each(['execution','budget'])('rechecks host revocation after waiting for the %s writer lock',async kind=>{
+  const p=(await inspectDelegatedSpawn(r.project,r.view.run.id,input(),options())).proposal;
+  const lock=join(kind==='execution'?r.store.root:r.authority.ledger.root,'writer.lock');
+  fs.writeFileSync(lock,String(process.pid),{flag:'wx',mode:0o600});
+  let allowed=true,reviewed!:()=>void;
+  const review=new Promise<void>(resolve=>{reviewed=resolve;});
+  const pending=admitSpawn(r.project,r.view.run.id,p,p.hash,{...options(),assertAuthority:()=>{
+    if(!allowed)throw new Error('Host connection revoked');
+  },confirmation:'mutating',approve:async()=>{reviewed();return 'allow';}});
+  const refused=expect(pending).rejects.toThrow('Host connection revoked');
+  try{
+    await review;await new Promise(resolve=>setTimeout(resolve,30));
+    allowed=false;fs.unlinkSync(lock);await refused;
+    expect(r.authority.ledger.read(r.project).events).toEqual([]);expect(r.store.read().events).toEqual([]);
+  }finally{if(fs.existsSync(lock))fs.unlinkSync(lock);}
+});
+
+it.each(['placement','source-hash','source-path','source-event','legacy'] as const)('refuses changed host %s evidence even with a recomputed proposal hash',async field=>{
+  const p=(await inspectDelegatedSpawn(r.project,r.view.run.id,input(),options())).proposal;
+  const modified:any=structuredClone(p);
+  if(field==='placement')modified.delegation.observationHash='2'.repeat(64);
+  if(field==='source-hash')modified.source.sha256='2'.repeat(64);
+  if(field==='source-path')modified.source.path='other.json';
+  if(field==='source-event')modified.source.eventId=randomUUID();
+  if(field==='legacy'){modified.version=1;delete modified.delegation;}
+  const {hash,...body}=modified,changed={...body,hash:digest(canonicalJson(body))};
+  await expect(admitSpawn(r.project,r.view.run.id,changed,changed.hash,options())).rejects.toThrow(/delegated proposal source/);
+  expect(r.authority.ledger.read(r.project).events).toEqual([]);expect(r.store.read().events).toEqual([]);
 });
 
 it.each(['tasks','file-input','bad-key','missing-observation','missing-placement','legacy-placement','expanded-scope','expanded-budget'] as const)('refuses %s before granting any capacity',async kind=>{

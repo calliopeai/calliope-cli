@@ -1,6 +1,6 @@
 import {join,resolve,relative,dirname} from 'node:path';
 import {createHash} from 'node:crypto';
-import {canonicalPath,canonicalJson} from '../approvals/index.js';
+import {canonicalPath,canonicalJson,digest} from '../approvals/index.js';
 import {authorizeSessionAction} from '../session-management/index.js';
 import {throwIfCancelled} from '../cancellation.js';
 import {withScope,validatePath} from '../scope.js';
@@ -19,22 +19,26 @@ import type {CoordinatorOptions} from '../orchestration/coordinator.js';
 import {inspectSpawnAuthority} from './authority.js';
 import {SpawnProposalStore} from './store.js';
 import {makeSpawnProposal,validateSpawnInput,validateSpawnProposal,proposalGrant,MAX_SPAWN_BYTES,assertSpawnPlacement} from './validation.js';
-import type {SpawnProposal,SpawnAdmission} from './types.js';
+import type {SpawnInput,SpawnProposal,SpawnAdmission} from './types.js';
 import {assertSupervisionProposal} from '../supervision/journal.js';
 const bytesHash=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
-export interface SpawnActionOptions extends RunActionOptions {approve?:CoordinatorOptions['approve']}
+export interface SpawnActionOptions extends RunActionOptions {
+  approve?:CoordinatorOptions['approve'];
+  /** Trusted host restrictions are rechecked inside both native writer locks. */
+  assertAuthority?:()=>void;
+}
 function boundedOptions(options:SpawnActionOptions,signal:AbortSignal):SpawnActionOptions {
   const approve=options.approve;return{...options,signal,approve:approve?decision=>approve(decision,signal):undefined};
 }
 
-async function context(cwd:string,runId:string,options:RunActionOptions) {
+async function context(cwd:string,runId:string,options:SpawnActionOptions) {
   const runs=options.store??new RunStore(),initial=await inspectExecution(cwd,runId,{...options,store:runs});
   assertExecutionStoreOutsideProject(initial.view.manifest.project.root,runs.root);
   if(!initial.execution)throw new OrchestrationError('unavailable','Start the reviewed run before proposing children; its original budget and deadline must already exist.');
   const ledger=new ReservationLedger(join(runs.root,runId,'budget'));
   const goalAuthority=(await import('../goals/index.js')).goalRunAuthority(initial.view.manifest,runs.root);
   const signal=AbortSignal.any([...(options.signal?[options.signal]:[]),AbortSignal.timeout(Math.max(1,initial.execution.header.deadline-Date.now()))]);options={...options,signal};
-  const assertActive=(view:ExecutionInspection)=>{throwIfCancelled(options.signal);initial.store.assertApproval(view.header);goalAuthority?.assertActive();if(Date.now()>=view.header.deadline)throw new ExecutionLimitError('deadline','Original run deadline expired.');};
+  const assertActive=(view:ExecutionInspection)=>{throwIfCancelled(options.signal);options.assertAuthority?.();initial.store.assertApproval(view.header);goalAuthority?.assertActive();if(Date.now()>=view.header.deadline)throw new ExecutionLimitError('deadline','Original run deadline expired.');};
   assertActive(initial.execution);return{...initial,ledger,assertActive,signal,proposals:new SpawnProposalStore(initial.store)};
 }
 /** Preview binds exact source bytes and the current graph without reserving capacity. */
@@ -53,6 +57,19 @@ export async function inspectSpawn(cwd:string,runId:string,path:string,options:S
   return{proposal,deadline:authority.view.header.deadline,budget:authority.budget.projection,pending:authority.pending.map(record=>record.grant.proposalHash)};
 }
 
+/** A trusted host supplies observed placement; preview never grants capacity or writes project files. */
+export async function inspectDelegatedSpawn(cwd:string,runId:string,input:SpawnInput,options:SpawnActionOptions={}) {
+  const value=validateSpawnInput(structuredClone(input));
+  if(value.version!==2)throw new OrchestrationError('invalid','Host proposals require externally scheduled placement.');
+  const current=await context(cwd,runId,options),authority=inspectSpawnAuthority(current.store,current.ledger);
+  current.assertActive(authority.view);
+  const sha256=digest(canonicalJson(value));
+  const proposal=makeSpawnProposal(current.store.manifest,authority.view.header,authority.context.plan,value,
+    {kind:'delegation',path:`delegation/${sha256}.json`,sha256});
+  bindAdmission(authority.context.plan,proposal,authority.view.state.graph?.admissions??[],current.view.manifest.project.root);
+  return{proposal,deadline:authority.view.header.deadline,budget:authority.budget.projection,pending:authority.pending.map(record=>record.grant.proposalHash)};
+}
+
 /** Review precedes all writes; replaying an approved proposal reuses its original allocation. */
 export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|string,approvedHash:string,options:SpawnActionOptions={}) {
   const current=await context(cwd,runId,options),proposal=typeof input==='string'?current.proposals.read(input):structuredClone(input),recovery=typeof input==='string';
@@ -62,7 +79,7 @@ export async function admitSpawn(cwd:string,runId:string,input:SpawnProposal|str
   if(existing){if(canonicalJson(existing.proposal)!==canonicalJson(proposal))throw new OrchestrationError('conflict','Child proposal differs from its admitted graph.');return{admission:existing,execution:before,alreadyAdmitted:true};}
   validateSpawnProposal(proposal,current.store.manifest,before.header,current.store.context(before).plan);
   await authorizeSessionAction(cwd,'orchestration_spawn',{path:cwd,operation:`Admit ${proposal.agents.length} children and ${proposal.tasks.length} tasks under ${proposal.parentId}, proposal ${proposal.hash}, original deadline ${new Date(before.header.deadline).toISOString()}.${proposal.version===2?` External work ${proposal.delegation.reference}; workspace ${proposal.delegation.project.root}, key ${proposal.delegation.project.key}; observation ${proposal.delegation.observationHash}. No local tasks will be scheduled.`:''}`,runId,parentId:proposal.parentId,proposalHash:proposal.hash,graphHash:proposal.graphHash,source:proposal.source,agents:proposal.agents,tasks:proposal.tasks,...(proposal.version===2?{delegation:proposal.delegation}:{}),recovery},{...options,confirmation:options.source==='repl'?'mutating':options.confirmation});
-  const checkSource=()=>{if(proposal.source.kind==='supervision')assertSupervisionProposal(proposal,current.store.read().state);else if(!recovery){const file=resolve(current.store.manifest.project.root,proposal.source.path);if(bytesHash(readArtifactBytes(file,MAX_SPAWN_BYTES))!==proposal.source.sha256)throw new OrchestrationError('conflict','Child proposal source changed after review.');}};
+  const checkSource=()=>{if(proposal.source.kind==='supervision')assertSupervisionProposal(proposal,current.store.read().state);else if(!recovery&&proposal.source.kind!=='delegation'){const file=resolve(current.store.manifest.project.root,proposal.source.path);if(bytesHash(readArtifactBytes(file,MAX_SPAWN_BYTES))!==proposal.source.sha256)throw new OrchestrationError('conflict','Child proposal source changed after review.');}};
   let admission:SpawnAdmission|undefined,alreadyAdmitted=false;
   await current.store.transaction(async prior=>{
     current.assertActive(prior);const authority=inspectSpawnAuthority(current.store,current.ledger,prior);

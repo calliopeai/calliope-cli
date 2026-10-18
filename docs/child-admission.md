@@ -142,6 +142,24 @@ connects, before inference. Wrong-workspace, revoked, stopped and expired
 requests fail through the existing ledger gates. Admission recovery reuses the
 original grant, evidence, budget and deadline.
 
+Trusted hosts can preview an already observed version 2 input with
+`inspectDelegatedSpawn(project, runId, input, options)`. Discover
+`DELEGATED_HOST_PROPOSAL_CAPABILITY` first:
+`{version:1, source:'delegation', review:'hash', scheduling:'external', hostAuthority:1}`.
+This preview returns the same review envelope as a file proposal and writes
+neither the project nor an allowance. Its `source.kind: "delegation"` records
+the canonical input digest and a logical `delegation/DIGEST.json` identity;
+that identity is not a path to read or write in the project. The complete input,
+including the observed workspace and external task reference, remains in the
+hash-approved proposal. `admitSpawn` still requires that exact hash, current
+policy and the original parent authority, and saves the proposal privately under
+the native writer lock. Recovery uses its saved hash and original grant. This
+API does not attest the host's observation or authorize remote task creation.
+Hosts pass `assertAuthority` in the preview/admission options to retain their own
+connection and placement restrictions. Native admission rechecks this callback
+inside the execution and budget writer locks, including after waiting for
+another writer, so an approved proposal cannot outrun a revoked host connection.
+
 `prepareReviewedLedger` now establishes an empty native execution history from
 the existing budget's creation time and deadline when no coordinator has run.
 This permits reviewed admission without launching local work. It does not

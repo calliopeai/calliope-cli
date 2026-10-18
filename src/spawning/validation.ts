@@ -9,6 +9,7 @@ import type {ChildGrant} from '../execution/types.js';
 import type {SpawnInput,SpawnProposal,SpawnAdmission} from './types.js';
 
 export const DELEGATED_ADMISSION_CAPABILITY={version:1,proposalVersion:2,workspaceBinding:1,scheduling:'external'} as const;
+export const DELEGATED_HOST_PROPOSAL_CAPABILITY={version:1,source:'delegation',review:'hash',scheduling:'external',hostAuthority:1} as const;
 export const MAX_SPAWN_BYTES=65536,MAX_SPAWN_PROPOSALS=256;
 export function validateSpawnInput(value:unknown):SpawnInput {
   shape(value,['version','parentId','agents','tasks'],['delegation']);if(value.version!==1&&value.version!==2)fail('Unsupported child proposal version.');id(value.parentId);array(value.agents,16,1);array(value.tasks,64,value.version===2?0:1);
@@ -43,7 +44,9 @@ export function validateSpawnProposal(value:unknown,manifest:RunManifest,header:
   shape(value,['version','parentId','agents','tasks','runId','runManifestHash','approvalRevision','graphHash','planHash','source','hash'],['delegation']);
   if(value.runId!==manifest.id||value.runManifestHash!==manifest.hash||value.approvalRevision!==header.approvalRevision||!hex(value.graphHash)||!hex(value.planHash)||!hex(value.hash))fail('Child proposal belongs to another run, approval or graph.');
   shape(value.source,['path','sha256'],['kind','eventId']);pathName(value.source.path);
-  if(value.source.kind!==undefined||value.source.eventId!==undefined){if(value.source.kind!=='supervision'||!uuid(value.source.eventId)||value.source.path!==`supervision/${value.source.eventId}.json`)fail('Invalid controller proposal source.');}if(!hex(value.source.sha256))fail('Child proposal source needs its byte hash.');
+  if(value.source.kind==='delegation'){
+    if(value.version!==2||value.source.eventId!==undefined||value.source.path!==`delegation/${value.source.sha256}.json`||value.source.sha256!==digest(canonicalJson(spawnInput(value as unknown as SpawnProposal))))fail('Invalid delegated proposal source.');
+  }else if(value.source.kind!==undefined||value.source.eventId!==undefined){if(value.source.kind!=='supervision'||!uuid(value.source.eventId)||value.source.path!==`supervision/${value.source.eventId}.json`)fail('Invalid controller proposal source.');}if(!hex(value.source.sha256))fail('Child proposal source needs its byte hash.');
   const {hash,...body}=value;if(hash!==digest(canonicalJson(body)))fail('Child proposal hash is invalid.');
   if(value.version!==1&&value.version!==2||value.version===1&&value.delegation!==undefined)fail('Invalid child proposal placement version.');
   const proposal=value as unknown as SpawnProposal,next=extendPlan(base,spawnInput(proposal));

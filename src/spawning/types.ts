@@ -6,7 +6,7 @@ export type SpawnInput = {parentId:string;agents:AgentContract[];tasks:ProjectTa
 );
 export type SpawnProposal = SpawnInput & {
   runId:string;runManifestHash:string;approvalRevision:string;graphHash:string;planHash:string;
-  source:{path:string;sha256:string;kind?:'supervision';eventId?:string};hash:string;
+  source:{path:string;sha256:string;kind?:'supervision'|'delegation';eventId?:string};hash:string;
 }
 export interface SpawnAdmission {version:1;proposal:SpawnProposal;grant:RecordedChildGrant}
 export interface SpawnGraph {version:1;plan:ProjectPlan;hash:string;admissions:SpawnAdmission[]}
