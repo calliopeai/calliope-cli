@@ -73,13 +73,16 @@ async function body(request:http.IncomingMessage):Promise<Buffer>{
  */
 class StreamAgent extends http.Agent {
   private used=false;
-  constructor(private readonly stream:Duplex){super({keepAlive:true,maxSockets:1,maxTotalSockets:1});}
+  constructor(private readonly stream:Duplex){
+    super({keepAlive:true,maxSockets:1,maxTotalSockets:1});
+    // Pipes have no socket handle to ref. Keep the native agent's reuse cleanup.
+    Object.assign(stream,{ref:()=>stream});
+  }
   override createConnection(_options:unknown,callback?:(error:Error|null,stream:Duplex)=>void):Socket|undefined {
     if(this.used||this.stream.destroyed){callback?.(unavailable(),this.stream);return undefined;}
     this.used=true;return this.stream as Socket;
   }
   override keepSocketAlive():boolean{return true;}
-  override reuseSocket(_socket:Socket,request:http.ClientRequest):void{request.reusedSocket=true;}
 }
 function lifetime(options:TunnelOptions,server:http.Server,timeout:number){
   const stream=Duplex.fromWeb({readable:Readable.toWeb(options.input),writable:Writable.toWeb(options.output)});

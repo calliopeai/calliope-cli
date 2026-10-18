@@ -122,6 +122,15 @@ it('keeps a live idle bridge open with heartbeats and checks the owner lease aga
   check.mockImplementation(()=>{throw new Error('private lease detail');});await Promise.all([t.host.closed,t.task.closed]);
 });
 
+it('reuses the private stream for sustained heartbeats without accumulating HTTP agent listeners',async()=>{
+  const warning=vi.spyOn(process,'emitWarning'),check=vi.fn();
+  const {token,binding}=fakeCredential(),url=await listen(createServer((_req,res)=>res.end('{"ok":true}')));
+  const t=await tunnel(url,binding,{timeoutMs:300,assertConnection:check});
+  await vi.waitFor(()=>expect(check.mock.calls.length).toBeGreaterThan(35),{timeout:5000});
+  expect(await (await post(t.task.url,token)).json()).toEqual({ok:true});
+  expect(warning.mock.calls.filter(([value])=>value instanceof Error&&value.name==='MaxListenersExceededWarning')).toEqual([]);
+});
+
 it('waits for an in-flight heartbeat instead of refusing native connection negotiation',async()=>{
   const {token,binding}=fakeCredential(),url=await listen(createServer((_req,res)=>res.end('{"ok":true}'))),io=pair();
   let entered!:()=>void,release!:()=>void,pings=0;
