@@ -1,7 +1,7 @@
 /** Re-evaluate supplied receipts. Integrity is not producer authentication or execution authority. */
 import { canonicalJson, digest } from '../approvals/index.js';
 import { MigrationError } from './inventory.js';
-import { analyzeVerificationPlan, behaviorFingerprint, compareBehavior, comparatorHealthy, type ExpectedBehavior } from './verification.js';
+import { analyzeBaselinePlan, analyzeVerificationPlan, behaviorFingerprint, compareBehavior, comparatorHealthy, type ExpectedBehavior } from './verification.js';
 
 type RecordValue = Record<string, unknown>;
 const object = (value: unknown): value is RecordValue => !!value && typeof value === 'object' && !Array.isArray(value);
@@ -13,25 +13,32 @@ function fields(value: unknown, required: string[], optional: string[] = []): as
 }
 
 export function analyzeVerificationEvidence(inputPlan: unknown, inputReport: unknown) {
+  return reviewEvidence(inputPlan, inputReport, false);
+}
+export function analyzeBaselineEvidence(inputPlan: unknown, inputReport: unknown) {
+  return reviewEvidence(inputPlan, inputReport, true);
+}
+function reviewEvidence(inputPlan: unknown, inputReport: unknown, baselineOnly: boolean) {
   if (!comparatorHealthy()) fail('The evidence comparator failed its adversarial self-check.');
-  const analysis = analyzeVerificationPlan(inputPlan), { plan } = analysis;
+  const analysis = baselineOnly ? analyzeBaselinePlan(inputPlan) : analyzeVerificationPlan(inputPlan), { plan } = analysis;
   let encoded: string;
   try { encoded = canonicalJson(inputReport); } catch { return fail('Use bounded plain JSON for verification evidence.'); }
   if (Buffer.byteLength(encoded) > 262144) fail('Keep verification evidence within 256 KiB.');
   const report: unknown = JSON.parse(encoded);
   fields(report, ['format', 'verifier', 'adapter', 'planDigest', 'runtime', 'pins', 'outcome', 'reason', 'observations', 'commandsUsed', 'commandLimit', 'retainedWorkspace', 'limitations', 'digest']);
-  if (report.format !== 'calliope.migration.verification-report/v1' || report.verifier !== plan.verifier || report.adapter !== plan.adapter) fail('Unsupported verification evidence format.');
+  if (report.format !== (baselineOnly ? 'calliope.migration.baseline-report/v1' : 'calliope.migration.verification-report/v1') || report.verifier !== plan.verifier || report.adapter !== plan.adapter) fail('Unsupported verification evidence format.');
   const { digest: suppliedDigest, ...body } = report;
   if (!hash(suppliedDigest) || digest(canonicalJson(body)) !== suppliedDigest) fail('Verification evidence digest does not match its contents.');
-  if (report.planDigest !== analysis.digest || !same(report.runtime, plan.runtime) || !same(report.pins, { source: plan.source, candidate: plan.candidate, negative: plan.negative, rules: plan.rules })) fail('Verification evidence belongs to different source, rules, runtime or cases.');
-  const outcomes = ['passed', 'input-failure', 'baseline-failure', 'verifier-failure', 'regression', 'environment-failure', 'cancelled'];
+  const pins = plan.format === 'calliope.migration.baseline-plan/v1' ? { source: plan.source, negative: plan.negative, rules: plan.rules } : { source: plan.source, candidate: plan.candidate, negative: plan.negative, rules: plan.rules };
+  if (report.planDigest !== analysis.digest || !same(report.runtime, plan.runtime) || !same(report.pins, pins)) fail('Verification evidence belongs to different source, rules, runtime or cases.');
+  const outcomes = [baselineOnly ? 'baseline-verified' : 'passed', 'input-failure', 'baseline-failure', 'verifier-failure', ...(baselineOnly ? [] : ['regression']), 'environment-failure', 'cancelled'];
   if (typeof report.outcome !== 'string' || !outcomes.includes(report.outcome) || typeof report.reason !== 'string' || report.reason.length > 4096 || !Array.isArray(report.limitations) || report.limitations.length > 32 || report.limitations.some(v => typeof v !== 'string' || v.length > 4096) || report.retainedWorkspace !== null && (typeof report.retainedWorkspace !== 'string' || report.retainedWorkspace.length > 4096)) fail('Invalid verification outcome metadata.');
   if (!Array.isArray(report.observations) || report.observations.length > analysis.commandCount || !Number.isSafeInteger(report.commandsUsed) || Number(report.commandsUsed) < report.observations.length || Number(report.commandsUsed) > analysis.commandCount + 1 || report.commandLimit !== analysis.commandCount) fail('Invalid verification command accounting.');
   const expected = [
     { phase: 'runtime', caseId: null, argv: ['node', '--version'], behavior: { exitCode: 0, stdout: plan.runtime.node + '\n', stderr: '' } },
     ...plan.cases.map(c => ({ phase: 'baseline', caseId: c.id, argv: ['node', '/project/program.mjs', c.argument], behavior: c.expected })),
     { phase: 'negative-control', caseId: plan.negativeControl.caseId, argv: ['node', '/project/program.mts', plan.cases.find(c => c.id === plan.negativeControl.caseId)!.argument], behavior: plan.negativeControl.expected },
-    ...plan.cases.map(c => ({ phase: 'candidate', caseId: c.id, argv: ['node', '/project/program.mts', c.argument], behavior: c.expected })),
+    ...(baselineOnly ? [] : plan.cases.map(c => ({ phase: 'candidate', caseId: c.id, argv: ['node', '/project/program.mts', c.argument], behavior: c.expected }))),
   ];
   const findings: { code: string; observation: number | null }[] = [];
   const containers = new Set<string>();
@@ -76,9 +83,9 @@ export function analyzeVerificationEvidence(inputPlan: unknown, inputReport: unk
   }
   if (report.observations.length !== analysis.commandCount || report.commandsUsed !== analysis.commandCount) findings.push({ code: 'incomplete-command-coverage', observation: null });
   if (report.retainedWorkspace !== null) findings.push({ code: 'retained-workspace', observation: null });
-  if (report.outcome !== 'passed') findings.push({ code: 'reported-' + report.outcome, observation: null });
-  const value = { format: 'calliope.migration.evidence-review/v1', planDigest: analysis.digest, reportDigest: suppliedDigest as string,
-    status: findings.length ? 'not-passing' : 'passing-observations', caseIds: plan.cases.map(c => c.id), findings,
+  if (report.outcome !== (baselineOnly ? 'baseline-verified' : 'passed')) findings.push({ code: 'reported-' + report.outcome, observation: null });
+  const value = { format: baselineOnly ? 'calliope.migration.baseline-evidence-review/v1' : 'calliope.migration.evidence-review/v1', planDigest: analysis.digest, reportDigest: suppliedDigest as string,
+    status: findings.length ? 'not-passing' : baselineOnly ? 'baseline-observations' : 'passing-observations', caseIds: plan.cases.map(c => c.id), findings,
     authority: 'Supplied observation integrity only. No producer authentication, independent review or execution approval is implied.' };
   return { ...value, digest: digest(canonicalJson(value)) };
 }

@@ -39,6 +39,46 @@ validation additionally checks byte bounds, related fields and Git object pins.
 
 ## Evidence and outcomes
 
+### Establish a baseline before implementation
+
+An original-system baseline does not need a candidate commit. Discover
+`verify-baseline` and `review-baseline-evidence` in `migration capabilities`, then
+use the separate baseline contracts:
+
+```sh
+calliope migration baseline-schema --json
+calliope migration review-baseline --plan baseline.json --json
+calliope migration verify-baseline --repository /path/to/repository --plan baseline.json --approve REVIEW_DIGEST --json
+calliope migration review-baseline-evidence --plan baseline.json --report baseline-report.json --json
+```
+
+The plan format is `calliope.migration.baseline-plan/v1`. It has the same adapter,
+verifier, runtime, source, negative-control, rules, cases and limits as a full
+verification plan, with **no `candidate` field**. Candidate pins are refused rather
+than ignored. Review approves exactly the source, negative and rules pins and
+`cases.length + 2` commands: runtime, original cases and one known regression.
+No candidate is read, mounted or executed. The same isolated command backend,
+inherited deadline, reservation callback and cleanup checks apply.
+
+Success returns `baseline-verified` in a `calliope.migration.baseline-report/v1`.
+Read-only review returns `baseline-observations` in a distinct baseline evidence
+review. Neither is candidate verification or authorization to implement. A host
+must establish provenance and review scope independently; hashes alone do not
+authenticate the observations. Failed, cancelled, incomplete or contradictory
+baseline evidence remains nonpassing.
+
+Library hosts use `analyzeBaselinePlan`, `verifyMigrationBaseline` and
+`analyzeBaselineEvidence`, with the existing `VerificationOptions` host callbacks.
+After implementation, create a normal full verification plan with the exact
+candidate commit and obtain separate approval. Full verification still repeats
+baseline and known-regression checks before testing the candidate. Baseline
+approval digests and reports cannot be substituted for full verification.
+
+The existing full-verification v1 formats and digests are unchanged. Baseline
+evidence also cannot satisfy assessment's passing candidate-pilot requirement.
+
+### Full verification
+
 Before reading program contents, the host approves the exact plan and read pins.
 Verification then reads immutable Git blobs, checks their identities and creates
 private temporary snapshots. Dirty and untracked checkout files are preserved.

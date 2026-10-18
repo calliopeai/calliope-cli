@@ -12,3 +12,7 @@ export type { AssessmentOptions, AssessmentReview, AssessmentReviewRequest, Asse
 export { analyzeAssessmentRequest, ASSESSMENT_VERSION } from './assessment-contract.js';
 export type { AssessmentRequest, PilotMeasurement } from './assessment-contract.js';
 export { ASSESSMENT_SCHEMAS } from './assessment-schema.js';
+export { analyzeBaselinePlan, verifyMigrationBaseline } from './verification.js';
+export type { BaselinePlan } from './verification.js';
+export { analyzeBaselineEvidence } from './evidence.js';
+export { BASELINE_SCHEMAS } from './schema.js';

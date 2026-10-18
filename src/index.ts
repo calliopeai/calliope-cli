@@ -59,3 +59,5 @@ export { comparatorHealthy, compareBehavior, migrationExample } from './migratio
 export { analyzeVerificationEvidence, EVIDENCE_REVIEW_SCHEMA } from './migration/index.js';
 export { assessMigration, analyzeAssessmentRequest, ASSESSMENT_SCHEMAS } from './migration/index.js';
 export type { AssessmentRequest, AssessmentOptions, AssessmentReview, AssessmentReviewRequest, AssessmentImplementation, PilotMeasurement } from './migration/index.js';
+export { analyzeBaselinePlan, verifyMigrationBaseline, analyzeBaselineEvidence, BASELINE_SCHEMAS } from './migration/index.js';
+export type { BaselinePlan } from './migration/index.js';

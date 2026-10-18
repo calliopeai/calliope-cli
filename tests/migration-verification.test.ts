@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
-import { analyzeVerificationEvidence, analyzeVerificationPlan, verifyMigration, migrationExample, comparatorHealthy, behaviorFingerprint, compareBehavior, runMigrationCommand, VERIFICATION_SCHEMAS, type VerificationPlan } from '../src/migration/index.js';
+import { analyzeBaselinePlan, verifyMigrationBaseline, analyzeBaselineEvidence, BASELINE_SCHEMAS, type BaselinePlan, analyzeVerificationEvidence, analyzeVerificationPlan, verifyMigration, migrationExample, comparatorHealthy, behaviorFingerprint, compareBehavior, runMigrationCommand, VERIFICATION_SCHEMAS, type VerificationPlan } from '../src/migration/index.js';
 import { digest, canonicalJson } from '../src/approvals/index.js';
 import { runIsolatedCommand, assertLocalIsolationImage } from '../src/isolation/process.js';
 const faults = vi.hoisted(() => ({ mode: '', calls: 0 }));
@@ -151,5 +151,101 @@ describe('native migration behavior verification', () => {
     expect(await runMigrationCommand([...args, hash, '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!).outcome).toBe('passed');
     expect(await runMigrationCommand(['review-verification', '--plan', file, '--approve', hash], { write })).toBe(1);
     expect(await runMigrationCommand(['inventory', '--plan', file], { write })).toBe(1);
+  });
+});
+
+
+describe('baseline before candidate implementation', () => {
+  const baselinePlan = (): BaselinePlan => {
+    const { candidate: _candidate, ...base } = plan;
+    return { ...base, format: 'calliope.migration.baseline-plan/v1' };
+  };
+  const baseline = async (input = baselinePlan(), options = {}) => {
+    const result = await verifyMigrationBaseline(root, input, { approve: async () => true, ...options });
+    if (result.retainedWorkspace) retained.push(result.retainedWorkspace);
+    return result;
+  };
+  const rehash = (report: any) => {
+    const { digest: _digest, ...body } = report;
+    return { ...body, digest: digest(canonicalJson(body)) };
+  };
+  it('establishes original behavior without a candidate in the selected commit or approval', async () => {
+    git('rm', 'candidate.mts'); git('commit', '-qm', 'Original and negative control only');
+    const input = baselinePlan();
+    for (const role of ['source', 'negative', 'rules'] as const) input[role].revision = git('rev-parse', 'HEAD');
+    fs.writeFileSync(join(root, 'candidate.mts'), 'untracked candidate must remain untouched');
+    const approve = vi.fn(async () => true), reserveCommand = vi.fn(async () => true);
+    const value = await baseline(input, { approve, reserveCommand });
+    expect(value.format).toBe('calliope.migration.baseline-report/v1');
+    expect(value.outcome).toBe('baseline-verified'); expect(value.commandsUsed).toBe(input.cases.length + 2);
+    expect(value.pins).not.toHaveProperty('candidate'); expect(value.observations.some(o => o.phase === 'candidate')).toBe(false);
+    expect(approve.mock.calls[0]![0]).toEqual(expect.objectContaining({ pins: [input.source, input.negative, input.rules], commandCount: input.cases.length + 2, digest: analyzeBaselinePlan(input).digest }));
+    expect(reserveCommand).toHaveBeenCalledTimes(input.cases.length + 2);
+    expect(fs.readFileSync(join(root, 'candidate.mts'), 'utf8')).toBe('untracked candidate must remain untouched');
+    expect(analyzeBaselineEvidence(input, value).status).toBe('baseline-observations');
+    expect(() => analyzeVerificationEvidence(plan, value)).toThrow();
+    expect(() => analyzeBaselineEvidence(input, { ...value, format: 'calliope.migration.verification-report/v1' })).toThrow();
+  });
+  it('keeps full verification, baseline plans and approval digests distinct', async () => {
+    const input = baselinePlan();
+    expect(analyzeBaselinePlan(input).digest).not.toBe(analyzeVerificationPlan(plan).digest);
+    expect(() => analyzeVerificationPlan(input)).toThrow(); expect(() => analyzeBaselinePlan(plan)).toThrow();
+    expect(() => analyzeBaselinePlan({ ...input, candidate: plan.candidate })).toThrow();
+    await expect(baseline(input, { approve: async (request: { digest: string }) => request.digest === analyzeVerificationPlan(plan).digest })).rejects.toThrow('not approved');
+    expect(runIsolatedCommand).not.toHaveBeenCalled();
+  });
+  it('does not treat a missing original baseline or accepted known regression as verified', async () => {
+    const input = baselinePlan(); input.cases[0]!.expected.stdout = 'wrong original';
+    const failed = await baseline(input); expect(failed.outcome).toBe('baseline-failure');
+    expect(analyzeBaselineEvidence(input, failed).status).toBe('not-passing');
+    input.cases[0]!.expected.stdout = migrationExample().cases[0]!.expected.stdout;
+    input.negative = plan.candidate;
+    const broken = await baseline(input); expect(broken.outcome).toBe('verifier-failure');
+    expect(analyzeBaselineEvidence(input, broken).status).toBe('not-passing');
+  });
+  it.each(['source', 'negative', 'rules'] as const)('rejects a stale %s pin before any observation', async role => {
+    const input = baselinePlan(); input[role].object = 'b'.repeat(40);
+    expect((await baseline(input)).outcome).toBe('input-failure'); expect(runIsolatedCommand).not.toHaveBeenCalled();
+  });
+  it.each(['cleanup', 'timeout', 'truncated', 'old-receipt', 'throw'])('preserves %s as failed baseline evidence', async mode => {
+    faults.mode = mode; const input = baselinePlan(), value = await baseline(input);
+    expect(value.outcome).toBe('environment-failure'); expect(analyzeBaselineEvidence(input, value).status).toBe('not-passing');
+    expect(value.retainedWorkspace !== null).toBe(['cleanup', 'throw'].includes(mode));
+  });
+  it('preserves inherited command allowance, deadline and cancellation', async () => {
+    const input = baselinePlan();
+    await expect(baseline(input, { deadline: Date.now() - 1 })).rejects.toThrow('expired');
+    const refused = await baseline(input, { reserveCommand: async () => false });
+    expect(refused.outcome).toBe('environment-failure'); expect(runIsolatedCommand).not.toHaveBeenCalled();
+    const controller = new AbortController();
+    const cancelled = await baseline(input, { signal: controller.signal, reserveCommand: async () => { controller.abort(); return true; } });
+    expect(cancelled.outcome).toBe('cancelled'); expect(runIsolatedCommand).not.toHaveBeenCalled();
+    expect(analyzeBaselineEvidence(input, cancelled).status).toBe('not-passing');
+  });
+  it('recomputes baseline evidence and rejects forged promotion or stale rules', async () => {
+    const input = baselinePlan(), value = await baseline(input);
+    const changed = structuredClone(value); changed.observations[1]!.evidence.outputDigests!.stdout.sha256 = 'f'.repeat(64);
+    expect(analyzeBaselineEvidence(input, rehash(changed)).status).toBe('not-passing');
+    expect(() => analyzeBaselineEvidence(input, rehash({ ...value, outcome: 'passed' }))).toThrow();
+    const stale = structuredClone(input); stale.rules.object = 'b'.repeat(40);
+    expect(() => analyzeBaselineEvidence(stale, value)).toThrow('different source');
+    const missing = rehash({ ...value, observations: value.observations.slice(0, -1) });
+    expect(analyzeBaselineEvidence(input, missing).status).toBe('not-passing');
+  });
+  it('exposes distinct baseline schema, review, execution and evidence commands', async () => {
+    const lines: string[] = [], write = (text: string) => { lines.push(text); };
+    const input = baselinePlan(), file = join(root, 'baseline.json'), report = join(root, 'baseline-report.json');
+    fs.writeFileSync(file, JSON.stringify(input));
+    expect(await runMigrationCommand(['baseline-schema', '--json'], { write })).toBe(0); expect(JSON.parse(lines.pop()!)).toEqual(BASELINE_SCHEMAS);
+    expect(BASELINE_SCHEMAS.plan.required).not.toContain('candidate'); expect(BASELINE_SCHEMAS.plan.additionalProperties).toBe(false);
+    expect(await runMigrationCommand(['review-baseline', '--plan', file, '--json'], { write })).toBe(0);
+    const review = JSON.parse(lines.pop()!); expect(review.digest).toBe(analyzeBaselinePlan(input).digest);
+    expect(await runMigrationCommand(['verify-baseline', '--repository', root, '--plan', file, '--approve', analyzeVerificationPlan(plan).digest, '--json'], { write })).toBe(1);
+    expect(runIsolatedCommand).not.toHaveBeenCalled();
+    expect(await runMigrationCommand(['verify-baseline', '--repository', root, '--plan', file, '--approve', review.digest, '--json'], { write })).toBe(0);
+    const value = JSON.parse(lines.pop()!); expect(value.outcome).toBe('baseline-verified'); fs.writeFileSync(report, JSON.stringify(value));
+    expect(await runMigrationCommand(['review-baseline-evidence', '--plan', file, '--report', report, '--json'], { write })).toBe(0);
+    expect(JSON.parse(lines.pop()!).status).toBe('baseline-observations');
+    expect(await runMigrationCommand(['review-evidence', '--plan', file, '--report', report, '--json'], { write })).toBe(1);
   });
 });

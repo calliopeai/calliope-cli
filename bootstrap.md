@@ -71,6 +71,9 @@ and declared package dependencies without executing project code or granting wor
 JavaScript/TypeScript CLI fixtures through bounded native commands, with baseline
 and known-regression gates before candidate execution. Its read-only evidence review
 rechecks saved observations and exact plan bindings without granting execution.
+Separate baseline plans establish original behavior and known-regression rejection
+before a candidate exists; their reports and approvals cannot stand in for full
+candidate verification.
 [Migration assessment](docs/migration-assessment.md) derives read-only feasibility,
 rulebooks, declared work graphs and measured pilot ranges. Trusted host evidence
 and coverage review is required for `go`; assessment never dispatches workers.

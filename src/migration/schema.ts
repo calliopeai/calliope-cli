@@ -58,3 +58,21 @@ export const EVIDENCE_REVIEW_SCHEMA = {
     authority: { const: 'Supplied observation integrity only. No producer authentication, independent review or execution approval is implied.' }, digest: hash,
   }),
 };
+
+const { candidate: _candidate, ...baselineProperties } = VERIFICATION_SCHEMAS.plan.properties;
+export const BASELINE_SCHEMAS = {
+  plan: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://calliope.ai/schemas/migration/baseline-plan-v1',
+    ...object({ ...baselineProperties, format: { const: 'calliope.migration.baseline-plan/v1' } }) },
+  report: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://calliope.ai/schemas/migration/baseline-report-v1',
+    ...object({ ...VERIFICATION_SCHEMAS.report.properties,
+      format: { const: 'calliope.migration.baseline-report/v1' }, pins: object({ source: pin, negative: pin, rules: pin }),
+      outcome: { enum: ['baseline-verified', 'input-failure', 'baseline-failure', 'verifier-failure', 'environment-failure', 'cancelled'] },
+      observations: { type: 'array', maxItems: 10, items: object({ phase: { enum: ['runtime', 'baseline', 'negative-control'] }, caseId: nullableText, matches: { type: ['boolean', 'null'] }, evidence }) },
+      commandsUsed: { type: 'integer', minimum: 0, maximum: 11 }, commandLimit: { type: 'integer', minimum: 3, maximum: 10 },
+    }) },
+  review: { $schema: 'https://json-schema.org/draft/2020-12/schema', $id: 'https://calliope.ai/schemas/migration/baseline-evidence-review-v1',
+    ...object({ ...EVIDENCE_REVIEW_SCHEMA.properties, format: { const: 'calliope.migration.baseline-evidence-review/v1' },
+      status: { enum: ['baseline-observations', 'not-passing'] },
+      findings: { type: 'array', maxItems: 128, items: object({ code: text, observation: { type: ['integer', 'null'], minimum: 0, maximum: 9 } }) },
+    }) },
+};

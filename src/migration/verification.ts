@@ -22,6 +22,7 @@ export type VerificationPlan = {
   negativeControl: { caseId: string; expected: ExpectedBehavior };
   limits: { commandTimeoutMs: number; totalMs: number };
 };
+export type BaselinePlan = Omit<VerificationPlan, 'format' | 'candidate'> & { format: 'calliope.migration.baseline-plan/v1' };
 function fail(message: string): never { throw new MigrationError('invalid', message); }
 const hash = (s: unknown) => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
 const oid = (s: unknown) => typeof s === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(s);
@@ -49,15 +50,21 @@ export function comparatorHealthy(compare = compareBehavior): boolean {
   } catch { return false; }
 }
 export function analyzeVerificationPlan(value: unknown) {
+  return analyzePlan(value, false) as { plan: VerificationPlan; digest: string; commandCount: number };
+}
+export function analyzeBaselinePlan(value: unknown) {
+  return analyzePlan(value, true) as { plan: BaselinePlan; digest: string; commandCount: number };
+}
+function analyzePlan(value: unknown, baselineOnly: boolean) {
   let raw: string;
   try { raw = canonicalJson(value); } catch { return fail('Use bounded plain JSON for the verification plan.'); }
   if (Buffer.byteLength(raw) > 262144) fail('Keep a verification plan within 256 KiB.');
   const v: unknown = JSON.parse(raw);
-  shape(v, ['format', 'adapter', 'verifier', 'runtime', 'source', 'candidate', 'negative', 'rules', 'cases', 'negativeControl', 'limits']);
-  if (v.format !== 'calliope.migration.verification-plan/v1' || v.adapter !== VERIFICATION_ADAPTER || v.verifier !== VERIFIER_VERSION) fail('Unsupported migration adapter or verifier version.');
+  shape(v, ['format', 'adapter', 'verifier', 'runtime', 'source', ...(baselineOnly ? [] : ['candidate']), 'negative', 'rules', 'cases', 'negativeControl', 'limits']);
+  if (v.format !== (baselineOnly ? 'calliope.migration.baseline-plan/v1' : 'calliope.migration.verification-plan/v1') || v.adapter !== VERIFICATION_ADAPTER || v.verifier !== VERIFIER_VERSION) fail('Unsupported migration adapter or verifier version.');
   shape(v.runtime, ['image', 'node']);
   if (typeof v.runtime.image !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(v.runtime.image) || typeof v.runtime.node !== 'string' || !/^v24\.\d+\.\d+$/.test(v.runtime.node)) fail('Pin a local Linux image and its exact Node 24 runtime version.');
-  for (const role of ['source', 'candidate', 'negative', 'rules']) {
+  for (const role of ['source', ...(baselineOnly ? [] : ['candidate']), 'negative', 'rules']) {
     const pin = v[role]; shape(pin, ['revision', 'path', 'object']);
     if (!oid(pin.revision) || !oid(pin.object) || typeof pin.path !== 'string' || pin.path === '.') fail('Pin every program and rulebook to a full Git commit, path and blob.');
     sourcePath(pin.path);
@@ -76,10 +83,10 @@ export function analyzeVerificationPlan(value: unknown) {
   shape(v.limits, ['commandTimeoutMs', 'totalMs']);
   if (!Number.isSafeInteger(v.limits.commandTimeoutMs) || Number(v.limits.commandTimeoutMs) < 100 || Number(v.limits.commandTimeoutMs) > 10000 ||
       !Number.isSafeInteger(v.limits.totalMs) || Number(v.limits.totalMs) < Number(v.limits.commandTimeoutMs) || Number(v.limits.totalMs) > 300000) fail('Bound each command to 100–10,000ms and the full observation to at most 300,000ms.');
-  const plan = v as unknown as VerificationPlan;
+  const plan = v as unknown as VerificationPlan | BaselinePlan;
   // Validate declared data independently of the comparator being qualified.
   if (canonicalJson(plan.negativeControl.expected) === canonicalJson(plan.cases.find(c => c.id === plan.negativeControl.caseId)!.expected)) fail('The known negative control must differ from the baseline behavior.');
-  return { plan, digest: digest(raw), commandCount: 2 * plan.cases.length + 2 };
+  return { plan, digest: digest(raw), commandCount: (baselineOnly ? 1 : 2) * plan.cases.length + 2 };
 }
 
 export interface VerificationOptions {
@@ -91,19 +98,37 @@ export interface VerificationOptions {
   reserveCommand?: (request: { digest: string; phase: string; caseId: string | null; command: number }) => Promise<boolean>;
 }
 type Phase = 'runtime' | 'baseline' | 'negative-control' | 'candidate';
-type Outcome = 'passed' | 'input-failure' | 'baseline-failure' | 'verifier-failure' | 'regression' | 'environment-failure' | 'cancelled';
+type Outcome = 'passed' | 'baseline-verified' | 'input-failure' | 'baseline-failure' | 'verifier-failure' | 'regression' | 'environment-failure' | 'cancelled';
 class SourceInputError extends MigrationError {
   constructor(message: string) { super('invalid', message); }
 }
 
 /** The existing isolated-command owner executes every observation; no provider or worker scheduler. */
 export async function verifyMigration(repository: string, input: unknown, options: VerificationOptions) {
-  const { plan, digest: planDigest, commandCount } = analyzeVerificationPlan(input);
+  return executeVerification(repository, analyzeVerificationPlan(input), options) as Promise<FullVerificationReport>;
+}
+/** Establish the original contract and reject a known regression before a candidate exists. */
+export async function verifyMigrationBaseline(repository: string, input: unknown, options: VerificationOptions) {
+  return executeVerification(repository, analyzeBaselinePlan(input), options) as Promise<BaselineReport>;
+}
+type ExecutionReport = Awaited<ReturnType<typeof executeVerification>>;
+type FullVerificationReport = Omit<ExecutionReport, 'pins' | 'outcome'> & {
+  pins: Pick<VerificationPlan, 'source' | 'candidate' | 'negative' | 'rules'>; outcome: Exclude<Outcome, 'baseline-verified'>;
+};
+type BaselineReport = Omit<ExecutionReport, 'pins' | 'outcome'> & {
+  pins: Pick<BaselinePlan, 'source' | 'negative' | 'rules'>; outcome: Exclude<Outcome, 'passed' | 'regression'>;
+};
+async function executeVerification(repository: string, analysis: { plan: VerificationPlan | BaselinePlan; digest: string; commandCount: number }, options: VerificationOptions) {
+  const { plan, digest: planDigest, commandCount } = analysis;
+  const baselineOnly = plan.format === 'calliope.migration.baseline-plan/v1';
+  const pins = plan.format === 'calliope.migration.baseline-plan/v1'
+    ? { source: plan.source, negative: plan.negative, rules: plan.rules }
+    : { source: plan.source, candidate: plan.candidate, negative: plan.negative, rules: plan.rules };
   if (!options || typeof options.approve !== 'function' || options.deadline !== undefined && !Number.isFinite(options.deadline)) fail('A host approval hook and a valid inherited deadline are required.');
   throwIfCancelled(options.signal);
   if (typeof repository !== 'string' || repository.length > 4096 || /[\x00-\x1f\x7f]/.test(repository)) fail('Select a local repository root.');
   try { repository = realpathSync(repository); } catch { throw new MigrationError('unavailable', 'The selected repository is unavailable.'); }
-  const approved = await cancellable(options.approve({ digest: planDigest, repository, pins: JSON.parse(JSON.stringify([plan.source, plan.candidate, plan.negative, plan.rules])), image: plan.runtime.image, commandCount, totalMs: plan.limits.totalMs }), options.signal);
+  const approved = await cancellable(options.approve({ digest: planDigest, repository, pins: JSON.parse(JSON.stringify(Object.values(pins))), image: plan.runtime.image, commandCount, totalMs: plan.limits.totalMs }), options.signal);
   if (!approved) fail('Migration verification was not approved; no program was executed.');
   const deadline = Math.min(Date.now() + plan.limits.totalMs, options.deadline ?? Infinity);
   if (deadline <= Date.now()) fail('The inherited verification deadline has expired.');
@@ -118,8 +143,8 @@ export async function verifyMigration(repository: string, input: unknown, option
     else {
       // Read only exact approved Git objects. The working checkout is never executed.
       const material: { role: string; text: string; extension: string }[] = [];
-      for (const role of ['source', 'candidate', 'negative', 'rules'] as const) {
-        const pin = plan[role], inventory = await inventorySource({ repository, revision: pin.revision, readPaths: [pin.path] }, { signal });
+      for (const [role, pin] of Object.entries(pins)) {
+        const inventory = await inventorySource({ repository, revision: pin.revision, readPaths: [pin.path] }, { signal });
         const file = inventory.files[0];
         if (inventory.files.length !== 1 || !file || file.path !== pin.path || !['100644', '100755'].includes(file.mode) || file.object !== pin.object || file.bytes === null || file.bytes > 65536) throw new SourceInputError('A source/rule pin is stale, unsupported or exceeds 64 KiB. Replan before execution.');
         const text = await worktreeGit(repository, ['--no-replace-objects', 'cat-file', 'blob', pin.object], signal);
@@ -170,6 +195,7 @@ export async function verifyMigration(repository: string, input: unknown, option
         const negative = await check('negative-control', 'negative', c.id, plan.negativeControl.expected, c.argument);
         if (!negative) return { outcome: 'environment-failure' as const, reason: 'Negative-control observation was incomplete.' };
         if (!negative.matches || compareBehavior(negative.got, behaviorFingerprint(c.expected))) return { outcome: 'verifier-failure' as const, reason: 'The known regression was not reproduced and rejected as expected.' };
+        if (baselineOnly) return { outcome: 'baseline-verified' as const, reason: 'Baseline and known-regression observations satisfy the declared contract. No candidate was read or executed.' };
         let regression = false;
         for (const item of plan.cases) {
           const candidate = await check('candidate', 'candidate', item.id, item.expected, item.argument);
@@ -189,8 +215,8 @@ export async function verifyMigration(repository: string, input: unknown, option
   }
   if (options.signal?.aborted) { outcome = 'cancelled'; reason = 'Verification cancelled.'; }
   else if (timer.signal.aborted || Date.now() >= deadline) { outcome = 'environment-failure'; reason = 'Verification exceeded its total deadline.'; }
-  const report = { format: 'calliope.migration.verification-report/v1', verifier: VERIFIER_VERSION, adapter: plan.adapter, planDigest, runtime: plan.runtime,
-    pins: { source: plan.source, candidate: plan.candidate, negative: plan.negative, rules: plan.rules }, outcome, reason, observations,
+  const report = { format: baselineOnly ? 'calliope.migration.baseline-report/v1' : 'calliope.migration.verification-report/v1', verifier: VERIFIER_VERSION, adapter: plan.adapter, planDigest, runtime: plan.runtime,
+    pins, outcome, reason, observations,
     commandsUsed: commands, commandLimit: commandCount, retainedWorkspace: scratch ?? null,
     limitations: ['Only declared cases of this self-contained command-line interface were compared; this is not proof of general program equivalence.', 'No TypeScript type-check, dependency install, migration dispatch or rollout was performed.'] };
   return { ...report, digest: digest(canonicalJson(report)) };

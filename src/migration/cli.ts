@@ -1,16 +1,16 @@
-import { INVENTORY_SCHEMA, VERIFICATION_SCHEMAS, EVIDENCE_REVIEW_SCHEMA } from './schema.js';
-import { analyzeVerificationEvidence } from './evidence.js';
+import { INVENTORY_SCHEMA, VERIFICATION_SCHEMAS, BASELINE_SCHEMAS, EVIDENCE_REVIEW_SCHEMA } from './schema.js';
+import { analyzeVerificationEvidence, analyzeBaselineEvidence } from './evidence.js';
 import { analyzeAssessmentRequest } from './assessment-contract.js';
 import { assessMigration } from './assessment.js';
 import { ASSESSMENT_SCHEMAS } from './assessment-schema.js';
-import { analyzeVerificationPlan, verifyMigration } from './verification.js';
+import { analyzeVerificationPlan, verifyMigration, analyzeBaselinePlan, verifyMigrationBaseline } from './verification.js';
 import { realpathSync } from 'node:fs';
 import { readArtifactBytes } from '../orchestration/execution-store.js';
 import { migrationExample } from './example.js';
 import { parseArgs } from 'node:util';
 import { isCancellation } from '../cancellation.js';
 import { inventorySource, MigrationError, KIT_VERSION } from './inventory.js';
-export const MIGRATION_USAGE = 'calliope migration capabilities|schema|verification-schema|evidence-schema|assessment-schema|example|inventory|review-verification|verify|review-evidence|review-assessment|assess [--repository <root>] [--revision <full-commit>] [--path <relative-prefix>] [--plan <file>] [--report <file>] [--request <file>] [--approve <digest>] [--json]';
+export const MIGRATION_USAGE = 'calliope migration capabilities|schema|baseline-schema|review-baseline|verify-baseline|review-baseline-evidence|verification-schema|evidence-schema|assessment-schema|example|inventory|review-verification|verify|review-evidence|review-assessment|assess [--repository <root>] [--revision <full-commit>] [--path <relative-prefix>] [--plan <file>] [--report <file>] [--request <file>] [--approve <digest>] [--json]';
 export async function runMigrationCommand(args: string[], options: { signal?: AbortSignal; write?: (line: string) => void } = {}): Promise<number> {
   const write = options.write ?? (line => process.stdout.write(line));
   const json = args.includes('--json');
@@ -25,31 +25,33 @@ export async function runMigrationCommand(args: string[], options: { signal?: Ab
       write(JSON.stringify(result) + '\n'); return 0;
     }
     if (values.request) throw new MigrationError('invalid', MIGRATION_USAGE);
-    if (positionals[0] === 'review-evidence') {
+    if (['review-evidence', 'review-baseline-evidence'].includes(positionals[0]!)) {
       if (!values.plan || !values.report || values.path || values.revision || values.repository || values.approve) throw new MigrationError('invalid', MIGRATION_USAGE);
       const read = (file: string): unknown => JSON.parse(readArtifactBytes(realpathSync(file), 262144).toString('utf8'));
-      const result = analyzeVerificationEvidence(read(values.plan), read(values.report));
+      const result = (positionals[0] === 'review-baseline-evidence' ? analyzeBaselineEvidence : analyzeVerificationEvidence)(read(values.plan), read(values.report));
       write(JSON.stringify(result) + '\n');
-      return result.status === 'passing-observations' ? 0 : 1;
+      return ['passing-observations', 'baseline-observations'].includes(result.status) ? 0 : 1;
     }
     if (values.report) throw new MigrationError('invalid', MIGRATION_USAGE);
-    if (['review-verification', 'verify'].includes(positionals[0]!)) {
-      if (!values.plan || values.path || values.revision || (positionals[0] === 'verify' ? !values.repository || !values.approve : values.repository || values.approve)) throw new MigrationError('invalid', MIGRATION_USAGE);
+    if (['review-verification', 'verify', 'review-baseline', 'verify-baseline'].includes(positionals[0]!)) {
+      const baselineOnly = positionals[0]!.endsWith('baseline'), execute = positionals[0] === 'verify' || positionals[0] === 'verify-baseline';
+      if (!values.plan || values.path || values.revision || (execute ? !values.repository || !values.approve : values.repository || values.approve)) throw new MigrationError('invalid', MIGRATION_USAGE);
       const input: unknown = JSON.parse(readArtifactBytes(realpathSync(values.plan), 262144).toString('utf8'));
-      const analysis = analyzeVerificationPlan(input);
-      if (positionals[0] === 'review-verification') { write(JSON.stringify(analysis) + '\n'); return 0; }
-      const result = await verifyMigration(values.repository!, input, { signal: options.signal, approve: async request => request.digest === values.approve });
+      const analysis = (baselineOnly ? analyzeBaselinePlan : analyzeVerificationPlan)(input);
+      if (!execute) { write(JSON.stringify(analysis) + '\n'); return 0; }
+      const result = await (baselineOnly ? verifyMigrationBaseline : verifyMigration)(values.repository!, input, { signal: options.signal, approve: async request => request.digest === values.approve });
       write(json ? JSON.stringify(result) + '\n' : `${result.outcome}: ${result.reason}\nVerification ${result.digest}\n`);
-      return result.outcome === 'passed' ? 0 : result.outcome === 'cancelled' ? 130 : 1;
+      return result.outcome === (baselineOnly ? 'baseline-verified' : 'passed') ? 0 : result.outcome === 'cancelled' ? 130 : 1;
     }
     if (values.plan || values.approve) throw new MigrationError('invalid', MIGRATION_USAGE);
     if (positionals[0] === 'example' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(migrationExample()) + '\n'); return 0; }
+    if (positionals[0] === 'baseline-schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(BASELINE_SCHEMAS) + '\n'); return 0; }
     if (positionals[0] === 'verification-schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(VERIFICATION_SCHEMAS) + '\n'); return 0; }
     if (positionals[0] === 'evidence-schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(EVIDENCE_REVIEW_SCHEMA) + '\n'); return 0; }
     if (positionals[0] === 'assessment-schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(ASSESSMENT_SCHEMAS) + '\n'); return 0; }
     if (positionals[0] === 'schema' && !values.repository && !values.revision && !values.path) { write(JSON.stringify(INVENTORY_SCHEMA) + '\n'); return 0; }
     if (positionals[0] === 'capabilities' && !values.repository && !values.revision && !values.path) {
-      write(JSON.stringify({ kit: 'migration-v1', inventoryVersion: KIT_VERSION, phases: ['inventory', 'verify', 'review-evidence', 'assess'], dependencyAnalysis: ['npm-declarations', 'declared-unit-dependencies'], schemas: ['calliope.migration.inventory/v1', 'calliope.migration.verification-plan/v1', 'calliope.migration.verification-report/v1', 'calliope.migration.evidence-review/v1', 'calliope.migration.assessment-request/v1', 'calliope.migration.assessment/v1'], execution: { verification: 'explicit-plan-digest-approval', evidenceReview: 'read-only-no-execution-or-approval', assessment: 'read-only-no-dispatch; host-evidence-review-required-for-go', adapters: ['javascript-to-typescript-cli/v1'], backend: 'native-isolated-command' } }) + '\n'); return 0;
+      write(JSON.stringify({ kit: 'migration-v1', inventoryVersion: KIT_VERSION, phases: ['inventory', 'verify-baseline', 'review-baseline-evidence', 'verify', 'review-evidence', 'assess'], dependencyAnalysis: ['npm-declarations', 'declared-unit-dependencies'], schemas: ['calliope.migration.baseline-plan/v1', 'calliope.migration.baseline-report/v1', 'calliope.migration.baseline-evidence-review/v1', 'calliope.migration.inventory/v1', 'calliope.migration.verification-plan/v1', 'calliope.migration.verification-report/v1', 'calliope.migration.evidence-review/v1', 'calliope.migration.assessment-request/v1', 'calliope.migration.assessment/v1'], execution: { baseline: 'explicit-plan-digest-approval; no-candidate-read-or-execution', verification: 'explicit-plan-digest-approval', evidenceReview: 'read-only-no-execution-or-approval', assessment: 'read-only-no-dispatch; host-evidence-review-required-for-go', adapters: ['javascript-to-typescript-cli/v1'], backend: 'native-isolated-command' } }) + '\n'); return 0;
     }
     if (positionals[0] !== 'inventory' || !values.repository || !values.revision) throw new MigrationError('invalid', MIGRATION_USAGE);
     const result = await inventorySource({ repository: values.repository, revision: values.revision, ...(values.path ? { readPaths: values.path } : {}) }, options);
