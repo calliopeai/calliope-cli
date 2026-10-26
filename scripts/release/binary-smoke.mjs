@@ -67,11 +67,19 @@ async function acpHandshake() {
       "initialize",
     );
     assert.equal(initialized.protocolVersion, PROTOCOL_VERSION);
+    assert.equal(initialized.agentCapabilities._meta.calliopeSessionControls.version, 1);
     const session = await within(
       connection.agent.request('session/new', { cwd: project, mcpServers: [] }),
       "session/new",
     );
     assert.match(session.sessionId, /^acp_/);
+    assert.equal(session.modes.currentModeId, 'work');
+    assert.equal(session.configOptions[0].id, 'model');
+    await within(connection.agent.request('session/set_mode', {sessionId:session.sessionId,modeId:'plan'}), 'set_mode');
+    const loaded=await within(connection.agent.request('session/load', {sessionId:session.sessionId,cwd:project,mcpServers:[]}), 'load controls');
+    assert.equal(loaded.modes.currentModeId, 'plan');
+    const configured=await within(connection.agent.request('session/set_config_option', {sessionId:session.sessionId,configId:'model',value:'default'}), 'set_config_option');
+    assert.equal(configured.configOptions[0].currentValue, 'default');
     agent.stdin.end();
     assert.equal(await within(exited, "shutdown"), 0);
   } finally {
