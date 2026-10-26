@@ -67,7 +67,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.0.2",
-    "@anthropic-ai/sdk": "0.135.0",
+    "@anthropic-ai/sdk": "1.2.0",
     "@aws-sdk/credential-provider-ini": "3.973.21",
     "@aws-sdk/credential-provider-node": "3.972.88",
     "@google/genai": "^2.22.0",
