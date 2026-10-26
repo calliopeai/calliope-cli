@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text, useWindowSize } from 'ink';
 import { getCurrentSkin, getSpinnerFrames, getInkColor } from '../hud/api.js';
 import type { ThinkingState, ActivityState } from './types.js';
 import {
@@ -47,8 +47,7 @@ export const DEFAULT_SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦',
 // ============================================================================
 
 export function Separator() {
-  const { stdout } = useStdout();
-  const width = stdout?.columns || 80;
+  const { columns: width } = useWindowSize();
   const borderColor = getInkColor('border');
   return <Text color={borderColor} dimColor>{'─'.repeat(width)}</Text>;
 }
@@ -59,8 +58,7 @@ function ThinkingDisplayInner({ state }: { state: ThinkingState }) {
   const startTime = useRef(Date.now());
   const spinFrames = getStateSpinner('thinking');
   const [animStyle] = useState(() => getAnimationStyle());
-  const { stdout } = useStdout();
-  const termWidth = stdout?.columns || 80;
+  const { columns: termWidth } = useWindowSize();
   const primaryColor = getInkColor('primary');
   const accentColor = getInkColor('accent');
   const secondaryColor = getInkColor('secondary');

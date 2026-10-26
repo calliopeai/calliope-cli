@@ -115,6 +115,13 @@ describe('set validation', () => {
 // ===========================================================================
 
 describe('setMultiple', () => {
+  it('rejects undefined values before writing any part of a batch', () => {
+    const original = get('collapseTools');
+    expect(() => set('defaultModel', undefined)).toThrow('unset()');
+    expect(() => setMultiple({ collapseTools: !original, defaultModel: undefined })).toThrow('unset()');
+    expect(get('collapseTools')).toBe(original);
+  });
+
   it('should set multiple values at once', () => {
     setMultiple({ collapseTools: true, sandboxMode: 'off' });
     expect(get('collapseTools')).toBe(true);
@@ -137,6 +144,12 @@ describe('setMultiple', () => {
 // ===========================================================================
 
 describe('getConfig', () => {
+  it('returns an independent snapshot rather than mutable persistent state', () => {
+    const snapshot = getConfig();
+    snapshot.maxIterations = 123;
+    expect(get('maxIterations')).not.toBe(123);
+  });
+
   it('should return a full config object with all defaults', () => {
     const cfg = getConfig();
     expect(cfg).toBeDefined();

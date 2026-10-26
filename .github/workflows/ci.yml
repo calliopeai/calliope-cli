@@ -27,6 +27,11 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Build and smoke-test the runtime container
+        run: |
+          docker build --tag calliope-ci:${{ github.sha }} .
+          docker run --rm --network none calliope-ci:${{ github.sha }} calliope --version --json
+
       - name: Qualify native policy admission (terminal, headless, ACP)
         run: node --test scripts/qualification/native-policy.mjs
 
