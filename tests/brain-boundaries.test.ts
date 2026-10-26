@@ -203,3 +203,21 @@ it('reports invalid and policy-denied terminal invocations without exposing inte
     ),
   ).toBe(2);
 });
+
+it('redacts overlapping stored credentials even when environment credentials override them', () => {
+  const prefix = 'synthetic-overlapping-private-value';
+  const complete = prefix + '-private-suffix';
+  vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-active-anthropic-key');
+  vi.stubEnv('GOOGLE_API_KEY', 'synthetic-active-google-key');
+  config.setProviderCred('anthropic', { apiKey: prefix });
+  config.setProviderCred('google', { apiKey: complete });
+  expect(sanitizeBrainValue({ note: `First ${complete}, then ${prefix}.` })).toEqual({
+    note: 'First [REDACTED], then [REDACTED].',
+  });
+});
+
+it('redacts retained credentials for retired providers from ordinary brain fields', () => {
+  const secret = 'synthetic-retired-provider-credential';
+  config.set('providers', { litellm: { apiKey: secret } });
+  expect(sanitizeBrainValue({ note: `Retained ${secret}` })).toEqual({ note: 'Retained [REDACTED]' });
+});
