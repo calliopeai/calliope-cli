@@ -25,9 +25,11 @@ provider billing; absent usage cannot support complete token/cost totals.
 
 ## Real-wire release evidence
 
-**56 of 72 required combinations have real captures**, collected on September 11,
-2026 UTC. Fourteen adapter paths passed text and tool probes in JSON and streaming
-mode. Additional captures cover Claude Fable 5/5.1 and GPT-6 Astra via OpenRouter. The
+**68 of 72 combinations have real captures** as verified on October 26, 2026.
+All 17 non-deferred adapter paths have text and tool captures in JSON and streaming
+mode, plus captured cancellation, provider errors, usage, system instructions and
+tool-result replay. The four missing basic combinations belong to explicitly
+deferred xAI; they remain unavailable and are never counted as passing. The
 [follow-up report](provider-live-followup.md) records newly working credentials,
 the explicit xAI deferral, provider failures and retained budget reservations.
 The [original live test report](provider-live-testing.md) records earlier models,
@@ -37,11 +39,18 @@ useful regressions, but cannot establish what every deployed provider sends.
 model, timestamp, SDK versions, response bytes and checksums. Generated call IDs are
 excluded from normalized expectations; function names and arguments are asserted.
 
-`npm run test:conformance:release` requires a text and tool capture in JSON and
-streaming mode for each of the 18 active adapter paths (72 combinations). It fails while
-any are missing. `prepublishOnly` also requires the nine-check product gate, including extended semantic captures and usage; ordinary CI remains fully offline
-and tests any captures that have been checked in. The default suite skips the
-readiness assertion explicitly rather than reporting captured coverage as passing.
+`npm run test:conformance:release` requires all nine product checks for each
+non-deferred adapter, including extended semantic captures and usage. The release
+command explicitly sets `CALLIOPE_RELEASE_DEFERRED_PROVIDERS=xai`; it does not
+manufacture xAI evidence. The unfiltered readiness report still includes all 18
+adapters and reports its incomplete xAI coverage. `prepublishOnly` invokes the
+same release gate. Ordinary CI remains offline and replays the checked-in
+captures; its default suite skips the release-readiness assertion explicitly.
+
+The published [3.5.2 release](https://github.com/calliopeai/calliope-cli/releases/tag/v3.5.2)
+passed this gate. This establishes the captured behavior for the recorded
+models and SDKs, not present-day credential access or every model supported by
+a provider. Run the report and release gate again after changing adapters or SDKs.
 
 With authorization for the chosen provider/model and spending, capture one fixed
 toy probe at a time:
@@ -91,20 +100,21 @@ does not satisfy the wire-conformance release gate.
 
 The [September 13 native goal attempt](evidence/native-goal-smoke.json) stopped
 at a Fable planner refusal before a proposal or worker execution. Its failure
-reservation remains charged; the full live supervised goal path is still unverified.
+reservation remains charged. That receipt describes the failed attempt, not
+the status of later orchestration qualification.
 
 It reads no project context and executes no returned tools. Credentials and request
 headers are excluded from stored metadata. Review the decoded response, origin
 and expected result before committing it: checksums detect changed bytes, not a
 fabricated provenance claim. A failed or noncompliant probe is not release evidence.
 
-The remaining combinations and additional semantic captures remain tracked in
-[#222](https://github.com/calliopeai/calliope-cli/issues/222) and
-[#262](https://github.com/calliopeai/calliope-cli/issues/262). The gate remains closed
-for OpenAI Chat/Responses, xAI and Cerebras. The user
-deferred xAI live testing; its four missing cases stay visible and are not counted
-as passing. AI21 is retired and explicitly excluded from active coverage. Gateway
-captures count only for the adapter actually invoked.
+Provider evidence is tracked in
+[#222](https://github.com/calliopeai/calliope-cli/issues/222), with historical
+release preparation in [#262](https://github.com/calliopeai/calliope-cli/issues/262).
+OpenAI Chat/Responses and Cerebras now have all required product evidence. The
+user-deferred xAI cases stay visible and are not counted as passing. AI21 is
+retired and explicitly excluded from active coverage. Gateway captures count
+only for the adapter actually invoked.
 
 Run `npm run providers:readiness -- --json` for a versioned offline inventory,
 or, after building, `node scripts/conformance/report.mjs --json` for JSON-only
