@@ -14,6 +14,7 @@ import {ExecutionStore} from './execution-store.js';
 import {agentStopped} from './execution-journal.js';
 import {prepareAgentExecution} from './execution.js';
 import type {RunActionOptions} from './actions.js';
+import {matchesAgentPreference} from './routing.js';
 
 export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,grants:'native-admissions-only'} as const;
 
@@ -25,7 +26,9 @@ export async function prepareReviewedLedger(cwd:string,runId:string,agentId:stri
   const assertAccount=(id:string)=>{
     assertOwner();
     const current=history.exists()?inspectSpawnAuthority(history,ledger):undefined,context=current?.context??view.manifest;
-    if(!context.plan.agents.some(agent=>agent.id===id)||current&&agentStopped(current.view.state,context,id))throw new ExecutionLimitError('authority','Account is not active in the reviewed native graph.');
+    const agent=context.plan.agents.find(agent=>agent.id===id);
+    if(!agent||current&&agentStopped(current.view.state,context,id))throw new ExecutionLimitError('authority','Account is not active in the reviewed native graph.');
+    return agent;
   };
   const assertGrant=(grant:ChildGrant)=>{
     assertOwner();
@@ -41,7 +44,11 @@ export async function prepareReviewedLedger(cwd:string,runId:string,agentId:stri
   const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision}));
   const state=new LedgerServerState(join(dirname(ledger.root),`${runId}.ledger-server`));
   const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,
-    assertReservationAuthority:reservation=>{if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');}});
+    assertReservationAuthority:reservation=>{
+      const agent=assertAccount(reservation.agentId);
+      if(!matchesAgentPreference(agent.preference,reservation.provider,reservation.model))throw new ExecutionLimitError('authority','Request changes an explicit reviewed provider or model.');
+      if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');
+    }});
   const ownerToken=mintLedgerToken(state.secret(),{v:2,authority,run:runId,role:'parent',owner:agentId,exp:deadline});
   return {server,ownerToken,execution,deadline,capability:REVIEWED_LEDGER_CAPABILITY};
 }

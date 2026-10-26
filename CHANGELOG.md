@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Add persistent ACP Work/Plan modes and session model selection through stable configuration options. Models come from live discovery, delegated model choices remain parent-controlled, and stale or concurrent control updates refuse rather than overwrite another session state (#444).
+- Enforce explicit reviewed provider and model choices at remote-ledger reservation admission, including newly admitted descendants. A different runtime preference cannot consume the account's allowance under another explicit inference choice (#415).
 
 ## 3.6.0: reviewed hosts and code migration
 

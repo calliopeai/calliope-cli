@@ -49,7 +49,9 @@ servers reject that token version; current raw-ledger endpoints reject its revie
 authority binding. Child credentials retain that binding. A sibling owner endpoint
 cannot accept the token, and reservations, settlements and revocations enforce the
 selected subtree. Each new request also checks the target account's native admission,
-stop/escalation state and the host's output cap. Existing requests can still settle
+stop/escalation state, explicit reviewed provider/model choices and the host's
+output cap. The provider/model check uses the current admitted graph and runs
+again under the ledger writer lock before a new reservation commits. Existing requests can still settle
 after owner cancellation; grant revocation and token expiry retain their existing
 semantics.
 
