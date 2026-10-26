@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.5.4",
+  "version": "3.6.0",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",
@@ -36,7 +36,9 @@
     "README.md",
     "scripts/verify-runlog.mjs",
     "docs/migration-*.md",
-    "docs/migration-example-*.json"
+    "docs/migration-example-*.json",
+    "docs/delegation-ledger.md",
+    "docs/releases/3.6.0.md"
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/bin.js",

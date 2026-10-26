@@ -8,9 +8,13 @@ import {createServer} from 'node:http';
 import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
 
+const packagePath = process.env.CALLIOPE_REVIEWED_HOST_PACKAGE;
+const packageRoot = packagePath ? fs.realpathSync(packagePath) : fileURLToPath(new URL('../../', import.meta.url));
+const nativeBinary = process.env.CALLIOPE_REVIEWED_HOST_BINARY;
+assert.ok(!(packagePath && nativeBinary), 'Choose either an extracted npm package or a standalone binary');
 const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'calliope-reviewed-example-')));
 fs.chmodSync(root, 0o700);
 const home = join(root, 'home'), config = join(root, 'config'), project = join(root, 'project');
@@ -19,13 +23,12 @@ for (const dir of [home, config, project]) fs.mkdirSync(dir, {mode: 0o700});
 process.env.CALLIOPE_CONFIG_DIR = config;
 process.env.HOME = home;
 process.env.USERPROFILE = home;
-const binary = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));
-const nativeBinary = process.env.CALLIOPE_REVIEWED_HOST_BINARY;
+const binary = join(packageRoot, 'dist/bin.js');
 const command = nativeBinary || process.execPath;
 const prefix = nativeBinary ? [] : [binary];
 const {RunStore, prepareRun, changePreparedRun, prepareAgentExecution, prepareReviewedLedger,
-  ExecutionStore} = await import('../../dist/orchestration/index.js');
-const {RemoteReservationLedger} = await import('../../dist/execution/index.js');
+  ExecutionStore} = await import(pathToFileURL(join(packageRoot, 'dist/orchestration/index.js')).href);
+const {RemoteReservationLedger} = await import(pathToFileURL(join(packageRoot, 'dist/execution/index.js')).href);
 let inference = 0;
 const servers = [], children = new Set();
 const listen = async server => {
@@ -159,7 +162,7 @@ try {
   await changePreparedRun(project,reviewed.run.id,'cancelled',{store:runs});
   const cancelled=await run('b');assert.notEqual(cancelled.code,0);assert.match(cancelled.stdout,/authority|cancel|refus/i);
   assert.equal(inference,2,'Neither another project nor cancelled authority may infer');
-  console.log(JSON.stringify({protocol:'reviewed-host-qualification/v1',artifact:nativeBinary?'standalone':'node',inferenceRequests:inference,
+  console.log(JSON.stringify({protocol:'reviewed-host-qualification/v1',artifact:nativeBinary?'standalone':packagePath?'npm-package':'node',inferenceRequests:inference,
     concurrentChildren:2,parentTokens:200000,restartPreserved:true,exhaustionRefused:true,
     foreignProjectRefused:true,siblingRefused:true,revocationRefused:true,paidRequests:0}));
 } finally {

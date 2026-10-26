@@ -48,10 +48,17 @@ function runBaseline(name, input, outcome) {
 assert.ok(!fs.existsSync(path.join(repository, 'candidate.mts')));
 const positive = runBaseline('original', plan, 'baseline-verified');
 assert.ok(!fs.existsSync(path.join(repository, 'candidate.mts')));
+const unsupported = structuredClone(plan); unsupported.adapter = 'unsupported-language/v1';
+const unsupportedFile = save('unsupported-adapter-plan.json', unsupported);
+const unsupportedResult = cli('verify-baseline', '--repository', repository, '--plan', unsupportedFile, '--approve', 'a'.repeat(64));
+assert.equal(unsupportedResult.exit, 1); assert.equal(unsupportedResult.value.error.code, 'invalid');
+checks.push({ name: 'unsupported-adapter', outcome: 'invalid' });
 const broken = structuredClone(plan); broken.cases[0].expected.stdout = 'incorrect baseline';
 runBaseline('broken-baseline', broken, 'baseline-failure');
 const stale = structuredClone(plan); stale.source.object = 'b'.repeat(40);
 runBaseline('stale-source', stale, 'input-failure');
+const staleRules = structuredClone(plan); staleRules.rules.object = 'b'.repeat(40);
+runBaseline('stale-rules', staleRules, 'input-failure');
 fs.writeFileSync(path.join(repository, 'negative.mts'), example.files['candidate.mts']); git('add', '.'); git('commit', '-qm', 'Ineffective known regression');
 const ineffective = structuredClone(plan); ineffective.negative = { revision: git('rev-parse', 'HEAD'), path: 'negative.mts', object: git('rev-parse', 'HEAD:negative.mts') };
 runBaseline('ineffective-negative', ineffective, 'verifier-failure');
@@ -62,9 +69,26 @@ assert.equal(cli('verify', '--repository', repository, '--plan', fullFile, '--ap
 const verified = cli('verify', '--repository', repository, '--plan', fullFile, '--approve', review.value.digest);
 assert.equal(verified.exit, 0); assert.equal(verified.value.outcome, 'passed'); reports.push(verified.value);
 const fullReport = save('full-report.json', verified.value);
-assert.equal(cli('review-evidence', '--plan', fullFile, '--report', fullReport).value.status, 'passing-observations');
+const cliReview = cli('review-evidence', '--plan', fullFile, '--report', fullReport).value;
+assert.equal(cliReview.status, 'passing-observations');
+const hostReview = spawnSync(process.execPath, ['--input-type=module', '-e',
+  `import fs from 'node:fs'; import {pathToFileURL} from 'node:url';
+   const [modulePath,planPath,reportPath]=process.argv.slice(1);
+   const {analyzeVerificationEvidence}=await import(pathToFileURL(modulePath).href);
+   console.log(JSON.stringify(analyzeVerificationEvidence(JSON.parse(fs.readFileSync(planPath)),JSON.parse(fs.readFileSync(reportPath)))));`,
+  path.join(pkg, 'dist/migration/index.js'), fullFile, fullReport], { cwd: repository, env, encoding: 'utf8', timeout: 20000, maxBuffer: 1048576 });
+assert.equal(hostReview.status, 0, hostReview.stderr);
+assert.deepEqual(JSON.parse(hostReview.stdout), cliReview, 'Embedded host and CLI must consume the same packaged evidence');
 assert.equal(cli('review-evidence', '--plan', fullFile, '--report', positive.report).exit, 1);
 assert.equal(cli('review-baseline-evidence', '--plan', positive.file, '--report', fullReport).exit, 1);
+const brokenTarget = { ...full, candidate: plan.negative };
+const brokenTargetFile = save('broken-target-plan.json', brokenTarget);
+const brokenTargetReview = cli('review-verification', '--plan', brokenTargetFile);
+assert.equal(brokenTargetReview.exit, 0);
+const brokenTargetResult = cli('verify', '--repository', repository, '--plan', brokenTargetFile, '--approve', brokenTargetReview.value.digest);
+assert.equal(brokenTargetResult.exit, 1); assert.equal(brokenTargetResult.value.outcome, 'regression');
+reports.push(brokenTargetResult.value); save('broken-target-report.json', brokenTargetResult.value);
+checks.push({ name: 'broken-target', outcome: 'regression', commands: brokenTargetResult.value.commandsUsed });
 const containers = reports.flatMap(report => report.observations.map(row => row.evidence.container));
 assert.equal(new Set(containers).size, containers.length);
 for (const container of containers) {
@@ -72,6 +96,6 @@ for (const container of containers) {
   assert.equal(r.status, 1); assert.ok(r.stderr.includes('No such container: ' + container) || r.stderr.includes('No such object: ' + container));
 }
 const result = { passed: true, capabilities, checks, fullVerification: { outcome: verified.value.outcome, commands: verified.value.commandsUsed, digest: verified.value.digest },
-  noCandidateAtBaseline: true, distinctApprovalAndEvidence: true, containersConfirmedAbsent: containers.length,
+  noCandidateAtBaseline: true, distinctApprovalAndEvidence: true, embeddedHostEvidenceParity: true, containersConfirmedAbsent: containers.length,
   runtime: plan.runtime, limits: 'Local Linux container on macOS ARM64. No paid inference, native Astrolift dispatch or hosted allowance qualification.' };
 save('result.json', result); console.log(JSON.stringify(result));
