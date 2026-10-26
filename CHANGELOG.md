@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 3.7.0: ACP controls and native host discovery
+
 - Add read-only improvement host discovery with independently versioned native interfaces, explicit contract negotiation and installed build identity. Source metadata remains self-reported until verified against release attestations; cross-run learning and feedback import remain unavailable (#413).
 
 - Add persistent ACP Work/Plan modes and session model selection through stable configuration options. Models come from live discovery, delegated model choices remain parent-controlled, and stale or concurrent control updates refuse rather than overwrite another session state (#444).
