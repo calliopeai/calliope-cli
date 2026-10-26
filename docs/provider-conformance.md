@@ -34,9 +34,8 @@ is unreconciled. Mistral completed both HTTP calls but failed the final exact
 result check: its normalized response fingerprint matches `Helloπ`, missing the
 space in `Hello π`. It contributes no passing capture. One request remains in the
 approved cap, insufficient for another two-request replay. Hugging Face's prior
-billing blocker remains open. The SDK candidate stays in draft pending those
-qualification gaps; existing conformance success does not erase this failed live
-result.
+billing blocker remains open. The SDK candidate retains those open live-qualification gaps; existing
+conformance success does not erase this failed live result.
 
 The October 26 [recapture report](reports/sdk7-recapture-2026-10-26.json) records
 14 new streaming semantic captures using OpenAI SDK 7.43.0. Both instruction and
