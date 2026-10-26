@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { ClientSideConnection, ndJsonStream, type Client, type SessionNotification } from '@zed-industries/agent-client-protocol';
+import { client as createClient, ndJsonStream, type SessionNotification } from '@agentclientprotocol/sdk';
 
 type ChatMessage = { role: string; content: unknown };
 let build: string, root: string, server: Server, port: number;
@@ -96,14 +96,19 @@ function start(project: string) {
   let stderr = '';
   child.stderr!.on('data', chunk => { stderr += chunk; });
   const updates: SessionNotification[] = [];
-  const client: Client = {
-    async sessionUpdate(notification) { updates.push(notification); },
+  const client = {
+    async sessionUpdate(notification: SessionNotification) { updates.push(notification); },
     async requestPermission() { return { outcome: { outcome: 'cancelled' } }; },
     async readTextFile() { throw new Error('fs is not advertised'); },
     async writeTextFile() { throw new Error('fs is not advertised'); },
   };
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
-  const conn = new ClientSideConnection(() => client, stream);
+  const conn = createClient()
+    .onNotification('session/update', ({params}) => client.sessionUpdate(params))
+    .onRequest('session/request_permission', () => client.requestPermission())
+    .onRequest('fs/read_text_file', () => client.readTextFile())
+    .onRequest('fs/write_text_file', () => client.writeTextFile())
+    .connect(stream);
   const exited = new Promise<number | null>(done => child.once('exit', code => done(code)));
   return { child, conn, updates, exited, stderr: () => stderr };
 }
@@ -116,16 +121,16 @@ it('restores a session with its history in a new process after the first one is 
   fs.writeFileSync(join(project, 'notes.txt'), 'stdio evidence line\n');
 
   const first = start(project);
-  expect((await first.conn.initialize({ protocolVersion: 1, clientCapabilities: {} })).agentCapabilities?.loadSession).toBe(true);
-  const { sessionId } = await first.conn.newSession({ cwd: project, mcpServers: [] });
-  expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr()).toBe('end_turn');
+  expect((await first.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} })).agentCapabilities?.loadSession).toBe(true);
+  const { sessionId } = await first.conn.agent.request('session/new', { cwd: project, mcpServers: [] });
+  expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr()).toBe('end_turn');
   expect(requests).toHaveLength(2);
   first.child.kill('SIGKILL');
   await first.exited;
 
   const second = start(project);
-  await second.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
-  expect(await second.conn.loadSession({ sessionId, cwd: project, mcpServers: [] })).toEqual({});
+  await second.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
+  expect(await second.conn.agent.request('session/load', { sessionId, cwd: project, mcpServers: [] })).toEqual({});
   const replay = second.updates.map(update => update.update);
   expect(second.updates.every(update => update.sessionId === sessionId)).toBe(true);
   expect(replay.map(update => update.sessionUpdate)).toEqual(['user_message_chunk', 'tool_call', 'tool_call_update', 'agent_message_chunk']);
@@ -136,7 +141,7 @@ it('restores a session with its history in a new process after the first one is 
   expect(replay[3]).toMatchObject({ content: { type: 'text', text: 'Read it.' } });
   expect(requests).toHaveLength(2);
 
-  expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'what did it say?' }] })).stopReason, second.stderr()).toBe('end_turn');
+  expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'what did it say?' }] })).stopReason, second.stderr()).toBe('end_turn');
   const resumed = requests.at(-1)!.messages;
   expect(resumed.map(message => message.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
   expect(JSON.stringify(resumed)).toContain('stdio evidence line');
