@@ -12,6 +12,7 @@ import {id,shape} from '../orchestration/validation.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import type {RunActionOptions} from '../orchestration/actions.js';
 import type {ExecutionEvent} from '../orchestration/coordinator-types.js';
+import {taskConfigurationIdentity} from '../orchestration/task-configuration.js';
 
 export interface TaskOutcomeSelection {taskId:string;attempt:number;executionRevision:string}
 const ref=(event:ExecutionEvent)=>({id:event.id,hash:event.hash,at:event.at,sequence:event.sequence});
@@ -36,7 +37,6 @@ export async function inspectTaskOutcome(cwd:string,runId:string,selection:TaskO
   const prefixEvents=execution.events.slice(0,start.sequence);
   const prefix={header:execution.header,events:prefixEvents,state:replayExecution(execution.header,view.manifest,prefixEvents)};
   const context=store.context(prefix),task=context.plan.tasks.find(t=>t.id===selection.taskId)!;
-  const agent=context.plan.agents.find(a=>a.id===task.agentId)!;
   const attempt=workerAttemptContext(context.plan,task,prefix).attempt;
   const finished=events.filter((event):event is ExecutionEvent&{change:Extract<ExecutionEvent['change'],{type:'task_finished'}>}=>
     event.change.type==='task_finished'&&event.change.taskId===task.id).at(-1);
@@ -55,8 +55,7 @@ export async function inspectTaskOutcome(cwd:string,runId:string,selection:TaskO
     interpretation:'native-attempt-evidence-not-user-assessment-or-reward' as const,
     source:{runId:view.run.id,manifestHash:view.manifest.hash,planHash:view.manifest.planHash,approvalRevision:execution.header.approvalRevision,
       executionRevision:execution.state.revision,taskId:task.id,agentId:task.agentId,attempt:attempt.number,sessionId:start.change.sessionId,
-      started:ref(start),configurationHash:digest(canonicalJson({task,agent,strategy:prefix.state.supervision?.strategies[task.id]??null})),
-      graphHash:prefix.state.graph?.hash??view.manifest.planHash},
+      started:ref(start),...taskConfigurationIdentity(context.plan,task.id,view.manifest.planHash,prefixEvents)},
     status:accepted?'completed' as const:finished?.change.status??'unknown' as const,
     executorStatus:finished?.change.status??'unknown' as const,finished:finished?ref(finished):null,accepted:accepted?ref(accepted):null,
     checks:structuredClone(output?.checks??[]),

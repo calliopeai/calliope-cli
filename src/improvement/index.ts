@@ -10,3 +10,5 @@ export * from './review-contract.js';
 export * from './review-requests.js';
 export * from './source-changes.js';
 export * from './task-outcomes.js';
+export * from './task-feedback-contract.js';
+export * from './task-feedback.js';

@@ -27,6 +27,11 @@ try {
   assert.deepEqual(value.data.implementation.source,metadata.source);
   assert.equal(value.data.implementation.verification,'external-attestation-required');
   assert.equal(value.data.interfaces.execution.mechanisms.crossRunLearnedStrategy,false);
+  const feedback=invoke(['host-capabilities','--contract-version','2']);
+  assert.equal(feedback.data.version,2);
+  assert.deepEqual(feedback.data.interfaces.taskFeedback.operations,['record','inspect','history']);
+  assert.equal(feedback.data.interfaces.taskFeedback.awardsReward,false);
+  assert.deepEqual(feedback.data.implementation,value.data.implementation);
   assert.equal(invoke(['capabilities']).data.version,2,'Legacy discovery must retain its version');
   for(const args of [['host-capabilities','--contract-version','999'],['host-capabilities','--run','foreign'],['host-capabilities','--allow-mutations']]){
     assert.equal(invoke(args,2).error.code,'invalid');
@@ -34,8 +39,9 @@ try {
   const api=await import(pathToFileURL(join(packageRoot,'dist/improvement/index.js')).href);
   for(const name of ['improvementHostCapabilities','inspectImprovements','proposeImprovement','runImprovement',
     'withdrawImprovement','requestImprovementReview','inspectImprovementReviews','dismissImprovementReview',
-    'inspectTaskOutcome','previewSourceChange','proposeSourceChange','inspectSourceChange','listSourceChanges'])assert.equal(typeof api[name],'function',name);
+    'inspectTaskOutcome','recordTaskFeedback','inspectTaskFeedback','taskFeedbackHistory',
+    'previewSourceChange','proposeSourceChange','inspectSourceChange','listSourceChanges'])assert.equal(typeof api[name],'function',name);
   assert.deepEqual(readdirSync(project),[],'Discovery must not open or mutate the caller project');
   console.log(JSON.stringify({version:1,passed:true,artifact:'node-package',packageVersion:pkg.version,
-    metadataMatches:true,legacyCompatible:true,unsupportedRefused:true,projectUnchanged:true,inferenceRequests:0}));
+    metadataMatches:true,legacyCompatible:true,feedbackDiscovered:true,unsupportedRefused:true,projectUnchanged:true,inferenceRequests:0}));
 } finally {rmSync(root,{recursive:true,force:true});}
