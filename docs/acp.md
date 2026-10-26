@@ -18,11 +18,20 @@ loop, the tool runtime, the pre-tool policy hook, and the audit run log — so a
 ACP session behaves like a headless or interactive session, just driven by your
 editor.
 
+The maintained SDK validates protocol messages with the pinned Zod runtime.
+The SDK package version is independent of the negotiated ACP version; this
+integration continues to use stable ACP v1, not the experimental v2 entrypoint.
+Incoming messages are bounded before schema validation: 64 nested levels, 16,384
+values, 4,096 members per collection and 32 MiB of string data. The NDJSON
+transport also enforces its 32 MiB message limit. Over-limit requests receive an invalid-parameters response without creating a
+session or starting inference; oversized notifications are discarded and
+oversized replies fail the waiting request.
+
 ## What works (baseline conformance)
 
 The [baseline ACP agent surface](https://agentclientprotocol.com/protocol/overview#agent)
 is implemented and tested against the official TypeScript SDK
-(`@zed-industries/agent-client-protocol`):
+(`@agentclientprotocol/sdk`, stable ACP v1 entrypoint):
 
 | Method / flow | Status | Notes |
 |---|---|---|

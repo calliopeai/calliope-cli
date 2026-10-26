@@ -1,7 +1,7 @@
 /**
  * ACP agent conformance tests (#190).
  *
- * Drives the official ACP SDK's ClientSideConnection against Calliope's
+ * Drives the official ACP SDK's stable-v1 client app against Calliope's
  * `serveAcp` agent over an in-memory duplex stream pair — fully in-process, no
  * editor, no subprocess. The provider (`chat`) and tool runtime (`executeTool`)
  * are mocked so turns are deterministic; the SDK's real JSON-RPC plumbing,
@@ -64,9 +64,8 @@ vi.mock('../src/local-model.js', () => ({
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  ClientSideConnection,
-  type Client,
-  type Agent,
+  client as createClient,
+  type ClientConnection,
   type Stream,
   type SessionNotification,
   type RequestPermissionRequest,
@@ -75,7 +74,7 @@ import {
   type ReadTextFileResponse,
   type WriteTextFileRequest,
   type ClientCapabilities,
-} from '@zed-industries/agent-client-protocol';
+} from '@agentclientprotocol/sdk';
 import { serveAcp } from '../src/acp.js';
 import { readRunLog, verifyChain, resetRunLogs, type RunLogLine } from '../src/runlog.js';
 import type { Message, ToolCall } from '../src/types.js';
@@ -96,7 +95,7 @@ function streamPair(): { agentStream: Stream; clientStream: Stream } {
   };
 }
 
-class TestClient implements Client {
+class TestClient {
   updates: SessionNotification[] = [];
   permissionRequests: RequestPermissionRequest[] = [];
   /** How to answer a permission request; default: allow once. */
@@ -144,23 +143,28 @@ async function waitFor(cond: () => boolean, tries = 200): Promise<void> {
 }
 
 /** Spin up an agent + connected test client over an in-memory pair. */
-function connect(): { client: TestClient; conn: ClientSideConnection; agent: ReturnType<typeof serveAcp> } {
+function connect(): { client: TestClient; conn: ClientConnection; agent: ReturnType<typeof serveAcp> } {
   const { agentStream, clientStream } = streamPair();
   const agent = serveAcp(agentStream);
   const client = new TestClient();
-  const conn = new ClientSideConnection((_agent: Agent) => client, clientStream);
+  const conn = createClient()
+    .onNotification('session/update', ({params}) => client.sessionUpdate(params))
+    .onRequest('session/request_permission', ({params}) => client.requestPermission(params))
+    .onRequest('fs/read_text_file', ({params}) => client.readTextFile(params))
+    .onRequest('fs/write_text_file', ({params}) => client.writeTextFile(params))
+    .connect(clientStream);
   return { client, conn, agent };
 }
 
 async function handshake(
-  conn: ClientSideConnection,
+  conn: ClientConnection,
   clientCapabilities: ClientCapabilities = {},
 ): Promise<void> {
-  await conn.initialize({ protocolVersion: 1, clientCapabilities });
+  await conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities });
 }
 
-async function newSession(conn: ClientSideConnection, cwd = tmpHome): Promise<string> {
-  const res = await conn.newSession({ cwd, mcpServers: [] });
+async function newSession(conn: ClientConnection, cwd = tmpHome): Promise<string> {
+  const res = await conn.agent.request('session/new', { cwd, mcpServers: [] });
   return res.sessionId;
 }
 
@@ -203,7 +207,7 @@ it('resolves trusted project model defaults for ACP and rejects malformed defaul
     const { conn } = connect(); await handshake(conn);
     const sessionId = await newSession(conn, root);
     scriptChat([{ content: 'Done' }]);
-    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'Toy prompt' }] })).stopReason).toBe('end_turn');
+    expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'Toy prompt' }] })).stopReason).toBe('end_turn');
     expect(mockChat.mock.calls[0]?.[0]).toBe('xai'); expect(mockChat.mock.calls[0]?.[3]).toBe('project-model');
     fs.writeFileSync(path.join(root, '.calliope-models.json'), '{');
     await expect(newSession(conn, root)).rejects.toThrow();
@@ -221,7 +225,7 @@ afterEach(() => {
 describe('initialize', () => {
   it('negotiates protocol v1 and advertises the baseline capabilities', async () => {
     const { conn } = connect();
-    const res = await conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
+    const res = await conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
 
     expect(res.protocolVersion).toBe(1);
     expect(res.agentCapabilities?.loadSession).toBe(true);
@@ -231,7 +235,7 @@ describe('initialize', () => {
 
   it('clamps an unsupported (newer) protocol version down to what it supports', async () => {
     const { conn } = connect();
-    const res = await conn.initialize({ protocolVersion: 99, clientCapabilities: {} });
+    const res = await conn.agent.request('initialize', { protocolVersion: 99, clientCapabilities: {} });
     expect(res.protocolVersion).toBe(1);
   });
 });
@@ -249,12 +253,12 @@ describe('session/new + session/prompt', () => {
     const write = { id: 'write', name: 'write_file', arguments: { path: 'approval.txt', content: 'toy' } };
     for (let index = 0; index < 2; index++) {
       scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
-      expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).stopReason).toBe('end_turn');
+      expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'toy' }] })).stopReason).toBe('end_turn');
     }
     expect(client.permissionRequests).toHaveLength(1); expect(mockExecuteTool).toHaveBeenCalledTimes(2);
     const other = await newSession(conn);
     scriptChat([{ toolCalls: [write] }, { content: 'done' }]);
-    await conn.prompt({ sessionId: other, prompt: [{ type: 'text', text: 'toy' }] });
+    await conn.agent.request('session/prompt', { sessionId: other, prompt: [{ type: 'text', text: 'toy' }] });
     expect(client.permissionRequests).toHaveLength(2);
   });
 
@@ -262,7 +266,7 @@ describe('session/new + session/prompt', () => {
     const { client, conn } = connect(); await handshake(conn); const sessionId = await newSession(conn);
     client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'allow_forged' } });
     scriptChat([{ toolCalls: [{ id: 'shell', name: 'shell', arguments: { command: 'echo toy' } }] }, { content: 'done' }]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'toy' }] });
     expect(mockExecuteTool).not.toHaveBeenCalled();
     expect(client.permissionRequests[0]!.options.some(option => option.kind === 'allow_always')).toBe(false);
   });
@@ -278,7 +282,7 @@ describe('session/new + session/prompt', () => {
       { stream: ['All ', 'done'] },
     ]);
 
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
     await settle();
     const { readSessionConversation } = await import('../src/storage.js');
     const snapshot = readSessionConversation(sessionId);
@@ -316,7 +320,7 @@ describe('session/new + session/prompt', () => {
       { content: 'final' },
     ]);
 
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] });
     await settle();
 
     const seq = client.updates.map((u) => {
@@ -339,7 +343,7 @@ describe('session/new + session/prompt', () => {
     // Always ask for another tool call → never terminates on its own.
     scriptChat([{ toolCalls: [{ id: 'loop', name: 'read_file', arguments: { path: 'a.txt' } }] }]);
 
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'spin' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'spin' }] });
     expect(res.stopReason).toBe('max_turn_requests');
   });
 });
@@ -361,7 +365,7 @@ describe('session/request_permission', () => {
       { content: 'done' },
     ]);
 
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
     await settle();
 
     expect(res.stopReason).toBe('end_turn');
@@ -383,7 +387,7 @@ describe('session/request_permission', () => {
       { content: 'ok anyway' },
     ]);
 
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
     await settle();
 
     expect(res.stopReason).toBe('end_turn');
@@ -404,7 +408,7 @@ describe('session/request_permission', () => {
       { content: 'done' },
     ]);
 
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read' }] });
     await settle();
 
     expect(client.permissionRequests).toHaveLength(0);
@@ -433,13 +437,13 @@ describe('session/cancel', () => {
       return { content: 'too late', toolCalls: [], finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } };
     });
 
-    const promptPromise = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'long task' }] });
+    const promptPromise = conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'long task' }] });
     await waitFor(() => started); // chat is now blocking mid-turn
-    await conn.cancel({ sessionId });
+    await conn.agent.notify('session/cancel', { sessionId });
     // The agent processes stream messages in order, so a request sent AFTER the
     // cancel notification only resolves once the cancel was already handled —
     // deterministic, no reliance on timer settling.
-    await conn.authenticate({ methodId: 'noop' });
+    await conn.agent.request('authenticate', { methodId: 'noop' });
     release();
 
     const res = await promptPromise;
@@ -461,7 +465,7 @@ describe('fs capability delegation', () => {
       { toolCalls: [{ id: 'r1', name: 'read_file', arguments: { path: 'a.txt' } }] },
       { content: 'done' },
     ]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read' }] });
     await settle();
 
     const opts = mockExecuteTool.mock.calls[0][4] as { fs?: { readTextFile?: unknown; writeTextFile?: unknown } };
@@ -487,12 +491,27 @@ describe('fs capability delegation', () => {
       { content: 'done' },
     ]);
 
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read buf' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read buf' }] });
     await settle();
 
     expect(client.fsReads).toContain(abs);
     const completed = client.updatesOf('tool_call_update').find((u) => (u as { status?: string }).status === 'completed');
     expect(JSON.stringify(completed)).toContain('FROM EDITOR BUFFER');
+  });
+
+  it('writes through the advertised client filesystem with the stable SDK', async () => {
+    const { client, conn } = connect();
+    await handshake(conn, { fs: { writeTextFile: true } });
+    const sessionId = await newSession(conn);
+    const abs = path.join(tmpHome, 'editor-write.txt');
+    mockExecuteTool.mockImplementation(async (tc: ToolCall, _cwd: string, _to: number, _o: unknown, options: { fs?: { writeTextFile?: (p: string, content: string) => Promise<void> } }) => {
+      await options.fs!.writeTextFile!(abs, 'EDITOR WRITE');
+      return { toolCallId: tc.id, result: 'written', isError: false };
+    });
+    scriptChat([{ toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: 'editor-write.txt', content: 'EDITOR WRITE' } }] }, { content: 'done' }]);
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write buffer' }] });
+    expect(client.buffers.get(abs)).toBe('EDITOR WRITE');
+    expect(client.fsWrites).toContainEqual({ path: abs, content: 'EDITOR WRITE' });
   });
 
   it('passes no fs delegate when the client does not advertise fs', async () => {
@@ -504,7 +523,7 @@ describe('fs capability delegation', () => {
       { toolCalls: [{ id: 'r1', name: 'read_file', arguments: { path: 'a.txt' } }] },
       { content: 'done' },
     ]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read' }] });
     await settle();
 
     const opts = mockExecuteTool.mock.calls[0][4] as { fs?: unknown };
@@ -520,7 +539,7 @@ describe('edge cases', () => {
   it('rejects a prompt for an unknown session', async () => {
     const { conn } = connect();
     await handshake(conn);
-    await expect(conn.prompt({ sessionId: 'nope', prompt: [{ type: 'text', text: 'hi' }] })).rejects.toThrow();
+    await expect(conn.agent.request('session/prompt', { sessionId: 'nope', prompt: [{ type: 'text', text: 'hi' }] })).rejects.toThrow();
   });
 
   it('surfaces a provider error as a JSON-RPC error from prompt', async () => {
@@ -528,7 +547,7 @@ describe('edge cases', () => {
     await handshake(conn);
     const sessionId = await newSession(conn);
     mockChat.mockRejectedValueOnce(new Error('provider exploded'));
-    await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] })).rejects.toThrow();
+    await expect(conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] })).rejects.toThrow();
   });
 
   it('maps a length finish reason to stopReason max_tokens', async () => {
@@ -536,7 +555,7 @@ describe('edge cases', () => {
     await handshake(conn);
     const sessionId = await newSession(conn);
     scriptChat([{ content: 'truncated', finishReason: 'length' }]);
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] });
     expect(res.stopReason).toBe('max_tokens');
   });
 
@@ -549,7 +568,7 @@ describe('edge cases', () => {
       captured = messages;
       return { content: 'ok', toolCalls: [], finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } };
     });
-    await conn.prompt({
+    await conn.agent.request('session/prompt', {
       sessionId,
       prompt: [
         { type: 'text', text: 'look at' },
@@ -574,7 +593,7 @@ describe('edge cases', () => {
       { toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: 'out.txt', content: 'x' } }] },
       { content: 'moving on' },
     ]);
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write' }] });
     await settle();
     expect(res.stopReason).toBe('end_turn');
     expect(mockExecuteTool).not.toHaveBeenCalled();
@@ -586,7 +605,7 @@ describe('edge cases', () => {
     const sessionId = await newSession(conn);
     client.permissionResponder = () => ({ outcome: { outcome: 'cancelled' } });
     scriptChat([{ toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: 'o.txt', content: 'x' } }] }]);
-    const res = await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write' }] });
+    const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write' }] });
     expect(res.stopReason).toBe('cancelled');
     expect(mockExecuteTool).not.toHaveBeenCalled();
   });
@@ -596,7 +615,7 @@ describe('edge cases', () => {
     await handshake(conn);
     const sessionId = await newSession(conn);
     scriptChat([{ content: 'done' }]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'go' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] });
     await settle();
     await agent.shutdown();
 
@@ -621,7 +640,7 @@ describe('audit run log', () => {
       { toolCalls: [{ id: 'c1', name: 'read_file', arguments: { path: 'a.txt' } }] },
       { content: 'done' },
     ]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] });
     await settle();
 
     const file = path.join(RUNS_DIR, `${sessionId}.jsonl`);
@@ -648,15 +667,15 @@ describe('ACP cancellation lifecycle', () => {
       signal = args[6].signal;
       return new Promise((_, reject) => signal!.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }));
     });
-    const first = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'work' }] });
+    const first = conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'work' }] });
     await waitFor(() => signal !== undefined);
-    await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'overlap' }] })).rejects.toThrow('Invalid params');
-    await conn.cancel({ sessionId });
+    await expect(conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'overlap' }] })).rejects.toThrow('Invalid params');
+    await conn.agent.notify('session/cancel', { sessionId });
     expect((await first).stopReason).toBe('cancelled');
     expect(signal!.aborted).toBe(true);
     expect(mockExecuteTool).not.toHaveBeenCalled();
     scriptChat([{ content: 'fresh response' }]);
-    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason).toBe('end_turn');
+    expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason).toBe('end_turn');
   });
 
   it('cancels a pending permission request without waiting for an answer', async () => {
@@ -666,15 +685,15 @@ describe('ACP cancellation lifecycle', () => {
     let answer!: (value: RequestPermissionResponse) => void;
     vi.spyOn(client, 'requestPermission').mockImplementation(() => new Promise(resolve => { answer = resolve; }));
     scriptChat([{ toolCalls: [{ id: 'write', name: 'write_file', arguments: { path: 'file.txt', content: 'no' } }] }]);
-    const pending = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write' }] });
+    const pending = conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write' }] });
     await waitFor(() => answer !== undefined);
-    await conn.cancel({ sessionId });
+    await conn.agent.notify('session/cancel', { sessionId });
     expect((await pending).stopReason).toBe('cancelled');
     answer({ outcome: { outcome: 'selected', optionId: 'allow' } });
     await settle();
     expect(mockExecuteTool).not.toHaveBeenCalled();
     scriptChat([{ content: 'resumed' }]);
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'continue' }] });
     const messages = mockChat.mock.calls.at(-1)![1] as Array<{ role: string; toolCallId?: string }>;
     expect(messages.filter(m => m.role === 'tool' && m.toolCallId === 'write')).toHaveLength(1);
   });
@@ -692,13 +711,13 @@ it('reports failed cancellation recovery through JSON-RPC instead of hiding the 
     signal = options.signal;
     signal!.addEventListener('abort', () => reject(signal!.reason), { once: true });
   }));
-  const pending = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'cancel with conflict' }] });
+  const pending = conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'cancel with conflict' }] });
   const rejected = expect(pending).rejects.toMatchObject({ code: -32603, data: { error: expect.stringContaining('another terminal') } });
   await waitFor(() => signal !== undefined);
   const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
   const state = readSessionConversation(sessionId);
   const saved = saveSessionConversation(sessionId, state.messages, { expectedRevision: state.revision, status: 'interrupted' });
-  await conn.cancel({ sessionId }); await rejected;
+  await conn.agent.notify('session/cancel', { sessionId }); await rejected;
   expect(readSessionConversation(sessionId).revision).toBe(saved.revision);
   expect(mockExecuteTool).not.toHaveBeenCalled();
 });
@@ -708,13 +727,13 @@ it('returns the existing JSON-RPC error after partial streaming and accepts a la
   const { readSessionConversation } = await import('../src/storage.js');
   const { conn, client } = connect(); await handshake(conn); const sessionId = await newSession(conn);
   mockChat.mockImplementationOnce(async (_p, _m, _t, _model, onToken) => { onToken('Partial'); throw new StreamInterruptedError(); });
-  await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'toy' }] })).rejects.toMatchObject({ code: -32603 });
+  await expect(conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'toy' }] })).rejects.toMatchObject({ code: -32603 });
   await settle(); expect(mockChat).toHaveBeenCalledOnce(); expect(mockExecuteTool).not.toHaveBeenCalled();
   expect(client.updatesOf('agent_message_chunk').map(c => (c as { content: { text: string } }).content.text).join('')).toBe('Partial');
   expect(readSessionConversation(sessionId)).toMatchObject({ status: 'interrupted' });
   expect(readSessionConversation(sessionId).messages.some(message => message.role === 'assistant')).toBe(false);
   scriptChat([{ content: 'Recovered', stream: ['Recovered'] }]);
-  expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue explicitly' }] })).stopReason).toBe('end_turn');
+  expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'continue explicitly' }] })).stopReason).toBe('end_turn');
   expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content)).toEqual(['Recovered']);
 });
 
@@ -732,14 +751,14 @@ describe('session/load', () => {
     await handshake(next.conn);
     return next;
   }
-  const load = (conn: ClientSideConnection, sessionId: string, cwd = tmpHome) => conn.loadSession({ sessionId, cwd, mcpServers: [] });
+  const load = (conn: ClientConnection, sessionId: string, cwd = tmpHome) => conn.agent.request('session/load', { sessionId, cwd, mcpServers: [] });
 
   it('restores a session after a restart, replays its history before responding and continues with it', async () => {
     const first = connect(); await handshake(first.conn);
     const sessionId = await newSession(first.conn);
     mockExecuteTool.mockResolvedValue({ toolCallId: 'c1', result: 'FILE BODY', isError: false });
     scriptChat([{ toolCalls: [{ id: 'c1', name: 'read_file', arguments: { path: 'a.txt' } }] }, { stream: ['All ', 'done'] }]);
-    expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] })).stopReason).toBe('end_turn');
+    expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] })).stopReason).toBe('end_turn');
 
     const { client, conn, agent } = await restart(first.agent);
     expect(await load(conn, sessionId)).toEqual({});
@@ -757,7 +776,7 @@ describe('session/load', () => {
       sent = structuredClone(messages);
       return { content: 'continued', toolCalls: [], finishReason: 'stop', usage };
     });
-    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'next' }] })).stopReason).toBe('end_turn');
+    expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'next' }] })).stopReason).toBe('end_turn');
     expect(sent.map(message => [message.role, message.content])).toEqual([
       ['system', 'system'], ['user', 'read a.txt'], ['assistant', ''], ['tool', 'FILE BODY'], ['assistant', 'All done'], ['user', 'next'],
     ]);
@@ -782,7 +801,7 @@ describe('session/load', () => {
     await load(conn, sessionId);
     expect(client.updates).toEqual([]);
     scriptChat([{ content: 'fresh' }]);
-    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'hello' }] })).stopReason).toBe('end_turn');
+    expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'hello' }] })).stopReason).toBe('end_turn');
     expect(readSessionConversation(sessionId).messages.map(message => message.role)).toEqual(['system', 'user', 'assistant']);
   });
 
@@ -791,7 +810,7 @@ describe('session/load', () => {
     const sessionId = await newSession(first.conn);
     first.client.permissionResponder = () => ({ outcome: { outcome: 'selected', optionId: 'reject' } });
     scriptChat([{ toolCalls: [{ id: 'w1', name: 'write_file', arguments: { path: 'out.txt', content: 'x' } }] }, { content: 'ok' }]);
-    await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
+    await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write out.txt' }] });
     // The process dies after the model asked for a tool and before its result was recorded.
     const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
     const state = readSessionConversation(sessionId);
@@ -823,7 +842,7 @@ describe('session/load', () => {
       sent = structuredClone(messages);
       return { content: 'checked', toolCalls: [], finishReason: 'stop', usage };
     });
-    await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'status?' }] });
+    await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'status?' }] });
     expect(sent.filter(message => message.role === 'tool').map(message => message.toolCallId)).toEqual(['w1', 'w9']);
     expect(mockExecuteTool).not.toHaveBeenCalled();
   });
@@ -876,7 +895,7 @@ describe('session/load', () => {
       await blocked;
       return { content: 'first answer', toolCalls: [], finishReason: 'stop', usage };
     });
-    const running = conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'first' }] });
+    const running = conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'first' }] });
     await waitFor(() => started);
     await expect(load(conn, sessionId)).rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('already running') } });
     release();
@@ -888,14 +907,41 @@ describe('session/load', () => {
     // A prompt sent before the load responds is refused instead of racing the replayed state.
     scriptChat([{ content: 'raced' }]);
     const reloading = load(conn, sessionId);
-    await expect(conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'too early' }] }))
+    await expect(conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'too early' }] }))
       .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('unknown session') } });
     await reloading;
     expect(mockChat).toHaveBeenCalledTimes(1);
     scriptChat([{ content: 'second answer' }]);
-    expect((await conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'second' }] })).stopReason).toBe('end_turn');
+    expect((await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'second' }] })).stopReason).toBe('end_turn');
     const { readSessionConversation } = await import('../src/storage.js');
     expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content))
       .toEqual(['first answer', 'second answer']);
   });
+});
+
+it('rejects oversized collections before SDK schema validation or session creation', async () => {
+  const {conn,agent}=connect();
+  await handshake(conn);
+  await expect(conn.agent.request('session/new', {
+    cwd:tmpHome, mcpServers:Array.from({length:4097},()=>({})) as any,
+  })).rejects.toMatchObject({code:-32602});
+  expect(mockChat).not.toHaveBeenCalled();
+  expect(await newSession(conn)).toEqual(expect.any(String));
+  await agent.shutdown();
+});
+
+it('preserves resource references and tool presentation through the stable SDK', async () => {
+  const {client,conn}=connect(); await handshake(conn); const sessionId=await newSession(conn);
+  scriptChat([
+    {toolCalls:[
+      {id:'fetch',name:'web_fetch',arguments:{url:'https://example.com'}},
+      {id:'think',name:'think',arguments:{}},
+      {id:'custom',name:'custom_tool',arguments:{}},
+    ]},
+    {content:'done'},
+  ]);
+  await conn.agent.request('session/prompt',{sessionId,prompt:[{type:'resource',resource:{uri:'file:///binary.png',mimeType:'image/png',blob:'AA=='}}]});
+  expect(mockChat.mock.calls[0]![1]).toEqual(expect.arrayContaining([expect.objectContaining({role:'user',content:'@file:///binary.png'})]));
+  const calls=client.updatesOf('tool_call') as Array<{kind:string}>;
+  expect(calls.map(call=>call.kind)).toEqual(['fetch','think','other']);
 });
