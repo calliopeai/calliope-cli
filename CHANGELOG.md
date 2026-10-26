@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.3: patched protocol validation
+
+- Replace the deprecated ACP SDK with the maintained stable-v1 SDK and pin Zod 4.6.6. Bound incoming message complexity before validation; oversized requests fail without starting a session or inference. ACP remains protocol version 1 ([release notes](docs/releases/3.5.3.md), #433).
+- Update fast-uri to 3.1.9 and include the reviewed runtime/build dependency patches (#429, #432).
+
 ## 3.5.2: approval policies see the plan
 
 - `orchestration_approve` passes the prepared `plan` (agents, tools, paths, limits) to `policy.command` and judgment, beside `runId`, `planHash` and `revision`, so a policy judges the exact plan it approves. Cancellation is unchanged ([release notes](docs/releases/3.5.2.md), #424).

@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "openai-chat",
+  "model": "gpt-4o-mini",
+  "scenario": "system-instructions",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-10-26T13:24:59.525Z",
+    "sourceOrigin": "https://api.openai.com",
+    "sdkVersions": {
+      "openai": "7.43.0",
+      "@anthropic-ai/sdk": "0.135.0",
+      "@google/genai": "2.30.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "824c0a5f-58a6-42d7-af2b-04e5b207e8b0",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6ImdwdC00by1taW5pIiwibWVzc2FnZXMiOlt7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIGZpcnN0IHdvcmQgb2YgeW91ciBleGFjdCByZXBseSBtdXN0IGJlIEhlbGxvLiJ9LHsicm9sZSI6InVzZXIiLCJjb250ZW50IjoiRm9sbG93IGJvdGggc3lzdGVtIGRpcmVjdGl2ZXMuIn0seyJyb2xlIjoic3lzdGVtIiwiY29udGVudCI6IlRoZSBzZWNvbmQgYW5kIGZpbmFsIHdvcmQgbXVzdCBiZSDPgC4gU2VwYXJhdGUgdGhlIHR3byB3b3JkcyB3aXRoIG9uZSBzcGFjZTsgYWRkIG5vdGhpbmcgZWxzZS4ifV0sIm1heF9jb21wbGV0aW9uX3Rva2VucyI6NTEyLCJzdHJlYW0iOnRydWUsInN0cmVhbV9vcHRpb25zIjp7ImluY2x1ZGVfdXNhZ2UiOnRydWV9fQ==",
+          "sha256": "716a4eebc969c4fc77bb7e47878fcfab1d216e7422b6e7f92b39f62d785ebeaf"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "ZGF0YTogeyJpZCI6ImNoYXRjbXBsLUVkRXo1QmtOQzlXbkJDaDBBWGtONVFpOUFBeHM4Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzAyMTA5OSwibW9kZWwiOiJncHQtNG8tbWluaS0yMDI0LTA3LTE4Iiwic2VydmljZV90aWVyIjoiZGVmYXVsdCIsInN5c3RlbV9maW5nZXJwcmludCI6ImZwX2U0OGMzNjg1YjciLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiIiLCJyZWZ1c2FsIjpudWxsfSwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGx9XSwidXNhZ2UiOm51bGwsIm9iZnVzY2F0aW9uIjoiT2s1VkZBS2lRIn0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1FZEV6NUJrTkM5V25CQ2gwQVhrTjVRaTlBQXhzOCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwMjEwOTksIm1vZGVsIjoiZ3B0LTRvLW1pbmktMjAyNC0wNy0xOCIsInNlcnZpY2VfdGllciI6ImRlZmF1bHQiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF9lNDhjMzY4NWI3IiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7ImNvbnRlbnQiOiJIZWxsbyJ9LCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6bnVsbH1dLCJ1c2FnZSI6bnVsbCwib2JmdXNjYXRpb24iOiJEeEw3RUIifQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLUVkRXo1QmtOQzlXbkJDaDBBWGtONVFpOUFBeHM4Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzAyMTA5OSwibW9kZWwiOiJncHQtNG8tbWluaS0yMDI0LTA3LTE4Iiwic2VydmljZV90aWVyIjoiZGVmYXVsdCIsInN5c3RlbV9maW5nZXJwcmludCI6ImZwX2U0OGMzNjg1YjciLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IiDPgCJ9LCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6bnVsbH1dLCJ1c2FnZSI6bnVsbCwib2JmdXNjYXRpb24iOiJVUlRORHl0YkUifQoKZGF0YTogeyJpZCI6ImNoYXRjbXBsLUVkRXo1QmtOQzlXbkJDaDBBWGtONVFpOUFBeHM4Iiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzAyMTA5OSwibW9kZWwiOiJncHQtNG8tbWluaS0yMDI0LTA3LTE4Iiwic2VydmljZV90aWVyIjoiZGVmYXVsdCIsInN5c3RlbV9maW5nZXJwcmludCI6ImZwX2U0OGMzNjg1YjciLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnt9LCJsb2dwcm9icyI6bnVsbCwiZmluaXNoX3JlYXNvbiI6InN0b3AifV0sInVzYWdlIjpudWxsLCJvYmZ1c2NhdGlvbiI6ImFLSkZ2In0KCmRhdGE6IHsiaWQiOiJjaGF0Y21wbC1FZEV6NUJrTkM5V25CQ2gwQVhrTjVRaTlBQXhzOCIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwMjEwOTksIm1vZGVsIjoiZ3B0LTRvLW1pbmktMjAyNC0wNy0xOCIsInNlcnZpY2VfdGllciI6ImRlZmF1bHQiLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJmcF9lNDhjMzY4NWI3IiwiY2hvaWNlcyI6W10sInVzYWdlIjp7InByb21wdF90b2tlbnMiOjUyLCJjb21wbGV0aW9uX3Rva2VucyI6MiwidG90YWxfdG9rZW5zIjo1NCwicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjAsImF1ZGlvX3Rva2VucyI6MH0sImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MCwiYXVkaW9fdG9rZW5zIjowLCJhY2NlcHRlZF9wcmVkaWN0aW9uX3Rva2VucyI6MCwicmVqZWN0ZWRfcHJlZGljdGlvbl90b2tlbnMiOjB9fSwib2JmdXNjYXRpb24iOiJtV1RtZDQwMHZFYiJ9CgpkYXRhOiBbRE9ORV0KCg==",
+        "sha256": "650db5f7676c92a3c9d71f79965190ce4efb2009d8fb2157908683020df00708",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 52,
+            "outputTokens": 2
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}

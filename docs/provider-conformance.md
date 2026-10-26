@@ -23,6 +23,21 @@ never executed by conformance probes. Runtime tests separately establish permiss
 and execution semantics. Reported token usage is not an independent measurement of
 provider billing; absent usage cannot support complete token/cost totals.
 
+## OpenAI SDK 7 recapture candidate
+
+The October 26 [recapture report](reports/sdk7-recapture-2026-10-26.json) records
+14 new streaming semantic captures using OpenAI SDK 7.43.0. Both instruction and
+tool-result replay passed on OpenAI Chat/Responses, Groq, Fireworks, DeepSeek and
+Cerebras; Together tool replay and Mistral instructions also passed. Earlier
+captures remain unchanged and continue to replay through the candidate SDK.
+
+Fresh Together instruction and Mistral tool-result cases remain incomplete.
+Hugging Face remains core support, but its fresh requests returned HTTP 402;
+that account needs billing access before those captures can be completed.
+OpenRouter and xAI were not probed under their existing deferrals, and no
+LiteLLM probe was made. Thirty requests retained $0.3768 in conservative
+reservations within the new $1 allowance; this is not reconciled billed cost.
+
 ## Real-wire release evidence
 
 **68 of 72 combinations have real captures** as verified on October 26, 2026.

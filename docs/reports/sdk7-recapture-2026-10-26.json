@@ -1,0 +1,238 @@
+{
+  "version": 1,
+  "date": "2026-10-26",
+  "sourceCommit": "e43da8f0ebab6dc2ba6977669e51bd1a1bc963a9",
+  "sdk": "openai@7.43.0",
+  "purpose": "Fresh streaming semantic captures after the terminal-frame recorder fix",
+  "runId": "sdk7-2026-10-26-01",
+  "limits": {
+    "runUsd": 1,
+    "cumulativeUsd": 500,
+    "requests": 30,
+    "inputTokensReservedPerRequest": 5000,
+    "outputTokensPerRequest": 512,
+    "deadlineSecondsPerRequest": 30,
+    "automaticRetries": 0
+  },
+  "accounting": {
+    "requests": 30,
+    "reservedUsd": 0.3768,
+    "billedCostReconciled": false
+  },
+  "captures": [
+    {
+      "backend": "cerebras",
+      "model": "gpt-oss-120b",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/cerebras-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:32.657Z",
+      "sourceOrigin": "https://api.cerebras.ai"
+    },
+    {
+      "backend": "cerebras",
+      "model": "gpt-oss-120b",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/cerebras-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:33.892Z",
+      "sourceOrigin": "https://api.cerebras.ai"
+    },
+    {
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/deepseek-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:28.640Z",
+      "sourceOrigin": "https://api.deepseek.com"
+    },
+    {
+      "backend": "deepseek",
+      "model": "deepseek-flash",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/deepseek-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:31.870Z",
+      "sourceOrigin": "https://api.deepseek.com"
+    },
+    {
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/gpt-oss-120b",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/fireworks-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:21.158Z",
+      "sourceOrigin": "https://api.fireworks.ai"
+    },
+    {
+      "backend": "fireworks",
+      "model": "accounts/fireworks/models/gpt-oss-120b",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/fireworks-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:23.802Z",
+      "sourceOrigin": "https://api.fireworks.ai"
+    },
+    {
+      "backend": "groq",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/groq-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:17.972Z",
+      "sourceOrigin": "https://api.groq.com"
+    },
+    {
+      "backend": "groq",
+      "model": "openai/gpt-oss-20b",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/groq-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:19.755Z",
+      "sourceOrigin": "https://api.groq.com"
+    },
+    {
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/mistral-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:24.924Z",
+      "sourceOrigin": "https://api.mistral.ai"
+    },
+    {
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/openai-chat-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:24:59.525Z",
+      "sourceOrigin": "https://api.openai.com"
+    },
+    {
+      "backend": "openai-chat",
+      "model": "gpt-4o-mini",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/openai-chat-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:02.346Z",
+      "sourceOrigin": "https://api.openai.com"
+    },
+    {
+      "backend": "openai-responses",
+      "model": "gpt-5-nano",
+      "scenario": "system-instructions",
+      "file": "tests/fixtures/provider-semantic/openai-responses-system-instructions-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:25:07.968Z",
+      "sourceOrigin": "https://api.openai.com"
+    },
+    {
+      "backend": "openai-responses",
+      "model": "gpt-5.4-mini",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/openai-responses-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:26:07.643Z",
+      "sourceOrigin": "https://api.openai.com"
+    },
+    {
+      "backend": "together",
+      "model": "MiniMaxAI/MiniMax-M3.1-Flash",
+      "scenario": "tool-result-replay",
+      "file": "tests/fixtures/provider-semantic/together-tool-result-replay-stream-sdk7-20261026.json",
+      "capturedAt": "2026-10-26T13:27:06.764Z",
+      "sourceOrigin": "https://api.together.xyz"
+    }
+  ],
+  "failedAttempts": [
+    {
+      "backend": "openai-responses",
+      "model": "gpt-5-nano",
+      "scenario": "tool-result-replay",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "observed": {
+        "finishReason": "length",
+        "toolCount": 0,
+        "contentBytes": 0,
+        "contentSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "usage": {
+          "inputTokens": 99,
+          "outputTokens": 512
+        }
+      }
+    },
+    {
+      "backend": "together",
+      "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "scenario": "system-instructions",
+      "outcome": "failed",
+      "httpStatus": 400
+    },
+    {
+      "backend": "together",
+      "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+      "scenario": "tool-result-replay",
+      "outcome": "failed",
+      "httpStatus": 400
+    },
+    {
+      "backend": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool-result-replay",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "observed": {
+        "finishReason": "stop",
+        "toolCount": 0,
+        "contentBytes": 7,
+        "contentSha256": "284b886705242a48ec8f97886796c07dc5bb903447676bc7bbc0354b70c88c6f",
+        "usage": {
+          "inputTokens": 137,
+          "outputTokens": 3
+        }
+      }
+    },
+    {
+      "backend": "huggingface",
+      "model": "openai/gpt-oss-20b:groq",
+      "scenario": "system-instructions",
+      "outcome": "failed",
+      "httpStatus": 402
+    },
+    {
+      "backend": "huggingface",
+      "model": "openai/gpt-oss-20b:groq",
+      "scenario": "tool-result-replay",
+      "outcome": "failed",
+      "httpStatus": 402
+    },
+    {
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "system-instructions",
+      "outcome": "failed",
+      "httpStatus": 400
+    },
+    {
+      "backend": "together",
+      "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+      "scenario": "tool-result-replay",
+      "outcome": "failed",
+      "httpStatus": 400
+    }
+  ],
+  "deferred": [
+    "xai",
+    "openrouter"
+  ],
+  "notProbed": [
+    "litellm"
+  ],
+  "remainingFreshCases": [
+    "together/system-instructions",
+    "mistral/tool-result-replay",
+    "huggingface/system-instructions",
+    "huggingface/tool-result-replay"
+  ],
+  "pricingSources": [
+    "https://developers.openai.com/api/docs/models/gpt-4o-mini",
+    "https://developers.openai.com/api/docs/models/gpt-5-nano",
+    "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+    "https://docs.mistral.ai/inference/pricing",
+    "https://api-docs.deepseek.com/quick_start/pricing/",
+    "https://docs.fireworks.ai/serverless/pricing",
+    "https://console.groq.com/docs/models",
+    "https://huggingface.co/docs/inference-providers/pricing"
+  ],
+  "pricingNote": "Reservations use conservative USD per million token ceilings of 2 input and 5 output, above the selected model rates verified through provider documentation or live model metadata. Reservations are retained for failed attempts."
+}
