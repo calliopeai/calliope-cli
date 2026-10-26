@@ -58,12 +58,12 @@
     "capture:semantics": "npm run build && node scripts/conformance/capture-semantic.mjs"
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "2.0.2",
     "@anthropic-ai/sdk": "0.135.0",
     "@aws-sdk/credential-provider-ini": "3.973.19",
     "@aws-sdk/credential-provider-node": "3.972.86",
     "@google/genai": "^2.22.0",
     "@inquirer/prompts": "^8.5.2",
-    "@zed-industries/agent-client-protocol": "^0.4.5",
     "conf": "^15.1.0",
     "ink": "^7.1.0",
     "openai": "^6.46.0",
@@ -71,7 +71,8 @@
     "sql.js": "1.15.0",
     "string-width": "8.3.0",
     "ws": "8.22.0",
-    "yaml": "^2.8.2"
+    "yaml": "^2.8.2",
+    "zod": "4.6.6"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",

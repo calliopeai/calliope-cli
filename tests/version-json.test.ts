@@ -8,7 +8,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { PROTOCOL_VERSION } from '@zed-industries/agent-client-protocol';
+import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
 
 const { version } = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
 let build: string;
