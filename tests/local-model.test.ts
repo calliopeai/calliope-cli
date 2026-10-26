@@ -16,7 +16,6 @@ vi.mock('../src/config.js', () => ({
   default: {},
   getBaseUrl: vi.fn((provider: string) => {
     if (provider === 'ollama') return 'http://localhost:11434';
-    if (provider === 'litellm') return 'http://localhost:4000';
     return undefined; // openai-compat, bedrock: not configured
   }),
 }));
@@ -86,16 +85,13 @@ describe('isLocalBackend', () => {
     expect(isLocalBackend('ollama')).toBe(true);
   });
 
-  it('treats litellm/openai-compat as local only when the base URL is loopback', () => {
-    expect(isLocalBackend('litellm', 'http://localhost:4000')).toBe(true);
-    expect(isLocalBackend('litellm', 'https://litellm.mycorp.com')).toBe(false);
+  it('treats openai-compat as local only when the base URL is loopback', () => {
     expect(isLocalBackend('openai-compat', 'http://127.0.0.1:1234')).toBe(true);
     expect(isLocalBackend('openai-compat', 'https://api.hosted.ai')).toBe(false);
   });
 
   it('resolves the base URL from config when not passed', () => {
-    // litellm config default is loopback -> local; openai-compat is unset -> cloud.
-    expect(isLocalBackend('litellm')).toBe(true);
+    // An unconfigured compatible endpoint is not implicitly local.
     expect(isLocalBackend('openai-compat')).toBe(false);
   });
 
@@ -386,7 +382,7 @@ describe('getLocalModelProfile', () => {
   });
 
   it('does not probe non-ollama local backends and reports no JSON-schema format', async () => {
-    const p = await getLocalModelProfile('litellm', 'qwen2.5:7b', 'http://localhost:4000');
+    const p = await getLocalModelProfile('openai-compat', 'qwen2.5:7b', 'http://localhost:4000');
     expect(fetchMock).not.toHaveBeenCalled();
     expect(p.supportsJsonSchemaFormat).toBe(false);
     expect(p.supportsNativeToolCalls).toBe(true); // qwen2.5 heuristic
@@ -417,7 +413,7 @@ describe('getSystemPromptForProvider', () => {
   });
   it('returns the compact prompt for local backends', () => {
     expect(getSystemPromptForProvider('ollama')).toBe(getSystemPrompt({ compact: true }));
-    expect(getSystemPromptForProvider('litellm', 'http://localhost:4000')).toBe(getSystemPrompt({ compact: true }));
+    expect(getSystemPromptForProvider('openai-compat', 'http://localhost:4000')).toBe(getSystemPrompt({ compact: true }));
   });
 });
 

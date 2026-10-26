@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Retire the LiteLLM provider: remove setup, discovery and request routing, ignore its environment variables, and refuse old explicit selections without choosing a replacement. Preserve stored settings and historical capture evidence.
+
 ## 3.5.3: patched protocol validation
 
 - Replace the deprecated ACP SDK with the maintained stable-v1 SDK and pin Zod 4.6.6. Bound incoming message complexity before validation; oversized requests fail without starting a session or inference. ACP remains protocol version 1 ([release notes](docs/releases/3.5.3.md), #433).

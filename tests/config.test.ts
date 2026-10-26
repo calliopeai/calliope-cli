@@ -265,8 +265,8 @@ describe('getBaseUrl', () => {
     expect(getBaseUrl('ollama')).toBe('http://localhost:11434');
   });
 
-  it('should return default litellm URL when nothing configured', () => {
-    expect(getBaseUrl('litellm')).toBe('http://localhost:4000');
+  it('does not supply a retired LiteLLM default URL', () => {
+    expect(getBaseUrl('litellm' as any)).toBeUndefined();
   });
 
   it('should prefer env var for ollama', () => {
@@ -274,9 +274,9 @@ describe('getBaseUrl', () => {
     expect(getBaseUrl('ollama')).toBe('http://custom:9999');
   });
 
-  it('should prefer env var for litellm', () => {
+  it('ignores the retired LiteLLM URL environment variable', () => {
     process.env.LITELLM_BASE_URL = 'http://litellm:5000';
-    expect(getBaseUrl('litellm')).toBe('http://litellm:5000');
+    expect(getBaseUrl('litellm' as any)).toBeUndefined();
   });
 
   it('should return undefined for non-url providers', () => {
@@ -403,20 +403,9 @@ describe('getApiKey - all providers', () => {
     expect(getApiKey('huggingface')).toBe('hf-config-key');
   });
 
-  it('should return key for litellm', () => {
-    setProviderCred('litellm', { apiKey: 'litellm-config-key' });
-    expect(getApiKey('litellm')).toBe('litellm-config-key');
-  });
-
   it('should return key for bedrock', () => {
     setProviderCred('bedrock', { apiKey: 'bedrock-config-key' });
     expect(getApiKey('bedrock')).toBe('bedrock-config-key');
-  });
-
-  it('should prefer LITELLM_API_KEY env var over config', () => {
-    setProviderCred('litellm', { apiKey: 'config-litellm-key' });
-    process.env.LITELLM_API_KEY = 'env-litellm-key';
-    expect(getApiKey('litellm')).toBe('env-litellm-key');
   });
 
   it('should prefer BEDROCK_API_KEY env var over config', () => {

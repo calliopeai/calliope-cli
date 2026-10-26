@@ -174,7 +174,7 @@ src/
 ## Model discovery (no hardcoded models)
 
 The CLI is multi-provider (Anthropic / Google / OpenAI / OpenAI-compatible:
-ollama, bedrock, litellm, mistral, openrouter, together, groq, …).
+ollama, bedrock, mistral, openrouter, together, groq, …).
 
 - **Discover, don't hardcode.** Pull the available models and their capabilities
   from each provider's models API at runtime — Anthropic `GET /v1/models`

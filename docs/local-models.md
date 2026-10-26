@@ -1,8 +1,7 @@
 # Local models
 
 Calliope aims to be the best terminal harness for **self-hosted 7-70B models** —
-the ones you run yourself with Ollama, vLLM, LM Studio, llama.cpp, or a local
-LiteLLM proxy. Small and mid-size open-weight models are more sensitive than
+the ones you run yourself with Ollama, vLLM, LM Studio, or llama.cpp. Small and mid-size open-weight models are more sensitive than
 frontier cloud models to prompt bloat, verbose tool schemas, and the occasional
 malformed tool call. Calliope detects a local backend and quietly adapts.
 
@@ -15,11 +14,11 @@ OpenAI-compatible providers.
 A backend is treated as local when:
 
 - the provider is **`ollama`** (always local), or
-- the provider is **`litellm`** or **`openai-compat`** and its base URL is a
+- the provider is **`openai-compat`** and its base URL is a
   loopback host — `localhost`, `127.0.0.1`, `0.0.0.0`, `::1`,
   `host.docker.internal`, or a `*.local` hostname (e.g. a box running vLLM).
 
-Hosted proxies (a `litellm` pointed at a remote URL, OpenRouter, Together, …)
+Hosted endpoints (OpenRouter, Together, and remote OpenAI-compatible servers)
 are treated as cloud.
 
 ## What the harness does for local models
@@ -94,8 +93,8 @@ Calliope probes a local model's capabilities once per session
   (`"tools"`), else a heuristic by model family;
 - **JSON-schema `format` support** — true for native Ollama, false elsewhere.
 
-The circuit breaker also relaxes its cost/token limits for `ollama` and
-`litellm`, since self-hosted inference is effectively free.
+The circuit breaker retains its Ollama-specific cost/token settings. Local
+compute still has resource costs; a loopback endpoint can also proxy paid inference.
 
 ## Configuration
 
@@ -109,10 +108,6 @@ calliope --provider ollama --model gemma4:31b
 # Any OpenAI-compatible local server (vLLM, LM Studio, llama.cpp, …)
 export OPENAI_COMPAT_BASE_URL=http://localhost:8000
 calliope --provider openai-compat
-
-# Local LiteLLM proxy
-export LITELLM_BASE_URL=http://localhost:4000
-calliope --provider litellm
 ```
 
 Notes:

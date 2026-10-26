@@ -1,6 +1,6 @@
 # Providers
 
-Calliope includes 16 provider adapters, plus a generic OpenAI-compatible
+Calliope includes 14 provider adapters, plus a generic OpenAI-compatible
 endpoint for any other server that speaks the OpenAI chat-completions API.
 Models are discovered live from each provider — there are no hardcoded model
 lists. Use `/model` to browse what a provider offers.
@@ -18,7 +18,6 @@ outstanding access or migration requirements.
 | `openai` | Native SDK | API key | GPT / o-series models. |
 | `bedrock` | AWS | region + profile, or gateway URL | AWS Bedrock, native or via gateway. |
 | `ollama` | Local | base URL | Local models; no API key. |
-| `litellm` | Proxy | base URL (+ optional key) | Unified proxy for many providers. |
 | `openrouter` | OpenAI-compatible | API key | Aggregator for many models. |
 | `together` | OpenAI-compatible | API key | Open-weight models. |
 | `groq` | OpenAI-compatible | API key | Fast inference. |
@@ -34,7 +33,7 @@ outstanding access or migration requirements.
 Select a provider in a session with `/provider <name>`, or set `defaultProvider`
 during setup. `auto` selects the first configured provider (priority order:
 anthropic, openai, google, deepseek, xai, cerebras, mistral, openrouter, together,
-groq, fireworks, huggingface, bedrock, ollama, litellm).
+groq, fireworks, huggingface, bedrock, ollama, openai-compat).
 
 ## How credentials resolve
 
@@ -102,16 +101,13 @@ export OLLAMA_BASE_URL=http://localhost:11434
 
 Local models run offline, cost nothing, and keep data on your machine.
 
-## LiteLLM proxy
+## Retired LiteLLM support
 
-`litellm` targets a [LiteLLM](https://docs.litellm.ai/docs/proxy) proxy that
-fronts other providers. Point Calliope at the proxy URL (default
-`http://localhost:4000`) and, if the proxy requires it, an API key:
-
-```
-export LITELLM_BASE_URL=http://localhost:4000
-export LITELLM_API_KEY=...      # only if your proxy requires it
-```
+The `litellm` provider is no longer supported. Its setup entry, endpoint discovery,
+automatic selection and request adapter have been removed. Existing settings and
+historical records are retained, but the CLI ignores LiteLLM environment variables
+and refuses an explicit selection before network activity. Choose a supported
+provider explicitly; the CLI does not migrate credentials or select a replacement.
 
 ## Generic OpenAI-compatible servers
 

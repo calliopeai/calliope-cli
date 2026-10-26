@@ -13,7 +13,7 @@ chunks, including UTF-8 boundaries. These tests are deterministic and offline.
 | OpenAI Chat Completions | JSON / SSE | Requests streamed usage, including usage-only terminal chunks. |
 | OpenAI Responses | JSON / named SSE | Separate completed/incomplete/failed events; native call IDs differ from output-item IDs. |
 | OpenRouter, Together, Groq, Fireworks, Mistral, DeepSeek, xAI, Cerebras, Hugging Face | OpenAI-compatible JSON / SSE | Usage is consumed when supplied. Missing usage stays unavailable, with a visible notice that accounting is incomplete. Hugging Face discovery and inference use `router.huggingface.co/v1`. |
-| LiteLLM, Bedrock compatibility endpoint, generic OpenAI compatibility endpoint | OpenAI-compatible JSON / SSE | Endpoint/shim capabilities vary. The suite tests the unmodified protocol; existing shim tests cover documented tool stripping. |
+| Bedrock compatibility endpoint, generic OpenAI compatibility endpoint | OpenAI-compatible JSON / SSE | Endpoint/shim capabilities vary. The suite tests the unmodified protocol; existing shim tests cover documented tool stripping. |
 | Ollama native | JSON / NDJSON | Internal call IDs are generated; incomplete JSON records survive chunk boundaries. Malformed frames, server error envelopes and streams missing their final frame fail. |
 | Bedrock native Converse | JSON / binary AWS event stream | SigV4 signing and native call IDs; capture output caps are applied before signing. |
 
@@ -25,8 +25,15 @@ provider billing; absent usage cannot support complete token/cost totals.
 
 ## Real-wire release evidence
 
-**68 of 72 combinations have real captures** as verified on October 26, 2026.
-All 17 non-deferred adapter paths have text and tool captures in JSON and streaming
+LiteLLM is retired. Its original captures remain in the historical corpus for
+integrity and provenance, but it is excluded from active adapters, live probes,
+SDK replay qualification and release coverage. Historical gateway captures still
+identify their original upstream; their presence does not advertise a supported
+LiteLLM deployment.
+
+
+**64 of 68 combinations have real captures** as verified on October 26, 2026.
+All 16 non-deferred adapter paths have text and tool captures in JSON and streaming
 mode, plus captured cancellation, provider errors, usage, system instructions and
 tool-result replay. The four missing basic combinations belong to explicitly
 deferred xAI; they remain unavailable and are never counted as passing. The
@@ -42,13 +49,13 @@ excluded from normalized expectations; function names and arguments are asserted
 `npm run test:conformance:release` requires all nine product checks for each
 non-deferred adapter, including extended semantic captures and usage. The release
 command explicitly sets `CALLIOPE_RELEASE_DEFERRED_PROVIDERS=xai`; it does not
-manufacture xAI evidence. The unfiltered readiness report still includes all 18
+manufacture xAI evidence. The unfiltered readiness report still includes all 17
 adapters and reports its incomplete xAI coverage. `prepublishOnly` invokes the
 same release gate. Ordinary CI remains offline and replays the checked-in
 captures; its default suite skips the release-readiness assertion explicitly.
 
 The published [3.5.2 release](https://github.com/calliopeai/calliope-cli/releases/tag/v3.5.2)
-passed this gate. This establishes the captured behavior for the recorded
+passed the predecessor gate, which still included LiteLLM. This establishes the captured behavior for the recorded
 models and SDKs, not present-day credential access or every model supported by
 a provider. Run the report and release gate again after changing adapters or SDKs.
 
