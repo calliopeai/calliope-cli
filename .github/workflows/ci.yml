@@ -33,6 +33,9 @@ jobs:
       - name: Qualify packaged Bedrock credentials and cancellation
         run: node --test scripts/qualification/bedrock-credentials.mjs
 
+      - name: Qualify reviewed host transport and native child execution
+        run: node scripts/qualification/reviewed-host.mjs
+
       - name: Run tests
         # Keep worker contention bounded; the release gate uses the same limit.
         run: npm test -- --maxWorkers=2

@@ -414,6 +414,7 @@ export interface FsDelegate {
  * delegate (feature: ACP client-side filesystem).
  */
 export interface ExecuteToolOptions {
+  artifact?: import('./orchestration/artifact-host.js').BoundArtifactTool;
   /** Only supplied by a reviewed execution guard; absent for ordinary sessions. */
   brain?: import('./brain/tools.js').BrainToolContext;
   authority?: (call:ToolCall,cwd:string)=>string|undefined;
@@ -499,6 +500,10 @@ export async function executeTool(
   }
 
   throwIfCancelled(signal);
+  if(name==='artifact') {
+    if(!options?.artifact||!options.authority)return {toolCallId:id,result:'Artifact tools require a reviewed native host binding.',isError:true};
+    return options.artifact.execute(toolCall,signal,timeout);
+  }
   if (name === 'brain_search' || name === 'brain_entity') {
     if (!options?.brain || !options.authority) return {toolCallId:id,result:'Project knowledge retrieval requires an explicit reviewed agent tool grant.',isError:true};
     const {queryBrainTool} = await import('./brain/tool-query.js');

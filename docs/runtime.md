@@ -45,7 +45,13 @@ a fresh scope. Concurrent sessions cannot borrow grants
 from each other. The terminal also creates checkpoints in the session project.
 
 A successful `ask_question` or `create_plan` pauses execution before subsequent
-tools. Any unexecuted calls receive explicit placeholder results. Terminal length
+tools by default. A host supplying `answerQuestion` instead waits inside the same
+turn for an `ask_question` answer. The runtime passes its cancellation signal,
+validates bounded nonempty answer text, records one tool result, and continues
+with the original iteration and budget accounting. Cancellation discards a late
+answer and completes the pending tool pair without claiming success. This callback
+does not approve tools or alter the behavior of `create_plan`.
+Any unexecuted calls receive explicit placeholder results. Terminal length
 continuation remains bounded by the iteration limit; ACP and headless expose an
 incomplete outcome instead of claiming success.
 

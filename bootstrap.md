@@ -69,14 +69,20 @@ append-only client failures, parallel progress and bounded private inspection.
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
 with inherited authority, bounded scheduling, verified artifacts and explicit recovery.
+Worker questions persist in the native execution journal; exact revision-bound
+answers resume the same live task without refreshing its session, budget or clock.
 Worker context binds an explicit versioned initial/retry phase to the current
 task-start event and prior outcomes instead of asking models to infer attempt state.
+[Native artifact hosts](docs/artifact-host.md) expose a bounded product draft tool
+only with a reviewed tool grant and executor-owned task/attempt context.
 Supervised worker feedback intersects controller evidence with those task-local
 outcomes, preserving cross-task evidence in the journal without widening read scope.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active
 graph without resetting its original scope, budget or clock.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
+Explicit `read-only-v1` isolated tasks return scoped structured reports without file
+mutation or command execution; native checks and reviewed supervision still apply.
 Uncertain cleanup gets one bounded exact-container absence check after confirmed
 creation, with versioned diagnostics and unchanged failure/cancellation outcomes.
 Supervision availability also reports retry capacity separately from child
@@ -123,6 +129,9 @@ tools with inherited source scopes and recorded evidence.
 [Agent runtime authority](docs/agent-runtime.md) supplies inherited file/tool
 scopes, deadlines and persistent request reservations across agent ancestors
 and the project. The coordinator supplies ownership and cancellation checks at admission.
+[Delegation ledger](docs/delegation-ledger.md) carries that allowance into headless
+and native ACP processes, preserving account restrictions and scoped project
+context across session continuation.
 [Counted admission](docs/counted-admission.md) describes opt-in native token counting,
 expiring operator-reviewed billing evidence and auditable estimate headroom.
 [Reviewed provider metadata](docs/reviewed-provider-metadata.md) supplies bounded

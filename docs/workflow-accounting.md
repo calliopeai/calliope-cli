@@ -58,3 +58,21 @@ underlying ledger changes, including after cancellation or restart. No prompts,
 tool arguments, provider endpoints, credentials or billing-profile records are
 included in the snapshot. Historical execution replay displays the currently
 recorded ledger revision, not a fabricated per-event spending timeline.
+
+## Separately reviewed parent runs
+
+`readParentBudgetAccounting(manifest, cwd, signal)` follows persisted native
+funding links, returning version-1 `unlinked`, `unavailable`, or `available`
+accounting. Available observations list the selected account in each parent run,
+nearest first, with run/agent identity, manifest and ledger revisions, original
+deadline, token/cost balances and request-state counts. Each account includes all
+work it funds; ancestor totals overlap and must not be summed.
+
+Authority is observed separately as `active`, `inactive`, `expired` or `exceeded`.
+Cancelled parents retain their balances and unresolved charges. This is a
+read-only observation, not permission to dispatch: native admission rechecks the
+current policy, approval, scopes, clock and every allowance. Ledger changes during
+inspection make the result unavailable. Approval and ledger observations are not
+one atomic transaction. Missing, damaged or mismatched histories return
+unavailable without creating or repairing records; provider details and local
+store paths are omitted.

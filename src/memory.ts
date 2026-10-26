@@ -195,9 +195,9 @@ export function saveMemory(filePath: string, memory: Memory, title?: string): vo
 /**
  * Get project memory for current directory
  */
-export function getProjectMemory(dir: string): Memory {
+export function getProjectMemory(dir: string, allowPath?: (file: string) => boolean): Memory {
   const memoryPath = findProjectMemory(dir);
-  if (!memoryPath) {
+  if (!memoryPath || allowPath && !allowPath(memoryPath)) {
     return { context: [], preferences: [], history: [], notes: [] };
   }
   return loadMemory(memoryPath);
@@ -317,11 +317,12 @@ const CONTEXT_FILES = [
 /**
  * Find and load context from standard files
  */
-export function loadContextFiles(dir: string): Array<{ name: string; label: string; content: string }> {
+export function loadContextFiles(dir: string, allowPath?: (file: string) => boolean): Array<{ name: string; label: string; content: string }> {
   const results: Array<{ name: string; label: string; content: string }> = [];
 
   for (const file of CONTEXT_FILES) {
     const filePath = path.join(dir, file.name);
+    if (allowPath && !allowPath(filePath)) continue;
     if (fs.existsSync(filePath)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -358,15 +359,15 @@ export function listContextFiles(dir: string): string[] {
 /**
  * Build memory context string for system prompt
  */
-export function buildMemoryContext(dir: string): string {
+export function buildMemoryContext(dir: string, options: { allowPath?: (file: string) => boolean } = {}): string {
   // Check project trust before loading project-level context (#23)
   // Unknown projects remain untrusted unless the user explicitly opted in.
   autoTrustIfNew(dir);
   const projectTrusted = checkTrust(dir).trusted;
 
-  const projectMemory = projectTrusted ? getProjectMemory(dir) : { context: [], preferences: [], history: [], notes: [] };
+  const projectMemory = projectTrusted ? getProjectMemory(dir, options.allowPath) : { context: [], preferences: [], history: [], notes: [] };
   const globalMemory = getGlobalMemory();
-  const contextFiles = projectTrusted ? loadContextFiles(dir) : [];
+  const contextFiles = projectTrusted ? loadContextFiles(dir, options.allowPath) : [];
 
   const parts: string[] = [];
 

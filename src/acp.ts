@@ -64,6 +64,8 @@ import * as memory from './memory.js';
 import { resolveIterationLimit } from './iteration-limit.js';
 import { formatBudgetHalt } from './budget.js';
 import { RunLog } from './runlog.js';
+import { ExecutionGuard, type AgentExecution } from './execution/guard.js';
+import { connectDelegatedExecution, executionBinding, assertExecutionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 
 // ============================================================================
 // Diagnostics — stderr only (stdout carries the protocol).
@@ -222,7 +224,7 @@ class CalliopeAgent {
   /** Tail of the outgoing write chain; awaited to flush notifications. */
   private lastWrite: Promise<void> = Promise.resolve();
 
-  constructor(private readonly conn: AgentContext) {}
+  constructor(private readonly conn: AgentContext, private readonly execution?: AgentExecution) {}
 
   // ---- ACP: initialize --------------------------------------------------
 
@@ -238,6 +240,7 @@ class CalliopeAgent {
     return {
       protocolVersion: negotiated,
       agentCapabilities: {
+        _meta: { calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 } },
         // MCP-over-ACP and modes are not implemented yet.
         loadSession: true,
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
@@ -258,15 +261,19 @@ class CalliopeAgent {
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
     const cwd = params.cwd || process.cwd();
+    let guard: ExecutionGuard | undefined;
+    try {
+      if (this.execution) { guard = new ExecutionGuard(this.execution, cwd); guard.assertActive(); }
+    } catch (error) { throw RequestError.invalidParams({ error: errMessage(error) }); }
     const { preference, provider, resolvedProvider, model } = sessionPreferences(cwd);
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
-    const sessionId = createSession(cwd, { activate: false, prefix: 'acp' }).id;
+    const sessionId = createSession(cwd, { activate: false, prefix: 'acp', ...(this.execution ? { executionBinding: executionBinding(this.execution) } : {}) }).id;
     const runlog = RunLog.open(sessionId);
 
 
     const systemPrompt = getSystemPromptForProvider(resolvedProvider);
-    const memoryContext = memory.buildMemoryContext(cwd);
+    const memoryContext = guard ? memory.buildMemoryContext(cwd, { allowPath: file => !guard!.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
     const fullPrompt = memoryContext.trim()
       ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
       : systemPrompt;
@@ -307,6 +314,8 @@ class CalliopeAgent {
     if (!saved) throw RequestError.invalidParams({ error: `unknown session: ${sessionId}` });
     let state: ConversationState;
     try {
+      assertExecutionBinding(saved.executionBinding, this.execution, !!this.execution);
+      if (this.execution) new ExecutionGuard(this.execution, cwd).assertActive();
       if (!path.isAbsolute(cwd) || realpathSync(cwd) !== realpathSync(saved.projectPath)) {
         throw new Error(`Session belongs to ${saved.projectPath}; load it with that working directory.`);
       }
@@ -414,6 +423,7 @@ class CalliopeAgent {
       const result = await runTurn({
         captureToolOutput: true,
         client: 'acp',
+        execution: this.execution,
         onSafetyBranch: async () => {
           const { branchSession } = await import('./session-management/index.js');
           const branch = await branchSession(session.id, { kind: 'safety', signal: session.controller?.signal, runlog: session.runlog });
@@ -583,10 +593,10 @@ class CalliopeAgent {
  * which drive the SDK's client side against it over an in-memory stream pair.
  * The SDK calls onConnect before dispatch, so the returned agent is ready.
  */
-export function serveAcp(stream: Stream): CalliopeAgent {
+export function serveAcp(stream: Stream, options: { execution?: AgentExecution } = {}): CalliopeAgent {
   let agent!: CalliopeAgent;
   createAgent()
-    .onConnect(connection => { agent = new CalliopeAgent(connection.client); })
+    .onConnect(connection => { agent = new CalliopeAgent(connection.client, options.execution); })
     .onRequest(ACP_INPUT_LIMIT_METHOD, () => undefined, () => { throw RequestError.invalidParams({error:'ACP input complexity limit exceeded.'}); })
     .onRequest(methods.agent.initialize, ({params}) => agent.initialize(params))
     .onRequest(methods.agent.authenticate, () => agent.authenticate())
@@ -602,11 +612,12 @@ export function serveAcp(stream: Stream): CalliopeAgent {
  * Run Calliope as an ACP agent over stdio (stdout/stdin carry JSON-RPC). Started
  * from bin.ts when argv[0] === 'acp'. Resolves when the client closes the stream.
  */
-export async function runAcpAgent(): Promise<number> {
+export async function runAcpAgent(options: { ledger?: DelegatedExecutionOptions } = {}): Promise<number> {
+  const execution = options.ledger ? await connectDelegatedExecution(process.cwd(), options.ledger) : undefined;
   const input = Readable.toWeb(process.stdin) as unknown as ReadableStream<Uint8Array>;
   const output = Writable.toWeb(process.stdout) as unknown as WritableStream<Uint8Array>;
   const stream = ndJsonStream(output, input);
-  const agent = serveAcp(stream);
+  const agent = serveAcp(stream, { execution });
   log(`Calliope ACP agent ready on stdio (protocol v${PROTOCOL_VERSION}). Logs go to stderr.`);
 
   // Stay alive until the client disconnects (stdin closes).

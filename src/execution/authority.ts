@@ -1,8 +1,8 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep, posix, win32 } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
 import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
-import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath } from './types.js';
+import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath, type ParentBudgetLink } from './types.js';
 
 export const MAX_EXECUTION_ACCOUNTS = 256;
 export const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
@@ -21,11 +21,22 @@ export function pathName(v: unknown): asserts v is string {
 }
 export const covers = (parent: string, child: string): boolean => parent === '.' || parent === child || child.startsWith(parent+'/');
 export const permits = (grants: ExecutionPath[], path: string, access: 'read' | 'write'): boolean => grants.some(g => covers(g.path,path) && (access === 'read' || g.access === 'write'));
+/** Serialized authority may originate on another OS; local use still checks real filesystem identity. */
+export function validateExecutionProject(value:unknown):ExecutionManifest['project'] {
+  shape(value,['root','key']);
+  if(typeof value.root!=='string'||value.root.length>4096||/[\x00-\x1f\x7f]/.test(value.root)||!(posix.isAbsolute(value.root)||win32.isAbsolute(value.root))||!hex(value.key))invalid();
+  return {root:value.root,key:value.key};
+}
+export function validateParentBudgetLink(value:unknown):ParentBudgetLink {
+  shape(value,['version','runsRoot','runId','runManifestHash','approvalRevision','budgetManifestHash','agentId']);
+  if(value.version!==1||typeof value.runsRoot!=='string'||!value.runsRoot||value.runsRoot.length>4096||!(posix.isAbsolute(value.runsRoot)&&posix.normalize(value.runsRoot)===value.runsRoot||win32.isAbsolute(value.runsRoot)&&win32.normalize(value.runsRoot)===value.runsRoot)||/[\x00-\x1f\x7f]/.test(value.runsRoot)||!uuid(value.runId)||!uuid(value.approvalRevision)||!hex(value.runManifestHash)||!hex(value.budgetManifestHash))invalid();
+  identifier(value.agentId);return JSON.parse(canonicalJson(value)) as ParentBudgetLink;
+}
 export function validateExecutionManifest(value: unknown): ExecutionManifest {
-  shape(value,['version','runId','planHash','project','createdAt','deadline','tokenBudget','costBudgetNanos','accounts']);
-  if (value.version !== 1 || !uuid(value.runId) || !hex(value.planHash)) invalid();
-  shape(value.project,['root','key']);
-  if (typeof value.project.root !== 'string' || value.project.root.length > 4096 || !isAbsolute(value.project.root) || !hex(value.project.key)) invalid();
+  shape(value,['version','runId','planHash','project','createdAt','deadline','tokenBudget','costBudgetNanos','accounts'],['parent']);
+  if (![1,2].includes(value.version as number) || !uuid(value.runId) || !hex(value.planHash)) invalid();
+  if(value.version===2)validateParentBudgetLink(value.parent);else if(value.parent!==undefined)invalid();
+  validateExecutionProject(value.project);
   integer(value.createdAt,1,8640000000000000); integer(value.deadline,value.createdAt+1,Math.min(8640000000000000,value.createdAt+86400000));
   integer(value.tokenBudget,1,100000000); integer(value.costBudgetNanos,0,1e13);
   if (!Array.isArray(value.accounts) || !value.accounts.length || value.accounts.length > MAX_EXECUTION_ACCOUNTS) invalid();
@@ -74,7 +85,7 @@ export function executionToolDenial(manifest: ExecutionManifest, agentId: string
   checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;
   if (now >= Math.min(manifest.deadline,account.deadline)) return 'Agent deadline expired.';
   if (!account.allowedTools.includes(call.name)) return 'Tool is outside the declared agent authority.';
-  if (['think','ask_question','create_plan',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
+  if (['think','ask_question','create_plan','artifact',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
   if (!['read_file','write_file','edit_file','list_files'].includes(call.name)) return 'This tool requires containment that enforces the agent path and network grants; execution is unavailable.';
   const arg = call.arguments.path ?? (call.name === 'list_files' ? '.' : undefined);
   if (typeof arg !== 'string' || !arg || arg.length > 4096) return 'Tool requires a bounded path inside the agent scope.';
@@ -83,7 +94,7 @@ export function executionToolDenial(manifest: ExecutionManifest, agentId: string
 }
 /** Shared source-path boundary, independent of which read-only tool consumes the file. */
 export function executionPathDenial(manifest: ExecutionManifest, account: ExecutionAccount, arg: string, access: 'read' | 'write'): string | undefined {
-  const absolute = resolve(manifest.project.root,arg), canonical = canonicalPath(absolute), rel = relative(manifest.project.root,canonical) || '.';
+  const absolute = resolve(manifest.project.root,arg), canonical = canonicalPath(absolute), rel = relative(manifest.project.root,canonical).split(sep).join('/') || '.';
   if (canonical !== absolute || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) return 'Tool path resolves outside the project or through a symlink alias.';
   if (!permits(account.allowedPaths,rel,access)) return `Tool path is outside the agent ${access} scope.`;
   return undefined;

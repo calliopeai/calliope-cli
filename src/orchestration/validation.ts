@@ -114,7 +114,7 @@ export function analyzePlan(value: unknown): PlanAnalysis {
     for (const input of item.inputs) if (input.kind === 'file' && !permits(owner.allowedPaths, input.value, 'read')) fail('Task input exceeds its agent scope.');
     if((v.version===3||v.version===4)){
       validateTaskIsolation(item.isolation,item as unknown as ProjectPlan['tasks'][number],plan);
-      if(!owner.allowedTools.includes('write_file')&&!owner.allowedTools.includes('edit_file'))
+      if(item.isolation.mode!=='read-only-v1'&&!owner.allowedTools.includes('write_file')&&!owner.allowedTools.includes('edit_file'))
         fail('Isolated mutation tasks require write_file or edit_file authority.');
     }
     if(v.version!==1) {

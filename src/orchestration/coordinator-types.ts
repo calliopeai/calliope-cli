@@ -17,10 +17,13 @@ export interface TaskOutput {
   unresolvedRisks:string[];recommendedNextAction:string;checks:CheckEvidence[];
 }
 export type ExecutionChange=
+  |{type:'improvement_review_requested';request:import('../improvement/review-contract.js').ImprovementReviewRequest}
+  |{type:'improvement_review_dismissed';requestId:string;executionRevision:string}
   |{type:'agent_routed';agentId:string;sessionId:string;taskId?:string;route:import('./routing.js').RecordedAgentRoute}
   |{type:'proposal_validated';taskId:string;artifactId:string;artifactHash:string;goalManifestHash:string;valid:boolean;diagnostics:import('./types.js').PlanDiagnostic[]}
   |import('../supervision/types.js').SupervisionChange
   |{type:'graph_admitted';admission:SpawnAdmission}
+  |{type:'interruption_recovered';ownerId:string;source:'cli'|'repl'}
   |{type:'started';ownerId:string;proposalOnly?:true}
   |{type:'task_started';taskId:string;attempt:number;sessionId:string;requestAttribution?:1}
   |{type:'task_recovery_started';taskId:string;outcomeId:string}
@@ -28,6 +31,8 @@ export type ExecutionChange=
   |{type:'agent_finished';agentId:string;taskId:string;status:Exclude<TaskStatus,'pending'|'running'>}
   |{type:'escalated';agentId:string;taskId:string;target:'stop'|'parent'|'human'}
   |{type:'tool';taskId:string;callId:string;name:string;path:string|null;stage:'started'|'finished';mutating:boolean;success:boolean}
+  |{type:'question_asked';taskId:string;request:import('./question-contract.js').ExecutionQuestionRequest}
+  |{type:'question_answered';taskId:string;questionId:string;answer:string}
   |{type:'artifact';artifact:CollectedArtifact}
   |{type:'task_finished';taskId:string;status:Exclude<TaskStatus,'pending'|'running'>;output:TaskOutput}
   |{type:'task_reset';taskId:string;source:'automatic'|'manual'}
@@ -36,7 +41,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5|6|7;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6|7|8|9|10|11;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
@@ -44,7 +49,8 @@ export interface TaskState {
   route?:import('./routing.js').RecordedAgentRoute;
 }
 export interface ExecutionProjection {
-  version:1|2|3|4|5|6;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  version:1|2|3|4|5|6|7;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  questions?:Record<string,import('./question-contract.js').ExecutionQuestion>;
   routes?:Record<string,{sessionId:string;taskId?:string;route:import('./routing.js').RecordedAgentRoute}>;
   supervision?:import('../supervision/types.js').SupervisionProjection;
   tasks:Record<string,TaskState>;artifacts:Record<string,CollectedArtifact>;stoppedAgents:string[];

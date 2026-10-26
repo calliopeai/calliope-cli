@@ -16,6 +16,7 @@ calliope run prepare plan.json --json
 calliope run approve RUN_ID --json
 calliope run execute RUN_ID --allow-mutations --max-output-tokens 512 --json
 calliope run status RUN_ID --json
+calliope run answer RUN_ID QUESTION_ID --revision EXECUTION_HASH --answer 'Operators' --allow-mutations --json
 calliope agents --tree --run RUN_ID
 calliope tasks --graph --run RUN_ID
 calliope agents stop AGENT_ID --run RUN_ID
@@ -43,6 +44,39 @@ REPL cancellation signals all children and waits for cleanup before another turn
 Run cancellation and agent stop remain available during execution.
 For version 3 plans, the flag also authorizes declared verification commands
 under their required read-only mounts, network restriction and current policy.
+
+## Worker questions
+
+A permitted `ask_question` writes a version 8 execution event and waits inside
+the current worker turn. `run status` exposes the question ID, exact task, attempt,
+session, owner, text, suggested options and optional context. The projection is
+version 7 when it contains questions; older histories retain their prior versions.
+Questions contain at most 8,192 characters of text and context and eight distinct
+options of at most 256 characters. An answer may use a suggested option or other
+bounded text. It is ordinary tool-result content, not a permission grant.
+
+Inspect the current execution revision before answering. `run answer` and the
+`answerExecutionQuestion` library operation pass `orchestration_answer` through
+current policy and require mutation confirmation. The answer is serialized under
+the native journal writer lock and bound to the original question, task session,
+attempt, live owner and approval. A concurrent edit makes the old revision stale;
+refresh before making another decision. Policy arguments carry question and answer
+hashes, while the private execution journal retains the actual text. The library
+accepts answers up to 8,192 characters; command-line arguments retain the existing
+4,096-character, single-line limit.
+
+Waiting retains the coordinator lease, active task slot, original deadline and
+all accumulated charges. Other independent tasks can continue within the original
+concurrency limit. Answering does not create another task attempt, replay tools,
+refresh an allowance or grant additional paths, tools or providers. Cancellation,
+ancestor stop and deadline expiry still interrupt the worker. A stopped or replaced
+task closes its pending questions. If the coordinator process dies, the retained
+question is inspectable but cannot be answered; interrupted work requires the
+existing explicit recovery procedure. Reloading an observing client is safe while
+the original coordinator remains alive.
+
+This facility handles worker questions. Pending terminal permission approvals
+remain owned by their existing approval queue; they are not converted to questions.
 
 The default per-request output cap is 1,024 tokens, further limited by live
 discovery. This is an operator budget, not a model capability claim. Explicit
@@ -213,3 +247,24 @@ matching containment exists. Trusted host policy/hook programs remain outside
 the worker sandbox boundary. Merge, publish, deploy and external communication
 are not coordinator powers. These limitations and real-provider certification
 remain release work, alongside brain/KG and controlled improvement loops.
+
+
+### Record an interrupted coordinator without executing work
+
+`calliope run recover-interruption RUN --revision HASH --allow-mutations --json`
+records a confirmed dead matching coordinator at the exact inspected revision.
+It appends a version-10 `interruption_recovered` event: running tasks become
+unknown, an interrupted controller/reviewer becomes halted, and ownership is
+cleared. It retains task attempts, sessions, files, artifacts, prior events,
+request reservations and the original deadline. It does not call a provider,
+run tools, retry work, admit children or settle/refund usage. Reads never perform
+this mutation. A live owner, stale revision, changed ownership/approval or denied
+policy refuses recovery. Inspect uncertain effects before authorizing task or
+controller retries separately. Already committed supervision decisions remain
+recorded; ordinary resume can apply them under the original authority.
+
+The library exports `recoverInterruptedExecution(cwd, runId, revision, options)`
+and `interruptionRecoveryCapabilities()` for hosts that expose an explicit
+review. The operation uses the `orchestration_recover` permission and native
+lease/write checks. Recorded death is a process observation, not proof that an
+external side effect did not occur.

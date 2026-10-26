@@ -88,7 +88,8 @@ vi.mock('../src/errors.js', () => ({
   classifyError: vi.fn(() => ({ category: 'other' })),
 }));
 
-vi.mock('../src/storage.js', () => ({ saveMessageHistory: vi.fn(), recordCost: vi.fn() }));
+vi.mock('../src/storage.js', async original => ({
+  ...await original<typeof import('../src/storage.js')>(), saveMessageHistory: vi.fn(), recordCost: vi.fn() }));
 vi.mock('../src/hooks.js', () => ({ loadHooks: vi.fn(() => []), checkHooksAllow: vi.fn(async () => ({ allowed: true })), executeHooks: vi.fn(() => Promise.resolve()) }));
 vi.mock('../src/router.js', () => ({ routeRequest: vi.fn(), smartRoute: vi.fn(), getDefaultSmartRoutingConfig: vi.fn(() => ({ enabled: false })) }));
 vi.mock('../src/summarization.js', () => ({

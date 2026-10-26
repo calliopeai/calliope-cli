@@ -64,6 +64,39 @@ mutation flag for file edits and verification commands; current project policy a
 hooks can still deny them. Model-selected shell, network and custom tools remain
 unavailable to these workers.
 
+## Read-only structured reports
+
+Version 3 and 4 plans can explicitly declare `isolation.mode: "read-only-v1"`.
+This opt-in mode keeps each task in its own scoped Git snapshot but permits no
+worker writes or verification commands. Omitted mode retains the existing
+mutation contract and its required write/edit evidence; unknown modes are refused.
+The mode participates in the immutable plan and proposal hashes.
+
+A read-only task requires `commands: []`, read-only path grants, and only
+`think`, `ask_question`, `read_file`, `list_files`, `brain_search` or `brain_entity`
+tools. Its outputs are pathless reports, decisions or evidence, plus the existing
+executor-owned patch artifact. Return report bytes using the normal structured
+worker response. Model-supplied patch content is ignored; the executor records the
+actual snapshot diff, including any declared dependency copies. A changed scoped
+snapshot is refused before report collection. No Docker process is started for
+this task, although the containing plan retains its isolation image declaration.
+
+Use native `contains`, `json` or `sha256` acceptance checks for mechanically
+checkable report requirements. A passing check establishes only that the returned
+bytes satisfy those declared requirements. It does not establish the truth of
+model claims. Uncovered natural-language criteria still need human acceptance.
+Failed reports retain their bytes and checks for bounded retry/replan under the
+original supervision, review, policy, scope, budget and deadline. They do not need
+fabricated command receipts to retry because no mutation occurred. A rejected
+write attempt still sets the journal's conservative mutation-attempt flag and
+stops execution; it is not silently treated as a clean report attempt.
+
+Supervised goal proposals can include this explicit mode for analysis/report
+work. Coding tasks still require their declared mutations and command checks;
+read-only reports do not fulfill a request to change code. Existing goal capture
+still requires its reviewed isolation-image setting. This extension does not
+migrate old plans, remove their verification requirements, or certify model quality.
+
 ## Evidence and recovery
 
 All file artifacts are immutable run snapshots. A verification artifact records

@@ -10,7 +10,11 @@ import { throwIfCancelled } from '../cancellation.js';
 import { RunStore } from './store.js';
 import { analyzePlan, bindPlan, MAX_PLAN_BYTES, pathName } from './validation.js';
 import { OrchestrationError, type RunInspection } from './types.js';
-export interface RunActionOptions extends SessionActionOptions { store?: RunStore; source?: 'cli' | 'repl' }
+export interface RunActionOptions extends SessionActionOptions {
+  store?: RunStore; source?: 'cli' | 'repl';
+  /** Trusted host selection, persisted in the first native budget manifest. */
+  parentBudget?:import('../execution/types.js').ParentBudgetLink;
+}
 
 /** Dry validation cannot execute arbitrary hook/policy programs as a side effect. */
 export async function loadRunPlan(cwd: string, path: string, dryRun: boolean, options: RunActionOptions = {}) {

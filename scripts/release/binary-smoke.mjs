@@ -131,6 +131,7 @@ try {
   assert.deepEqual(JSON.parse(run(["--version", "--json"])), {
     version,
     acp: PROTOCOL_VERSION,
+    headless: { protocol: 1, delegation: 1, workspaceBinding: 1 },
   });
   await acpHandshake();
   await ahpAttach();

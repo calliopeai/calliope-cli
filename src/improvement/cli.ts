@@ -6,9 +6,10 @@ import {ExecutionLimitError} from '../execution/index.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import type {CoordinatorOptions} from '../orchestration/coordinator.js';
 import {inspectImprovements,proposeImprovement,runImprovement,withdrawImprovement} from './actions.js';
+import {improvementCapabilities} from './capabilities.js';
 import type {ImprovementCycle} from './types.js';
 
-export const IMPROVEMENT_USAGE='calliope improve [history|propose|run <cycle-id> --approve <hash>|rollback <cycle-id>] [--run <run-id>] [--allow-mutations] [--json]';
+export const IMPROVEMENT_USAGE='calliope improve [capabilities|history|propose|run <cycle-id> --approve <hash>|rollback <cycle-id>] [--run <run-id>] [--allow-mutations] [--json]';
 export function improvementLines(cycles:ImprovementCycle[]):string[] {
   return cycles.slice(-20).flatMap(c=>[`${c.id} · ${c.principle} · ${c.proposedChange.action} · ${c.status}${c.parentCycleId?' · parent '+c.parentCycleId:''}`,
     ...c.metrics.filter(m=>m.comparable).map(m=>`  ${m.name}: ${m.before} → ${m.after} ${m.unit}; observed, not a causal guarantee`)]);
@@ -19,7 +20,15 @@ export async function runImprovementCommand(args:string[],options:CoordinatorOpt
   try{
     if(args.some(v=>v.length>4096||/[\x00-\x1f\x7f]/.test(v)))throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
     const {values,positionals}=parseArgs({args,allowPositionals:true,options:{run:{type:'string'},approve:{type:'string'},json:{type:'boolean'},'allow-mutations':{type:'boolean'}}});json=!!values.json;action=positionals[0]??'history';
-    if(!['history','propose','run','rollback'].includes(action)||positionals.length>(['run','rollback'].includes(action)?2:1)||['run','rollback'].includes(action)&&!positionals[1]||action==='run'&&!values.approve||action!=='run'&&values.approve)throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
+    if(!['capabilities','history','propose','run','rollback'].includes(action)||positionals.length>(['run','rollback'].includes(action)?2:1)||['run','rollback'].includes(action)&&!positionals[1]||action==='run'&&!values.approve||action!=='run'&&values.approve)throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
+    if(action==='capabilities'){
+      if(Object.keys(values).some(key=>key!=='json'))throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
+      options.signal?.throwIfAborted();
+      const data=improvementCapabilities();
+      if(json)emit({version:1,type:'improvement',action,localOnly:true,data});
+      else write('Native improvement capabilities (contract 1)\nSupported: recursive task-strategy history, proposal, reviewed run and strategy withdrawal.\nUnavailable: external feedback import, cross-run learned strategy selection and model training.\n'+data.notice+'\n');
+      return 0;
+    }
     const opts:CoordinatorOptions={...options,...(values['allow-mutations']?{approve:async()=> 'allow' as const}:{}),confirmation:values['allow-mutations']?'none':options.confirmation??'mutating',onEvent:event=>{options.onEvent?.(event);if(json)emit({version:1,type:'improvement.event',runId:event.runId,event});}};
     let data:unknown,exitCode=0;
     if(action==='history')data=(await inspectImprovements(cwd,values.run,opts)).history;

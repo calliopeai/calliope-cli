@@ -7,9 +7,8 @@
  */
 
 import { runTurn } from './runtime/index.js';
-import { mkdtempSync, readFileSync, realpathSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
+import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
 import { createSession, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
@@ -47,7 +46,7 @@ export interface HeadlessOptions {
   maxRetries?: number;
   cwd?: string;
   /** Run as a delegated child admitted through a parent's served ledger (#415). */
-  ledger?: { url: string; tokenFile: string; agentId: string; maxOutputTokens?: number };
+  ledger?: DelegatedExecutionOptions;
 }
 
 // ============================================================================
@@ -164,9 +163,22 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     resolvedProvider = provider;
   }
 
+  // ---- Delegated child (#415): every request is admitted by the parent's ledger --
+  let execution: AgentExecution | undefined;
+  if (options.ledger) {
+    try {
+      execution = await connectDelegatedExecution(cwd, options.ledger);
+      emit({ type: 'status', timestamp: now(), data: { message: `Delegated child ${options.ledger.agentId}: admitted through the parent ledger` } }, outputMode);
+    } catch (error) {
+      emit({ type: 'error', timestamp: now(), data: { message: `Parent ledger refused this child: ${(error as Error).message}` } }, outputMode);
+      return 1;
+    }
+  }
+
   // Build messages
   const systemPrompt = getSystemPromptForProvider(resolvedProvider);
-  const memoryContext = memory.buildMemoryContext(cwd);
+  const contextGuard = execution ? new ExecutionGuard(execution, cwd) : undefined;
+  const memoryContext = contextGuard ? memory.buildMemoryContext(cwd, { allowPath: file => !contextGuard.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
   const fullPrompt = memoryContext.trim()
     ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
     : systemPrompt;
@@ -187,25 +199,9 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     },
   }, outputMode);
 
-  // ---- Delegated child (#415): every request is admitted by the parent's ledger --
-  let execution: AgentExecution | undefined;
-  if (options.ledger) {
-    try {
-      const { RemoteReservationLedger } = await import('./execution/remote-ledger.js');
-      // Canonical: the guard refuses an authority store reached through an alias (macOS /var -> /private/var).
-      const root = realpathSync(mkdtempSync(join(tmpdir(), 'calliope-child-ledger-')));
-      const ledger = await RemoteReservationLedger.connect({ url: options.ledger.url, token: readFileSync(options.ledger.tokenFile, 'utf8').trim(), root });
-      execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.ledger.agentId, maxOutputTokens: options.ledger.maxOutputTokens ?? 4096 };
-      emit({ type: 'status', timestamp: now(), data: { message: `Delegated child ${options.ledger.agentId}: admitted through the parent ledger` } }, outputMode);
-    } catch (error) {
-      emit({ type: 'error', timestamp: now(), data: { message: `Parent ledger refused this child: ${(error as Error).message}` } }, outputMode);
-      return 1;
-    }
-  }
-
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
   let sessionId: string;
-  try { sessionId = createSession(cwd, { activate: false }).id; }
+  try { sessionId = createSession(cwd, { activate: false, ...(execution ? { executionBinding: executionBinding(execution) } : {}) }).id; }
   catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
   let revision: string | null = null;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);

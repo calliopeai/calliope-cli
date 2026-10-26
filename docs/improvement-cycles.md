@@ -7,6 +7,65 @@ for the reviewed principle (`speed`, `robustness`, `stability`, `security`,
 cycles' measured outcomes. A reviewer, when configured, owns the final decision;
 its controller draft is not a second improvement.
 
+## Host capability discovery
+
+`calliope improve capabilities --json` returns a version-1 `improvement` envelope
+whose action is `capabilities` and whose data kind is `improvement.capabilities`.
+The data contract is version 2; its `hostAdmission` field advertises the native
+`expectedExecutionRevision` option for propose/run and binding to the controller's
+own committed reset event. Version-1 declarations do not promise this admission
+contract. The outer CLI response envelope remains version 1.
+This read-only query does not select a project/run, call a model, import feedback,
+or grant execution authority. Run selectors, approval hashes and mutation flags
+are rejected for this action. Hosts must negotiate this declaration instead of
+inferring learning support from the package version or command names.
+
+The current declaration advertises native recursive task-strategy improvement,
+history schema versions, operation effects, exact-proposal approval, inherited
+limits and withdrawal semantics. External feedback import, cross-run learned
+strategy selection and model training are explicitly unavailable. Project brain
+memory remains a separate interface. A supported operation still requires the
+exact native run's current state and policy; this declaration is not evidence
+that an installed run can execute it. Unknown contract versions are not compatible
+by implication. This is the capability-discovery part of #413, not a completed
+external feedback or reinforcement-learning interface.
+
+## Host review requests
+
+The separately negotiated `improvementReviewCapabilities()` API (version 1,
+`improvement.review-capabilities`) advertises `requestImprovementReview`,
+`inspectImprovementReviews` and `dismissImprovementReview`. It is request-only;
+existing version-2 execution capabilities are unchanged. Hosts must negotiate
+this API separately before exposing a model request tool. Hosts supply the model-tool and human-review UI adapters. This API increment
+does not add a CLI subcommand.
+
+Requests carry version 1, `action` (`propose`, `run`, `rollback`), the exact
+`executionRevision`, `cycleId` and `proposalHash` (both null for `propose`), and a
+nonempty untrusted `reason` of at most 1,024 characters. Recording requires an
+inactive approved supervised run and native policy/confirmation. It calls no
+model, starts no worker, approves no proposal, and changes neither task state nor
+budget. Run/withdrawal requests bind the native proposal hash; a new proposal
+request needs retained task outcomes and remaining original controller time and
+round capacity. Withdrawal requests can outlive the original deadline.
+
+Version-9 events append to the existing private execution journal. Each request
+is bound to the immediately preceding revision. Only one request can be current;
+identical retries after a lost acknowledgement return that same request ID after
+rechecking policy and run approval. A competing changed request fails. Native
+ownership, revision and revocation checks run again before commit. At most 64
+requests are retained per run, within the existing journal byte/event bounds.
+Replay independently validates requests and never derives execution authority
+from them. Older readers that do not support event version 9 must refuse these
+journals; do not downgrade a run's owner after recording a request.
+
+Inspection projects `pending`, `expired`, `stale` or `dismissed` from native
+events. Any later execution/control event makes the old request stale, not
+approved or completed. Human execution must use a fresh native inspection and
+the existing proposal/run/withdrawal APIs with their normal review and policy.
+Dismissal requires the exact current request ID/revision and a separate native
+confirmation; it retains all history and does not withdraw the strategy. The
+request reason remains untrusted display data, never an instruction or reward.
+
 ## Controls
 
 ```sh
@@ -34,6 +93,19 @@ ordinary `run resume` cannot bypass that hold. Approval is recorded in the same
 execution journal before application, and checked again under coordinator
 ownership. All subsequent decisions remain subject to the original reviewed
 supervision policy. To inspect and retire a strategy, stop the coordinator first.
+
+Native hosts can pass `expectedExecutionRevision` to `proposeImprovement` and
+`runImprovement`. It must match the execution revision from their reviewed
+inspection. Malformed, missing-history and stale bindings are refused before
+execution approval. The coordinator rechecks after asynchronous authorization,
+under its ownership lease and inside the journal append lock before starting
+work. The execution permission request includes that bound `executionRevision`.
+An explicit controller reset advances the binding only to its own committed
+reset event; another writer's revision is never silently adopted. Existing
+callers that omit the option bind to the history inspected by the improvement
+action. This host API does not add a CLI flag; hosts negotiate the version-2 data
+contract before relying on it. It does not authorize execution, change proposal hashes, or replenish
+the original budget or deadline.
 
 `rollback` **withdraws the execution strategy**. For a replan it restores the
 previous unwithdrawn applied strategy; for decomposition it stops the admitted
@@ -134,6 +206,63 @@ not automatically patch Calliope itself or promote knowledge to accepted fact.
 The [project Brain](project-brain.md) can explicitly ingest verified run evidence;
 improvement hypotheses remain proposed. [Opt-in agent retrieval](agent-knowledge.md)
 lets planners and workers read that knowledge within their inherited source scopes.
+
+## Reviewed source proposals
+
+The native `sourceChangeCapabilities`, `previewSourceChange`,
+`proposeSourceChange`, `inspectSourceChange` and `listSourceChanges` APIs let a host offer verified
+source changes for human review. A source-owned skill or interface uses the Git
+repository that owns its files. Installed skills keep their separate installation
+and trust lifecycle.
+
+The selection binds the original run, execution revision, verified cycle, task
+and executor-collected patch hash. Preview checks the original approval, task
+write scope, pinned source commit and repository-local author. It returns the
+patch, affected paths and a review hash without creating Git objects or refs.
+Creating a proposal requires the exact `orchestration_source_proposal` permission
+and rechecks those inputs under the execution lease.
+
+The writer creates one commit and one local branch under
+`refs/heads/calliope-proposals/<run>/<review hash>` using a temporary private
+index. It leaves the source checkout/index and execution journal unchanged.
+Immutable intent and candidate records support retry after cancellation or a lost
+response; repeated publication recovers the same branch instead of overwriting
+it. Inspection reports `prepared` when the branch is absent and `proposed` when
+the exact recorded commit is present. Absence alone does not establish whether
+someone previously removed the branch. A moved branch is a conflict.
+Listing retains original review identities across restart and source HEAD changes;
+it reads the same native intent/candidate records and checks each branch.
+
+This API does not install skills, merge, push, release or invoke a model. A host
+must explicitly support the separate versioned source-change capability before
+offering the action. Desktop integration and platform qualification are separate
+from native API validation.
+
+## Ordinary task evidence
+
+`taskOutcomeCapabilities()` and `inspectTaskOutcome(project, runId, selection,
+options)` expose the same native evidence for an ordinary task outside an
+improvement cycle. Select `{taskId, attempt, executionRevision}` from an inactive
+run. The reader replays the journal at that attempt's start, retains its task,
+agent and strategy configuration hash, and revalidates each artifact's bytes
+under the native read policy. It refuses active ownership, stale selections and
+changed or missing evidence. In particular, a historical live project file that
+a later retry overwrote cannot be freshly verified; retained run artifacts allow
+independent inspection of both attempts.
+
+The returned `{value, hash}` separates executor status from native human task
+acceptance, includes original event/check/artifact references, and attributes
+charges to the exact start event using the reservation ledger. Missing or
+unsettled costs remain `null`; reservations are not reported as settled cost.
+Duration, tool calls and failures are recorded observations. An interrupted
+attempt without a finish remains unknown. The accounting snapshot carries its
+own ledger revision and may advance independently of the execution journal.
+
+This read-only API performs no inference, artifact execution, ledger writes,
+user assessment, feedback import or reward assignment. A host may separately
+propose a human assessment for memory review; doing so does not change the
+executor evidence. Ordinary-task UI and memory feedback require their own host
+qualification.
 
 ## Native validation
 

@@ -34,6 +34,60 @@ const request=(agentId:string,tokens:number)=>({id:randomUUID(),agentId,provider
 const connect=(token:string,extra:Partial<Parameters<typeof RemoteReservationLedger.connect>[0]>={})=>RemoteReservationLedger.connect({url,token,root:join(root,'child-cache'),attempts:2,...extra});
 const allocate=async(g:ChildGrant,token=parent)=>{const r=await fetch(`${url}/v1/grant`,{method:'POST',headers:{authorization:`Bearer ${token}`},body:JSON.stringify({manifestHash:hash,grant:g})});const v=await r.json() as {ok:boolean;token:string;code?:string};return v;};
 
+it('refuses a parent rollback after the child restarts with its verified checkpoint',async()=>{
+  const token=(await allocate(grant('child',5000))).token,child=await connect(token);
+  const file=join(ledger.root,'history.json'),before=fs.readFileSync(file),r=request('child',1000);
+  await child.reserve(project,hash,r);const admitted=fs.readFileSync(file);
+  fs.writeFileSync(file,before);
+  await expect(connect(token)).rejects.toMatchObject({code:'conflict'});
+  fs.writeFileSync(file,admitted);
+  const restarted=await connect(token);
+  expect(restarted.read(project).projection.spent.tokens).toBe(1000);
+  expect(restarted.read(project).manifest.deadline).toBe(manifest.deadline);
+  await restarted.settle(project,hash,{requestId:r.id,outcome:'cancelled'});
+  expect((await connect(token)).read(project).projection.requests[r.id]!.state).toBe('unknown');
+});
+
+it.each(['missing','damaged','public','symlink'] as const)('does not replace a %s local checkpoint with a fresh server history',async mode=>{
+  await connect(parent);
+  const file=join(root,'child-cache','verified-parent','history.json');
+  if(mode==='missing')fs.unlinkSync(file);
+  if(mode==='damaged')fs.writeFileSync(file,'{}');
+  if(mode==='public')fs.chmodSync(file,0o644);
+  if(mode==='symlink'){const other=join(root,'other.json');fs.copyFileSync(file,other);fs.unlinkSync(file);fs.symlinkSync(other,file);}
+  const network=vi.fn<typeof fetch>();
+  await expect(connect(parent,{fetch:network})).rejects.toMatchObject({code:'unavailable'});
+  expect(network).not.toHaveBeenCalled();
+});
+
+it('retains the newer shared checkpoint when concurrent responses arrive out of order',async()=>{
+  const token=(await allocate(grant('child',5000))).token;
+  let received!:()=>void,release!:()=>void;
+  const ready=new Promise<void>(resolve=>{received=resolve;}),held=new Promise<void>(resolve=>{release=resolve;});
+  const slow=await connect(token,{fetch:async(input,init)=>{
+    const response=await fetch(input,init);
+    if(String(input).endsWith('/reserve')){await response.clone().text();received();await held;}
+    return response;
+  }});
+  const pending=slow.reserve(project,hash,request('child',1000));
+  await ready;
+  try{await (await connect(token)).reserve(project,hash,request('child',1000));}finally{release();}
+  await pending;
+  expect(slow.read(project).projection.spent.tokens).toBe(2000);
+  expect((await connect(token)).read(project).projection.spent.tokens).toBe(2000);
+});
+
+it('keeps a server reservation charged when the local checkpoint writer is unavailable',async()=>{
+  const token=(await allocate(grant('child',5000))).token,child=await connect(token),r=request('child',1000);
+  const lock=join(root,'child-cache','verified-parent','writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600});
+  try{
+    const error=await child.reserve(project,hash,r).catch(error=>error);
+    expect(error).toMatchObject({code:'locked'});expect(child.canReleaseFailedReservation(error)).toBe(false);
+    expect(ledger.read(project).projection.requests[r.id]!.state).toBe('pending');
+  }finally{fs.unlinkSync(lock);}
+  expect((await connect(token)).read(project).projection.spent.tokens).toBe(1000);
+});
+
 it('concurrent and nested children exhaust one parent allowance and nothing is admitted after', async()=>{
   const a=await allocate(grant('child-a',3000)),b=await allocate(grant('child-b',3000));
   const ca=await connect(a.token),cb=await connect(b.token);

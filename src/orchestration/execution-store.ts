@@ -44,11 +44,18 @@ export class ExecutionStore {
   readonly root:string;readonly manifest:RunManifest;
   constructor(runDirectory:string,manifest:RunManifest,private readonly onEvent?:(event:ExecutionEvent)=>void){this.root=join(resolve(runDirectory),'execution');this.manifest=JSON.parse(canonicalJson(validateRunManifest(manifest)));}
   exists():boolean{return exists(this.root);}
+  /** Optional host review binding. Recheck inside the append lock before admitting work. */
+  assertRevision(expected:string|undefined,observed?:string):void {
+    if(expected===undefined)return;
+    if(!hex(expected))throw new OrchestrationError('invalid','Invalid reviewed execution revision.');
+    if(observed!==undefined&&observed!==expected||!this.exists()||this.read().state.revision!==expected)throw new OrchestrationError('conflict','Execution changed since review; inspect its current history before continuing.');
+  }
   private identity():fs.Stats {
     if(projectIdentity(this.manifest.project.root).projectKey!==this.manifest.project.key)throw new ExecutionLimitError('authority','Project identity changed during coordinator execution.');
     privateDirectory(dirname(this.root));return privateDirectory(this.root);
   }
-  assertApproval(header:ExecutionHeader):void {
+  /** Approval also fences prepared budget handles before the coordinator journal exists. */
+  assertApproval(header:Pick<ExecutionHeader,'approvalRevision'>):void {
     const head=parsed(join(dirname(this.root),'head.json'),4096);shape(head,['version','runId','manifestHash','event','hash']);shape(head.event,['id','hash']);const {hash,...body}=head;
     if(hash!==digest(canonicalJson(body))||head.runId!==this.manifest.id||head.manifestHash!==this.manifest.hash||head.event.id!==header.approvalRevision)
       throw new ExecutionLimitError('authority','Run approval was revoked or changed; coordinator execution stopped.');
