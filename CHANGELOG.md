@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 3.5.4: retire LiteLLM
+
+- Redact stored provider keys from brain output even when environment credentials override them or the provider is retired.
+
 - Retire the LiteLLM provider: remove setup, discovery and request routing, ignore its environment variables, and refuse old explicit selections without choosing a replacement. Preserve stored settings and historical capture evidence.
 
 ## 3.5.3: patched protocol validation

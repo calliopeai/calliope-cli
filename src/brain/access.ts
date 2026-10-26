@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import { relative, resolve, dirname, isAbsolute } from 'node:path';
 import { createHash } from 'node:crypto';
 import { canonicalPath, canonicalJson, digest, projectIdentity } from '../approvals/index.js';
-import { getProviderCred, getProviderNames } from '../config.js';
+import { get as getConfigValue, getProviderCred, getProviderNames } from '../config.js';
 import { redactSecrets } from '../runlog.js';
 import {
   authorizeSessionAction,
@@ -35,6 +35,7 @@ function brainSanitizer(): (value: string) => string {
     ...new Set(
       [
         ...getProviderNames().map((p) => getProviderCred(p).apiKey),
+        ...Object.values(getConfigValue('providers') ?? {}).map((p) => p?.apiKey),
         ...Object.entries(process.env)
           .filter(([key]) => /(api.?key|token|secret|password|credential)/i.test(key))
           .map(([, value]) => value),
