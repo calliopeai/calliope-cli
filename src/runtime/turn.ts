@@ -177,6 +177,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   };
   const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
+    await guard?.refreshAuthority(signal);
     checkBudget();
     if(guard)input={...input,tools:guard.tools(input.tools)};
     input = await resolveRoute(input, false, extra, stream);
@@ -278,6 +279,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     const runTool = async (): Promise<ToolResult> => {
       await checkpointTail;
       if (safetyFailed) await safetyBranch;
+      await guard?.refreshAuthority(signal);
       throwIfCancelled(signal);
       const invalid = validateAdmission?.();
       if (invalid || !validateAdmission) return { toolCallId: call.id,

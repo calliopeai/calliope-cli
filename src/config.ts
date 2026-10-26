@@ -14,7 +14,7 @@ import type { LLMProvider } from './types.js';
 /**
  * Provider credentials. One entry per provider in the nested `providers` map.
  * Not every field applies to every provider (e.g. `region`/`profile` are Bedrock,
- * `baseUrl` is Ollama/LiteLLM/Bedrock/openai-compat).
+ * `baseUrl` is Ollama/Bedrock/openai-compat).
  */
 export interface ProviderCred {
   apiKey?: string;
@@ -211,7 +211,6 @@ const PROVIDER_ENV: Record<string, { apiKey?: string; baseUrl?: string; region?:
   ollama: { baseUrl: 'OLLAMA_BASE_URL' },
   ai21: { apiKey: 'AI21_API_KEY' },
   huggingface: { apiKey: 'HUGGINGFACE_API_KEY' },
-  litellm: { apiKey: 'LITELLM_API_KEY', baseUrl: 'LITELLM_BASE_URL' },
   deepseek: { apiKey: 'DEEPSEEK_API_KEY', baseUrl: 'DEEPSEEK_BASE_URL' },
   xai: { apiKey: 'XAI_API_KEY', baseUrl: 'XAI_BASE_URL' },
   cerebras: { apiKey: 'CEREBRAS_API_KEY', baseUrl: 'CEREBRAS_BASE_URL' },
@@ -238,6 +237,7 @@ function firstEnv(names?: string | string[]): string | undefined {
  * same environment-variable fallbacks that existed before the config shrink.
  */
 export function getProviderCred(provider: string): ProviderCred {
+  if (provider === 'litellm') return {}; // Retained settings never enable a retired provider.
   const stored: ProviderCred = (config.get('providers') ?? {})[provider] ?? {};
   const env = PROVIDER_ENV[provider] ?? {};
   // openai-compat prefers the stored base URL over the env var; all others prefer env.
@@ -259,6 +259,7 @@ export function getProviderCred(provider: string): ProviderCred {
  * and well-formed base URLs, matching the old flat-key validation.
  */
 export function setProviderCred(provider: string, patch: ProviderCred): void {
+  if (provider === 'litellm') throw new Error('LiteLLM support has been removed. Select a supported provider explicitly.');
   if (patch.apiKey !== undefined) {
     if (typeof patch.apiKey !== 'string' || patch.apiKey.trim().length === 0) {
       throw new Error(`API key for ${provider} must be a non-empty string`);
@@ -341,6 +342,7 @@ export function setMultiple(values: Partial<CalliopeConfig>): void {
  * Validate a single config value without setting it
  */
 function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
+  if (key === 'defaultProvider' && value === 'litellm') throw new Error('LiteLLM support has been removed. Select a supported provider explicitly.');
   if (key === 'maxIterations' && typeof value === 'number') {
     if (value < 0 || value > 1000000) {
       throw new Error('maxIterations must be between 0 and 1000000 (0 = unlimited)');
@@ -400,7 +402,6 @@ export function getConfiguredProviders(): LLMProvider[] {
   if (getProviderCred('deepseek').apiKey) providers.push('deepseek');
   if (getProviderCred('xai').apiKey) providers.push('xai');
   if (getProviderCred('cerebras').apiKey) providers.push('cerebras');
-  if (getProviderCred('litellm').baseUrl) providers.push('litellm');
   const bedrock = getProviderCred('bedrock');
   if (bedrock.apiKey || bedrock.baseUrl || bedrock.profile || process.env.AWS_ACCESS_KEY_ID ||
       process.env.AWS_CONTAINER_CREDENTIALS_FULL_URI || process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI ||
@@ -422,11 +423,10 @@ export function getApiKey(provider: LLMProvider): string | undefined {
 }
 
 /**
- * Get base URL for a provider (for Ollama/LiteLLM/Bedrock/openai-compat)
+ * Get base URL for a provider (for Ollama/Bedrock/openai-compat)
  */
 export function getBaseUrl(provider: LLMProvider): string | undefined {
   if (provider === 'ollama') return getProviderCred('ollama').baseUrl || 'http://localhost:11434';
-  if (provider === 'litellm') return getProviderCred('litellm').baseUrl || 'http://localhost:4000';
   if (provider === 'bedrock') return getProviderCred('bedrock').baseUrl;
   if (provider === 'openai-compat') return getProviderCred('openai-compat').baseUrl;
   return getProviderCred(provider).baseUrl;

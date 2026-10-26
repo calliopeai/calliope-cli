@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Extend reviewed host authority to owner-bound workspaces and retained native ACP sessions; recheck live authority before inference and tool effects. Add real-process Node/standalone host qualification, and let project-budget readers wait for an initializing writer without treating its partial commit as lost history (#415).
+
+- Retire the LiteLLM provider: remove setup, discovery and request routing, ignore its environment variables, and refuse old explicit selections without choosing a replacement. Preserve stored settings and historical capture evidence.
+
+## 3.5.3: patched protocol validation
+
+- Replace the deprecated ACP SDK with the maintained stable-v1 SDK and pin Zod 4.6.6. Bound incoming message complexity before validation; oversized requests fail without starting a session or inference. ACP remains protocol version 1 ([release notes](docs/releases/3.5.3.md), #433).
+- Update fast-uri to 3.1.9 and include the reviewed runtime/build dependency patches (#429, #432).
+
 ## 3.5.2: approval policies see the plan
 
 - `orchestration_approve` passes the prepared `plan` (agents, tools, paths, limits) to `policy.command` and judgment, beside `runId`, `planHash` and `revision`, so a policy judges the exact plan it approves. Cancellation is unchanged ([release notes](docs/releases/3.5.2.md), #424).
@@ -20,6 +31,8 @@
 - Resolve native inference and model discovery through the official AWS SDK credential chain, including workload roles, SSO and selected profiles. Bound credential-helper lifetime and preserve caller identity in packaged binaries ([release notes](docs/releases/3.4.1.md), #416).
 
 ## 3.3.1: attach sees every pending approval
+
+- Add `calliope brain-proposals maintenance-report|summary-plan`, binding an adopted external Project Brain's maintenance-report and maintained-summary primitives for independent review. Identity comes only from an explicit `--actor` argument or the target's own adopted authority, never a request/candidate field; a request or candidate carrying a model-selected actor, reviewer or grant is refused before either primitive runs, and neither action ever passes `--propose` — there is no persist path (project-brain#292).
 
 - `calliope attach` asks about approvals that were already waiting when it joined. It reads the chat snapshot that `subscribe` returns and asks about each tool call pending confirmation, one prompt at a time. Actions the host sends right behind that snapshot are no longer lost before attach starts listening (a new approval, or the end of a `--once` turn), and a prompt closes without sending anything when another client answers the call, the turn ends or the connection drops. `calliope --help` lists `attach` (#391). Hosts report pending confirmations in the snapshot from calliope-vscode#823 on.
 - `calliope attach` asks about approvals inside a Claude subagent. It reads `inputNeeded` from the session channel's `subscribe` snapshot and follows `session/inputNeededSet` and `session/inputNeededRemoved`: a tool confirmation waiting on another chat (a subagent's) is asked like one on the default chat and answered on that chat and turn, and its prompt closes when the session removes the request. The default chat's confirmations are still asked through that chat, so one listed in both places is asked once. Hosts put subagent approvals on the subagent chat from calliope-vscode#824 on; until then attach asks about them on the default chat, as before (#394).

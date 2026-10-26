@@ -10,10 +10,10 @@ import assert from "node:assert/strict";
 import {qualifyBedrock} from "./bedrock-smoke.mjs";
 import { createHash } from "node:crypto";
 import {
-  ClientSideConnection,
+  client as createClient,
   ndJsonStream,
   PROTOCOL_VERSION,
-} from "@zed-industries/agent-client-protocol";
+} from "@agentclientprotocol/sdk";
 const binary = resolve(process.argv[2]),
   version = process.argv[3];
 const root = mkdtempSync(join(tmpdir(), "calliope-binary-smoke-"));
@@ -58,20 +58,17 @@ async function acpHandshake() {
       ),
     ]);
   try {
-    const connection = new ClientSideConnection(
-      () => ({
-        sessionUpdate: async () => {},
-        requestPermission: async () => ({ outcome: { outcome: "cancelled" } }),
-      }),
-      ndJsonStream(Writable.toWeb(agent.stdin), Readable.toWeb(agent.stdout)),
-    );
+    const connection = createClient()
+      .onNotification('session/update', async () => {})
+      .onRequest('session/request_permission', async () => ({ outcome: { outcome: 'cancelled' } }))
+      .connect(ndJsonStream(Writable.toWeb(agent.stdin), Readable.toWeb(agent.stdout)));
     const initialized = await within(
-      connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }),
+      connection.agent.request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} }),
       "initialize",
     );
     assert.equal(initialized.protocolVersion, PROTOCOL_VERSION);
     const session = await within(
-      connection.newSession({ cwd: project, mcpServers: [] }),
+      connection.agent.request('session/new', { cwd: project, mcpServers: [] }),
       "session/new",
     );
     assert.match(session.sessionId, /^acp_/);
@@ -134,6 +131,7 @@ try {
   assert.deepEqual(JSON.parse(run(["--version", "--json"])), {
     version,
     acp: PROTOCOL_VERSION,
+    headless: { protocol: 1, delegation: 1, workspaceBinding: 1 },
   });
   await acpHandshake();
   await ahpAttach();

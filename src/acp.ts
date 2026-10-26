@@ -20,16 +20,18 @@
  * default cold-start path.
  */
 
+import {boundAcpInput,ACP_INPUT_LIMIT_METHOD} from './acp/input.js';
 import { ApprovalStore, type ApprovalChoice } from './approvals/index.js';
 import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import {
-  AgentSideConnection,
+  agent as createAgent,
+  methods,
+  type AgentContext,
   ndJsonStream,
   RequestError,
   PROTOCOL_VERSION,
-  type Agent,
   type Stream,
   type ClientCapabilities,
   type ContentBlock,
@@ -45,7 +47,7 @@ import {
   type PromptRequest,
   type PromptResponse,
   type CancelNotification,
-} from '@zed-industries/agent-client-protocol';
+} from '@agentclientprotocol/sdk';
 
 import * as config from './config.js';
 import { selectProvider } from './providers/index.js';
@@ -215,14 +217,14 @@ function sessionPreferences(cwd: string): Pick<AcpSession, 'preference' | 'provi
 // The agent
 // ============================================================================
 
-class CalliopeAgent implements Agent {
+class CalliopeAgent {
   private readonly approvals = new ApprovalStore();
   private clientCapabilities: ClientCapabilities = {};
   private readonly sessions = new Map<string, AcpSession>();
   /** Tail of the outgoing write chain; awaited to flush notifications. */
   private lastWrite: Promise<void> = Promise.resolve();
 
-  constructor(private readonly conn: AgentSideConnection, private readonly execution?: AgentExecution) {}
+  constructor(private readonly conn: AgentContext, private readonly execution?: AgentExecution) {}
 
   // ---- ACP: initialize --------------------------------------------------
 
@@ -494,7 +496,7 @@ class CalliopeAgent implements Agent {
    */
   private async requestPermission(session: AcpSession, toolCall: ToolCall, reusable: boolean): Promise<ApprovalChoice> {
     try {
-      const res = await cancellable(this.conn.requestPermission({
+      const res = await cancellable(this.conn.request(methods.client.session.requestPermission, {
         sessionId: session.id,
         toolCall: {
           toolCallId: toolCall.id,
@@ -540,13 +542,13 @@ class CalliopeAgent implements Agent {
     const delegate: FsDelegate = {};
     if (fsCap.readTextFile) {
       delegate.readTextFile = async (absPath: string): Promise<string> => {
-        const res = await conn.readTextFile({ sessionId, path: absPath });
+        const res = await conn.request(methods.client.fs.readTextFile, { sessionId, path: absPath });
         return res.content;
       };
     }
     if (fsCap.writeTextFile) {
       delegate.writeTextFile = async (absPath: string, content: string): Promise<void> => {
-        await conn.writeTextFile({ sessionId, path: absPath, content });
+        await conn.request(methods.client.fs.writeTextFile, { sessionId, path: absPath, content });
       };
     }
     return delegate;
@@ -560,7 +562,7 @@ class CalliopeAgent implements Agent {
    * are swallowed to stderr — a failed notification must never crash the loop.
    */
   private emit(sessionId: string, update: SessionNotification['update']): Promise<void> {
-    const p = this.conn.sessionUpdate({ sessionId, update }).catch((err) => {
+    const p = this.conn.notify(methods.client.session.update, { sessionId, update }).catch((err) => {
       log(`sessionUpdate failed: ${errMessage(err)}`);
     });
     this.lastWrite = p;
@@ -589,15 +591,20 @@ class CalliopeAgent implements Agent {
 /**
  * Wire a {@link CalliopeAgent} onto an ACP {@link Stream}. Exposed for tests,
  * which drive the SDK's client side against it over an in-memory stream pair.
- * The SDK calls the factory synchronously, so the returned agent is ready.
+ * The SDK calls onConnect before dispatch, so the returned agent is ready.
  */
 export function serveAcp(stream: Stream, options: { execution?: AgentExecution } = {}): CalliopeAgent {
   let agent!: CalliopeAgent;
-  // eslint-disable-next-line no-new -- the connection registers itself and reads.
-  new AgentSideConnection((conn) => {
-    agent = new CalliopeAgent(conn, options.execution);
-    return agent;
-  }, stream);
+  createAgent()
+    .onConnect(connection => { agent = new CalliopeAgent(connection.client, options.execution); })
+    .onRequest(ACP_INPUT_LIMIT_METHOD, () => undefined, () => { throw RequestError.invalidParams({error:'ACP input complexity limit exceeded.'}); })
+    .onRequest(methods.agent.initialize, ({params}) => agent.initialize(params))
+    .onRequest(methods.agent.authenticate, () => agent.authenticate())
+    .onRequest(methods.agent.session.new, ({params}) => agent.newSession(params))
+    .onRequest(methods.agent.session.load, ({params}) => agent.loadSession(params))
+    .onRequest(methods.agent.session.prompt, ({params}) => agent.prompt(params))
+    .onNotification(methods.agent.session.cancel, ({params}) => agent.cancel(params))
+    .connect({...stream, readable: boundAcpInput(stream.readable)});
   return agent;
 }
 

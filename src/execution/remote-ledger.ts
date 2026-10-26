@@ -37,11 +37,7 @@ export class RemoteReservationLedger {
     if(hello.protocol!==LEDGER_PROTOCOL)throw new ExecutionLimitError('unavailable',`Parent ledger speaks ${String(hello.protocol)}, not ${LEDGER_PROTOCOL}.`);
     if(options.execution){
       if(!Array.isArray(hello.operations)||!hello.operations.includes('execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
-      const {project,projectKey}=projectIdentity(options.execution.cwd),expected={agentId:options.execution.agentId,project:{root:project,key:projectKey}};
-      const response=await ledger.call('execution',expected) as Journal&{binding:unknown};
-      shape(response.binding,['version','agentId','project']);
-      if(response.binding.version!==1||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
-      ledger.accept(response);ledger.binding=expected;ledger.executionProject(options.execution.cwd,expected.agentId);
+      await ledger.refreshAuthority(options.execution.cwd,options.execution.agentId);
     }else ledger.accept(await ledger.call('journal',{}));
     return ledger;
   }
@@ -53,6 +49,15 @@ export class RemoteReservationLedger {
     const declared=executionProjectForAccount(this.journal.manifest,this.projection(),agentId);
     if(this.binding?agentId!==this.binding.agentId||canonicalJson(declared)!==canonicalJson(this.binding.project):canonicalJson(declared)!==canonicalJson(this.journal.manifest.project))throw new ExecutionLimitError('authority','Account requires its own verified workspace binding.');
     checkExecutionIdentity({...this.journal.manifest,project:declared},cwd);return declared;
+  }
+  /** A journal read is available for reconciliation even when its owner has stopped. */
+  async refreshAuthority(cwd:string,agentId:string,signal?:AbortSignal):Promise<void> {
+    const {project,projectKey}=projectIdentity(cwd),expected={agentId,project:{root:project,key:projectKey}};
+    if(this.binding&&canonicalJson(this.binding)!==canonicalJson(expected))throw new ExecutionLimitError('authority','Execution binding cannot be replaced.');
+    const floor=this.journal,response=await this.call('execution',expected,signal) as Journal&{binding:unknown};
+    shape(response.binding,['version','agentId','project']);
+    if(response.binding.version!==1||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
+    this.accept(response,floor);this.binding=expected;this.executionProject(cwd,agentId);
   }
   async refresh():Promise<void> {const floor=this.journal;this.accept(await this.call('journal',{}),floor);}
   canReleaseFailedReservation(error:unknown):boolean {

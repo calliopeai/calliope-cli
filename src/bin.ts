@@ -174,7 +174,7 @@ async function main(): Promise<void> {
   if (args.includes('--version') || args.includes('-v')) {
     // Embedders check compatibility before spawning `calliope acp`; offline, no update check.
     if (args.includes('--json')) {
-      const { PROTOCOL_VERSION } = await import('@zed-industries/agent-client-protocol');
+      const { PROTOCOL_VERSION } = await import('@agentclientprotocol/sdk');
       console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION, headless: { protocol: 1, delegation: 1, workspaceBinding: 1 } }));
       return completeCommand(0);
     }
@@ -206,6 +206,12 @@ async function main(): Promise<void> {
     headlessCancellation = new AbortController();
     const { runMigrationCommand } = await import('./migration/index.js');
     return completeCommand(await runMigrationCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'brain-proposals') {
+    headlessCancellation = new AbortController();
+    const { runBrainProposalsCommand } = await import('./brain-proposals.js');
+    return completeCommand(await runBrainProposalsCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'improve') {
@@ -369,7 +375,6 @@ async function main(): Promise<void> {
                        process.env.DEEPSEEK_API_KEY ||
                        process.env.XAI_API_KEY ||
                        process.env.CEREBRAS_API_KEY ||
-                       process.env.LITELLM_BASE_URL ||
                        process.env.BEDROCK_API_KEY ||
                        process.env.BEDROCK_BASE_URL ||
                        process.env.OPENAI_COMPAT_BASE_URL;
@@ -481,6 +486,10 @@ ${bold('USAGE')}
   calliope attach (--url <ws-url> | --hub <url> --user <name>) [session-uri] [--read-only] [--once]
     Follow an agent host session and answer its tool approvals (no session-uri: list sessions)
   calliope doctor [providers|provider <name>] [--json] [--probe]   Inspect provider health
+  calliope brain-proposals maintenance-report --root <path> --host-config <path> --actor <id> --request <path>
+    Bind an adopted Project Brain's maintenance findings for independent review (never commits)
+  calliope brain-proposals summary-plan --root <path> --host-config <path> --input <path>
+    Preview a maintained-summary amendment against an adopted Project Brain (never proposes or commits)
 
 ${bold('OPTIONS')}
   -h, --help        Show this help message
@@ -515,8 +524,6 @@ ${bold('ENVIRONMENT VARIABLES')}
   XAI_API_KEY           xAI API key
   CEREBRAS_API_KEY      Cerebras API key
   OLLAMA_BASE_URL       Ollama server URL (default: localhost:11434)
-  LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
-  LITELLM_API_KEY       LiteLLM API key (if required)
   BEDROCK_BASE_URL      AWS Bedrock gateway/proxy URL
   BEDROCK_API_KEY       AWS Bedrock gateway API key (if required)
   OPENAI_COMPAT_BASE_URL   Generic OpenAI-compatible server URL (e.g. http://localhost:1234/v1)

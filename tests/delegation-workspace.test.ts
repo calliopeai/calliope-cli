@@ -127,3 +127,25 @@ it('refuses a transport reply that substitutes the approved project binding',asy
     const body=await response.json() as any;body.binding.project=identity(project);return new Response(JSON.stringify(body));
   }})).rejects.toMatchObject({code:'authority'});
 });
+
+it.each(['owner-stopped','grant-revoked'] as const)('does not treat cached history as live authority after %s',async mode=>{
+  const child=await connect((await allocate()).token),guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},copy);
+  if(mode==='owner-stopped'){ownerActive=false;await child.refresh();}
+  else await call('revoke',{grant:ledger.read(project).projection.childGrants![0]!.grant.id});
+  const files=agentFiles(guard,'child',{id:'write',name:'write_file',arguments:{}});
+  await expect(files.writeTextFile(join(copy,'a/denied.txt'),'must not write')).rejects.toMatchObject({code:'authority'});
+  expect(fs.existsSync(join(copy,'a/denied.txt'))).toBe(false);
+  expect(ledger.read(project).projection.spent.tokens).toBe(0);
+});
+
+it('rechecks remote authority before committing staged file bytes',async()=>{
+  let checks=0;
+  const child=await connect((await allocate()).token,copy,'child',{fetch:async(input,init)=>{
+    if(String(input).endsWith('/execution')&&++checks===3)ownerActive=false;
+    return fetch(input,init);
+  }}),guard=new ExecutionGuard({ledger:child,manifestHash:hash,agentId:'child',maxOutputTokens:10},copy);
+  const files=agentFiles(guard,'child',{id:'write',name:'write_file',arguments:{}});
+  await expect(files.writeTextFile(join(copy,'a/denied.txt'),'must not commit')).rejects.toMatchObject({code:'authority'});
+  expect(checks).toBe(3);
+  expect(fs.readdirSync(join(copy,'a'))).toEqual([]);
+});

@@ -1,0 +1,88 @@
+{
+  "format": "calliope.migration.verification-plan/v1",
+  "adapter": "javascript-to-typescript-cli/v1",
+  "verifier": "byte-parity-v1",
+  "runtime": {
+    "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+    "node": "v24.22.1"
+  },
+  "source": {
+    "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea",
+    "path": "source.mjs",
+    "object": "b96c6972d5a4bfc7e1c52fea78ba340ff24b97c5"
+  },
+  "negative": {
+    "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea",
+    "path": "negative.mts",
+    "object": "0d6091a5c5d47ed8b4c97b7f74f296853fcc09a0"
+  },
+  "rules": {
+    "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea",
+    "path": "RULES.md",
+    "object": "ece25894441e04857adea069e792b6f622fb2e7b"
+  },
+  "cases": [
+    {
+      "id": "positive",
+      "argument": "[1,2,3]",
+      "expected": {
+        "exitCode": 0,
+        "stdout": "{\"sum\":6,\"count\":3}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "empty",
+      "argument": "[]",
+      "expected": {
+        "exitCode": 0,
+        "stdout": "{\"sum\":0,\"count\":0}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "negative-values",
+      "argument": "[-2,5]",
+      "expected": {
+        "exitCode": 0,
+        "stdout": "{\"sum\":3,\"count\":2}\n",
+        "stderr": ""
+      }
+    },
+    {
+      "id": "invalid-type",
+      "argument": "[\"1\"]",
+      "expected": {
+        "exitCode": 2,
+        "stdout": "",
+        "stderr": "Expected an array of safe integers.\n"
+      }
+    },
+    {
+      "id": "invalid-json",
+      "argument": "not-json",
+      "expected": {
+        "exitCode": 2,
+        "stdout": "",
+        "stderr": "Invalid JSON.\n"
+      }
+    }
+  ],
+  "negativeControl": {
+    "caseId": "positive",
+    "expected": {
+      "exitCode": 0,
+      "stdout": "{\"sum\":9,\"count\":3}\n",
+      "stderr": ""
+    }
+  },
+  "limits": {
+    "commandTimeoutMs": 10000,
+    "totalMs": 120000
+  },
+  "candidate": {
+    "revision": "f4732441c67d285f5005ac0afb25d412c2d74f93",
+    "path": "candidate.mts",
+    "object": "4b551e05cce761a68a30a20207c47add9a9f4eff"
+  }
+}

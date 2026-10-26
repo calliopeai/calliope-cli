@@ -278,3 +278,47 @@ placement and caller access through `assertConnection`, and abort the connection
 when that lease ends. Do not use terminal replay, chat events or logs for these
 streams: request headers contain the child bearer credential. The API performs
 no task enrollment, credential persistence, scheduling or independent accounting.
+
+### Live execution authority
+
+A retained journal proves accounting history, not current permission to execute.
+Delegated clients revalidate the exact account and workspace through `execution`
+before model requests and tool effects, and again before committing staged file
+bytes. Revoked grants, stopped owners and an unreachable authority refuse further
+work even when cached history is readable. Reconciliation reads do not restore
+execution permission or release unresolved reservations.
+
+
+### Runnable host conformance example
+
+Run `npm run test:reviewed-host` from the source checkout. The example at
+`scripts/qualification/reviewed-host.mjs` creates a reviewed native run, serves
+its parent ledger over HTTP and launches two concurrent built headless CLI
+processes with separate account-scoped credentials against a deterministic local
+inference endpoint. Each account ledger is also served by its own CLI process,
+which is stopped and recreated during the restart check. Both children settle
+into one parent allowance. Retained unknown requests then exhaust that allowance;
+a host restart preserves them, and real CLI invocations refuse exhausted,
+foreign-workspace, sibling-account and cancelled authority without another
+inference request.
+It uses private disposable configuration and makes no paid provider requests.
+
+To qualify a standalone artifact built from the same source:
+
+```sh
+npm run build
+bun packaging/build-binary.mjs --native
+CALLIOPE_REVIEWED_HOST_BINARY="$PWD/packaging/dist/calliope-native" \
+  node scripts/qualification/reviewed-host.mjs
+```
+
+The executable reports its tested artifact type and invariant results as JSON.
+This is a local HTTP host example, not a deployed Astrolift acceptance test.
+Use `delegation-ledger/v1`, reviewed host capability version 1 and the headless
+capability tuple above; a matching package version alone is insufficient.
+The current CLI entry point requests a 4096-token output limit, so the reviewed
+host and discovered model must both permit that bound. Lower output caps are
+available to library callers through `DelegatedExecutionOptions.maxOutputTokens`.
+The existing ledger, workspace and session suites cover nested grants, lost
+acknowledgments, rollback and approval/session replay; those are separate from
+this example's process-level assertions.

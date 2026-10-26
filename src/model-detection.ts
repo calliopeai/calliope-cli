@@ -63,6 +63,7 @@ async function modelPages<T>(endpoint: string, kind: 'anthropic' | 'google', hea
 
 /** Scope transport cancellation to this discovery call, including concurrent probes. */
 export async function getAvailableModels(provider: LLMProvider, options: ModelFetchOptions = {}): Promise<ModelInfo[]> {
+  if (String(provider) === 'litellm') throw new ModelDiscoveryError('LiteLLM support has been removed. Select a supported provider explicitly.');
   throwIfCancelled(options.signal);
   return discoveryContext.run({ ...options, cleanups: [] }, async () => {
     try { return await cancellable(loadAvailableModels(provider, options), options.signal); }
@@ -155,12 +156,6 @@ const INCOMPATIBLE_MODEL_PATTERNS: Record<string, RegExp[]> = {
     /embed/i,               // Embedding models (nomic-embed, etc.)
     /^all-minilm/,          // Sentence transformers
     /^bge-/,                // BGE embedding models
-  ],
-  litellm: [
-    /embed/i,               // Embedding models
-    /whisper/i,             // Speech models
-    /dall-e/i,              // Image models
-    /tts/i,                 // Text-to-speech
   ],
   ai21: [
     /embed/i,               // Embedding models
@@ -354,9 +349,6 @@ async function loadAvailableModels(provider: LLMProvider, options: ModelFetchOpt
         break;
       case 'ollama':
         models = await getOllamaModels();
-        break;
-      case 'litellm':
-        models = await getLiteLLMModels();
         break;
       case 'ai21':
       case 'huggingface':
@@ -798,37 +790,6 @@ export async function getOllamaFallbackModel(): Promise<string | null> {
     return models[0]!.id;
   } catch {
     return null;
-  }
-}
-
-/**
- * Get LiteLLM models
- */
-async function getLiteLLMModels(): Promise<ModelInfo[]> {
-  let baseUrl = config.getBaseUrl('litellm') || 'http://localhost:4000';
-  // Strip /v1 suffix if present to avoid double /v1
-  if (baseUrl.endsWith('/v1')) {
-    baseUrl = baseUrl.slice(0, -3);
-  }
-
-  try {
-    const response = await fetchModelMetadata(`${baseUrl}/v1/models`);
-    if (!response.ok) {
-      throw new Error(`LiteLLM API error: ${response.status}`);
-    }
-
-    const data = await response.json() as { data: Array<{ id: string }> };
-    return data.data
-      .filter(model => isCompatibleModel(model.id, 'litellm'))
-      .map((model) => ({
-        id: model.id,
-        name: model.id,
-        description: 'Proxied via LiteLLM',
-        ...compatibleMetadata(model),
-      }));
-  } catch (error) {
-    if (error instanceof ModelDiscoveryError || error instanceof SyntaxError || error instanceof TypeError) throw error;
-    throw new Error(`Failed to connect to LiteLLM at ${baseUrl}`);
   }
 }
 

@@ -67,8 +67,29 @@ export class ProjectSpendLedger {
   constructor(file:string){this.file=resolve(file);}
   read():{spentUsd:number;updatedAt:string;blocked:boolean;events:Event[]} {
     const dir=dirname(this.file);if(canonicalPath(dir)!==dir)throw damaged();if(fs.existsSync(dir))directory(dir);
-    const raw=readRaw(this.file),marked=initialized(this.file+'.initialized');if(raw===null&&marked)throw damaged();const {state}=parse(raw);
-    return{spentUsd:state.spentNanos/1e9,updatedAt:state.events.at(-1)?.at??state.legacyUpdatedAt??new Date(0).toISOString(),blocked:state.blocked,events:state.events};
+    const lock=this.file+'.lock';let retriedUnstable=false;
+    for(let attempt=0;attempt<=50;attempt++){
+      if(fs.existsSync(lock)){
+        if(attempt===50)break;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);continue;
+      }
+      try{
+        const raw=readRaw(this.file),marked=initialized(this.file+'.initialized');
+        // Initial writers commit the marker before the atomic journal rename.
+        // Never combine observations from opposite sides of that transaction.
+        if(fs.existsSync(lock)||readRaw(this.file)!==raw)continue;
+        if(raw===null&&marked)throw damaged();const {state}=parse(raw);
+        if(fs.existsSync(lock))continue;
+        return{spentUsd:state.spentNanos/1e9,updatedAt:state.events.at(-1)?.at??state.legacyUpdatedAt??new Date(0).toISOString(),blocked:state.blocked,events:state.events};
+      }catch(error){
+        // A writer may finish between a partial marker read and this catch.
+        // Retry that observation once; persistent damage remains an error.
+        if(fs.existsSync(lock))continue;
+        if(!retriedUnstable){retriedUnstable=true;continue;}
+        throw error;
+      }
+    }
+    throw new ExecutionLimitError('locked','Project budget has another writer.');
   }
   async reserve(requestId:string,runId:string,costNanos:number,capNanos:number,signal?:AbortSignal):Promise<void>{await this.updateAsync({type:'reserve',requestId,runId,costNanos,capNanos},signal);}
   async settle(requestId:string,costNanos:number|null,invalid=false):Promise<void>{await this.updateAsync({type:'settle',requestId,costNanos,...(invalid?{invalid:true as const}:{})});}
