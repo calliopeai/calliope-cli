@@ -9,7 +9,8 @@
  * agent logic.
  *
  * Baseline agent surface implemented: `initialize`, `authenticate`, `session/new`,
- * `session/load`, `session/prompt`; `session/cancel`; streaming `session/update`
+ * `session/load`, `session/prompt`, `session/set_mode`, `session/set_config_option`;
+ * `session/cancel`; streaming `session/update`
  * notifications; and the `session/request_permission` flow. When the client advertises `fs`
  * capabilities, file tools are routed through the client's `fs/read_text_file` and
  * `fs/write_text_file` so edits land on the editor's (possibly unsaved) buffers.
@@ -21,6 +22,7 @@
  */
 
 import {boundAcpInput,ACP_INPUT_LIMIT_METHOD} from './acp/input.js';
+import {readAcpControls,saveAcpControls,type AcpControls} from './acp/controls.js';
 import { ApprovalStore, type ApprovalChoice } from './approvals/index.js';
 import { realpathSync } from 'node:fs';
 import * as path from 'node:path';
@@ -47,6 +49,10 @@ import {
   type PromptRequest,
   type PromptResponse,
   type CancelNotification,
+  type SetSessionModeRequest,
+  type SetSessionConfigOptionRequest,
+  type SetSessionConfigOptionResponse,
+  type SessionConfigOption,
 } from '@agentclientprotocol/sdk';
 
 import * as config from './config.js';
@@ -55,6 +61,7 @@ import { completePendingTools, runTurn } from './runtime/index.js';
 import { createSession, getSessionById, getSessionDirById, readSessionConversation, saveSessionConversation } from './storage.js';
 import { SessionRecoveryError, readToolOutputs, type ConversationState } from './sessions/index.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
+import {getAvailableModels} from './model-detection.js';
 import { cancellable, isCancellation } from './cancellation.js';
 import { TOOLS, type FsDelegate } from './tools.js';
 import { DEFAULT_MODELS } from './types.js';
@@ -176,6 +183,8 @@ function promptToText(blocks: ContentBlock[]): string {
 // ============================================================================
 
 interface AcpSession {
+  controls: AcpControls;
+  modelOptions: {value:string;name:string}[];
   id: string;
   cwd: string;
   /** Configured provider passed to `chat` (may be 'auto'). */
@@ -195,9 +204,9 @@ interface AcpSession {
 }
 
 /** Provider/model preferences for a session's project; session/new and session/load resolve them alike. */
-function sessionPreferences(cwd: string): Pick<AcpSession, 'preference' | 'provider' | 'resolvedProvider' | 'model'> {
+function sessionPreferences(cwd: string, controls?: AcpControls): Pick<AcpSession, 'preference' | 'provider' | 'resolvedProvider' | 'model'> {
   let preference: ResolvedPreference;
-  try { preference = resolvePreferences(cwd); }
+  try { preference = resolvePreferences(cwd, {session:controls?.selection}); }
   catch (error) { throw RequestError.invalidParams({ error: error instanceof Error ? error.message : String(error) }); }
   const { provider } = preference, model = preference.model || '';
 
@@ -226,6 +235,70 @@ class CalliopeAgent {
 
   constructor(private readonly conn: AgentContext, private readonly execution?: AgentExecution) {}
 
+  private controlsState(session: AcpSession) {
+    return {modes:{currentModeId:session.controls.mode,availableModes:[
+      {id:'work',name:'Work',description:'Use normal permissions and confirmations.'},
+      {id:'plan',name:'Plan',description:'Analyze and plan without executing workspace mutations.'},
+    ]},configOptions:this.configOptions(session)};
+  }
+  private configOptions(session: AcpSession): SessionConfigOption[] {
+    const current=session.controls.selection?.model ? 'model:'+session.controls.selection.model : 'default';
+    const options=[{value:'default',name:this.execution?'Parent-managed model':`Configured model${session.model?': '+session.model:''}`}];
+    if(!this.execution) options.push(...session.modelOptions);
+    if(!options.some(option=>option.value===current)) options.push({value:current,name:session.model});
+    return [{id:'model',name:'Model',category:'model',type:'select',currentValue:current,options}];
+  }
+  private async discoverModels(session: AcpSession, signal?: AbortSignal): Promise<void> {
+    session.modelOptions=[];
+    if(this.execution)return;
+    const bounded=signal?AbortSignal.any([signal,AbortSignal.timeout(5000)]):AbortSignal.timeout(5000);
+    try {
+      const models=await getAvailableModels(session.resolvedProvider,{quiet:true,signal:bounded});
+      session.modelOptions=models.filter(model=>model.evidence?.source==='live'&&model.capabilities?.chat!==false&&model.id.length<=512&&!/[\x00-\x1f\x7f]/.test(model.id))
+        .slice(0,256).map(model=>({value:'model:'+model.id,name:model.name||model.id}));
+    } catch {
+      if(signal?.aborted)throw signal.reason;
+      // Unavailable discovery never invents selectable model IDs.
+    }
+  }
+  private idleSession(id:string):AcpSession {
+    const session=this.sessions.get(id);
+    if(!session)throw RequestError.invalidParams({error:`unknown session: ${id}`});
+    if(session.controller)throw RequestError.invalidParams({error:'A prompt is already running in this session'});
+    if(readAcpControls(id).revision!==session.controls.revision)throw RequestError.invalidParams({error:'Session controls changed; load the current session before continuing.'});
+    if(this.execution)new ExecutionGuard(this.execution,session.cwd).assertActive();
+    return session;
+  }
+  async setMode(params:SetSessionModeRequest,signal?:AbortSignal) {
+    signal?.throwIfAborted();
+    let session=this.idleSession(params.sessionId);
+    if(params.modeId!=='work'&&params.modeId!=='plan')throw RequestError.invalidParams({error:'Unsupported session mode'});
+    if(this.execution){await new ExecutionGuard(this.execution,session.cwd).refreshAuthority(signal);session=this.idleSession(params.sessionId);}
+    signal?.throwIfAborted();
+    session.controls=saveAcpControls(session.id,{...session.controls,mode:params.modeId});
+    await this.emit(session.id,{sessionUpdate:'current_mode_update',currentModeId:session.controls.mode});
+    return {};
+  }
+  async setConfigOption(params:SetSessionConfigOptionRequest,signal?:AbortSignal):Promise<SetSessionConfigOptionResponse> {
+    signal?.throwIfAborted();
+    const session=this.idleSession(params.sessionId);
+    if(params.configId!=='model'||typeof params.value!=='string')throw RequestError.invalidParams({error:'Unsupported session configuration'});
+    if(this.execution)throw RequestError.invalidParams({error:'The parent controls the delegated model selection.'});
+    const revision=session.controls.revision,provider=session.resolvedProvider;
+    await this.discoverModels(session,signal);
+    if(this.idleSession(params.sessionId)!==session||session.controls.revision!==revision||session.resolvedProvider!==provider)
+      throw RequestError.invalidParams({error:'Session changed during model discovery; retry with its current controls.'});
+    const value=params.value;
+    if(value!=='default'&&!session.modelOptions.some(option=>option.value===value))throw RequestError.invalidParams({error:'Select a currently discovered model.'});
+    const next={...session.controls,selection:value==='default'?undefined:{provider:session.resolvedProvider,model:value.slice(6)}};
+    const preferences=sessionPreferences(session.cwd,next);
+    const controls=saveAcpControls(session.id,next);
+    Object.assign(session,preferences,{controls});
+    const configOptions=this.configOptions(session);
+    await this.emit(session.id,{sessionUpdate:'config_option_update',configOptions});
+    return {configOptions};
+  }
+
   // ---- ACP: initialize --------------------------------------------------
 
   async initialize(params: InitializeRequest): Promise<InitializeResponse> {
@@ -240,8 +313,8 @@ class CalliopeAgent {
     return {
       protocolVersion: negotiated,
       agentCapabilities: {
-        _meta: { calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 } },
-        // MCP-over-ACP and modes are not implemented yet.
+        _meta: { calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 }, calliopeSessionControls: {version:1} },
+        // MCP-over-ACP remains unsupported.
         loadSession: true,
         promptCapabilities: { image: false, audio: false, embeddedContext: false },
       },
@@ -259,7 +332,7 @@ class CalliopeAgent {
 
   // ---- ACP: session/new -------------------------------------------------
 
-  async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
+  async newSession(params: NewSessionRequest, signal?:AbortSignal): Promise<NewSessionResponse> {
     const cwd = params.cwd || process.cwd();
     let guard: ExecutionGuard | undefined;
     try {
@@ -268,7 +341,8 @@ class CalliopeAgent {
     const { preference, provider, resolvedProvider, model } = sessionPreferences(cwd);
     const costModel = model || DEFAULT_MODELS[resolvedProvider];
 
-    const sessionId = createSession(cwd, { activate: false, prefix: 'acp', ...(this.execution ? { executionBinding: executionBinding(this.execution) } : {}) }).id;
+    const sessionId = createSession(cwd, { activate: false, prefix: 'acp', acpControlsVersion:1, ...(this.execution ? { executionBinding: executionBinding(this.execution) } : {}) }).id;
+    const controls=saveAcpControls(sessionId,{version:1,revision:null,mode:'work'},true);
     const runlog = RunLog.open(sessionId);
 
 
@@ -293,9 +367,12 @@ class CalliopeAgent {
       messages,
       runlog,
       cancelled: false,
+      controls, modelOptions:[],
     });
+    const session=this.sessions.get(sessionId)!;
+    await this.discoverModels(session,signal);
     debug(`session/new: ${sessionId} cwd=${cwd} provider=${resolvedProvider} model=${costModel}`);
-    return { sessionId };
+    return { sessionId,...this.controlsState(session) };
   }
 
   // ---- ACP: session/load ------------------------------------------------
@@ -307,7 +384,7 @@ class CalliopeAgent {
    * without a recorded result are closed as unknown outcomes. No provider
    * request is made and no tool runs.
    */
-  async loadSession(params: LoadSessionRequest): Promise<LoadSessionResponse> {
+  async loadSession(params: LoadSessionRequest, signal?:AbortSignal): Promise<LoadSessionResponse> {
     const { sessionId, cwd } = params;
     if (this.sessions.get(sessionId)?.controller) throw RequestError.invalidParams({ error: 'A prompt is already running in this session' });
     const saved = getSessionById(sessionId);
@@ -324,9 +401,12 @@ class CalliopeAgent {
     } catch (error) {
       throw RequestError.invalidParams({ error: errMessage(error) });
     }
+    const controls=readAcpControls(sessionId);
+    if(this.execution&&controls.selection)throw RequestError.invalidParams({error:'A delegated session cannot restore an independently selected model.'});
     const session: AcpSession = {
-      id: sessionId, cwd, ...sessionPreferences(cwd), revision: state.revision,
+      id: sessionId, cwd, ...sessionPreferences(cwd,controls), revision: state.revision,
       messages: state.messages, runlog: RunLog.open(sessionId), cancelled: false,
+      controls,modelOptions:[],
     };
     // An idle copy already open here is replaced by the saved state; a prompt sent
     // before the load responds is refused as an unknown session.
@@ -365,20 +445,18 @@ class CalliopeAgent {
     await this.flush();
 
     this.sessions.set(sessionId, session);
+    await this.discoverModels(session,signal);
     session.runlog.policyEvent({ tool: 'session', source: 'session-recovery', decision: 'allow', durationMs: 0,
       reason: `session/load revision=${state.revision} messages=${session.messages.length}` });
     await session.runlog.flush();
     debug(`session/load: ${sessionId} cwd=${cwd} messages=${session.messages.length} status=${state.status}`);
-    return {};
+    return this.controlsState(session);
   }
 
   // ---- ACP: session/prompt ---------------------------------------------
 
   async prompt(params: PromptRequest): Promise<PromptResponse> {
-    const session = this.sessions.get(params.sessionId);
-    if (!session) {
-      throw RequestError.invalidParams({ error: `unknown session: ${params.sessionId}` });
-    }
+    const session = this.idleSession(params.sessionId);
 
     if (session.controller) throw RequestError.invalidParams({ error: 'A prompt is already running in this session' });
     session.controller = new AbortController();
@@ -417,6 +495,10 @@ class CalliopeAgent {
 
   private async runTurn(session: AcpSession, prompt: string): Promise<PromptResponse['stopReason']> {
     const messages = { current: session.messages };
+    const controlRevision=session.controls.revision;
+    const assertControls=()=>{
+      if(readAcpControls(session.id).revision!==controlRevision)throw new Error('Session controls changed during execution; reload before continuing.');
+    };
     let streamedChars = 0;
     try {
       for (const warning of session.preference.warnings) await this.emit(session.id, { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: `[Warning: ${warning}]\n` } });
@@ -435,11 +517,12 @@ class CalliopeAgent {
           session.runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
         },
         sessionId: session.id, cwd: session.cwd, provider: session.provider,
+        get mode(){assertControls();return session.controls.mode;},
         model: session.model || undefined, prompt, messages, signal: session.controller?.signal,
         preferenceSources: session.preference.sources,
         runlog: session.runlog, maxIterations: resolveIterationLimit(config.get('maxIterations')),
         confirmation: 'mutating', approvals: this.approvals, tools: () => TOOLS, toolOptions: { fs: this.clientFsDelegate(session.id) },
-        prepare: async request => { streamedChars = 0; return request; },
+        prepare: async request => { assertControls();streamedChars = 0; return request; },
         approve: (call, decision) => this.requestPermission(session, call, decision.request?.reusable ?? false),
         onToken: token => {
           if (!token || session.cancelled) return;
@@ -600,8 +683,10 @@ export function serveAcp(stream: Stream, options: { execution?: AgentExecution }
     .onRequest(ACP_INPUT_LIMIT_METHOD, () => undefined, () => { throw RequestError.invalidParams({error:'ACP input complexity limit exceeded.'}); })
     .onRequest(methods.agent.initialize, ({params}) => agent.initialize(params))
     .onRequest(methods.agent.authenticate, () => agent.authenticate())
-    .onRequest(methods.agent.session.new, ({params}) => agent.newSession(params))
-    .onRequest(methods.agent.session.load, ({params}) => agent.loadSession(params))
+    .onRequest(methods.agent.session.new, ({params,signal}) => agent.newSession(params,signal))
+    .onRequest(methods.agent.session.load, ({params,signal}) => agent.loadSession(params,signal))
+    .onRequest(methods.agent.session.setMode, ({params,signal}) => agent.setMode(params,signal))
+    .onRequest(methods.agent.session.setConfigOption, ({params,signal}) => agent.setConfigOption(params,signal))
     .onRequest(methods.agent.session.prompt, ({params}) => agent.prompt(params))
     .onNotification(methods.agent.session.cancel, ({params}) => agent.cancel(params))
     .connect({...stream, readable: boundAcpInput(stream.readable)});

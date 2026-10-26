@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add persistent ACP Work/Plan modes and session model selection through stable configuration options. Models come from live discovery, delegated model choices remain parent-controlled, and stale or concurrent control updates refuse rather than overwrite another session state (#444).
+
 ## 3.6.0: reviewed hosts and code migration
 
 - Add a versioned code migration kit for pinned JavaScript-to-TypeScript CLI ports: source inventory, baseline and candidate verification, reviewed assessment, packaged playbook and example evidence. Native execution retains authority, budgets and scheduling (#414).

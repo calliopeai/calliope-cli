@@ -22,7 +22,7 @@ import { client as createClient, ndJsonStream, type SessionNotification } from '
 
 type ChatMessage = { role: string; content: unknown };
 let build: string, root: string, server: Server, port: number;
-let requests: { stream?: boolean; messages: ChatMessage[] }[];
+let requests: { stream?: boolean; model?: string; messages: ChatMessage[] }[];
 const children: ChildProcess[] = [];
 
 function completion(stream: boolean | undefined, delta: Record<string, unknown>, finish: string): { type: string; body: string } {
@@ -49,7 +49,7 @@ beforeAll(async () => {
     req.on('end', () => {
       if (req.url === '/v1/models') {
         res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify({ data: [{ id: 'stdio-model', context_length: 32768, max_output_tokens: 8192, pricing: { input: 1, output: 2 }, capabilities: { chat: true, tools: true, streaming: true } }] }));
+        res.end(JSON.stringify({ data: ['stdio-model','stdio-model-b'].map(id=>({ id, context_length: 32768, max_output_tokens: 8192, pricing: { input: 1, output: 2 }, capabilities: { chat: true, tools: true, streaming: true } })) }));
         return;
       }
       if (req.url !== '/v1/chat/completions') { res.writeHead(404).end(); return; }
@@ -136,7 +136,7 @@ it('restores a session with its history in a new process after the first one is 
 
   const second = start(project);
   await second.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
-  expect(await second.conn.agent.request('session/load', { sessionId, cwd: project, mcpServers: [] })).toEqual({});
+  expect(await second.conn.agent.request('session/load', { sessionId, cwd: project, mcpServers: [] })).toMatchObject({modes:{currentModeId:'work'},configOptions:[{id:'model',currentValue:'default'}]});
   const replay = second.updates.map(update => update.update);
   expect(second.updates.every(update => update.sessionId === sessionId)).toBe(true);
   expect(replay.map(update => update.sessionUpdate)).toEqual(['user_message_chunk', 'tool_call', 'tool_call_update', 'agent_message_chunk']);
@@ -157,6 +157,30 @@ it('restores a session with its history in a new process after the first one is 
   second.child.stdin!.end();
   expect(await second.exited).toBe(0);
 }, 60000);
+
+it('retains selected model and plan mode across real process restart without allowing writes', async () => {
+  requests=[];
+  root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-acp-controls-')));
+  const project=join(root,'project');fs.mkdirSync(project);
+  const first=start(project);await first.conn.agent.request('initialize',{protocolVersion:1,clientCapabilities:{}});
+  const {sessionId}=await first.conn.agent.request('session/new',{cwd:project,mcpServers:[]});
+  await first.conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:stdio-model-b'});
+  await first.conn.agent.request('session/set_mode',{sessionId,modeId:'plan'});
+  let approvals=0;
+  first.client.requestPermission=async()=>{approvals++;return {outcome:{outcome:'selected',optionId:'allow'}};};
+  expect((await first.conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'write notes.txt'}]})).stopReason).toBe('end_turn');
+  expect(approvals).toBe(0);expect(fs.existsSync(join(project,'notes.txt'))).toBe(false);
+  expect(requests).toHaveLength(2);expect(requests.every(request=>request.model==='stdio-model-b')).toBe(true);
+  first.child.kill('SIGKILL');await first.exited;
+  const second=start(project);await second.conn.agent.request('initialize',{protocolVersion:1,clientCapabilities:{}});
+  expect(await second.conn.agent.request('session/load',{sessionId,cwd:project,mcpServers:[]})).toMatchObject({modes:{currentModeId:'plan'},configOptions:[{id:'model',currentValue:'model:stdio-model-b'}]});
+  second.client.requestPermission=async()=>({outcome:{outcome:'selected',optionId:'allow'}});
+  await second.conn.agent.request('session/set_mode',{sessionId,modeId:'work'});
+  expect((await second.conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'write notes.txt'}]})).stopReason).toBe('end_turn');
+  expect(fs.readFileSync(join(project,'notes.txt'),'utf8')).toBe('approved edit');
+  expect(requests.at(-1)?.model).toBe('stdio-model-b');
+  second.child.stdin!.end();expect(await second.exited).toBe(0);
+},60000);
 
 
 it('retains the parent account, workspace, history and spent allowance over a native ACP process restart', async () => {
@@ -198,6 +222,10 @@ it('retains the parent account, workspace, history and spent allowance over a na
     expect(init.agentCapabilities?._meta).toMatchObject({ calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 } });
     await expect(first.conn.agent.request('session/new', { cwd: project, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
     const { sessionId } = await first.conn.agent.request('session/new', { cwd: copy, mcpServers: [] });
+    await expect(first.conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:stdio-model-b'})).rejects.toMatchObject({code:-32602});
+    expect(requests).toHaveLength(0);
+    await first.conn.agent.request('session/set_mode',{sessionId,modeId:'plan'});
+    await first.conn.agent.request('session/set_mode',{sessionId,modeId:'work'});
     expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests)).toContain('allowed automatic context');
@@ -216,7 +244,7 @@ it('retains the parent account, workspace, history and spent allowance over a na
     expect(requests).toHaveLength(2);
     const second = start(copy, args);
     await second.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
-    expect(await second.conn.agent.request('session/load', { sessionId, cwd: copy, mcpServers: [] })).toEqual({});
+    expect(await second.conn.agent.request('session/load', { sessionId, cwd: copy, mcpServers: [] })).toMatchObject({modes:{currentModeId:'work'},configOptions:[{id:'model',currentValue:'default'}]});
     expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason, second.stderr()).toBe('end_turn');
     expect(requests).toHaveLength(3);
     expect(JSON.stringify(requests.at(-1)!.messages)).toContain('delegated evidence');
