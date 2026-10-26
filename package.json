@@ -39,6 +39,7 @@
     "docs/migration-example-*.json",
     "docs/delegation-ledger.md",
     "docs/improvement-cycles.md",
+    "docs/task-feedback.md",
     "docs/acp.md",
     "docs/releases/3.7.0.md",
     "docs/releases/3.6.0.md"

@@ -50,6 +50,11 @@ external feedback or reinforcement-learning interface.
 
 ## Host review requests
 
+Explicit host contract version 2 additionally exposes the
+[reviewed task feedback](task-feedback.md) record/inspect/history API. Version 1
+discovery remains unchanged. Feedback receipts do not award rewards or enable
+cross-run learning.
+
 The separately negotiated `improvementReviewCapabilities()` API (version 1,
 `improvement.review-capabilities`) advertises `requestImprovementReview`,
 `inspectImprovementReviews` and `dismissImprovementReview`. It is request-only;

@@ -14,6 +14,7 @@ export const MUTATING_TOOLS = new Set(['shell', 'write_file', 'edit_file', 'git'
 for(const tool of ['orchestration_recover','orchestration_execute','orchestration_retry','orchestration_accept','orchestration_agent_stop','orchestration_spawn','orchestration_answer'])MUTATING_TOOLS.add(tool);
 for(const tool of ['orchestration_goal_plan','orchestration_goal_approve','orchestration_goal_resume','orchestration_goal_cancel','orchestration_goal_revise'])MUTATING_TOOLS.add(tool);
 for(const tool of ['orchestration_workspace','orchestration_improve','orchestration_improvement_rollback','orchestration_improvement_review_request','orchestration_improvement_review_dismiss','orchestration_evidence_recovery','orchestration_source_proposal','orchestration_source_candidate'])MUTATING_TOOLS.add(tool);
+MUTATING_TOOLS.add('orchestration_task_feedback');
 
 for(const tool of ['brain_init','brain_write','brain_reverse','brain_reindex'])MUTATING_TOOLS.add(tool);
 MUTATING_TOOLS.add('artifact');

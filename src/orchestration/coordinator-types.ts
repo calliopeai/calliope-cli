@@ -17,6 +17,7 @@ export interface TaskOutput {
   unresolvedRisks:string[];recommendedNextAction:string;checks:CheckEvidence[];
 }
 export type ExecutionChange=
+  |{type:'task_feedback_recorded';feedback:import('../improvement/task-feedback-contract.js').TaskFeedbackRecord}
   |{type:'improvement_review_requested';request:import('../improvement/review-contract.js').ImprovementReviewRequest}
   |{type:'improvement_review_dismissed';requestId:string;executionRevision:string}
   |{type:'agent_routed';agentId:string;sessionId:string;taskId?:string;route:import('./routing.js').RecordedAgentRoute}
@@ -41,7 +42,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5|6|7|8|9|10|11;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6|7|8|9|10|11|12;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
