@@ -208,3 +208,27 @@ it("binds OpenRouter price ceilings to the recorded request and disables server 
     ),
   ).toEqual(sent);
 });
+
+it.each(['data: [DONE]\n\n','data:[DONE]\r\n\r\n'])('recognizes a fully delivered Chat terminal frame before consumer close (%s)', async terminal => {
+  const wire = `data: {"choices":[{"delta":{"content":"public fixture"}}]}\n\n${terminal}`;
+  const recorder=createRecorder(async()=>new Response(new ReadableStream({start(controller){controller.enqueue(Buffer.from(wire));}}),{headers:{'content-type':'text/event-stream'}}),{protocol:'chat'},32,undefined,{streamResponse:true});
+  const response=await recorder.fetch('https://toy.invalid/',{method:'POST',body:'{}'}),reader=response.body!.getReader();
+  await reader.read();await reader.cancel();await recorder.close();
+  expect(recorder.exchanges[0]).toMatchObject({complete:true,bodyClosed:true});
+  expect(Buffer.from(recorder.exchanges[0].body,'base64').toString()).toBe(wire);
+});
+
+it.each(['data: [DONE]\n','data: {"content":"[DONE]"}\n\n','event: error\ndata: [DONE]\n\n'])('does not turn an incomplete or nonterminal event into completion (%s)', async wire => {
+  const recorder=createRecorder(async()=>new Response(new ReadableStream({start(controller){controller.enqueue(Buffer.from(wire));}}),{headers:{'content-type':'text/event-stream'}}),{protocol:'chat'},32,undefined,{streamResponse:true});
+  const response=await recorder.fetch('https://toy.invalid/',{method:'POST',body:'{}'}),reader=response.body!.getReader();
+  await reader.read();await reader.cancel();await recorder.close();
+  expect(recorder.exchanges[0]).toMatchObject({complete:false,bodyClosed:true});
+});
+
+it('keeps explicit cancellation incomplete even after a terminal-looking chunk',async()=>{
+  const controller=new AbortController(),wire='data: [DONE]\n\n';
+  const recorder=createRecorder(async()=>new Response(wire,{headers:{'content-type':'text/event-stream'}}),{protocol:'chat'},32,controller.signal,{streamResponse:true,onChunk(){controller.abort();}});
+  const response=await recorder.fetch('https://toy.invalid/',{method:'POST',body:'{}'});
+  await expect(response.text()).rejects.toThrow();await recorder.close();
+  expect(recorder.exchanges[0]).toMatchObject({complete:false,bodyClosed:true});
+});

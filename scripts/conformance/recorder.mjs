@@ -1,5 +1,24 @@
 import { digest } from "./captures.mjs";
 
+/** Chat SDKs may close their reader once the terminal SSE frame is delivered.
+ * Require a complete frame, never a substring inside content or a partial frame. */
+function deliveredChatTerminal(bytes, protocol, contentType) {
+  if (protocol !== 'chat' || !contentType.toLowerCase().startsWith('text/event-stream')) return false;
+  let text;
+  try { text = new TextDecoder('utf-8', {fatal:true}).decode(bytes); }
+  catch { return false; }
+  const frames = text.replace(/\r\n|\r/g, '\n').split('\n\n');
+  frames.pop(); // The last unterminated frame has not been delivered as an SSE event.
+  return frames.some(frame => {
+    const data = [], events = [];
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+      else if (line.startsWith('event:')) events.push(line.slice(6).replace(/^ /, ''));
+    }
+    return data.join('\n') === '[DONE]' && events.every(event => event === '' || event === 'message');
+  });
+}
+
 /** One bounded request, with a metadata allowlist and unchanged signed bodies. */
 export function createRecorder(
   originalFetch,
@@ -117,7 +136,7 @@ export function createRecorder(
               headers,
               body: bytes.toString("base64"),
               sha256: digest(bytes),
-              complete,
+              complete: complete || (!combinedSignal?.aborted && response.ok && deliveredChatTerminal(bytes, backend.protocol, headers['content-type'])),
               bodyClosed,
             });
           }
