@@ -152,3 +152,11 @@ Issues and PRs welcome — [CONTRIBUTING.md](CONTRIBUTING.md). The codebase is T
 ## License
 
 MIT © Calliope Labs Inc
+
+## Code migration kit
+
+The packaged [migration playbook](docs/migration-playbook.md) provides versioned
+inventory, baseline, assessment and verification helpers for the initial
+JavaScript-to-TypeScript CLI adapter. Discover them offline with
+`calliope migration capabilities --json`; native reviewed execution remains the
+authority for worker commands, budgets and file scope.

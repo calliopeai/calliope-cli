@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import {dirname,join,resolve} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import {canonicalJson,canonicalPath,digest,projectIdentity} from '../approvals/index.js';
 import {throwIfCancelled,cancellableDelay} from '../cancellation.js';
 import {ExecutionLimitError} from '../execution/types.js';
@@ -11,7 +12,9 @@ import {hex,integer,iso,shape,uuid} from './validation.js';
 import {journalHash,replayExecution,validateExecutionHeader,executionEventVersion,MAX_EXECUTION_BYTES,MAX_EXECUTION_EVENTS,MAX_EXECUTION_EVENT_BYTES} from './execution-journal.js';
 import type {ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionInspection,ExecutionJournal,ExecutionLease,RunPlanContext} from './coordinator-types.js';
 
-const unavailable=()=>new OrchestrationError('unavailable','Execution records are damaged or unavailable. Preserve the run and restore verified evidence; no new work is authorized.');
+const unavailableMessage='Execution records are damaged or unavailable. Preserve the run and restore verified evidence; no new work is authorized.';
+const unavailable=()=>new OrchestrationError('unavailable',unavailableMessage);
+class ReplacedArtifact extends OrchestrationError {constructor(){super('unavailable',unavailableMessage);}}
 // Windows fs.Stats.mode only reflects the read-only DOS attribute (Node docs:
 // "on Windows only the write permission can be changed"), so a directory or
 // file reports ~0o40666/0o40777 or ~0o100666 regardless of the mode requested
@@ -30,7 +33,15 @@ export function readArtifactBytes(file:string,max=1024*1024,privateFile=false):B
   try{
     const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.size>max||privateFile&&process.platform!=='win32'&&stat.mode&0o077)throw unavailable();
     const bytes=Buffer.alloc(stat.size+1);let count=0,n:number;while(count<bytes.length&&(n=fs.readSync(fd,bytes,count,bytes.length-count,null))>0)count+=n;
-    const after=fs.statSync(dirname(file)),current=fs.lstatSync(file),final=fs.fstatSync(fd);if(count!==stat.size||current.dev!==stat.dev||current.ino!==stat.ino||final.size!==stat.size||final.mtimeMs!==stat.mtimeMs||final.ctimeMs!==stat.ctimeMs||parent.dev!==after.dev||parent.ino!==after.ino||canonicalPath(file)!==file)throw unavailable();return bytes.subarray(0,count);
+    const after=fs.statSync(dirname(file)),current=fs.lstatSync(file),final=fs.fstatSync(fd);
+    if(parent.dev!==after.dev||parent.ino!==after.ino||canonicalPath(file)!==file||current.dev!==stat.dev)throw unavailable();
+    if(current.ino!==stat.ino){
+      if(!current.isFile()||current.isSymbolicLink()||current.size>max||privateFile&&process.platform!=='win32'&&current.mode&0o077)throw unavailable();
+      // Discard this descriptor's bytes. Only the execution journal reader may
+      // retry a normal atomic publication, with every boundary checked afresh.
+      throw new ReplacedArtifact();
+    }
+    if(count!==stat.size||final.size!==stat.size||final.mtimeMs!==stat.mtimeMs||final.ctimeMs!==stat.ctimeMs)throw unavailable();return bytes.subarray(0,count);
   }finally{fs.closeSync(fd);}
 }
 function writeNew(file:string,data:string|Buffer):void{const fd=fs.openSync(file,'wx',0o600);try{fs.writeFileSync(fd,data);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
@@ -38,10 +49,22 @@ function writeNew(file:string,data:string|Buffer):void{const fd=fs.openSync(file
 function syncDir(path:string):void{if(process.platform==='win32')return;const fd=fs.openSync(path,'r');try{fs.fsyncSync(fd);}finally{fs.closeSync(fd);}}
 function parsed(file:string,max=MAX_EXECUTION_BYTES):unknown {try{return JSON.parse(readArtifactBytes(file,max,true).toString());}catch{throw unavailable();}}
 function exists(file:string):boolean{try{fs.lstatSync(file);return true;}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return false;throw unavailable();}}
+function copyInspection(view:ExecutionInspection):ExecutionInspection {
+  // structuredClone changes null-prototype lookup maps into ordinary objects.
+  const copy=(value:unknown):unknown=>{
+    if(Array.isArray(value))return value.map(copy);
+    if(value===null||typeof value!=='object')return value;
+    const result=Object.create(Object.getPrototypeOf(value));
+    for(const [key,item] of Object.entries(value))Object.defineProperty(result,key,{value:copy(item),enumerable:true,writable:true,configurable:true});
+    return result;
+  };
+  return copy(view) as ExecutionInspection;
+}
 
 /** One coordinator process owns a run; short append locks also serialize control commands. */
 export class ExecutionStore {
   readonly root:string;readonly manifest:RunManifest;
+  private replayCache?:{bytes:Buffer;manifest:RunManifest;view:ExecutionInspection};
   constructor(runDirectory:string,manifest:RunManifest,private readonly onEvent?:(event:ExecutionEvent)=>void){this.root=join(resolve(runDirectory),'execution');this.manifest=JSON.parse(canonicalJson(validateRunManifest(manifest)));}
   exists():boolean{return exists(this.root);}
   /** Optional host review binding. Recheck inside the append lock before admitting work. */
@@ -68,9 +91,20 @@ export class ExecutionStore {
     const journal:ExecutionJournal={version:1,header,events:[],hash:journalHash(header,[])};writeNew(join(this.root,'history.json'),JSON.stringify(journal));syncDir(this.root);syncDir(dirname(this.root));return this.read();
   }
   read():ExecutionInspection {
-    this.identity();const value=parsed(join(this.root,'history.json'));shape(value,['version','header','events','hash']);if(value.version!==1||!Array.isArray(value.events)||!hex(value.hash))throw unavailable();
+    let bytes:Buffer,value:unknown;
+    for(let attempt=0;;attempt++){
+      this.identity();
+      try{bytes=readArtifactBytes(join(this.root,'history.json'),MAX_EXECUTION_BYTES,true);break;}
+      catch(error){if(!(error instanceof ReplacedArtifact)||attempt===2)throw unavailable();}
+    }
+    // Re-read private bytes and identity on every observation. Reuse only pure
+    // replay of identical input; callers cannot mutate the retained projection.
+    if(this.replayCache?.bytes.equals(bytes)&&isDeepStrictEqual(this.manifest,this.replayCache.manifest))return copyInspection(this.replayCache.view);
+    try{value=JSON.parse(bytes.toString());}catch{throw unavailable();}
+    shape(value,['version','header','events','hash']);if(value.version!==1||!Array.isArray(value.events)||!hex(value.hash))throw unavailable();
     const header=validateExecutionHeader(value.header,this.manifest),events=value.events as ExecutionEvent[];
-    if(value.hash!==journalHash(header,events))throw unavailable();return{header,events,state:replayExecution(header,this.manifest,events)};
+    if(value.hash!==journalHash(header,events))throw unavailable();const view={header,events,state:replayExecution(header,this.manifest,events)};
+    this.replayCache={bytes,manifest:structuredClone(this.manifest),view:copyInspection(view)};return view;
   }
   /** Derived execution graph; the original manifest remains immutable. */
   context(view=this.read()):RunPlanContext{return{id:this.manifest.id,project:this.manifest.project,plan:view.state.graph?.plan??this.manifest.plan};}

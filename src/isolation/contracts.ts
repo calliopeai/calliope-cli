@@ -9,6 +9,8 @@ export interface CommandEvidence {
   exitCode: number; outcome: 'passed' | 'failed' | 'cancelled' | 'timeout' | 'unavailable';
   stdout: string; stderr: string; truncated: boolean; durationMs: number;
   container: string; cleanupConfirmed: boolean;
+  /** Raw captured bytes, before display redaction. Never compare truncated output. */
+  outputDigests?: { version: 1; stdout: { sha256: string; bytes: number }; stderr: { sha256: string; bytes: number } };
   cleanup?: {version:1;removal:{outcome:'removed'|'absent'|'timeout'|'error';exitCode:number|null};
     verification?:{outcome:'absent'|'present'|'timeout'|'error';exitCode:number|null}};
 }

@@ -34,7 +34,9 @@
   "files": [
     "dist",
     "README.md",
-    "scripts/verify-runlog.mjs"
+    "scripts/verify-runlog.mjs",
+    "docs/migration-*.md",
+    "docs/migration-example-*.json"
   ],
   "scripts": {
     "build": "tsc && chmod +x dist/bin.js",

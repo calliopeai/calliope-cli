@@ -24,3 +24,5 @@ export type {AttributedCharge,RequestAccounting} from './request-accounting.js';
 
 export * from './interruption.js';
 export * from './reviewed-ledger.js';
+
+export * from './source-candidates.js';

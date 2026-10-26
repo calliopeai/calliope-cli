@@ -249,6 +249,36 @@ the capability and connect owner lifecycle/funding. Retained metadata is a
 restriction within the private store, not protection against an administrator
 rewriting that store or explicitly transferring conversation content elsewhere.
 
+### Private reverse transport for hosted tasks
+
+The execution API exports `LEDGER_TUNNEL_CAPABILITY`, `attachLedgerTunnel` (owner)
+and `listenLedgerTunnel` (task). The owner injects an authenticated, non-replayed
+duplex exec connection; ordinary HTTP framing and backpressure carry only native
+ledger requests. The owner opens no public listener. The task binds its original
+loopback port, and never picks another port after a conflict. This does not yet
+supply an Astrolift websocket endpoint or its task-placement authorization.
+
+Both ends pin the original child credential's SHA-256, reviewed audience, run,
+grant and expiration. Parent/replacement credentials are refused before task
+traffic enters the exec stream. Claims are restrictions, not authentication:
+the existing native server still verifies the signature, current grant, workspace
+and account controls. The owner URL must be its trusted reviewed loopback host;
+requests cannot choose another URL, follow redirects or invoke revocation.
+
+Requests retain the native 256 KiB limit. Responses stream with a 32 MiB bound
+for the bounded journal and envelope. There is one task request in flight;
+heartbeats, request deadlines, stream closure and the original credential expiry
+close both ends on loss of the owner. Bridge failures never assert non-admission.
+The remote ledger retains unknown charges and retries the original request ID.
+
+Reconnect attaches a new authorized stream to the original task port and native
+stores, using the same credential and child checkpoint. It must not mint another
+grant or replace a task binding. The trusted host must revalidate task identity,
+placement and caller access through `assertConnection`, and abort the connection
+when that lease ends. Do not use terminal replay, chat events or logs for these
+streams: request headers contain the child bearer credential. The API performs
+no task enrollment, credential persistence, scheduling or independent accounting.
+
 ### Live execution authority
 
 A retained journal proves accounting history, not current permission to execute.

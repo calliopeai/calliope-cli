@@ -36,6 +36,8 @@ export async function prepareReviewedLedger(cwd:string,runId:string,agentId:stri
   assertAccount(agentId);
   const saved=ledger.read(cwd),effective=effectiveExecutionManifest(saved.manifest,saved.projection),deadline=Math.min(...accountLineage(effective,agentId).map(account=>account.deadline));
   if(Date.now()>=deadline)throw new ExecutionLimitError('deadline','Original owner allowance expired.');
+  history.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(saved.manifest.createdAt).toISOString(),deadline:saved.manifest.deadline});
+  assertAccount(agentId);
   const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision}));
   const state=new LedgerServerState(join(dirname(ledger.root),`${runId}.ledger-server`));
   const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,

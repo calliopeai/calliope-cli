@@ -65,6 +65,22 @@ arguments, canonical project identity and current policy configuration; every
 use still runs the shared gates. Terminal dialogs use a bounded FIFO queue.
 [Streaming and tool output](docs/streaming.md) defines attempt replacement,
 append-only client failures, parallel progress and bounded private inspection.
+[Pinned migration inventory](docs/migration-inventory.md) captures committed source
+and declared package dependencies without executing project code or granting work.
+[Migration behavior verification](docs/migration-verification.md) compares pinned
+JavaScript/TypeScript CLI fixtures through bounded native commands, with baseline
+and known-regression gates before candidate execution. Its read-only evidence review
+rechecks saved observations and exact plan bindings without granting execution.
+Separate baseline plans establish original behavior and known-regression rejection
+before a candidate exists; their reports and approvals cannot stand in for full
+candidate verification.
+[Generated source candidates](docs/source-candidates.md) stage exact native task
+patches for independent verification through the existing durable Git writer.
+They retain an explicitly unverified status and cannot replace verified
+improvement proposals; interrupted publication recovers the original commit.
+[Migration assessment](docs/migration-assessment.md) derives read-only feasibility,
+rulebooks, declared work graphs and measured pilot ranges. Trusted host evidence
+and coverage review is required for `go`; assessment never dispatches workers.
 [Orchestration preparation](docs/orchestration.md) defines agent/task contracts,
 validated dependency plans and an immutable local run journal.
 [Coordinator execution](docs/coordinator-execution.md) runs reviewed graphs
@@ -78,7 +94,9 @@ only with a reviewed tool grant and executor-owned task/attempt context.
 Supervised worker feedback intersects controller evidence with those task-local
 outcomes, preserving cross-task evidence in the journal without widening read scope.
 [Child admission](docs/child-admission.md) adds hash-approved descendants to an active
-graph without resetting its original scope, budget or clock.
+graph without resetting its original scope, budget or clock. Reviewed external
+allowances bind observed workspaces without adding locally scheduled tasks; the
+external host retains execution and outcome ownership.
 [Isolated workers](docs/isolated-workers.md) adds version 3 plans with retained Git
 worktrees, reviewed Docker verification commands and immutable process/diff evidence.
 Explicit `read-only-v1` isolated tasks return scoped structured reports without file

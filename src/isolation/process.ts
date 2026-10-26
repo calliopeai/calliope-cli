@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { bindProcessCancellation, detachedProcess } from '../process-cancellation.js';
 import { throwIfCancelled } from '../cancellation.js';
 import { redactSecrets } from '../runlog.js';
@@ -92,7 +92,9 @@ export async function runIsolatedCommand(image: string, command: VerificationCom
     const cleanupConfirmed=removed&&created===0;
     const outcome = signal?.aborted ? 'cancelled' : timedOut ? 'timeout' : code === 125 || !cleanupConfirmed ? 'unavailable' : code === 0 ? 'passed' : 'failed';
     const clean = (bytes: Buffer) => approvalDisplayText(String(redactSecrets(bytes.toString('utf8'))));
+    const fingerprint = (bytes: Buffer) => ({ sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length });
     return { version: 1, kind: 'isolated-command', argv: [...command.argv], image, container, cleanupConfirmed, cleanup,
+      outputDigests: { version: 1, stdout: fingerprint(output.stdout), stderr: fingerprint(output.stderr) },
       outcome, exitCode: outcome === 'cancelled' ? 130 : outcome === 'timeout' ? 124 : code,
       stdout: clean(output.stdout), stderr: clean(output.stderr), truncated, durationMs: Date.now() - start };
   } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }

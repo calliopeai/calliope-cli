@@ -4,7 +4,7 @@ import {canonicalJson,digest} from '../approvals/index.js';
 import {analyzePlan,array,hex,id,integer,iso,pathName,permits,shape,strings,text,uuid,fail} from './validation.js';
 import {OrchestrationError,type RunManifest} from './types.js';
 import type {CollectedArtifact,ExecutionChange,ExecutionEvent,ExecutionHeader,ExecutionProjection,TaskOutput,RunPlanContext} from './coordinator-types.js';
-import {validateSpawnAdmission,extendPlan} from '../spawning/validation.js';
+import {validateSpawnAdmission,extendPlan,spawnInput,assertSpawnPlacement} from '../spawning/validation.js';
 import {newSupervision,validateSupervisionChange,replaySupervisionChange,supervisionEvidence,assertSupervisionProposal} from '../supervision/journal.js';
 import {validateQuestionRequest,validateQuestionAnswer} from './question-contract.js';
 
@@ -127,7 +127,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       if(c.admission.proposal.source.kind==='supervision')assertSupervisionProposal(c.admission.proposal,state);
       else if(state.supervision&&state.supervision.phase!=='ready')conflict('Resolve the controller review before admitting external children.');
       const admission=c.admission;if(state.status==='completed'||Date.parse(event.at)>=header.deadline||Date.parse(event.at)<admission.grant.at||admission.grant.grant.accounts.some(a=>Date.parse(event.at)>=a.deadline)||agentStopped(state,manifest,admission.proposal.parentId))conflict('Child graph cannot join a completed, stopped or expired run.');
-      const p=admission.proposal;manifest={...manifest,plan:extendPlan(manifest.plan,{version:p.version,parentId:p.parentId,agents:p.agents,tasks:p.tasks})};analysis=analyzePlan(manifest.plan);
+      const p=admission.proposal;assertSpawnPlacement(p,state.graph?.admissions??[]);manifest={...manifest,plan:extendPlan(manifest.plan,spawnInput(p))};analysis=analyzePlan(manifest.plan);
       for(const task of p.tasks)state.tasks[task.id]={id:task.id,agentId:task.agentId,status:'pending',attempts:0,sessionId:null,output:null,artifactIds:[],changedFiles:[],mutations:false,escalation:null};
       state.graph={version:1,plan:manifest.plan,hash:analysis.hash,admissions:[...(state.graph?.admissions??[]),admission]};state.version=state.supervision?3:2;
     }else if(c.type==='interruption_recovered'){

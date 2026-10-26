@@ -73,6 +73,22 @@ describe('redactSecrets', () => {
     expect(out.note).not.toContain('ABCDEFGHIJKLMNOP');
   });
 
+  it('preserves task folder names without treating the end of a word as a key prefix', () => {
+    for (const path of ['/tmp/task-attachment-0123456789/project', '/tmp/task-ant-ABCDEFGHIJKLMNOP1234567890/project']) {
+      expect(redactSecrets(path)).toBe(path);
+    }
+  });
+
+  it('still masks standalone provider keys in paths, quoted text and assignments', () => {
+    for (const key of ['sk-ABCDEFGHIJKLMNOP1234567890', 'sk-ant-ABCDEFGHIJKLMNOP1234567890']) {
+      for (const text of [key, `/tmp/${key}/file`, `\"${key}\"`, `key=${key}`, `Bearer ${key}`]) {
+        expect(redactSecrets(text)).not.toContain(key);
+        expect(redactSecrets(text)).toContain('[REDACTED]');
+      }
+      expect(redactSecrets({apiKey: `prefix${key}`})).toEqual({apiKey: '[REDACTED]'});
+    }
+  });
+
   it('recurses through nested objects and arrays', () => {
     const out = redactSecrets({
       providers: { anthropic: { apiKey: 'sk-secret', baseUrl: 'https://x' } },
