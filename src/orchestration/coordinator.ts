@@ -172,7 +172,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       // the project-wide allowance so the measured prompt still fits inside
       // the planner's bounded planning account.
       const proposalOutputCap=task.id==='propose'?Math.min(4096,outputCap):outputCap;
-      const execution={...provisional,maxOutputTokens:Math.min(proposalOutputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running'||agentStopped(state,context,agent.id))throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
+      // Journal stop wins even before the periodic observer aborts this child.
+      const execution={...provisional,maxOutputTokens:Math.min(proposalOutputCap,maximum,agentOutputCap),assertAuthority:()=>{assertRun();throwIfCancelled(child.signal);const state=store.read().state;if(agentStopped(state,context,agent.id))throw cancellationError();if(state.ownerId!==lease.id||state.tasks[task.id]!.status!=='running')throw new ExecutionLimitError('authority','Task ownership or approval changed.');}};
       const toolEvent=async(call:ToolCall,stage:'started'|'finished',success=false)=>{const mutating=['artifact','write_file','edit_file'].includes(call.name)||workspace!==undefined&&call.name==='shell';await store.append({type:'tool',taskId:task.id,callId:call.id,name:call.name,path:toolPath(cwd,call),stage,mutating,success});};
       const artifact=artifactHost?bindArtifactHost(artifactHost,{version:1,project:{...view.manifest.project},runId,manifestHash:view.manifest.hash,
         planHash:view.run.planHash,approvalRevision:view.run.revision,taskId:task.id,agentId:agent.id,sessionId:session.id,attempt,
