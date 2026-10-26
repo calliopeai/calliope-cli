@@ -87,7 +87,11 @@ it('answers a durable nested worker question within the same session without rep
     expect(result.accounting).toMatchObject({status:'available',run:{accounted:{tokens:70}}});
   }finally{controller.abort();await running;}
 });
-it('cancels a waiting worker question and closes it without another provider call or mutation replay',async()=>{
+it.each([false,true])('cancels a waiting worker question without another provider call or mutation replay (delayed observer: %s)',async delayedObserver=>{
+  if(delayedObserver){
+    const interval=globalThis.setInterval;
+    vi.spyOn(globalThis,'setInterval').mockImplementation(((handler,delay,...args)=>interval(handler,delay===100?60000:delay,...args)) as typeof setInterval);
+  }
   const v=await reviewed(questionPlan());respond=async(task,body)=>questionReply(task,body);
   let notify!:(id:string)=>void;const asked=new Promise<string>(resolve=>{notify=resolve;}),controller=new AbortController();
   const running=executeReviewedRun(project,v.run.id,{store:runs,signal:controller.signal,approve:async()=> 'allow',onEvent:e=>{if(e.change.type==='question_asked')notify(e.change.request.id);}});
