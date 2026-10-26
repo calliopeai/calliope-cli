@@ -4,11 +4,16 @@ import {smartPool,smartTargetMatches,type SmartRoutingPolicy,type SmartRoutingSe
 import type {RoutingDecision} from '../routing/types.js';
 import type {ExecutionEvent,RunPlanContext} from './coordinator-types.js';
 import type {ExecutionStore} from './execution-store.js';
+import type {AgentContract} from './types.js';
 import {shape,text,uuid,fail} from './validation.js';
 
 export interface RecordedAgentRoute {
   version:1;decisionId:string;provider:string;model:string;reason:string;
   profile:SmartRoutingPolicy['profile'];stage:SmartRoutingSelection['stage'];evidenceId?:string;
+}
+/** Explicit reviewed choices remain constraints even when a host supplies its own runtime config. */
+export function matchesAgentPreference(preference:AgentContract['preference'],provider:string,model:string):boolean {
+  return (preference.provider==='auto'||preference.provider===provider)&&(!preference.model||preference.model===model);
 }
 /** Only a recorded failed check with immutable evidence opens the escalation pool. */
 export function taskSmartSelection(policy:SmartRoutingPolicy,events:ExecutionEvent[],taskId?:string):SmartRoutingSelection {
@@ -25,7 +30,7 @@ export function validateRecordedRoute(value:unknown,context:RunPlanContext,agent
   if(!getProviderNames().includes(value.provider as never))fail('Unknown routed provider.');
   if(value.stage==='escalation'?!policy.escalationPool||!uuid(value.evidenceId):value.evidenceId!==undefined)fail('Escalated routing requires recorded verification evidence.');
   const preference=agent!.preference;
-  if(preference.provider!=='auto'&&preference.provider!==value.provider||preference.model&&preference.model!==value.model)fail('Routing evidence changed an explicit agent pin.');
+  if(!matchesAgentPreference(preference,value.provider,value.model))fail('Routing evidence changed an explicit agent pin.');
   if(!preference.model&&(preference.provider==='auto'||smartPool({policy,stage:value.stage as SmartRoutingSelection['stage']}).some(t=>t.provider===preference.provider))&&!smartTargetMatches(smartPool({policy,stage:value.stage as SmartRoutingSelection['stage']}),value.provider,{id:value.model}))fail('Routing evidence exceeds the reviewed model pool.');
   return value as unknown as RecordedAgentRoute;
 }

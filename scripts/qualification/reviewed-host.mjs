@@ -125,6 +125,16 @@ try {
     }
   };
   await bindChildren(true);
+  const scopedClient=await RemoteReservationLedger.connect({url:bindings.a.url,
+    token:fs.readFileSync(bindings.a.tokenFile,'utf8').trim(),root:join(root,'pin-check')});
+  const beforePinChecks=authority.ledger.read(project);
+  for(const choice of [{provider:'openai',model:'reviewed-fixture'},
+    {provider:'openai-compat',model:'unreviewed-model'}]){
+    await assert.rejects(scopedClient.reserve(project,authority.manifestHash,{id:randomUUID(),agentId:'a',
+      ...choice,target:'a'.repeat(64),inputTokens:1,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0}),
+      error=>error.code==='authority');
+    assert.deepEqual(authority.ledger.read(project),beforePinChecks,'Rejected inference choices must not charge the parent');
+  }
   const run=async(agentId,cwd=project,credentialOwner=agentId)=>{
     const binding=bindings[credentialOwner];
     const child=spawn(command,[...prefix,'--headless','--json','--provider','openai-compat','--model','reviewed-fixture',
@@ -163,7 +173,7 @@ try {
   const cancelled=await run('b');assert.notEqual(cancelled.code,0);assert.match(cancelled.stdout,/authority|cancel|refus/i);
   assert.equal(inference,2,'Neither another project nor cancelled authority may infer');
   console.log(JSON.stringify({protocol:'reviewed-host-qualification/v1',artifact:nativeBinary?'standalone':packagePath?'npm-package':'node',inferenceRequests:inference,
-    concurrentChildren:2,parentTokens:200000,restartPreserved:true,exhaustionRefused:true,
+    concurrentChildren:2,parentTokens:200000,providerPinRefused:true,modelPinRefused:true,restartPreserved:true,exhaustionRefused:true,
     foreignProjectRefused:true,siblingRefused:true,revocationRefused:true,paidRequests:0}));
 } finally {
   await Promise.all([...children].map(async child=>{

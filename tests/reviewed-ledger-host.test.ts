@@ -36,12 +36,38 @@ const post=async(url:string,token:string,op:string,body:object)=>{
   const response=await fetch(`${url}/v1/${op}`,{method:'POST',headers:{authorization:`Bearer ${token}`},body:JSON.stringify(body)});
   return {status:response.status,body:await response.json() as Record<string,unknown>};
 };
-async function childProposal(){
+it.each([{provider:'openai',model:'fixture'},{provider:'deepseek',model:'other-model'}])('refuses a reservation outside the reviewed inference choice: $provider/$model',async choice=>{
+  const directory=join(root,'inference-scope');fs.mkdirSync(directory);
+  const plan=verifiedPlan();plan.limits.timeBudgetMs=120000;
+  for(const agent of plan.agents)agent.timeBudgetMs=120000;
+  plan.agents.find(agent=>agent.id==='a')!.preference={provider:'deepseek',model:'fixture'};
+  fixture=await coordinatorRun(directory,plan);
+  const host=await start('a'),client=await connect(host.url,host.ownerToken,'a');
+  const before=fixture.authority.ledger.read(fixture.project);
+  await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),...choice})).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+  await client.reserve(fixture.project,host.execution.manifestHash,request());
+  expect(fixture.authority.ledger.read(fixture.project).projection.spent.tokens).toBe(100);
+});
+async function childProposal(preference?:{provider:string;model?:string}){
   const agent=structuredClone(fixture.view.manifest.plan.agents[1]!),task=structuredClone(fixture.view.manifest.plan.tasks[0]!);
+  if(preference)agent.preference=preference;
   agent.id='c';agent.allowedPaths=[{path:'c',access:'write'}];task.id='inspect-c';task.agentId='c';task.outputs[0]!.id='report-c';task.outputs[0]!.path='c/report.txt';task.acceptanceChecks![0]!.artifactId='report-c';
   fs.mkdirSync(join(fixture.project,'c'));fs.writeFileSync(join(fixture.project,'children.json'),JSON.stringify({version:1,parentId:'coordinator',agents:[agent],tasks:[task]}));
   return (await inspectSpawn(fixture.project,fixture.view.run.id,'children.json',{store:fixture.runs})).proposal;
 }
+
+it('enforces the explicit preference of a newly admitted descendant',async()=>{
+  const host=await start(),parent=await connect(host.url,host.ownerToken);
+  const proposal=await childProposal({provider:'deepseek',model:'fixture'});
+  const admission=await admitSpawn(fixture.project,fixture.view.run.id,proposal,proposal.hash,{store:fixture.runs});
+  const issued=await parent.grantChildren(fixture.project,host.execution.manifestHash,admission.admission.grant.grant);
+  const child=await connect(host.url,issued.token,'c'),before=fixture.authority.ledger.read(fixture.project);
+  await expect(child.reserve(fixture.project,host.execution.manifestHash,{...request('c'),model:'other'})).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+  await child.reserve(fixture.project,host.execution.manifestHash,request('c'));
+  expect(fixture.authority.ledger.read(fixture.project).projection.spent.tokens).toBe(100);
+});
 
 it('serves the actual reviewed account without replacing its allowance or clock across restart',async()=>{
   const before=fixture.authority.ledger.read(fixture.project),host=await start('a');
