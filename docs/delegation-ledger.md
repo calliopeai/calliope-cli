@@ -248,3 +248,12 @@ must still pass the trusted tuple, retain its task binding across restarts, veri
 the capability and connect owner lifecycle/funding. Retained metadata is a
 restriction within the private store, not protection against an administrator
 rewriting that store or explicitly transferring conversation content elsewhere.
+
+### Live execution authority
+
+A retained journal proves accounting history, not current permission to execute.
+Delegated clients revalidate the exact account and workspace through `execution`
+before model requests and tool effects, and again before committing staged file
+bytes. Revoked grants, stopped owners and an unreachable authority refuse further
+work even when cached history is readable. Reconciliation reads do not restore
+execution permission or release unresolved reservations.

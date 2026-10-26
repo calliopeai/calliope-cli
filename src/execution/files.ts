@@ -27,9 +27,9 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
     }finally{fs.closeSync(fd);}
   };
   return {
-    readTextFile:async file=>{guard.assertActive(signal);check(file);const value=read(file);snapshots.set(file,value?{hash:value.hash,mode:value.mode}:null);if(!value)throw new Error('File not found.');check(file);return value.content;},
+    readTextFile:async file=>{await guard.refreshAuthority(signal);check(file);const value=read(file);snapshots.set(file,value?{hash:value.hash,mode:value.mode}:null);if(!value)throw new Error('File not found.');check(file);return value.content;},
     writeTextFile:async(file,content)=>{
-      guard.assertActive(signal);check(file);if(Buffer.byteLength(content)>MAX_FILE_BYTES)throw new ExecutionLimitError('limit','Agent file output exceeds 1 MiB.');
+      await guard.refreshAuthority(signal);check(file);if(Buffer.byteLength(content)>MAX_FILE_BYTES)throw new ExecutionLimitError('limit','Agent file output exceeds 1 MiB.');
       const expected=snapshots.get(file);
       const physical=guard.filePath(file);
       // Creation tasks intentionally omit read_file from the admitted tool set.
@@ -51,7 +51,7 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
       try{
         const current=read(file);if((current?.hash??null)!==(expected?.hash??null))throw new ExecutionLimitError('conflict','File changed after the agent read it; refresh before editing.');
         const fd=fs.openSync(temp,'wx',expected?.mode??0o600);try{fs.writeFileSync(fd,content);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
-        guard.assertActive(signal);check(file);const after=fs.statSync(parent);if(before.ino!==after.ino||before.dev!==after.dev)throw new ExecutionLimitError('conflict','Parent directory changed before file commit.');
+        await guard.refreshAuthority(signal);check(file);const after=fs.statSync(parent);if(before.ino!==after.ino||before.dev!==after.dev)throw new ExecutionLimitError('conflict','Parent directory changed before file commit.');
         const latest=read(file);if((latest?.hash??null)!==(expected?.hash??null))throw new ExecutionLimitError('conflict','File changed before commit.');
         fs.renameSync(temp,physical);
         // POSIX-only: Windows denies FlushFileBuffers on a directory handle opened via 'r' (#382, #384, #388).
@@ -59,7 +59,7 @@ export function agentFiles(guard:ExecutionGuard,agentId:string,call:ToolCall,sig
       }finally{try{const after=fs.statSync(parent);if(canonicalPath(parent)===parent&&after.ino===before.ino&&after.dev===before.dev)fs.unlinkSync(temp);}catch{/* Committed or replaced. */}}
     },
     listFiles:async(file,recursive)=>{
-      guard.assertActive(signal);
+      await guard.refreshAuthority(signal);
       const output:string[]=[];let count=0;
       const walk=(dir:string,depth:number)=>{
         check(dir);if(depth>5||count>=1000)return;const handle=fs.opendirSync(guard.filePath(dir));

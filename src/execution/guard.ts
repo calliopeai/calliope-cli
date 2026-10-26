@@ -83,6 +83,11 @@ export class ExecutionGuard {
       return executionPathDenial(this.scopeManifest,accountLineage(this.manifest,this.agentId)[0]!,locator.projectKey===this.scopeManifest.project.key?locator.path??'.':'.','read');
     }};
   }
+  async refreshAuthority(signal?:AbortSignal):Promise<void> {
+    this.assertActive(signal);
+    await this.ledger.refreshAuthority?.(this.cwd,this.agentId,signal);
+    this.assertActive(signal);
+  }
   assertActive(signal?:AbortSignal):void {
     throwIfCancelled(signal);this.assertAuthority?.();this.workspace?.assertIdentity();checkExecutionIdentity(this.scopeManifest,this.cwd);
     if(Date.now()>=this.deadline)throw new ExecutionLimitError('deadline','Agent deadline expired.');

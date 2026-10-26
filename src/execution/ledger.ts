@@ -127,6 +127,8 @@ function syncDir(path:string):void {if(process.platform==='win32')return;const f
 export type ReservationLedgerAccess = Pick<ReservationLedger,'root'|'read'|'reserve'|'settle'> & {
   /** A transport must confirm rejection; cached absence cannot rule out an in-flight commit. */
   canReleaseFailedReservation?:(error:unknown)=>boolean;
+  /** Revalidate live owner/token authority; cached history is not an execution grant. */
+  refreshAuthority?:(cwd:string,agentId:string,signal?:AbortSignal)=>Promise<void>;
   /** Native transport verified this exact account's owner-declared local workspace. */
   executionProject?:(cwd:string,agentId:string)=>ExecutionManifest['project'];
 };
