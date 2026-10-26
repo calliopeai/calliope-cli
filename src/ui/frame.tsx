@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Box, Text, useStdout } from 'ink';
+import { Box, Text, useWindowSize } from 'ink';
 import type { BoxProps } from 'ink';
 import { getCurrentSkin, getInkColor } from '../hud/api.js';
 import type { SkinFrame } from '../hud/types.js';
@@ -26,8 +26,8 @@ export function HUDFrame({ children, width }: HUDFrameProps) {
   const frameEnabled = !!(frame?.enabled && frame.style !== 'none');
 
   // All hooks must be called before any conditional returns (React rules of hooks)
-  const { stdout } = useStdout();
-  const termWidth = width || stdout?.columns || 80;
+  const { columns } = useWindowSize();
+  const termWidth = width || columns;
 
   const borderColor = getInkColor('border');
   const animations = skin.animations;

@@ -1,15 +1,14 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
+import React, { useMemo, useState } from 'react';
+import { Box, Text, useInput, useWindowSize } from 'ink';
 import type { CapturedToolOutput } from '../../sessions/index.js';
 import { approvalDisplayText } from '../../approvals/index.js';
 import { wrapToolOutput } from '../tool-output-wrap.js';
 
 /** Expand in the live modal zone; previously emitted scrollback stays immutable. */
 export function ToolOutputViewer({ output, onClose }: { output: CapturedToolOutput; onClose: () => void }) {
-  const { stdout } = useStdout();
-  const size = () => ({ width: Math.max(10, (stdout.columns ?? 80) - 8), rows: Math.max(3, Math.min(30, (stdout.rows ?? 28) - 8)) });
-  const [viewport, setViewport] = useState(size), [expanded, setExpanded] = useState(true), [page, setPage] = useState(0);
-  useEffect(() => { const resize = () => setViewport(size()); stdout.on('resize', resize); return () => { stdout.off('resize', resize); }; }, [stdout]);
+  const { columns, rows: terminalRows } = useWindowSize();
+  const viewport = { width: Math.max(10, columns - 8), rows: Math.max(3, Math.min(30, terminalRows - 8)) };
+  const [expanded, setExpanded] = useState(true), [page, setPage] = useState(0);
   const rows = useMemo(() => wrapToolOutput(approvalDisplayText(output.record.content), viewport.width), [output.record.content, viewport.width]);
   const pages = Math.max(1, Math.ceil(rows.length / viewport.rows)), current = Math.min(page, pages - 1);
   useInput((input, key) => {
