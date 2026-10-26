@@ -365,7 +365,6 @@ async function main(): Promise<void> {
                        process.env.DEEPSEEK_API_KEY ||
                        process.env.XAI_API_KEY ||
                        process.env.CEREBRAS_API_KEY ||
-                       process.env.LITELLM_BASE_URL ||
                        process.env.BEDROCK_API_KEY ||
                        process.env.BEDROCK_BASE_URL ||
                        process.env.OPENAI_COMPAT_BASE_URL;
@@ -514,8 +513,6 @@ ${bold('ENVIRONMENT VARIABLES')}
   XAI_API_KEY           xAI API key
   CEREBRAS_API_KEY      Cerebras API key
   OLLAMA_BASE_URL       Ollama server URL (default: localhost:11434)
-  LITELLM_BASE_URL      LiteLLM proxy URL (default: localhost:4000)
-  LITELLM_API_KEY       LiteLLM API key (if required)
   BEDROCK_BASE_URL      AWS Bedrock gateway/proxy URL
   BEDROCK_API_KEY       AWS Bedrock gateway API key (if required)
   OPENAI_COMPAT_BASE_URL   Generic OpenAI-compatible server URL (e.g. http://localhost:1234/v1)

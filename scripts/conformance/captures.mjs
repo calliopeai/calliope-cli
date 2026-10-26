@@ -1,10 +1,10 @@
 /** Capture validation and fail-closed offline replay. No networking. */
 import { createHash } from 'node:crypto';
-import { BACKENDS, PROBE_TEXT } from './contract.mjs';
+import { BACKENDS, CAPTURE_BACKENDS, PROBE_TEXT } from './contract.mjs';
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 export function validateCapture(value) {
   if (value?.version !== 1 || value.provenance?.kind !== 'captured' || !Number.isFinite(Date.parse(value.provenance.capturedAt))) throw new Error('A capture requires real-wire provenance and a capture timestamp');
-  if (!BACKENDS.some(backend => backend.id === value.backend) || !['text', 'tool'].includes(value.scenario) || typeof value.stream !== 'boolean' || typeof value.model !== 'string' || !value.model) throw new Error('Invalid capture target');
+  if (!CAPTURE_BACKENDS.some(backend => backend.id === value.backend) || !['text', 'tool'].includes(value.scenario) || typeof value.stream !== 'boolean' || typeof value.model !== 'string' || !value.model) throw new Error('Invalid capture target');
   if (!value.expected || !Array.isArray(value.exchanges) || value.exchanges.length !== 1) throw new Error('A probe must contain exactly one exchange and its reviewed expected result');
   if (!value.provenance.sdkVersions || typeof value.provenance.sdkVersions !== 'object') throw new Error('SDK versions are required');
   if (value.scenario === 'text' && (value.expected.finishReason !== 'stop' || value.expected.content.trim() !== PROBE_TEXT || value.expected.tools?.length !== 0)) throw new Error('Text probe did not complete the expected task');

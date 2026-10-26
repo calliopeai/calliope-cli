@@ -83,7 +83,7 @@ function makeCircuitBreaker(): CircuitBreaker {
   }
   // Local/free providers: disable cost breaker, relax token limits
   const prov = config.get('defaultProvider');
-  if (prov === 'ollama' || prov === 'litellm') {
+  if (prov === 'ollama') {
     cb.adjust('cost-runaway', { maxSessionCost: 999999, maxCostPerMinute: 999999 });
     cb.adjust('token-burn', { maxTokensPerIteration: 500_000, maxTotalTokens: 20_000_000 });
   }
@@ -558,7 +558,7 @@ export function useChatController(initial?: ModelPreference, skipPermissions = f
     try {
       if (entry.id === 'ollama') {
         config.setProviderCred('ollama', { baseUrl: value });
-      } else if (entry.id === 'litellm' || entry.id === 'openai-compat') {
+      } else if (entry.id === 'openai-compat') {
         config.setProviderCred(entry.id, { baseUrl: value });
       } else if (entry.id === 'bedrock') {
         process.env.AWS_PROFILE = value;

@@ -39,7 +39,6 @@ export function getAvailableProviders(): LLMProvider[] {
   if (config.getApiKey('mistral')) providers.push('mistral');
   if (config.getBaseUrl('ollama')) providers.push('ollama');
   if (config.getApiKey('huggingface')) providers.push('huggingface');
-  if (config.getBaseUrl('litellm')) providers.push('litellm');
   if (config.getBaseUrl('openai-compat')) providers.push('openai-compat');
   if (config.getApiKey('deepseek')) providers.push('deepseek');
   if (config.getApiKey('xai')) providers.push('xai');
@@ -96,7 +95,7 @@ function unavailableMessage(provider: LLMProvider): string {
     return 'ai21 is retired: the AI21 Studio API was sunset on August 9, 2026. Remove the provider or migrate to a supported endpoint such as Hugging Face, Together, or an explicitly configured OpenAI-compatible gateway.';
   }
   const { apiKey, baseUrl } = config.getProviderEnvVars(provider);
-  if (provider === 'ollama' || provider === 'litellm' || provider === 'openai-compat') {
+  if (provider === 'ollama' || provider === 'openai-compat') {
     const fixes = ['calliope --setup', `/config set providers.${provider}.baseUrl <url>`];
     if (baseUrl) fixes.push(`export ${baseUrl}`);
     return `${provider} is selected but has no base URL. Fix: ${joinFixes(fixes)}.`;
@@ -119,10 +118,11 @@ function unavailableMessage(provider: LLMProvider): string {
  * priority list and falls back.
  */
 export function selectProvider(preferred: LLMProvider): LLMProvider {
+  if (String(preferred) === 'litellm') throw new ProviderUnavailableError(preferred, 'LiteLLM support has been removed. Select a supported provider explicitly; no replacement was chosen.');
   if (preferred !== 'auto') {
     if (preferred === 'ai21') throw new ProviderUnavailableError(preferred, unavailableMessage(preferred));
-    // For Ollama/LiteLLM, check base URL instead of API key
-    if (preferred === 'ollama' || preferred === 'litellm' || preferred === 'openai-compat') {
+    // For local endpoints, check base URL instead of API key
+    if (preferred === 'ollama' || preferred === 'openai-compat') {
       if (config.getBaseUrl(preferred)) return preferred;
     } else if (preferred === 'bedrock') {
       if (config.getApiKey('bedrock') || config.getBaseUrl('bedrock') || process.env.AWS_ACCESS_KEY_ID || process.env.AWS_PROFILE || nativeBedrockConfigured()) return preferred;
@@ -135,7 +135,7 @@ export function selectProvider(preferred: LLMProvider): LLMProvider {
   }
 
   // Auto-select: prefer Anthropic > OpenAI > Google > others
-  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'litellm', 'openai-compat'];
+  const priority: LLMProvider[] = ['anthropic', 'openai', 'google', 'deepseek', 'xai', 'cerebras', 'mistral', 'openrouter', 'together', 'groq', 'fireworks', 'huggingface', 'bedrock', 'ollama', 'openai-compat'];
 
   const available = getAvailableProviders();
   for (const p of priority) if (available.includes(p) && !quarantined(p)) return p;
@@ -225,7 +225,6 @@ export async function chat(
       case 'ollama':
         response = await chatOllama(messages, backendTools, actualModel, onToken, { ...options, ...limits });
         break;
-      case 'litellm':
       case 'openai-compat':
         response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;

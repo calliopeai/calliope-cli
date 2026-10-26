@@ -50,7 +50,6 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.DEEPSEEK_API_KEY) envProviders.push('deepseek');
   if (process.env.XAI_API_KEY) envProviders.push('xai');
   if (process.env.CEREBRAS_API_KEY) envProviders.push('cerebras');
-  if (process.env.LITELLM_BASE_URL) envProviders.push('litellm');
   if (process.env.BEDROCK_API_KEY || process.env.BEDROCK_BASE_URL) envProviders.push('bedrock');
   if (process.env.OPENAI_COMPAT_BASE_URL) envProviders.push('openai-compat');
 
@@ -72,7 +71,6 @@ export async function runSetup(force = false): Promise<boolean> {
       { value: 'fireworks', name: 'Fireworks AI', description: 'Fast open source model inference' },
       { value: 'mistral', name: 'Mistral AI', description: 'Mistral Large - European AI' },
       { value: 'ollama', name: 'Ollama (Local)', description: 'Run models locally - no API key needed' },
-      { value: 'litellm', name: 'LiteLLM Proxy', description: 'Unified proxy for multiple providers' },
       { value: 'bedrock', name: 'AWS Bedrock', description: 'AWS Bedrock via gateway/proxy' },
       { value: 'openai-compat', name: 'Generic OpenAI-compatible server', description: 'Any server with OpenAI API: AnythingLLM, LocalAI, Jan, LM Studio, vLLM' },
       { value: 'huggingface', name: 'HuggingFace', description: 'Open source model inference' },
@@ -89,7 +87,7 @@ export async function runSetup(force = false): Promise<boolean> {
   // API Key or Base URL setup (if not in env)
   const needsKey = providerChoice !== 'auto' && !envProviders.includes(providerChoice);
 
-  // Special handling for Ollama and LiteLLM (use base URL, not API key)
+  // Special handling for local endpoints (use base URL, not API key)
   if (providerChoice === 'ollama' && needsKey) {
     console.log();
     console.log(c(`  Ollama runs locally and doesn't need an API key.`, 'dim'));
@@ -98,28 +96,6 @@ export async function runSetup(force = false): Promise<boolean> {
       default: 'http://localhost:11434',
     });
     config.setProviderCred('ollama', { baseUrl });
-  } else if (providerChoice === 'litellm' && needsKey) {
-    console.log();
-    console.log(c(`  LiteLLM is a proxy server for multiple providers.`, 'dim'));
-    const baseUrl = await input({
-      message: 'Enter your LiteLLM proxy URL:',
-      default: 'http://localhost:4000',
-    });
-    config.setProviderCred('litellm', { baseUrl });
-
-    const needsApiKey = await confirm({
-      message: 'Does your LiteLLM proxy require an API key?',
-      default: false,
-    });
-    if (needsApiKey) {
-      const apiKey = await password({
-        message: 'Enter your LiteLLM API key:',
-        mask: '*',
-      });
-      if (apiKey && apiKey.length > 0) {
-        config.setProviderCred('litellm', { apiKey });
-      }
-    }
   } else if (providerChoice === 'bedrock' && needsKey) {
     console.log();
     console.log(c(`  AWS Bedrock requires a gateway/proxy with an OpenAI-compatible API.`, 'dim'));
