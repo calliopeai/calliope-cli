@@ -4,7 +4,8 @@
  * already saw is refused, so a reset or rollback can never return spent capacity. */
 import {cancellableDelay,throwIfCancelled} from '../cancellation.js';
 import {canonicalJson,projectIdentity} from '../approvals/index.js';
-import {checkExecutionIdentity,shape,validateExecutionProject} from './authority.js';
+import {checkExecutionIdentity,integer,shape,validateExecutionProject} from './authority.js';
+import {validateRequestAttribution,type TaskRequestAttribution} from './attribution.js';
 import {executionProjectForAccount} from './child-grants.js';
 import {replayReservations} from './ledger.js';
 import {ExecutionLimitError,type ChildGrant,type ExecutionManifest,type ReservationEvent,type RequestReservation,type RequestSettlement,type ReservationProjection} from './types.js';
@@ -27,6 +28,9 @@ export class RemoteReservationLedger {
   private readonly checkpoint:RemoteLedgerCheckpoint;
   private readonly confirmedRejections=new WeakSet<Error>();
   private binding?:{agentId:string;project:ExecutionManifest['project']};
+  private executionOperation:'execution'|'task-execution'='execution';
+  private taskBinding?:{attribution:TaskRequestAttribution;maxOutputTokens:number};
+  get taskExecutionBinding(){return this.taskBinding?structuredClone(this.taskBinding):undefined;}
   private constructor(private readonly options:RemoteLedgerOptions){
     this.checkpoint=new RemoteLedgerCheckpoint(options.root);this.root=this.checkpoint.root;
     const saved=this.checkpoint.read();if(saved)this.journal=saved;
@@ -36,7 +40,8 @@ export class RemoteReservationLedger {
     const ledger=new RemoteReservationLedger(options),hello=await ledger.call('hello',{}) as {protocol?:string;operations?:string[]};
     if(hello.protocol!==LEDGER_PROTOCOL)throw new ExecutionLimitError('unavailable',`Parent ledger speaks ${String(hello.protocol)}, not ${LEDGER_PROTOCOL}.`);
     if(options.execution){
-      if(!Array.isArray(hello.operations)||!hello.operations.includes('execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
+      if(!Array.isArray(hello.operations)||!hello.operations.some(op=>op==='execution'||op==='task-execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
+      ledger.executionOperation=hello.operations.includes('task-execution')?'task-execution':'execution';
       await ledger.refreshAuthority(options.execution.cwd,options.execution.agentId);
     }else ledger.accept(await ledger.call('journal',{}));
     return ledger;
@@ -54,10 +59,20 @@ export class RemoteReservationLedger {
   async refreshAuthority(cwd:string,agentId:string,signal?:AbortSignal):Promise<void> {
     const {project,projectKey}=projectIdentity(cwd),expected={agentId,project:{root:project,key:projectKey}};
     if(this.binding&&canonicalJson(this.binding)!==canonicalJson(expected))throw new ExecutionLimitError('authority','Execution binding cannot be replaced.');
-    const floor=this.journal,response=await this.call('execution',expected,signal) as Journal&{binding:unknown};
-    shape(response.binding,['version','agentId','project']);
-    if(response.binding.version!==1||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
+    const floor=this.journal,response=await this.call(this.executionOperation,expected,signal) as Journal&{binding:unknown};
+    const isTask=this.executionOperation==='task-execution';
+    shape(response.binding,isTask?['version','agentId','project','attribution','maxOutputTokens']:['version','agentId','project']);
+    if(response.binding.version!==(isTask?2:1)||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
+    let taskBinding:typeof this.taskBinding;
+    if(isTask){
+      const attribution=validateRequestAttribution(response.binding.attribution);
+      if(attribution.kind!=='task')throw new ExecutionLimitError('authority','Parent returned a non-task execution binding.');
+      integer(response.binding.maxOutputTokens,1,100000000);
+      taskBinding={attribution,maxOutputTokens:response.binding.maxOutputTokens};
+      if(this.taskBinding&&canonicalJson(this.taskBinding)!==canonicalJson(taskBinding))throw new ExecutionLimitError('authority','Native task execution binding cannot be replaced.');
+    }
     this.accept(response,floor);this.binding=expected;this.executionProject(cwd,agentId);
+    this.taskBinding=taskBinding;
   }
   async refresh():Promise<void> {const floor=this.journal;this.accept(await this.call('journal',{}),floor);}
   canReleaseFailedReservation(error:unknown):boolean {
