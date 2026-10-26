@@ -10,10 +10,12 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import {randomUUID} from 'node:crypto';
+import {createInterface} from 'node:readline';
 
 const packagePath = process.env.CALLIOPE_REVIEWED_HOST_PACKAGE;
 const packageRoot = packagePath ? fs.realpathSync(packagePath) : fileURLToPath(new URL('../../', import.meta.url));
 const nativeBinary = process.env.CALLIOPE_REVIEWED_HOST_BINARY;
+const taskBound = process.env.CALLIOPE_REVIEWED_HOST_TASKS === '1';
 assert.ok(!(packagePath && nativeBinary), 'Choose either an extracted npm package or a standalone binary');
 const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'calliope-reviewed-example-')));
 fs.chmodSync(root, 0o700);
@@ -46,6 +48,7 @@ const provider = createServer(async (request, response) => {
   let raw=''; for await (const chunk of request) raw+=chunk;
   assert.equal(request.url, '/v1/chat/completions');
   const body=JSON.parse(raw); inference++;
+  if(taskBound)assert.equal(body.max_tokens??body.max_completion_tokens,1024,'Native children must inherit the task output cap');
   const envelope={id:'reviewed-'+inference,model:'reviewed-fixture',created:1,
     usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}};
   if(body.stream){
@@ -85,9 +88,15 @@ try {
   const reviewed=await changePreparedRun(project,prepared.run.id,'approved',{store:runs});
   const authority=await prepareAgentExecution(project,reviewed.run.id,'coordinator',4096,{store:runs});
   const initial=authority.ledger.read(project);
-  new ExecutionStore(join(runs.root,reviewed.run.id),reviewed.manifest).create({version:1,runId:reviewed.run.id,
+  const history=new ExecutionStore(join(runs.root,reviewed.run.id),reviewed.manifest);
+  history.create({version:1,runId:reviewed.run.id,
     manifestHash:reviewed.manifest.hash,approvalRevision:reviewed.run.revision,
     createdAt:new Date(initial.manifest.createdAt).toISOString(),deadline:initial.manifest.deadline});
+  const starts={};
+  if(taskBound){
+    await history.append({type:'started',ownerId:randomUUID()});
+    for(const id of ['a','b'])starts[id]=await history.append({type:'task_started',taskId:'inspect-'+id,attempt:1,sessionId:randomUUID(),requestAttribution:1});
+  }
   let host=await prepareReviewedLedger(project,reviewed.run.id,'coordinator',4096,{store:runs});
   let url=await listen(host.server);
   const env={PATH:process.env.PATH,HOME:home,USERPROFILE:home,CALLIOPE_CONFIG_DIR:config,
@@ -101,8 +110,9 @@ try {
     generation++;
     for(const id of ['a','b']){
       const tokenFile=join(root,id+'.token'),issued=first?tokenFile:join(root,id+'.'+generation+'.token');
-      const processHost=spawn(command,[...prefix,'ledger','serve-reviewed','--run',reviewed.run.id,'--agent',id,
-        '--max-output-tokens','4096','--project',project,'--token-file',issued],
+      const processHost=spawn(command,[...prefix,'ledger',taskBound?'serve-task':'serve-reviewed','--run',reviewed.run.id,
+        ...(taskBound?['--task','inspect-'+id,'--attempt','1']:['--agent',id]),
+        '--max-output-tokens',taskBound?'1024':'4096','--project',project,'--token-file',issued],
         {cwd:project,env,stdio:['ignore','pipe','pipe']});
       children.add(processHost);let output='',error='';
       processHost.stderr.on('data',value=>{error=(error+value).slice(-4000);});
@@ -119,6 +129,7 @@ try {
       });
       assert.equal(metadata.protocol,'delegation-ledger/v1');
       assert.equal(metadata.ownerAgentId,id);assert.equal(metadata.reviewed.tokenVersion,2);
+      if(taskBound){assert.equal(metadata.reviewed.taskBinding,1);assert.equal(metadata.attribution.eventHash,starts[id].hash);}
       assert.equal(metadata.deadline,initial.manifest.deadline);
       if(!first)assert.equal(fs.readFileSync(issued,'utf8'),fs.readFileSync(tokenFile,'utf8'));
       bindings[id]={process:processHost,url:metadata.url,tokenFile};
@@ -151,6 +162,51 @@ try {
   assert.equal(inference,2,'Both native children must reach the local provider exactly once');
   let saved=authority.ledger.read(project);
   assert.equal(saved.projection.spent.tokens,4,'Both children must settle into one parent');
+  if(taskBound){
+    for(const entry of Object.values(saved.projection.requests)){
+      const id=entry.reservation.agentId,event=starts[id];
+      assert.deepEqual(entry.reservation.attribution,{version:1,kind:'task',eventId:event.id,eventHash:event.hash,
+        sessionId:event.change.sessionId,taskId:'inspect-'+id,attempt:1});
+    }
+    const acp=spawn(command,[...prefix,'acp','--ledger-url',bindings.a.url,'--ledger-token-file',bindings.a.tokenFile,'--ledger-agent','a'],
+      {cwd:project,env,stdio:['pipe','pipe','pipe']});
+    children.add(acp);let stderr='',next=1;const pending=new Map(),exited=once(acp,'exit');
+    acp.stderr.on('data',value=>{stderr+=value;});
+    const lines=createInterface({input:acp.stdout}),timer=setTimeout(()=>acp.kill('SIGKILL'),45000);
+    const rpc=(method,params)=>new Promise((resolve,reject)=>{
+      const id=next++;pending.set(id,{resolve,reject});acp.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');
+    });
+    acp.once('exit',()=>{for(const p of pending.values())p.reject(new Error('ACP exited: '+stderr));});
+    lines.on('line',line=>{
+      try{const message=JSON.parse(line),p=pending.get(message.id);if(p){pending.delete(message.id);message.error?p.reject(new Error(JSON.stringify(message.error))):p.resolve(message.result);}}
+      catch(error){for(const p of pending.values())p.reject(error);}
+    });
+    try{
+      await rpc('initialize',{protocolVersion:1,clientCapabilities:{},clientInfo:{name:'task-host-fixture',version:'1'}});
+      const session=await rpc('session/new',{cwd:project,mcpServers:[]});
+      const prompt=await rpc('session/prompt',{sessionId:session.sessionId,prompt:[{type:'text',text:'Return the fixture response.'}]});
+      assert.equal(prompt.stopReason,'end_turn');
+      const {getSessionById}=await import(pathToFileURL(join(packageRoot,'dist/storage.js')).href);
+      assert.equal(getSessionById(session.sessionId).executionBinding.version,2);
+      assert.equal(getSessionById(session.sessionId).executionBinding.attribution.eventHash,starts.a.hash);
+      acp.stdin.end();const [code]=await exited;assert.equal(code,0,stderr);
+    }finally{clearTimeout(timer);lines.close();if(acp.exitCode===null&&acp.signalCode===null){acp.kill('SIGKILL');await exited;}children.delete(acp);}
+    assert.equal(inference,3,'ACP must use the same task-bound authority');
+    saved=authority.ledger.read(project);
+    const acpRequest=Object.values(saved.projection.requests).at(-1);
+    assert.equal(acpRequest.reservation.attribution.eventHash,starts.a.hash);
+    await Promise.all(Object.values(bindings).map(stopHost));await bindChildren(false);
+    assert.deepEqual(authority.ledger.read(project),saved,'Task host restart must preserve original accounting');
+    await history.append({type:'task_finished',taskId:'inspect-a',status:'failed',output:{version:1,taskId:'inspect-a',agentId:'a',
+      status:'failed',summary:'Qualification complete.',changedFiles:[],artifacts:[],testEvidence:[],unresolvedRisks:[],recommendedNextAction:'Inspect.',checks:[]}});
+    const finished=await run('a');assert.notEqual(finished.code,0);assert.equal(inference,3,'Finished attempt cannot infer');
+    const sibling=await run('b');assert.equal(sibling.code,0,sibling.stdout+sibling.stderr);assert.equal(inference,4);
+    await changePreparedRun(project,reviewed.run.id,'cancelled',{store:runs});
+    const cancelled=await run('b');assert.notEqual(cancelled.code,0);assert.equal(inference,4);
+    console.log(JSON.stringify({protocol:'reviewed-task-host-qualification/v1',artifact:nativeBinary?'standalone':packagePath?'npm-package':'node',
+      inferenceRequests:inference,concurrentChildren:2,outputCapInherited:true,acpSessionBindingVerified:true,taskAttributionVerified:true,restartPreserved:true,finishedAttemptRefused:true,
+      activeSiblingAllowed:true,cancelledRunRefused:true,paidRequests:0}));
+  }else{
   // Exhaust each account with an explicitly retained unknown request. This also
   // proves a host restart cannot erase unresolved work or replenish the parent.
   const client=await RemoteReservationLedger.connect({url,token:host.ownerToken,root:join(root,'verified-parent')});
@@ -175,6 +231,7 @@ try {
   console.log(JSON.stringify({protocol:'reviewed-host-qualification/v1',artifact:nativeBinary?'standalone':packagePath?'npm-package':'node',inferenceRequests:inference,
     concurrentChildren:2,parentTokens:200000,providerPinRefused:true,modelPinRefused:true,restartPreserved:true,exhaustionRefused:true,
     foreignProjectRefused:true,siblingRefused:true,revocationRefused:true,paidRequests:0}));
+  }
 } finally {
   await Promise.all([...children].map(async child=>{
     if(child.exitCode!==null||child.signalCode!==null)return;

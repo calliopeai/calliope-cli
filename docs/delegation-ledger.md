@@ -69,9 +69,48 @@ that history requires verified restoration or an explicit owner-managed credenti
 rotation; opening it never silently treats missing revocations as an empty history.
 
 This is reviewed ledger hosting, not automatic Cykick/Astrolift enrollment. Remote
-workspace identity, dispatcher credential delivery, task-attempt ownership, transport
+workspace identity, dispatcher credential delivery, exclusive task ownership, transport
 reachability and any narrower Cykick file-mutation policy still need their native
 bindings. A loopback listener does not make a desktop reachable from a remote pod.
+
+## Serve one active native task attempt
+
+```sh
+calliope ledger serve-task --run RUN_ID --task TASK_ID --attempt 1 \
+  --max-output-tokens 1024 --project /path/to/project \
+  --token-file /private/task.token
+```
+
+`prepareReviewedTaskLedger(cwd, runId, taskId, attempt, maxOutputTokens, options)`
+derives the agent, session, immutable start-event ID/hash and native owner from
+the current attributed `task_started` journal event. Pending, legacy unattributed,
+stopped, completed and stale attempts cannot open this host. The private token's
+audience binds that task, owner and output cap as well as the reviewed run.
+Another task, changed owner, different cap or account-only host rejects the token.
+This endpoint advertises reviewed capability version 2 with `taskBinding: 1`.
+
+Its operations are only `hello`, `journal`, `task-execution`, `reserve` and `settle`.
+There is no legacy `execution` fallback or child-grant mutation. Current clients
+negotiate `task-execution`, validate its version 2 binding and automatically carry
+the exact attribution and output cap into the shared execution guard. Older clients
+refuse the missing legacy operation before inference. Each new reservation verifies
+the attribution, agent, output cap and still-active native owner/attempt, including
+under the ledger writer lock. Existing admissions may replay or settle after the
+attempt ends; the original token expiry and accounting still apply.
+
+Task-bound sessions retain version 2 restrictions with the start-event provenance.
+A different task/attempt or an account-only connection cannot resume them. Reopening
+the same active attempt preserves its token, allowance, history and deadline.
+This does not dispatch work, acquire an exclusive process lease, bind endpoint or
+Smartpool selection, or implement Astrolift enrollment. A trusted scheduler still
+owns those actions and the delivery of the private credential.
+
+Run `CALLIOPE_REVIEWED_HOST_TASKS=1 npm run test:reviewed-host` for the real-process
+task-host qualification. It checks two concurrent headless children, native ACP
+session binding, exact request attribution, host restart, completed-attempt refusal, an active sibling
+and run cancellation against a local deterministic provider with no paid requests.
+The current reverse exec tunnel retains its child-grant contract; this task-host
+mode is qualified through direct native HTTP transport.
 
 ## Run a delegated child
 
@@ -102,6 +141,7 @@ undelegated fallback.
 | `hello` | any | protocol and operations |
 | `journal` | any | the full hash-chained history (`manifest`, `events`) |
 | `execution` | account owner | verify `{agentId, project: {root, key}}` against the retained owner grant and return its native workspace binding |
+| `task-execution` | task owner, task endpoint only | verify the account/workspace and return the immutable native start provenance and output cap |
 | `reserve` | owner of `reservation.agentId` | charge before dispatch; same id replays the original admission |
 | `settle` | owner of the reserved request | record usage or an outcome; same settlement replays |
 | `grant` | parent, or a child for its own accounts | allocate child accounts; returns the child's scoped token |
@@ -323,7 +363,7 @@ The executable reports its tested artifact type and invariant results as JSON.
 This is a local HTTP host example, not a deployed Astrolift acceptance test.
 Use `delegation-ledger/v1`, reviewed host capability version 1 and the headless
 capability tuple above; a matching package version alone is insufficient.
-The current CLI entry point requests a 4096-token output limit, so the reviewed
+The account-only CLI entry point requests a 4096-token output limit, so the reviewed
 host and discovered model must both permit that bound. Lower output caps are
 available to library callers through `DelegatedExecutionOptions.maxOutputTokens`.
 The existing ledger, workspace and session suites cover nested grants, lost

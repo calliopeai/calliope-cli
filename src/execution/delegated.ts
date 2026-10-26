@@ -25,13 +25,16 @@ export async function connectDelegatedExecution(cwd: string, options: DelegatedE
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.mode & 0o077) throw new Error('Delegation history directory is not private.');
   const root = join(parent, digest(canonicalJson({ project: projectIdentity(cwd), tokenFile: resolve(options.tokenFile), agentId: options.agentId })));
   const ledger = await RemoteReservationLedger.connect({ url: options.url, token: readFileSync(options.tokenFile, 'utf8').trim(), root, execution: { cwd, agentId: options.agentId } });
-  const execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.agentId, maxOutputTokens: options.maxOutputTokens ?? 4096 };
+  const task=ledger.taskExecutionBinding;
+  const execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.agentId,
+    maxOutputTokens: task?Math.min(options.maxOutputTokens??4096,task.maxOutputTokens):options.maxOutputTokens??4096,...(task?{attribution:task.attribution}:{}) };
   new ExecutionGuard(execution, cwd).assertActive();
   return execution;
 }
 
 export function executionBinding(execution: AgentExecution): SessionExecutionBinding {
-  const binding = { version: 1 as const, manifestHash: execution.manifestHash, agentId: execution.agentId };
+  const binding = { version: execution.attribution?.kind==='task'?2 as const:1 as const, manifestHash: execution.manifestHash, agentId: execution.agentId,
+    ...(execution.attribution?.kind==='task'?{attribution:structuredClone(execution.attribution)}:{}) };
   if (!validSessionExecutionBinding(binding)) throw new ExecutionLimitError('authority', 'Invalid session execution binding.');
   return binding;
 }

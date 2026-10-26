@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { executionBinding, assertExecutionBinding, parseDelegatedExecutionOptions } from '../src/execution/delegated.js';
 import { validSessionExecutionBinding } from '../src/sessions/execution-binding.js';
 import { createSession, getSessionById, getSessionDirById, saveSessionConversation } from '../src/storage.js';
@@ -22,6 +23,26 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe('delegated session binding', () => {
+  it('persists the exact task attempt through save and branch and rejects task replacement or downgrade', async () => {
+    execution.attribution={version:1,kind:'task',eventId:randomUUID(),eventHash:'a'.repeat(64),sessionId:randomUUID(),taskId:'inspect-a',attempt:1};
+    const binding=executionBinding(execution);
+    expect(validSessionExecutionBinding(binding)).toBe(true);
+    const session=createSession(project,{activate:false,executionBinding:binding});
+    saveSessionConversation(session.id,[{role:'user',content:'continue'}],{expectedRevision:null,status:'completed'});
+    const branch=await branchSession(session.id,{kind:'safety'});
+    expect(getSessionById(session.id)?.executionBinding).toEqual(binding);
+    expect(getSessionById(branch.session.id)?.executionBinding).toEqual(binding);
+    const {attribution,...unbound}=execution;
+    expect(()=>assertExecutionBinding(binding,unbound)).toThrow();
+    expect(()=>assertExecutionBinding(executionBinding(unbound),execution)).toThrow();
+    for(const patch of [{attempt:2},{taskId:'inspect-b'},{eventId:randomUUID()},{eventHash:'b'.repeat(64)},{sessionId:randomUUID()}]){
+      expect(()=>assertExecutionBinding(binding,{...execution,attribution:{...attribution,...patch}})).toThrow();
+    }
+    for(const patch of [{attempt:0},{attempt:5},{kind:'supervision'},{eventId:'bad'},{eventHash:'bad'},{sessionId:''},{taskId:'../a'},{extra:true}]){
+      expect(validSessionExecutionBinding({...binding,attribution:{...attribution,...patch}})).toBe(false);
+    }
+  });
+
   it('requires the exact original account and manifest, without granting an allowance', () => {
     const binding = executionBinding(execution);
     expect(() => assertExecutionBinding(binding, execution)).not.toThrow();

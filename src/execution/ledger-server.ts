@@ -4,7 +4,8 @@ import * as http from 'node:http';
 import {canonicalJson} from '../approvals/index.js';
 import {ReservationLedger} from './ledger.js';
 import {ExecutionLimitError,type ChildGrant,type RequestReservation,type RequestSettlement} from './types.js';
-import {accountLineage,identifier,hex,validateExecutionProject} from './authority.js';
+import {accountLineage,identifier,integer,hex,validateExecutionProject} from './authority.js';
+import {validateRequestAttribution,type TaskRequestAttribution} from './attribution.js';
 import {effectiveExecutionManifest,executionProjectForAccount} from './child-grants.js';
 import {LEDGER_PROTOCOL,LEDGER_OPERATIONS,MAX_LEDGER_REQUEST_BYTES,LedgerServerState,mintLedgerToken,verifyLedgerToken,type LedgerTokenClaims} from './ledger-protocol.js';
 
@@ -18,6 +19,8 @@ export interface LedgerServerOptions {
   ownerAgentId?:string;
   /** Exact reviewed-host audience; authenticated tokens cannot downgrade to raw serving. */
   authority?:string;
+  /** A separately negotiated endpoint for one immutable native worker attempt. */
+  taskExecution?:{attribution:TaskRequestAttribution;maxOutputTokens:number};
   /** Trusted reviewed host: target-account lifecycle and existing native grant checks. */
   assertAccountAuthority?:(agentId:string)=>void;
   assertReservationAuthority?:(reservation:RequestReservation)=>void;
@@ -32,6 +35,12 @@ interface AdmissionOutcome {admission:'refused'|'unknown'}
 
 export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const {ledger,cwd,state}=options,now=options.now??Date.now,secret=state.secret();
+  const task=options.taskExecution?structuredClone(options.taskExecution):undefined;
+  if(task){
+    if(!options.authority||!options.ownerAgentId||validateRequestAttribution(task.attribution).kind!=='task')throw new ExecutionLimitError('invalid','Task execution requires reviewed owner authority.');
+    integer(task.maxOutputTokens,1,100000000);
+  }
+  const operations:readonly string[]=task?['hello','journal','task-execution','reserve','settle']:LEDGER_OPERATIONS;
   if(options.authority!==undefined&&!hex(options.authority))throw new ExecutionLimitError('invalid','Invalid ledger authority binding.');
   const current=()=>ledger.read(cwd);
   if(options.ownerAgentId!==undefined){identifier(options.ownerAgentId);const saved=current();accountLineage(effectiveExecutionManifest(saved.manifest,saved.projection),options.ownerAgentId);}
@@ -67,8 +76,11 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       if(token.v===2&&!within(agentId,token.owner!))throw new ExecutionLimitError('authority','This parent token cannot act for that account.');
     }else if(!token.accounts!.some(owner=>within(agentId,owner)))throw new ExecutionLimitError('authority','This token cannot act for that account.');
   };
+  const assertTaskRequest=(reservation:RequestReservation)=>{
+    if(task&&(reservation.agentId!==options.ownerAgentId||canonicalJson(reservation.attribution??null)!==canonicalJson(task.attribution)))throw new ExecutionLimitError('authority','Request does not match the bound native task attempt.');
+  };
   const handlers:Record<string,(token:LedgerTokenClaims,body:Record<string,unknown>,outcome:AdmissionOutcome)=>Promise<unknown>>={
-    hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations:LEDGER_OPERATIONS,runId:manifest.runId};},
+    hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations,runId:manifest.runId};},
     journal:async()=>journal(),
     execution:async(token,body)=>{
       identifier(body.agentId);owns(token,body.agentId);
@@ -77,12 +89,26 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       options.assertAuthority?.();options.assertAccountAuthority?.(body.agentId);
       return {...journal(),binding:{version:1,agentId:body.agentId,project}};
     },
+    'task-execution':async(token,body)=>{
+      identifier(body.agentId);owns(token,body.agentId);
+      if(!task||body.agentId!==options.ownerAgentId)throw new ExecutionLimitError('authority','Task execution belongs to another account.');
+      const project=validateExecutionProject(body.project),saved=current();
+      if(canonicalJson(project)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,body.agentId)))throw new ExecutionLimitError('authority','Workspace does not match the owner-declared child project.');
+      options.assertAuthority?.();options.assertAccountAuthority?.(body.agentId);
+      return {...journal(),binding:{version:2,agentId:body.agentId,project,attribution:structuredClone(task.attribution),maxOutputTokens:task.maxOutputTokens}};
+    },
     reserve:async(token,body,outcome)=>{
       const reservation=body.reservation as RequestReservation,hash=String(body.manifestHash);owns(token,reservation?.agentId);
+      assertTaskRequest(reservation);
       const prior=current().projection.requests[reservation?.id];
       // Replay with the same id answers the original admission; a different body is a conflict.
       if(prior){if(canonicalJson(prior.reservation)!==canonicalJson(reservation))throw new ExecutionLimitError('conflict','Reservation id already admitted a different request.');return {...journal(),replayed:true};}
-      const assertAdmission=()=>{assertActive(token);owns(token,reservation.agentId);options.assertAuthority?.();options.assertAccountAuthority?.(reservation.agentId);options.assertReservationAuthority?.(reservation);};
+      const assertAdmission=()=>{
+        assertActive(token);owns(token,reservation.agentId);options.assertAuthority?.();options.assertAccountAuthority?.(reservation.agentId);
+        assertTaskRequest(reservation);
+        if(task&&reservation.outputTokens>task.maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the bound task output limit.');
+        options.assertReservationAuthority?.(reservation);
+      };
       try{assertAdmission();await ledger.reserve(cwd,hash,reservation,undefined,assertAdmission);}
       catch(error){
         // The local operation has finished. Prove non-admission from the same
@@ -96,6 +122,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
       const settlement=body.settlement as RequestSettlement,hash=String(body.manifestHash);
       const saved=current(),entry=saved.projection.requests[settlement?.requestId];
       if(!entry)throw new ExecutionLimitError('conflict','Request was never reserved.');owns(token,entry.reservation.agentId);
+      assertTaskRequest(entry.reservation);
       if(entry.state!=='pending'){
         const settled=saved.events.find(e=>e.change.type==='settle'&&e.change.settlement.requestId===settlement.requestId);
         if(settled&&settled.change.type==='settle'&&canonicalJson(settled.change.settlement)===canonicalJson(settlement)){
@@ -128,7 +155,7 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
   return http.createServer((req,res)=>{
     const reply=(status:number,value:unknown)=>{const raw=JSON.stringify(value);res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(raw);};
     const op=(req.url??'').replace(/^\/v1\//,'');
-    if(req.method!=='POST'||!Object.hasOwn(handlers,op)){reply(404,{ok:false,code:'invalid',message:'Unknown ledger operation.'});return;}
+    if(req.method!=='POST'||!operations.includes(op)||!Object.hasOwn(handlers,op)){reply(404,{ok:false,code:'invalid',message:'Unknown ledger operation.'});return;}
     const chunks:Buffer[]=[];let size=0;
     req.on('data',(chunk:Buffer)=>{size+=chunk.length;if(size>MAX_LEDGER_REQUEST_BYTES){reply(413,{ok:false,code:'limit',message:'Ledger request is too large.'});req.destroy();}else chunks.push(chunk);});
     req.on('end',()=>{void (async()=>{
