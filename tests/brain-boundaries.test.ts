@@ -108,6 +108,17 @@ it('rechecks current secret material before releasing retained source content or
     ),
   ).rejects.toThrow('secret material');
 });
+it('redacts overlapping stored credentials even when environment credentials override them', () => {
+  const prefix = 'synthetic-overlapping-private-value';
+  const complete = prefix + '-private-suffix';
+  vi.stubEnv('ANTHROPIC_API_KEY', 'synthetic-active-anthropic-key');
+  vi.stubEnv('GOOGLE_API_KEY', 'synthetic-active-google-key');
+  config.setProviderCred('anthropic', { apiKey: prefix });
+  config.setProviderCred('google', { apiKey: complete });
+  expect(sanitizeBrainValue({ note: `First ${complete}, then ${prefix}.` })).toEqual({
+    note: 'First [REDACTED], then [REDACTED].',
+  });
+});
 it('keeps file-backed global knowledge within its source project and handles denied/cancelled/corrupt provenance', async () => {
   await initBrain(f.cwd, { ...options(), scope: 'global' });
   fs.writeFileSync(join(f.cwd, 'design.md'), 'Architecture');

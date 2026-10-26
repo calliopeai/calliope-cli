@@ -50,3 +50,12 @@ it('rejects malformed controls and misplaced subcommand flags before discovery o
   for(const flags of bad){expect(await runGoalCommand(['Public toy.',...flags,'--json'],options),flags.join(' ')).toBe(2);expect(JSON.parse(lines.at(-1)!).error).toBeDefined();}
   expect(await runGoalCommand(['resume',randomUUID(),'--supervise','--json'],options)).toBe(2);expect(goals.list(project).goals).toHaveLength(0);expect(fetch).not.toHaveBeenCalled();
 });
+
+it('allows an explicitly reviewed read-only report while retaining supervision and legacy mutation requirements',()=>{
+  const p=supervisedGoalPlan(),task=p.tasks[0]!,worker=p.agents.find(agent=>agent.id===task.agentId)!;
+  worker.allowedTools=['read_file'];worker.allowedPaths=worker.allowedPaths.map(grant=>({...grant,access:'read'}));
+  task.outputs=task.outputs.filter(output=>output.kind!=='test_result');task.outputs[0]!.kind='report';delete task.outputs[0]!.path;
+  task.isolation={...task.isolation!,mode:'read-only-v1',commands:[]};task.acceptanceChecks=task.acceptanceChecks!.filter(check=>check.kind!=='command');
+  const proposal=proposePlan(manifest(),p,source,spend);expect(proposal.plan.tasks[0]!.isolation!.mode).toBe('read-only-v1');
+  delete task.isolation.mode;expect(()=>proposePlan(manifest(),p,source,spend)).toThrow();
+});

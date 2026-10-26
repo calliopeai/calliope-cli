@@ -57,6 +57,7 @@ it('keeps child proposals as bounded data for the existing admission boundary',(
   expect(validateSupervisionDecision({...common,action:'decompose',children},policy,plan,evidence)).toMatchObject({action:'decompose',children});
   for(const changed of [{version:2},{parentId:'absent'},{agents:[]},{tasks:[]},{permissions:'all'}])expect(()=>validateSupervisionDecision({...common,action:'decompose',children:{...children,...changed}},policy,plan,evidence)).toThrow();
   expect(()=>validateSupervisionDecision({...common,action:'decompose',children:{...children,agents:[{...agent,tokenBudget:100000000}]}},policy,plan,evidence)).toThrow();
+  expect(()=>validateSupervisionDecision({...common,action:'decompose',children:{...children,version:2,tasks:[],delegation:{project:{root:'/external/project',key:'a'.repeat(64)},reference:'external-task',observationHash:'b'.repeat(64)}}},policy,plan,evidence)).toThrow(/locally scheduled/);
 });
 
 it('binds independent role effort to reviewed accounts without guessing provider support',()=>{

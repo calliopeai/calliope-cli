@@ -175,7 +175,7 @@ async function main(): Promise<void> {
     // Embedders check compatibility before spawning `calliope acp`; offline, no update check.
     if (args.includes('--json')) {
       const { PROTOCOL_VERSION } = await import('@agentclientprotocol/sdk');
-      console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION }));
+      console.log(JSON.stringify({ version: getVersion(), acp: PROTOCOL_VERSION, headless: { protocol: 1, delegation: 1, workspaceBinding: 1 } }));
       return completeCommand(0);
     }
     console.log(`calliope v${getVersion()}`);
@@ -200,6 +200,12 @@ async function main(): Promise<void> {
     headlessCancellation = new AbortController();
     const { runBrainCommand } = await import('./brain/index.js');
     return completeCommand(await runBrainCommand(rawArgs.slice(1), { kg:args[0] === 'kg', signal:headlessCancellation.signal }));
+  }
+
+  if (args[0] === 'migration') {
+    headlessCancellation = new AbortController();
+    const { runMigrationCommand } = await import('./migration/index.js');
+    return completeCommand(await runMigrationCommand(rawArgs.slice(1), { signal: headlessCancellation.signal }));
   }
 
   if (args[0] === 'brain-proposals') {
@@ -278,7 +284,11 @@ async function main(): Promise<void> {
   // default path pays nothing for it.
   if (args[0] === 'acp') {
     const { runAcpAgent } = await import('./acp.js');
-    const code = await runAcpAgent();
+    const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
+    let ledger: ReturnType<typeof parseDelegatedExecutionOptions>;
+    try { ledger = parseDelegatedExecutionOptions(args.slice(1)); }
+    catch (error) { process.stderr.write(String((error as Error).message) + '\n'); return completeCommand(2); }
+    const code = await runAcpAgent({ ledger });
     return completeCommand(code);
   }
 
@@ -415,12 +425,10 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       if (i > 0 && ['--max-retries', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
-    const flag = (name: string) => { const i = parsed.args.indexOf(name); return i >= 0 ? parsed.args[i + 1] : undefined; };
-    const ledgerUrl = flag('--ledger-url'), ledgerTokenFile = flag('--ledger-token-file'), ledgerAgent = flag('--ledger-agent');
-    if ([ledgerUrl, ledgerTokenFile, ledgerAgent].some(Boolean) && ![ledgerUrl, ledgerTokenFile, ledgerAgent].every(Boolean)) {
-      process.stderr.write('Delegated runs need --ledger-url, --ledger-token-file and --ledger-agent together.\n');
-      return completeCommand(2);
-    }
+    const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
+    let ledger: ReturnType<typeof parseDelegatedExecutionOptions>;
+    try { ledger = parseDelegatedExecutionOptions(parsed.args); }
+    catch (error) { process.stderr.write(String((error as Error).message) + '\n'); return completeCommand(2); }
     headlessCancellation = new AbortController();
     const exitCode = await runHeadless({
       signal: headlessCancellation.signal,
@@ -429,7 +437,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
-      ...(ledgerUrl ? { ledger: { url: ledgerUrl, tokenFile: ledgerTokenFile!, agentId: ledgerAgent! } } : {}),
+      ...(ledger ? { ledger } : {}),
     });
     return completeCommand(exitCode);
   } else {
@@ -448,7 +456,10 @@ ${bold('USAGE')}
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
   calliope brain init|ingest|search|entity|neighbors|path|export [--json]   Local project knowledge
   calliope kg search|graph [--json]   Knowledge graph
-  calliope improve history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
+  calliope migration inventory --repository <root> --revision <commit> [--json]   Inspect pinned migration inputs
+  calliope migration review-verification|verify --plan <file> [--repository <root> --approve <digest>] [--json]   Verify pinned CLI behavior
+  calliope migration assess --request <file> --repository <root> [--json]   Prepare a read-only migration assessment
+  calliope improve capabilities|history|propose|run|rollback [--run <id>] [--json]   Inspect or control bounded improvements
   calliope orchestrate <goal> [--tokens N] [--cost USD] [--json]   Propose bounded work for review
   calliope orchestrate <goal> --supervise --isolation-image sha256:ID [--principle robustness]
     [--controller-provider NAME --controller-model ID] [--supervision-reviewer-provider NAME --supervision-reviewer-model ID]

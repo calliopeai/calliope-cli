@@ -67,11 +67,19 @@ async function acpHandshake() {
       "initialize",
     );
     assert.equal(initialized.protocolVersion, PROTOCOL_VERSION);
+    assert.equal(initialized.agentCapabilities._meta.calliopeSessionControls.version, 1);
     const session = await within(
       connection.agent.request('session/new', { cwd: project, mcpServers: [] }),
       "session/new",
     );
     assert.match(session.sessionId, /^acp_/);
+    assert.equal(session.modes.currentModeId, 'work');
+    assert.equal(session.configOptions[0].id, 'model');
+    await within(connection.agent.request('session/set_mode', {sessionId:session.sessionId,modeId:'plan'}), 'set_mode');
+    const loaded=await within(connection.agent.request('session/load', {sessionId:session.sessionId,cwd:project,mcpServers:[]}), 'load controls');
+    assert.equal(loaded.modes.currentModeId, 'plan');
+    const configured=await within(connection.agent.request('session/set_config_option', {sessionId:session.sessionId,configId:'model',value:'default'}), 'set_config_option');
+    assert.equal(configured.configOptions[0].currentValue, 'default');
     agent.stdin.end();
     assert.equal(await within(exited, "shutdown"), 0);
   } finally {
@@ -131,7 +139,20 @@ try {
   assert.deepEqual(JSON.parse(run(["--version", "--json"])), {
     version,
     acp: PROTOCOL_VERSION,
+    headless: { protocol: 1, delegation: 1, workspaceBinding: 1 },
   });
+  const hostCapabilities = JSON.parse(run(["improve", "host-capabilities", "--contract-version", "1", "--json"]));
+  assert.equal(hostCapabilities.data.kind, "improvement.host-capabilities");
+  assert.equal(hostCapabilities.data.version, 1);
+  assert.equal(hostCapabilities.data.implementation.package.version, version);
+  assert.equal(hostCapabilities.data.implementation.artifact, "standalone");
+  assert.equal(hostCapabilities.data.implementation.metadataStatus, "available");
+  assert.equal(hostCapabilities.data.implementation.verification, "external-attestation-required");
+  assert.equal(hostCapabilities.data.interfaces.execution.mechanisms.crossRunLearnedStrategy, false);
+  assert.equal(hostCapabilities.data.interfaces.review.authority, "request-only-no-execution");
+  assert.equal(hostCapabilities.data.interfaces.taskOutcome.reward, false);
+  assert.equal(hostCapabilities.data.interfaces.sourceChange.merge, false);
+  assert.equal(JSON.parse(run(["improve", "host-capabilities", "--contract-version", "999", "--json"], 2)).error.code, "invalid");
   await acpHandshake();
   await ahpAttach();
   run(["--internal-aws-credentials"], 2);

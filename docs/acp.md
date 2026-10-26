@@ -39,6 +39,8 @@ is implemented and tested against the official TypeScript SDK
 | `authenticate` | ✅ | No-op — Calliope authenticates via locally-configured provider keys |
 | `session/new` | ✅ | One Calliope session per ACP session; the session id round-trips |
 | `session/load` | ✅ | Restores a saved session in its project and replays its history (see *Loading a session*) |
+| `session/set_mode` | ✅ | Session-scoped Work and Plan modes |
+| `session/set_config_option` | ✅ | Selects a discovered model for this session |
 | `session/prompt` | ✅ | Drives the agent loop (chat + tools) to a stop reason |
 | `session/cancel` | ✅ | Aborts provider I/O and pending permission waits; returns `stopReason: cancelled` |
 | `session/update` (streaming) | ✅ | `agent_message_chunk`, `tool_call`, `tool_call_update`; `user_message_chunk` in a replay |
@@ -100,12 +102,38 @@ one, so a session that was never prompted loads too.
   `tool_call_update` carrying the recorded result. The system prompt is not
   replayed.
 - A tool call without a recorded result is closed as an unknown outcome and
-  replays as `failed`, as do recorded tool errors. Nothing runs and no provider
-  request is made; an `agent_thought_chunk` says so when work was interrupted or
+  replays as `failed`, as do recorded tool errors. No tool or inference is
+  replayed; an `agent_thought_chunk` says so when work was interrupted or
   retention omitted older messages.
 - A load is refused while a prompt runs in that session. Provider and model
-  preferences resolve for `cwd` as they do for `session/new`, and session
-  approvals do not survive a restart.
+  preferences resolve for `cwd` as they do for `session/new`, with any explicit
+  saved ACP model selection applied to that session. Session approvals do not
+  survive a restart.
+
+### Session modes and models
+
+New and loaded sessions return `modes` and `configOptions`. `session/set_mode`
+is advertised through `agentCapabilities._meta.calliopeSessionControls.version: 1` and
+selects `work` (normal permissions and confirmations) or `plan` (the core's
+read-only planning tools). Plan mode refuses workspace mutation, shell/code
+execution and other non-planning tools before effects, including editor-buffer
+writes. Planning may still write native conversation/audit state. Returning to
+Work does not grant permission to bypass project policy or a parent allowance.
+
+Model selection uses stable ACP v1 `session/set_config_option`, with
+`configId: "model"`; the older `session/set_model` method is not used. Select an
+advertised value, or `default` to use the configured preference. Options come
+from live model discovery for the session's resolved provider. Discovery is
+bounded to five seconds and may use its current cache; unavailable discovery
+does not invent selectable models. It may query provider catalog metadata when
+creating/loading a session or changing its model, but does not run inference.
+
+Mode and explicit model selections are stored with the native session and
+survive `session/load`. Changes affect no other session or global/project
+configuration. Busy sessions refuse changes; stale or damaged control state
+requires reload or restoration. Delegated sessions retain parent model control
+and refuse independent model selection. Mode changes recheck their live parent
+authority, and every subsequent tool/model request retains native admission.
 
 ### Client-side filesystem
 
@@ -167,7 +195,6 @@ Any client that can launch a stdio ACP agent works the same way: run the command
 
 - **Registry listing.** Submitting Calliope to the public ACP agent registry is
   deferred to a later release.
-- **Session modes / model selection** (`session/set_mode`, `session/set_model`).
 - **MCP servers over ACP.** `session/new` and `session/load` accept an
   `mcpServers` list; Calliope ignores it for now and uses its own MCP configuration.
 - **Terminals, images, and audio** in prompts/tool calls.

@@ -50,3 +50,14 @@ export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode } from './headl
 
 // Shared runtime for terminal, editor and programmatic clients.
 export * from './runtime/index.js';
+
+export { inventorySource, runMigrationCommand, MigrationError, INVENTORY_SCHEMA } from './migration/index.js';
+export type { MigrationInventory } from './migration/index.js';
+export { analyzeVerificationPlan, verifyMigration, VERIFICATION_SCHEMAS } from './migration/index.js';
+export type { VerificationPlan, VerificationOptions } from './migration/index.js';
+export { comparatorHealthy, compareBehavior, migrationExample } from './migration/index.js';
+export { analyzeVerificationEvidence, EVIDENCE_REVIEW_SCHEMA } from './migration/index.js';
+export { assessMigration, analyzeAssessmentRequest, ASSESSMENT_SCHEMAS } from './migration/index.js';
+export type { AssessmentRequest, AssessmentOptions, AssessmentReview, AssessmentReviewRequest, AssessmentImplementation, PilotMeasurement } from './migration/index.js';
+export { analyzeBaselinePlan, verifyMigrationBaseline, analyzeBaselineEvidence, BASELINE_SCHEMAS } from './migration/index.js';
+export type { BaselinePlan } from './migration/index.js';

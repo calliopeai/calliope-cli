@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 3.7.0: ACP controls and native host discovery
+
+- Add read-only improvement host discovery with independently versioned native interfaces, explicit contract negotiation and installed build identity. Source metadata remains self-reported until verified against release attestations; cross-run learning and feedback import remain unavailable (#413).
+
+- Add persistent ACP Work/Plan modes and session model selection through stable configuration options. Models come from live discovery, delegated model choices remain parent-controlled, and stale or concurrent control updates refuse rather than overwrite another session state (#444).
+- Enforce explicit reviewed provider and model choices at remote-ledger reservation admission, including newly admitted descendants. A different runtime preference cannot consume the account's allowance under another explicit inference choice (#415).
+
+## 3.6.0: reviewed hosts and code migration
+
+- Add a versioned code migration kit for pinned JavaScript-to-TypeScript CLI ports: source inventory, baseline and candidate verification, reviewed assessment, packaged playbook and example evidence. Native execution retains authority, budgets and scheduling (#414).
+
+- Extend reviewed host authority to owner-bound workspaces and retained native ACP sessions; recheck live authority before inference and tool effects. Add real-process Node/standalone host qualification, and let project-budget readers wait for an initializing writer without treating its partial commit as lost history (#415).
+
 ## 3.5.4: retire LiteLLM
 
 - Redact stored provider keys from brain output even when environment credentials override them or the provider is retired.

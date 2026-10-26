@@ -1,17 +1,26 @@
 import {canonicalJson} from '../approvals/index.js';
-import {shape,uuid,hex,identifier,invalid,validateExecutionManifest,accountLineage} from './authority.js';
+import {shape,uuid,hex,identifier,invalid,validateExecutionManifest,validateExecutionProject,accountLineage} from './authority.js';
 import {ExecutionLimitError,type ChildGrant,type ExecutionManifest,type ReservationProjection,type RecordedChildGrant} from './types.js';
 
 export const MAX_CHILD_GRANT_BYTES=32768;
 export function validateChildGrant(value:unknown):ChildGrant {
-  shape(value,['version','id','proposalHash','previousGraphHash','planHash','runManifestHash','approvalRevision','parentId','accounts']);
-  if(value.version!==1||!uuid(value.id)||!uuid(value.approvalRevision)||![value.proposalHash,value.previousGraphHash,value.planHash,value.runManifestHash].every(hex)||!Array.isArray(value.accounts)||!value.accounts.length||value.accounts.length>16)invalid();identifier(value.parentId);
+  shape(value,['version','id','proposalHash','previousGraphHash','planHash','runManifestHash','approvalRevision','parentId','accounts'],['project']);
+  if(value.version!==1&&value.version!==2||!uuid(value.id)||!uuid(value.approvalRevision)||![value.proposalHash,value.previousGraphHash,value.planHash,value.runManifestHash].every(hex)||!Array.isArray(value.accounts)||!value.accounts.length||value.accounts.length>16)invalid();identifier(value.parentId);
+  if(value.version===2)validateExecutionProject(value.project);else if(value.project!==undefined)invalid();
   for(const account of value.accounts)shape(account,['id','parentId','tokenBudget','costBudgetNanos','deadline','allowedTools','allowedPaths']);
   if(Buffer.byteLength(canonicalJson(value))>MAX_CHILD_GRANT_BYTES)throw new ExecutionLimitError('limit','Child grant exceeds its 32 KiB limit.');return value as unknown as ChildGrant;
 }
 /** Derived accounts never replace the original immutable budget manifest/hash. */
 export function effectiveExecutionManifest(base:ExecutionManifest,state:ReservationProjection):ExecutionManifest {
   return state.childGrants?.length?validateExecutionManifest({...base,accounts:[...base.accounts,...state.childGrants.flatMap(record=>record.grant.accounts)]}):base;
+}
+/** The nearest owner-declared workspace applies through later v1 child grants. */
+export function executionProjectForAccount(base:ExecutionManifest,state:ReservationProjection,agentId:string):ExecutionManifest['project'] {
+  for(const account of accountLineage(effectiveExecutionManifest(base,state),agentId)){
+    const grant=state.childGrants?.find(record=>record.grant.accounts.some(child=>child.id===account.id))?.grant;
+    if(grant?.version===2)return structuredClone(grant.project);
+  }
+  return structuredClone(base.project);
 }
 function ownSpend(manifest:ExecutionManifest,state:ReservationProjection,agentId:string):{tokens:number;costNanos:number} {
   const spent=state.accounts[agentId]??{tokens:0,costNanos:0},children=manifest.accounts.filter(a=>a.parentId===agentId);
@@ -32,5 +41,5 @@ export function applyChildGrant(base:ExecutionManifest,current:ExecutionManifest
   for(const account of grant.accounts){const lineage=accountLineage(next,account.id);if(!lineage.slice(1).some(a=>a.id===grant.parentId))invalid();if(record.at>=Math.min(...lineage.map(a=>a.deadline)))throw new ExecutionLimitError('deadline','Original parent or child deadline expired before allocation.');}
   for(const account of next.accounts)assertChildCapacity(next,state,account.id);
   for(const account of grant.accounts)Object.defineProperty(state.accounts,account.id,{value:{tokens:0,costNanos:0},enumerable:true});
-  (state.childGrants??=[]).push(structuredClone(record));if(state.version<2)state.version=2;return next;
+  (state.childGrants??=[]).push(structuredClone(record));if(grant.version===2)state.version=4;else if(state.version<2)state.version=2;return next;
 }

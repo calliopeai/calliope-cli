@@ -57,7 +57,8 @@ vi.mock('../src/errors.js', () => ({
   classifyError: vi.fn(() => ({ category: 'other' })),
 }));
 
-vi.mock('../src/storage.js', () => ({
+vi.mock('../src/storage.js', async original => ({
+  ...await original<typeof import('../src/storage.js')>(),
   saveMessageHistory: (...args: unknown[]) => saveMessageHistoryMock(...args),
   recordCost: vi.fn(),
 }));

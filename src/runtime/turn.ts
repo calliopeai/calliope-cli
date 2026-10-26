@@ -21,12 +21,13 @@ import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
 import { withSession, makeToolOutput, saveToolOutput, type CapturedToolOutput, type RecoveryStatus } from '../sessions/index.js';
-import { getSessionDirById } from '../storage.js';
+import { getSessionDirById, getSessionById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
+import { assertExecutionBinding } from '../execution/delegated.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
@@ -63,6 +64,8 @@ export interface TurnOptions {
   beforeTool?: (call: ToolCall, iteration: number) => void | Promise<void>;
   onToolOutput?: (call: ToolCall, chunk: string) => void;
   onToolResult?: (call: ToolCall, result: ToolResult, iteration: number, output?: CapturedToolOutput) => void | Promise<void>;
+  /** Wait within this same turn, attempt and budget; abort must settle the wait. */
+  answerQuestion?: (call: ToolCall, signal?: AbortSignal) => Promise<string>;
   onToolRetry?: (call: ToolCall, attempt: number, result: ToolResult) => void;
   onIterationEnd?: (iteration: number) => void;
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
@@ -77,8 +80,8 @@ export interface TurnOptions {
   onSafetyBranch?: (call: ToolCall) => Promise<void>;
 }
 
-function contextResult(call: ToolCall, result: ToolResult, limit: number): string {
-  if (!result.isError && call.name === 'ask_question') return '[Waiting for user response. The user will reply with their answer.]';
+function contextResult(call: ToolCall, result: ToolResult, limit: number, answeredQuestion = false): string {
+  if (!result.isError && call.name === 'ask_question' && !answeredQuestion) return '[Waiting for user response. The user will reply with their answer.]';
   if (!result.isError && call.name === 'create_plan') return '[Plan displayed to user. Waiting for approval. Do NOT proceed with execution until the user approves.]';
   const max = limit < 8000 ? Math.floor(limit * 0.6) : limit < 16000 ? Math.floor(limit * 0.8) : limit < 32000 ? 20000 : 50000;
   const half = Math.floor(max / 2);
@@ -102,6 +105,7 @@ export function completePendingTools(messages: Message[], reason: string): void 
 }
 
 export async function runTurn(options: TurnOptions): Promise<TurnResult> {
+  assertExecutionBinding(getSessionById(options.sessionId)?.executionBinding, options.execution);
   const guard=options.execution?new ExecutionGuard(options.execution,options.cwd):undefined;
   if(!guard)return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
   const controller=new AbortController(),abort=()=>controller.abort(options.signal?.reason);
@@ -173,6 +177,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   };
   const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
+    await guard?.refreshAuthority(signal);
     checkBudget();
     if(guard)input={...input,tools:guard.tools(input.tools)};
     input = await resolveRoute(input, false, extra, stream);
@@ -220,7 +225,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
     return response;
   };
-  const report = async (call: ToolCall, result: ToolResult, durationMs: number) => {
+  const report = async (call: ToolCall, result: ToolResult, durationMs: number, answeredQuestion = false) => {
     let output: CapturedToolOutput | undefined;
     if (options.captureToolOutput) {
       try {
@@ -233,7 +238,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       } catch { options.onWarning?.('Tool output could not be saved. The tool has already finished and will not be repeated; use /tools to inspect any retained output.'); }
     }
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
-    messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model)) });
+    messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model), answeredQuestion) });
     await checkpoint('active');
     await options.onToolResult?.(structuredClone(call), result, iterations, output);
   };
@@ -274,6 +279,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     const runTool = async (): Promise<ToolResult> => {
       await checkpointTail;
       if (safetyFailed) await safetyBranch;
+      await guard?.refreshAuthority(signal);
       throwIfCancelled(signal);
       const invalid = validateAdmission?.();
       if (invalid || !validateAdmission) return { toolCallId: call.id,
@@ -301,14 +307,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       result = await runTool();
       throwIfCancelled(signal);
     }
-    await report(call, result, Date.now() - toolStarted);
+    let answeredQuestion = false;
+    if (!result.isError && call.name === 'ask_question' && options.answerQuestion) {
+      const answer = await cancellable(options.answerQuestion(structuredClone(call), signal), signal);
+      throwIfCancelled(signal);checkBudget();
+      if (typeof answer !== 'string' || !answer.trim() || answer.length > 8192) throw new Error('Question answer must be nonempty text of at most 8192 characters.');
+      result = {toolCallId:call.id,result:answer};answeredQuestion = true;
+    }
+    await report(call, result, Date.now() - toolStarted, answeredQuestion);
     if (!signal?.aborted) {
       const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(error => {
         throwIfCancelled(signal); options.onWarning?.(`Post-tool hook failed: ${String(error)}`);
       });
       if (guard) await post; else void post.catch(() => {});
     }
-    return !result.isError && ['ask_question', 'create_plan'].includes(call.name);
+    return !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
   };
 
   runlog.runStart({ mode: options.client ?? 'library', session: options.sessionId, cwd: options.cwd, provider: options.provider, model: currentRequest.model, config: config.getConfig() as unknown as Record<string, unknown> });

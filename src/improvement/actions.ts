@@ -13,12 +13,10 @@ import {readCollectedArtifact} from '../orchestration/verification.js';
 import {shape} from '../orchestration/validation.js';
 import {OrchestrationError} from '../orchestration/types.js';
 import {projectImprovementHistory} from './projection.js';
-import type {ImprovementCycle} from './types.js';
 import {readRunAccounting} from '../orchestration/accounting.js';
 
-export function improvementProposalHash(cycle:ImprovementCycle):string {
-  return digest(canonicalJson({version:1,runId:cycle.runId,manifestHash:cycle.source.manifestHash,decision:cycle.source.decision,proposal:cycle.proposedChange,deadline:cycle.budget.deadline}));
-}
+export {improvementProposalHash} from './proposal-hash.js';
+import {improvementProposalHash} from './proposal-hash.js';
 /** Inspection may outlive execution; it cannot reset a clock, approval or reservation. */
 export async function inspectImprovements(cwd:string,runId:string|undefined,options:CoordinatorOptions={}) {
   const initial=await inspectRun(cwd,runId,options),current=await inspectExecution(cwd,initial.run.id,options);
@@ -42,23 +40,25 @@ export async function inspectImprovements(cwd:string,runId:string|undefined,opti
 }
 export async function proposeImprovement(cwd:string,runId:string|undefined,options:CoordinatorOptions={}) {
   const initial=await inspectImprovements(cwd,runId,options),s=initial.execution!.state.supervision;
+  let revision=options.expectedExecutionRevision===undefined?initial.execution!.state.revision:options.expectedExecutionRevision;initial.store.assertRevision(revision,initial.execution!.state.revision);
   if(!s)throw new OrchestrationError('invalid','Improvement proposals require a reviewed version-4 supervised run.');
   if(initial.owner?.alive||initial.execution!.state.ownerId)throw new OrchestrationError('conflict','Stop or recover the active coordinator before requesting a separate improvement review.');
   if(s.decisionId){const cycle=initial.history.cycles.find(c=>c.id===s.decisionId);if(cycle&&s.review)return{cycle,proposalHash:improvementProposalHash(cycle),existing:true};}
-  if(s.phase==='halted')await controlExecution(cwd,initial.view.run.id,'controller-retry',initial.store.context().plan.supervision!.controllerId,options);
-  await executeReviewedRun(cwd,initial.view.run.id,{...options,resume:true,proposalOnly:true});
+  if(s.phase==='halted')revision=(await controlExecution(cwd,initial.view.run.id,'controller-retry',initial.store.context().plan.supervision!.controllerId,{...options,expectedExecutionRevision:revision})).state.revision;
+  await executeReviewedRun(cwd,initial.view.run.id,{...options,resume:true,proposalOnly:true,expectedExecutionRevision:revision});
   const current=await inspectImprovements(cwd,initial.view.run.id,options),cycle=current.history.cycles.find(c=>c.id===current.execution!.state.supervision?.decisionId);
   if(!cycle||!current.execution!.state.supervision?.review||current.execution!.state.supervision.phase!=='decision')throw new OrchestrationError('unavailable','The bounded review produced no improvement proposal; inspect its recorded stop, failure or exhausted limits.');
   return{cycle,proposalHash:improvementProposalHash(cycle),existing:false};
 }
 export async function runImprovement(cwd:string,runId:string|undefined,cycleId:string,approvedHash:string,options:CoordinatorOptions={}) {
   const current=await inspectImprovements(cwd,runId,options),cycle=current.history.cycles.find(c=>c.id===cycleId);
+  let revision=options.expectedExecutionRevision===undefined?current.execution!.state.revision:options.expectedExecutionRevision;current.store.assertRevision(revision,current.execution!.state.revision);
   if(!cycle||cycle.status!=='proposed'||current.execution!.state.supervision?.decisionId!==cycleId)throw new OrchestrationError('conflict','Select the current unapplied improvement proposal.');
   if(improvementProposalHash(cycle)!==approvedHash)throw new OrchestrationError('policy-denied','Improvement execution requires its exact reviewed proposal hash.');
   await authorizeSessionAction(cwd,'orchestration_improve',{path:cwd,runId:cycle.runId,cycleId,proposalHash:approvedHash,decision:cycle.proposedChange,budget:cycle.budget,scope:'isolated execution under the original reviewed plan'},options);
   if(current.store.read().state.revision!==current.execution!.state.revision)throw new OrchestrationError('conflict','The improvement changed during approval; inspect its current proposal.');
-  if(current.execution!.state.supervision?.phase==='halted')await controlExecution(cwd,cycle.runId,'controller-retry',current.store.context().plan.supervision!.controllerId,options);
-  return executeReviewedRun(cwd,cycle.runId,{...options,resume:true,proposalOnly:false,expectedDecisionId:cycleId,expectedProposalHash:approvedHash});
+  if(current.execution!.state.supervision?.phase==='halted')revision=(await controlExecution(cwd,cycle.runId,'controller-retry',current.store.context().plan.supervision!.controllerId,{...options,expectedExecutionRevision:revision})).state.revision;
+  return executeReviewedRun(cwd,cycle.runId,{...options,resume:true,proposalOnly:false,expectedDecisionId:cycleId,expectedProposalHash:approvedHash,expectedExecutionRevision:revision});
 }
 /** Retire a strategy and stop its continuation. Artifacts, task outcomes and allocations remain immutable. */
 export async function withdrawImprovement(cwd:string,runId:string|undefined,cycleId:string,options:CoordinatorOptions={}) {

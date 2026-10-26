@@ -5,12 +5,18 @@ export interface ExecutionAccount {
   tokenBudget: number; costBudgetNanos: number; deadline: number;
   allowedTools: string[]; allowedPaths: ExecutionPath[];
 }
+export interface ParentBudgetLink {
+  version:1;runsRoot:string;runId:string;runManifestHash:string;
+  approvalRevision:string;budgetManifestHash:string;agentId:string;
+}
 export interface ExecutionManifest {
-  version: 1; runId: string; planHash: string;
+  version: 1|2; runId: string; planHash: string;
   project: { root: string; key: string };
   createdAt: number; deadline: number;
   tokenBudget: number; costBudgetNanos: number;
   accounts: ExecutionAccount[];
+  /** Version 2 persists the funding boundary; reopening cannot omit it. */
+  parent?:ParentBudgetLink;
 }
 export interface RequestReservation {
   id: string; agentId: string; provider: string; model: string; target: string;
@@ -25,19 +31,21 @@ export interface RequestSettlement {
   usage?: { inputTokens: number; outputTokens: number };
 }
 /** Child capacity is a grant, not provider usage or a synthetic request. */
-export interface ChildGrant {
-  version:1;id:string;proposalHash:string;previousGraphHash:string;planHash:string;
+interface ChildGrantFields {
+  id:string;proposalHash:string;previousGraphHash:string;planHash:string;
   runManifestHash:string;approvalRevision:string;parentId:string;accounts:ExecutionAccount[];
 }
+/** Only the ledger owner may bind a new filesystem identity. Descendants inherit it. */
+export type ChildGrant = ChildGrantFields & ({version:1}|{version:2;project:ExecutionManifest['project']});
 export interface RecordedChildGrant {grant:ChildGrant;eventId:string;eventHash:string;at:number}
 export interface ReservationEvent {
-  version: 1|2|3|4; id: string; at: number; previous: string;
+  version: 1|2|3|4|5; id: string; at: number; previous: string;
   change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement } | {type:'child_grant';grant:ChildGrant};
   hash: string;
 }
 export interface AccountSpend { tokens: number; costNanos: number }
 export interface ReservationProjection {
-  version: 1|2|3; runId: string; manifestHash: string; revision: string;
+  version: 1|2|3|4; runId: string; manifestHash: string; revision: string;
   spent: AccountSpend; accounts: Record<string, AccountSpend>;
   requests: Record<string, { reservation: RequestReservation; state: 'pending' | 'settled' | 'unknown' | 'exceeded'; accounted?:AccountSpend }>;
   exceeded: boolean;

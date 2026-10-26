@@ -12,6 +12,7 @@ import { activeSessionId, readPrivateSessionFile, readConversation, writeConvers
 import type { Message } from './types.js';
 import { IterationLedger } from './iteration-ledger.js';
 import type { IterationLedgerSnapshot } from './iteration-ledger.js';
+import { validSessionExecutionBinding, type SessionExecutionBinding } from './sessions/execution-binding.js';
 
 // ============================================================================
 // Date Utilities
@@ -36,6 +37,8 @@ export function createSessionId(): string {
 // ============================================================================
 
 export interface Session {
+  acpControlsVersion?: 1;
+  executionBinding?: SessionExecutionBinding;
   id: string;
   projectPath: string;
   projectName: string;
@@ -424,12 +427,14 @@ export function getOrCreateSession(projectPath: string): Session {
 }
 
 /** A new terminal owns a unique session, including on the same day/project. */
-export function createSession(projectPath: string, options: { activate?: boolean; prefix?: 'session' | 'acp'; lineage?: Session['lineage'] } = {}): Session {
+export function createSession(projectPath: string, options: { activate?: boolean; prefix?: 'session' | 'acp'; lineage?: Session['lineage']; executionBinding?: SessionExecutionBinding; acpControlsVersion?: 1 } = {}): Session {
+  if(options.acpControlsVersion!==undefined&&options.acpControlsVersion!==1)throw new SessionRecoveryError('invalid','unsupported ACP controls version.');
+  if (options.executionBinding !== undefined && !validSessionExecutionBinding(options.executionBinding)) throw new SessionRecoveryError('invalid', 'invalid session execution binding.');
   initStorage();
   const now = new Date().toISOString();
   const session: Session = { id: createSessionId().replace(/^session_/, `${options.prefix ?? 'session'}_`), projectPath: path.resolve(projectPath),
     projectName: path.basename(projectPath) || 'unnamed', createdAt: now, lastAccessedAt: now,
-    messageCount: 0, provider: '', model: '', ...(options.lineage ? { lineage: options.lineage } : {}) };
+    messageCount: 0, provider: '', model: '', ...(options.acpControlsVersion ? { acpControlsVersion: options.acpControlsVersion } : {}), ...(options.executionBinding ? { executionBinding: structuredClone(options.executionBinding) } : {}), ...(options.lineage ? { lineage: options.lineage } : {}) };
   const dir = path.join(paths.sessions, `${getTodayString()}_${session.projectName}_${randomUUID()}`);
   fs.mkdirSync(dir, { mode: 0o700 });
   fs.mkdirSync(path.join(dir, 'plans'), { mode: 0o700 });
@@ -486,6 +491,8 @@ function readSessionFromDir(sessionDir: string): Session | null {
   const sessionFile = path.join(sessionDir, 'session.json');
   let value: Session | null;
   try { value = JSON.parse(readPrivateSessionFile(sessionFile, 65536) ?? 'null'); } catch { return null; }
+  if (value?.executionBinding !== undefined && !validSessionExecutionBinding(value.executionBinding)) return null;
+  if (value?.acpControlsVersion !== undefined && value.acpControlsVersion !== 1) return null;
   const lineage = value?.lineage;
   if (lineage !== undefined && (!lineage || typeof lineage !== 'object' || Array.isArray(lineage) || lineage.version !== 1 ||
     !['manual', 'safety', 'import'].includes(lineage.kind) || typeof lineage.sessionId !== 'string' ||

@@ -11,17 +11,22 @@ import { privateDirectory, readArtifactBytes } from '../orchestration/execution-
 import type { ReadMount } from './process.js';
 
 const unavailable = (message: string): never => { throw new OrchestrationError('unavailable', message); };
-export async function worktreeGit(cwd: string, args: string[], signal?: AbortSignal, accepted = [0]): Promise<string> {
+export async function worktreeGit(cwd: string, args: string[], signal?: AbortSignal, accepted = [0],
+  input?: {text?:string;indexFile?:string;identity?:{name:string;email:string;date:string}}): Promise<string> {
   throwIfCancelled(signal);
   const controller = new AbortController(), abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true }); if (signal?.aborted) abort();
   const timer = setTimeout(abort, 30000);
   try {
     const proc = spawn('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'checkout.workers=1', ...args], {
-      cwd, detached: detachedProcess, stdio: ['ignore', 'pipe', 'pipe'],
-      env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', GIT_NO_LAZY_FETCH: '1' },
+      cwd, detached: detachedProcess, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { PATH: process.env.PATH, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1', GIT_NO_LAZY_FETCH: '1',
+        ...(input?.indexFile?{GIT_INDEX_FILE:input.indexFile}:{}),
+        ...(input?.identity?{GIT_AUTHOR_NAME:input.identity.name,GIT_AUTHOR_EMAIL:input.identity.email,GIT_AUTHOR_DATE:input.identity.date,
+          GIT_COMMITTER_NAME:input.identity.name,GIT_COMMITTER_EMAIL:input.identity.email,GIT_COMMITTER_DATE:input.identity.date}:{}) },
     });
     const stopped = bindProcessCancellation(proc, controller.signal); let bytes = Buffer.alloc(0);
+    proc.stdin.on('error',()=>{});proc.stdin.end(input?.text);
     proc.stdout.on('data', data => { if (bytes.length + data.length > 1024 * 1024) controller.abort(); else bytes = Buffer.concat([bytes, data]); });
     proc.stderr.resume();
     const code = await new Promise<number>(resolve => { proc.once('error', () => resolve(-1)); proc.once('close', code => resolve(code ?? -1)); });

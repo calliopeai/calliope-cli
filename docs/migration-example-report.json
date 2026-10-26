@@ -1,0 +1,511 @@
+{
+  "format": "calliope.migration.verification-report/v1",
+  "verifier": "byte-parity-v1",
+  "adapter": "javascript-to-typescript-cli/v1",
+  "planDigest": "96518d5ee8c868901712d40be267ccf51b7c13ae9ad713f2abd40ad9e7e298c1",
+  "runtime": {
+    "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+    "node": "v24.22.1"
+  },
+  "pins": {
+    "source": {
+      "object": "b96c6972d5a4bfc7e1c52fea78ba340ff24b97c5",
+      "path": "source.mjs",
+      "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea"
+    },
+    "candidate": {
+      "object": "4b551e05cce761a68a30a20207c47add9a9f4eff",
+      "path": "candidate.mts",
+      "revision": "f4732441c67d285f5005ac0afb25d412c2d74f93"
+    },
+    "negative": {
+      "object": "0d6091a5c5d47ed8b4c97b7f74f296853fcc09a0",
+      "path": "negative.mts",
+      "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea"
+    },
+    "rules": {
+      "object": "ece25894441e04857adea069e792b6f622fb2e7b",
+      "path": "RULES.md",
+      "revision": "54bdcbfa6e40806cd709736e448bd50c453799ea"
+    }
+  },
+  "outcome": "passed",
+  "reason": "Baseline, negative control and candidate observations satisfy the declared contract.",
+  "observations": [
+    {
+      "phase": "runtime",
+      "caseId": null,
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "--version"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-27285e7f-fd33-4285-a9b5-d1e277aa452a",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "249baf635bb43877fcb9422efa1a4904b702d0ddf14d3949b7cd0950d5229c81",
+            "bytes": 9
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 1648
+      }
+    },
+    {
+      "phase": "baseline",
+      "caseId": "positive",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mjs",
+          "[1,2,3]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-9cbf259b-c6dd-4711-93aa-9c0f78b3f7d4",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "26a6c68fc3a744dfefe9140f5877e335b896def676d850fb60e77b6224359086",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 1709
+      }
+    },
+    {
+      "phase": "baseline",
+      "caseId": "empty",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mjs",
+          "[]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-b3c21320-f6b3-4ede-ac10-45ff52bb0ebd",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "f991a9c8fd471b73bd9342a32ec1bb776039104ac3f28a0713fa955084e534ec",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 1789
+      }
+    },
+    {
+      "phase": "baseline",
+      "caseId": "negative-values",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mjs",
+          "[-2,5]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-61695e98-88b3-476e-9f2a-b489316406f3",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "215a9e8c42577c888936706cef00a56a0091601e6b9d04e03815290841633714",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 1588
+      }
+    },
+    {
+      "phase": "baseline",
+      "caseId": "invalid-type",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mjs",
+          "[\"1\"]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-facfc7c4-92e1-4254-ace4-2ef2bfe55d40",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "stderr": {
+            "sha256": "e0ff9287678e29e09a26eab68982328e210fe85bb35693282c9b98949b02ffed",
+            "bytes": 36
+          }
+        },
+        "outcome": "failed",
+        "exitCode": 2,
+        "truncated": false,
+        "durationMs": 2101
+      }
+    },
+    {
+      "phase": "baseline",
+      "caseId": "invalid-json",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mjs",
+          "not-json"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-f1c4fb59-6071-4b5e-8f60-616972db9092",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "stderr": {
+            "sha256": "7038ca5c7c514c7f32614025464695a05a872fe0ec6f819d66b08df02fa82907",
+            "bytes": 14
+          }
+        },
+        "outcome": "failed",
+        "exitCode": 2,
+        "truncated": false,
+        "durationMs": 565
+      }
+    },
+    {
+      "phase": "negative-control",
+      "caseId": "positive",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "[1,2,3]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-1f2cf2a8-a6fc-4d82-ba1a-be2f17b03d71",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "0c95189e6d39baf767fb9ffae99434103582755c6e943c57baa4430110263fa7",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 681
+      }
+    },
+    {
+      "phase": "candidate",
+      "caseId": "positive",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "[1,2,3]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-b20b81d0-f0db-4b3c-9db3-1a67603953f1",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "26a6c68fc3a744dfefe9140f5877e335b896def676d850fb60e77b6224359086",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 661
+      }
+    },
+    {
+      "phase": "candidate",
+      "caseId": "empty",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "[]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-be36cfed-1a02-46c9-93c8-509df4274448",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "f991a9c8fd471b73bd9342a32ec1bb776039104ac3f28a0713fa955084e534ec",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 669
+      }
+    },
+    {
+      "phase": "candidate",
+      "caseId": "negative-values",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "[-2,5]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-eea61925-33c6-4c45-a722-76a131d240e9",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "215a9e8c42577c888936706cef00a56a0091601e6b9d04e03815290841633714",
+            "bytes": 20
+          },
+          "stderr": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          }
+        },
+        "outcome": "passed",
+        "exitCode": 0,
+        "truncated": false,
+        "durationMs": 727
+      }
+    },
+    {
+      "phase": "candidate",
+      "caseId": "invalid-type",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "[\"1\"]"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-7b3b1432-d045-4100-833f-807a30c8a8d4",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "stderr": {
+            "sha256": "e0ff9287678e29e09a26eab68982328e210fe85bb35693282c9b98949b02ffed",
+            "bytes": 36
+          }
+        },
+        "outcome": "failed",
+        "exitCode": 2,
+        "truncated": false,
+        "durationMs": 622
+      }
+    },
+    {
+      "phase": "candidate",
+      "caseId": "invalid-json",
+      "matches": true,
+      "evidence": {
+        "version": 1,
+        "kind": "isolated-command",
+        "argv": [
+          "node",
+          "/project/program.mts",
+          "not-json"
+        ],
+        "image": "sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205",
+        "container": "calliope-check-9d04569d-15a5-4a25-aebd-a89e763a29d5",
+        "cleanupConfirmed": true,
+        "cleanup": {
+          "version": 1,
+          "removal": {
+            "outcome": "removed",
+            "exitCode": 0
+          }
+        },
+        "outputDigests": {
+          "version": 1,
+          "stdout": {
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "bytes": 0
+          },
+          "stderr": {
+            "sha256": "7038ca5c7c514c7f32614025464695a05a872fe0ec6f819d66b08df02fa82907",
+            "bytes": 14
+          }
+        },
+        "outcome": "failed",
+        "exitCode": 2,
+        "truncated": false,
+        "durationMs": 647
+      }
+    }
+  ],
+  "commandsUsed": 12,
+  "commandLimit": 12,
+  "retainedWorkspace": null,
+  "limitations": [
+    "Only declared cases of this self-contained command-line interface were compared; this is not proof of general program equivalence.",
+    "No TypeScript type-check, dependency install, migration dispatch or rollout was performed."
+  ],
+  "digest": "ae5cc54dee2e6e3679673d6b7c1832dbe2704dbb5ec0293acb26653a1f655e5e"
+}

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {containerArguments,runIsolatedCommand} from '../src/isolation/process.js';
+import {createHash} from 'node:crypto';
 let root:string;
 const image='sha256:'+'a'.repeat(64);
 beforeEach(()=>{
@@ -34,6 +35,7 @@ else if(op==='start'){const saved=JSON.parse(fs.readFileSync(file)),argv=saved.a
  if(mode==='hang'){process.on('SIGTERM',()=>{});setInterval(()=>{},1000);}
  else if(mode==='fail'){process.stderr.write('assertion failed');process.exitCode=2;}
  else if(mode==='large')process.stdout.write('x'.repeat(100000));
+ else if(mode==='bytes')process.stdout.write(Buffer.from([0,255,27,91,51,49,109,120]));
  else process.stdout.write('passed');}
 else process.exitCode=125;
 `,{mode:0o700});
@@ -42,7 +44,14 @@ else process.exitCode=125;
 afterEach(()=>{vi.unstubAllEnvs();fs.rmSync(root,{recursive:true,force:true});});
 const run=(mode:string,signal?:AbortSignal,timeoutMs=3000)=>runIsolatedCommand(image,{artifactId:'check',argv:[mode],timeoutMs},[{source:root,target:'/project'}],signal);
 const fault=(value:Record<string,string>)=>fs.writeFileSync(join(root,'fault.json'),JSON.stringify(value));
-const operations=()=>fs.readFileSync(join(root,'operations.jsonl'),'utf8').trim().split('\n').map(line=>JSON.parse(line));
+// While the child is writing, only newline-terminated records are published.
+// Completed-command reads remain strict so malformed evidence still fails.
+const operations=(polling=false)=>{const raw=fs.readFileSync(join(root,'operations.jsonl'),'utf8');return (polling?raw.slice(0,raw.lastIndexOf('\n')+1):raw).split('\n').filter(Boolean).map(line=>JSON.parse(line));};
+it('fingerprints raw output before UTF-8 decoding and display sanitization',async()=>{
+  const result=await run('bytes'),raw=Buffer.from([0,255,27,91,51,49,109,120]);
+  expect(result.outputDigests).toEqual({version:1,stdout:{sha256:createHash('sha256').update(raw).digest('hex'),bytes:raw.length},stderr:{sha256:createHash('sha256').update('').digest('hex'),bytes:0}});
+  expect(result.outputDigests!.stdout.sha256).not.toBe(createHash('sha256').update(result.stdout).digest('hex'));
+});
 it('uses pinned images, read-only grants and bounded resources without inherited credentials',async()=>{
   const result=await run('pass');expect(result).toMatchObject({version:1,kind:'isolated-command',exitCode:0,outcome:'passed',stdout:'passed',cleanupConfirmed:true,truncated:false});
   const recorded=JSON.parse(fs.readFileSync(join(root,result.container+'.json'),'utf8'));
@@ -74,8 +83,10 @@ it('does not inspect after acknowledged removal or unconfirmed creation',async()
 });
 it('preserves cancellation and timeout after confirmed creation and uncertain cleanup',async()=>{
   fault({remove:'error',inspect:'absent'});const controller=new AbortController(),pending=run('hang',controller.signal);
-  for(let n=0;n<150;n++){if(fs.existsSync(join(root,'operations.jsonl'))&&operations().some(x=>x.op==='start'))break;await new Promise(resolve=>setTimeout(resolve,10));}
-  expect(operations().some(x=>x.op==='start')).toBe(true);controller.abort();expect(await pending).toMatchObject({outcome:'cancelled',exitCode:130,cleanupConfirmed:true,cleanup:{verification:{outcome:'absent'}}});
+  try {
+    for(let n=0;n<150;n++){if(fs.existsSync(join(root,'operations.jsonl'))&&operations(true).some(x=>x.op==='start'))break;await new Promise(resolve=>setTimeout(resolve,10));}
+    expect(operations(true).some(x=>x.op==='start')).toBe(true);controller.abort();expect(await pending).toMatchObject({outcome:'cancelled',exitCode:130,cleanupConfirmed:true,cleanup:{verification:{outcome:'absent'}}});
+  }finally{controller.abort();await pending;}
   expect(await run('hang',undefined,500)).toMatchObject({outcome:'timeout',exitCode:124,cleanupConfirmed:true});
 });
 it('does not confirm absence when cancellation interrupts creation',async()=>{

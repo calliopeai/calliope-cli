@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.5.4",
+  "version": "3.7.0",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",
@@ -34,16 +34,24 @@
   "files": [
     "dist",
     "README.md",
-    "scripts/verify-runlog.mjs"
+    "scripts/verify-runlog.mjs",
+    "docs/migration-*.md",
+    "docs/migration-example-*.json",
+    "docs/delegation-ledger.md",
+    "docs/improvement-cycles.md",
+    "docs/acp.md",
+    "docs/releases/3.7.0.md",
+    "docs/releases/3.6.0.md"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/bin.js",
+    "build": "tsc && node scripts/build-metadata.mjs && chmod +x dist/bin.js",
     "dev": "tsc --watch",
     "start": "node dist/bin.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ahp-protocol": "npm run build && node --test scripts/qualification/ahp-protocol.mjs",
+    "test:reviewed-host": "npm run build && node scripts/qualification/reviewed-host.mjs",
     "test:native-policy": "npm run build && node --test scripts/qualification/native-policy.mjs",
     "bench": "node bench/run.mjs",
     "bench:cold": "npm run build && node bench/cold-start.mjs",

@@ -110,3 +110,62 @@ it('creates and appends the execution journal on Windows, where its directories 
     expect(store.read().state.stoppedAgents).toEqual(['a']);
   }finally{restore();}
 });
+it('isolates repeated observations from caller edits and immediately sees another writer stopping an agent',async()=>{
+  const {store,view}=await coordinatorRun(root);await store.append({type:'started',ownerId:randomUUID()});
+  const expected=store.read(),caller=store.read();caller.header.deadline=0;caller.events[0]!.hash='0'.repeat(64);caller.state.stoppedAgents.push('b');
+  expect(store.read()).toEqual(expected);
+  for(const map of [store.read().state.tasks,store.read().state.artifacts]){expect(Object.getPrototypeOf(map)).toBeNull();expect(map.constructor).toBeUndefined();}
+  const other=new ExecutionStore(join(root,'runs',view.run.id),view.manifest);await other.append({type:'agent_stop',agentId:'a'});
+  expect(store.read().state.stoppedAgents).toEqual(['a']);expect(store.read()).toEqual(other.read());
+  const hash=store.manifest.hash;store.manifest.hash='0'.repeat(64);expect(()=>store.read()).toThrow();store.manifest.hash=hash;
+  expect(store.read()).toEqual(other.read());
+});
+it('rejects same-size journal tampering with restored timestamps after a successful observation',async()=>{
+  const {store}=await coordinatorRun(root),expected=store.read(),file=join(store.root,'history.json'),bytes=fs.readFileSync(file),stat=fs.statSync(file);
+  const value=JSON.parse(bytes.toString());value.hash=(value.hash[0]==='a'?'b':'a')+value.hash.slice(1);const changed=Buffer.from(JSON.stringify(value));expect(changed.length).toBe(bytes.length);
+  fs.writeFileSync(file,changed);fs.utimesSync(file,stat.atime,stat.mtime);expect(()=>store.read()).toThrow();
+  fs.writeFileSync(file,bytes);expect(store.read()).toEqual(expected);
+});
+it('rechecks private storage and project identity even when the journal contents are unchanged',async()=>{
+  const {store,project}=await coordinatorRun(root),expected=store.read(),file=join(store.root,'history.json'),saved=join(root,'retained-history.json');
+  fs.renameSync(file,saved);fs.symlinkSync(saved,file);expect(()=>store.read()).toThrow();fs.unlinkSync(file);fs.renameSync(saved,file);
+  expect(store.read()).toEqual(expected);
+  if(process.platform!=='win32'){fs.chmodSync(file,0o644);expect(()=>store.read()).toThrow();fs.chmodSync(file,0o600);}
+  expect(store.read()).toEqual(expected);fs.renameSync(project,project+'-original');fs.mkdirSync(project);expect(()=>store.read()).toThrow(/identity/);
+});
+it('observes a complete atomic journal replacement instead of failing an active reader',async()=>{
+  const {store}=await coordinatorRun(root),file=join(store.root,'history.json'),old=fs.readFileSync(file);
+  await store.append({type:'agent_stop',agentId:'a'});const next=fs.readFileSync(file),expected=store.read();fs.writeFileSync(file,old);
+  const inode=fs.statSync(file).ino,read=fs.readSync;let replacements=0;
+  vi.spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{
+    const count=Reflect.apply(read,fs,args);
+    if(!replacements&&fs.fstatSync(args[0]).ino===inode){
+      replacements++;const replacement=join(store.root,'published.json');fs.writeFileSync(replacement,next,{mode:0o600});fs.renameSync(replacement,file);
+    }
+    return count;
+  }) as typeof fs.readSync);
+  expect(store.read()).toEqual(expected);expect(replacements).toBe(1);
+});
+it('bounds repeated atomic publications and never returns a cached stale observation',async()=>{
+  const {store}=await coordinatorRun(root),file=join(store.root,'history.json'),bytes=fs.readFileSync(file),read=fs.readSync;store.read();let replacements=0;
+  vi.spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{
+    const current=fs.statSync(file),opened=fs.fstatSync(args[0]),count=Reflect.apply(read,fs,args);
+    if(current.ino===opened.ino&&current.dev===opened.dev){
+      replacements++;const next=join(store.root,'published.json');fs.writeFileSync(next,bytes,{mode:0o600});fs.renameSync(next,file);
+    }
+    return count;
+  }) as typeof fs.readSync);
+  expect(()=>store.read()).toThrow(/unavailable/);expect(replacements).toBe(3);
+});
+it.each(['in-place','malformed-replacement'])('still rejects %s history changes during a read',async kind=>{
+  const {store}=await coordinatorRun(root),file=join(store.root,'history.json'),inode=fs.statSync(file).ino,read=fs.readSync;store.read();let writes=0;
+  vi.spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{
+    const count=Reflect.apply(read,fs,args);
+    if(!writes&&fs.fstatSync(args[0]).ino===inode){
+      writes++;if(kind==='in-place')fs.writeFileSync(file,'{');
+      else{const next=join(store.root,'published.json');fs.writeFileSync(next,'{',{mode:0o600});fs.renameSync(next,file);}
+    }
+    return count;
+  }) as typeof fs.readSync);
+  expect(()=>store.read()).toThrow(/unavailable/);expect(writes).toBe(1);
+});

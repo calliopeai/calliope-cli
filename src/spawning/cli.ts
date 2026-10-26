@@ -26,7 +26,7 @@ export async function spawnCommand(args:string[],options:ExecutionCommandOptions
     if(v['dry-run'])return 0;
     if(!v.approve&&!v.resume&&!(options.source==='repl'&&options.approve&&!json))return 5;
     const accepted=await admitSpawn(cwd,runId,v.resume??preview.proposal,v.approve??preview.proposal.hash,opts);
-    emit('orchestration.spawn.admitted',accepted,`Admitted ${accepted.admission.proposal.agents.length} children. Waiting for verified task outcomes.`);
+    emit('orchestration.spawn.admitted',accepted,accepted.admission.proposal.version===2?'Delegated allowance admitted. The external executor owns work and outcome verification.':`Admitted ${accepted.admission.proposal.agents.length} children. Waiting for verified task outcomes.`);
     const result=await executeSpawn(cwd,accepted.admission,{...opts,...(v['allow-mutations']?{approve:async()=> 'allow' as const}:{}),onEvent:event=>{options.onEvent?.(event);emit('orchestration.spawn.event',{runId,event},`${event.sequence}. ${event.change.type}`);}});
     emit('orchestration.spawn.result',result,`Child execution ${result.status} · run ${runId} · proposal ${result.proposalHash}`);return result.exitCode;
   }catch(error){

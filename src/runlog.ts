@@ -135,8 +135,8 @@ const SECRET_KEY_RE =
 
 /** String values that look like well-known secret formats. */
 const SECRET_VALUE_PATTERNS: RegExp[] = [
-  /sk-ant-[A-Za-z0-9_-]{16,}/,
-  /sk-[A-Za-z0-9_-]{16,}/,
+  /\bsk-ant-[A-Za-z0-9_-]{16,}/,
+  /\bsk-[A-Za-z0-9_-]{16,}/,
   /AKIA[0-9A-Z]{16}/,
   /gh[pousr]_[A-Za-z0-9]{16,}/,
   /github_pat_[A-Za-z0-9_]{22,}/,

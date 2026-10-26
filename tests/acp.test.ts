@@ -41,6 +41,11 @@ vi.mock('../src/config.js', async original => ({
 
 const mockChat = vi.fn();
 const mockExecuteTool = vi.fn();
+const mockModelDiscovery = vi.fn();
+vi.mock('../src/model-detection.js', async original => ({
+  ...await original<typeof import('../src/model-detection.js')>(),
+  getAvailableModels: (...args: unknown[]) => mockModelDiscovery(...args),
+}));
 
 vi.mock('../src/providers/index.js', () => ({
   chat: (...args: unknown[]) => mockChat(...args),
@@ -99,7 +104,7 @@ class TestClient {
   updates: SessionNotification[] = [];
   permissionRequests: RequestPermissionRequest[] = [];
   /** How to answer a permission request; default: allow once. */
-  permissionResponder: (req: RequestPermissionRequest) => RequestPermissionResponse = () => ({
+  permissionResponder: (req: RequestPermissionRequest) => RequestPermissionResponse | Promise<RequestPermissionResponse> = () => ({
     outcome: { outcome: 'selected', optionId: 'allow' },
   });
   /** Editor buffers for fs delegation, keyed by absolute path. */
@@ -143,9 +148,9 @@ async function waitFor(cond: () => boolean, tries = 200): Promise<void> {
 }
 
 /** Spin up an agent + connected test client over an in-memory pair. */
-function connect(): { client: TestClient; conn: ClientConnection; agent: ReturnType<typeof serveAcp> } {
+function connect(execution?: import('../src/execution/guard.js').AgentExecution): { client: TestClient; conn: ClientConnection; agent: ReturnType<typeof serveAcp> } {
   const { agentStream, clientStream } = streamPair();
-  const agent = serveAcp(agentStream);
+  const agent = serveAcp(agentStream, { execution });
   const client = new TestClient();
   const conn = createClient()
     .onNotification('session/update', ({params}) => client.sessionUpdate(params))
@@ -192,6 +197,10 @@ function scriptChat(steps: ChatStep[]): void {
 }
 
 beforeEach(() => {
+  mockModelDiscovery.mockReset().mockResolvedValue([
+    {id:'discovered-model-a',name:'Discovered A',evidence:{source:'live'}},
+    {id:'discovered-model-b',name:'Discovered B',evidence:{source:'live'}},
+  ]);
   mockChat.mockReset();
   mockExecuteTool.mockReset();
   mockExecuteTool.mockResolvedValue({ toolCallId: 't', result: 'ok', isError: false });
@@ -216,6 +225,113 @@ it('resolves trusted project model defaults for ACP and rejects malformed defaul
 
 afterEach(() => {
   fs.rmSync(RUNS_DIR, { recursive: true, force: true });
+});
+
+describe('persistent session controls', () => {
+  it('selects discovered models per session and restores mode/model without changing defaults', async () => {
+    const first=connect(); await handshake(first.conn);
+    const a=await newSession(first.conn), b=await newSession(first.conn);
+    const selected=await first.conn.agent.request('session/set_config_option',{sessionId:a,configId:'model',value:'model:discovered-model-b'});
+    expect(selected.configOptions[0]).toMatchObject({currentValue:'model:discovered-model-b'});
+    await first.conn.agent.request('session/set_mode',{sessionId:a,modeId:'plan'});
+    const second=connect(); await handshake(second.conn);
+    const loaded=await second.conn.agent.request('session/load',{sessionId:a,cwd:tmpHome,mcpServers:[]});
+    expect(loaded).toMatchObject({modes:{currentModeId:'plan'},configOptions:[{currentValue:'model:discovered-model-b'}]});
+    scriptChat([{content:'Done'}]);
+    await second.conn.agent.request('session/prompt',{sessionId:a,prompt:[{type:'text',text:'summarize'}]});
+    expect(mockChat.mock.calls.at(-1)?.[3]).toBe('discovered-model-b');
+    await first.conn.agent.request('session/prompt',{sessionId:b,prompt:[{type:'text',text:'summarize'}]});
+    expect(mockChat.mock.calls.at(-1)?.[3]).toBe('claude-sonnet-4-6');
+    await Promise.all([first.agent.shutdown(),second.agent.shutdown()]);
+  });
+  it('refuses writes in plan mode before permission requests or tool effects', async () => {
+    const {conn,client,agent}=connect();await handshake(conn);
+    const sessionId=await newSession(conn);
+    await conn.agent.request('session/set_mode',{sessionId,modeId:'plan'});
+    scriptChat([{toolCalls:[{id:'write-plan',name:'write_file',arguments:{path:'forbidden.txt',content:'no'}}]},{content:'Stopped'}]);
+    await conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'write'}]});
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(client.permissionRequests).toHaveLength(0);
+    expect(client.updatesOf('tool_call_update')).toEqual(expect.arrayContaining([expect.objectContaining({status:'failed'})]));
+    await agent.shutdown();
+  });
+  it('rejects unknown controls and models that are not in live discovery', async () => {
+    const {conn,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    await expect(conn.agent.request('session/set_mode',{sessionId,modeId:'auto-approve'})).rejects.toMatchObject({code:-32602});
+    await expect(conn.agent.request('session/set_config_option',{sessionId,configId:'provider',value:'other'})).rejects.toMatchObject({code:-32602});
+    await expect(conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:unlisted'})).rejects.toMatchObject({code:-32602});
+    mockModelDiscovery.mockResolvedValue([{id:'unverified',evidence:{source:'fallback'}}]);
+    await expect(conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:unverified'})).rejects.toMatchObject({code:-32602});
+    expect(mockChat).not.toHaveBeenCalled();await agent.shutdown();
+  });
+  it('refuses stale or missing retained controls instead of silently restoring work mode', async () => {
+    const {conn,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    const {readAcpControls,saveAcpControls}=await import('../src/acp/controls.js');
+    const before=readAcpControls(sessionId);saveAcpControls(sessionId,{...before,mode:'plan'});
+    await expect(conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'continue'}]})).rejects.toMatchObject({code:-32602});
+    const {getSessionDirById}=await import('../src/storage.js');
+    fs.unlinkSync(path.join(getSessionDirById(sessionId)!,'acp-controls.json'));
+    await expect(conn.agent.request('session/load',{sessionId,cwd:tmpHome,mcpServers:[]})).rejects.toThrow();
+    expect(mockChat).not.toHaveBeenCalled();await agent.shutdown();
+  });
+  it('rejects mode and model changes while a prompt is running', async () => {
+    const {conn,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    let finish!: (value:unknown)=>void;
+    mockChat.mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+    const pending=conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'wait'}]});
+    await waitFor(()=>!!finish);
+    await expect(conn.agent.request('session/set_mode',{sessionId,modeId:'plan'})).rejects.toMatchObject({code:-32602});
+    await expect(conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:discovered-model-b'})).rejects.toMatchObject({code:-32602});
+    finish({content:'Done',toolCalls:[],finishReason:'stop',usage:{inputTokens:1,outputTokens:1}});
+    await pending;await agent.shutdown();
+  });
+  it('does not overwrite a mode changed while model discovery was pending', async () => {
+    const {conn,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    let finish!: (value:unknown)=>void;
+    mockModelDiscovery.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;}));
+    const pending=conn.agent.request('session/set_config_option',{sessionId,configId:'model',value:'model:discovered-model-b'});
+    const refused=expect(pending).rejects.toMatchObject({code:-32602});
+    await waitFor(()=>!!finish);
+    await conn.agent.request('session/set_mode',{sessionId,modeId:'plan'});
+    finish([{id:'discovered-model-b',evidence:{source:'live'}}]);await refused;
+    const loaded=await conn.agent.request('session/load',{sessionId,cwd:tmpHome,mcpServers:[]});
+    expect(loaded).toMatchObject({modes:{currentModeId:'plan'},configOptions:[{currentValue:'default'}]});
+    expect(mockChat).not.toHaveBeenCalled();await agent.shutdown();
+  });
+  it('keeps configured selection usable when model discovery is unavailable', async () => {
+    mockModelDiscovery.mockRejectedValue(new Error('offline'));
+    const {conn,agent}=connect();await handshake(conn);
+    const opened=await conn.agent.request('session/new',{cwd:tmpHome,mcpServers:[]});
+    expect(opened.configOptions?.[0]).toMatchObject({currentValue:'default',options:[{value:'default'}]});
+    expect((opened.configOptions?.[0] as {options:unknown[]}).options).toHaveLength(1);
+    await expect(conn.agent.request('session/set_config_option',{sessionId:opened.sessionId,configId:'model',value:'model:unavailable'})).rejects.toMatchObject({code:-32602});
+    scriptChat([{content:'Done'}]);
+    expect((await conn.agent.request('session/prompt',{sessionId:opened.sessionId,prompt:[{type:'text',text:'continue'}]})).stopReason).toBe('end_turn');
+    expect(mockChat.mock.calls.at(-1)?.[3]).toBe('claude-sonnet-4-6');await agent.shutdown();
+  });
+  it('refuses an approved write when another process changed the controls during permission wait', async () => {
+    const {conn,client,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    let answer!: (value:RequestPermissionResponse)=>void;
+    client.permissionResponder=()=>new Promise(resolve=>{answer=resolve;});
+    scriptChat([{toolCalls:[{id:'stale-write',name:'write_file',arguments:{path:'stale.txt',content:'no'}}]},{content:'Done'}]);
+    const pending=conn.agent.request('session/prompt',{sessionId,prompt:[{type:'text',text:'write'}]});
+    const refused=expect(pending).rejects.toThrow();
+    await waitFor(()=>!!answer);
+    const {readAcpControls,saveAcpControls}=await import('../src/acp/controls.js');
+    saveAcpControls(sessionId,{...readAcpControls(sessionId),mode:'plan'});
+    answer({outcome:{outcome:'selected',optionId:'allow'}});
+    await refused;expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenCalledTimes(1);await agent.shutdown();
+  });
+  it('does not persist a cancelled control request', async () => {
+    const {conn,agent}=connect();await handshake(conn);const sessionId=await newSession(conn);
+    const signal=AbortSignal.abort(new Error('cancelled control'));
+    await expect(agent.setMode({sessionId,modeId:'plan'},signal)).rejects.toThrow('cancelled control');
+    await expect(agent.setConfigOption({sessionId,configId:'model',value:'model:discovered-model-b'},signal)).rejects.toThrow('cancelled control');
+    const {readAcpControls}=await import('../src/acp/controls.js');
+    expect(readAcpControls(sessionId)).toMatchObject({mode:'work'});
+    expect(readAcpControls(sessionId).selection).toBeUndefined();await agent.shutdown();
+  });
 });
 
 // ===========================================================================
@@ -761,7 +877,7 @@ describe('session/load', () => {
     expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read a.txt' }] })).stopReason).toBe('end_turn');
 
     const { client, conn, agent } = await restart(first.agent);
-    expect(await load(conn, sessionId)).toEqual({});
+    expect(await load(conn, sessionId)).toMatchObject({modes:{currentModeId:'work'},configOptions:[{id:'model',currentValue:'default'}]});
     expect(client.updates.every(update => update.sessionId === sessionId)).toBe(true);
     expect(client.updates.map(update => update.update)).toEqual([
       { sessionUpdate: 'user_message_chunk', content: { type: 'text', text: 'read a.txt' } },
@@ -917,6 +1033,30 @@ describe('session/load', () => {
     expect(readSessionConversation(sessionId).messages.filter(message => message.role === 'assistant').map(message => message.content))
       .toEqual(['first answer', 'second answer']);
   });
+});
+
+it('refuses expired delegated new/load sessions and refuses attaching a ledger to unbound history', async () => {
+  const { ReservationLedger, manifestHash } = await import('../src/execution/index.js');
+  const { executionManifest } = await import('./helpers/execution-manifest.js');
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(tmpHome, 'acp-binding-')));
+  const project = path.join(root, 'project'); fs.mkdirSync(project);
+  const manifest = executionManifest(project), ledger = new ReservationLedger(path.join(root, 'budget'));
+  ledger.create(manifest);
+  const execution = { ledger, manifestHash: manifestHash(manifest), agentId: 'a', maxOutputTokens: 100 };
+  const plain = connect(); await handshake(plain.conn);
+  const plainId = await newSession(plain.conn, project); await plain.agent.shutdown();
+  const bounded = connect(execution); await handshake(bounded.conn);
+  await expect(bounded.conn.agent.request('session/load', { sessionId: plainId, cwd: project, mcpServers: [] }))
+    .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('original parent ledger') } });
+  const boundId = await newSession(bounded.conn, project); await bounded.agent.shutdown();
+  const expired = connect(execution); await handshake(expired.conn);
+  const now = vi.spyOn(Date, 'now').mockReturnValue(manifest.deadline + 1);
+  try {
+    await expect(newSession(expired.conn, project)).rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('deadline expired') } });
+    await expect(expired.conn.agent.request('session/load', { sessionId: boundId, cwd: project, mcpServers: [] }))
+      .rejects.toMatchObject({ code: -32602, data: { error: expect.stringContaining('deadline expired') } });
+    expect(expired.client.updates).toEqual([]); expect(mockChat).not.toHaveBeenCalled();
+  } finally { now.mockRestore(); await expired.agent.shutdown(); }
 });
 
 it('rejects oversized collections before SDK schema validation or session creation', async () => {

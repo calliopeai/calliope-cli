@@ -1,0 +1,21 @@
+export { inventorySource, dependencyGraph, MigrationError, KIT_VERSION } from './inventory.js';
+export type { MigrationInventory, SourceFile, Package, Dependency, Finding } from './inventory.js';
+export { runMigrationCommand } from './cli.js';
+export { INVENTORY_SCHEMA } from './schema.js';
+export { VERIFICATION_SCHEMAS, EVIDENCE_REVIEW_SCHEMA } from './schema.js';
+export { analyzeVerificationPlan, verifyMigration, compareBehavior, comparatorHealthy, behaviorFingerprint, byteFingerprint, VERIFIER_VERSION, VERIFICATION_ADAPTER } from './verification.js';
+export type { VerificationPlan, VerificationOptions, BehaviorFingerprint, ExpectedBehavior } from './verification.js';
+export { migrationExample } from './example.js';
+export { analyzeVerificationEvidence } from './evidence.js';
+export { assessMigration } from './assessment.js';
+export type { AssessmentOptions, AssessmentReview, AssessmentReviewRequest, AssessmentImplementation } from './assessment.js';
+export { analyzeAssessmentRequest, ASSESSMENT_VERSION } from './assessment-contract.js';
+export type { AssessmentRequest, PilotMeasurement } from './assessment-contract.js';
+export { ASSESSMENT_SCHEMAS } from './assessment-schema.js';
+export { analyzeBaselinePlan, verifyMigrationBaseline } from './verification.js';
+export type { BaselinePlan } from './verification.js';
+export { analyzeBaselineEvidence } from './evidence.js';
+export { BASELINE_SCHEMAS } from './schema.js';
+
+export {sourceCandidateCapabilities,previewSourceCandidate,createSourceCandidate,inspectSourceCandidate,listSourceCandidates} from '../orchestration/source-candidates.js';
+export type {SourceCandidateSelection,SourceCandidateReview} from '../orchestration/source-candidates.js';
