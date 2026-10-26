@@ -4,6 +4,7 @@ import {hex,identifier,integer,invalid,shape,uuid} from './authority.js';
 export type RequestAttribution = {
   version:1;eventId:string;eventHash:string;sessionId:string;
 } & ({kind:'task';taskId:string;attempt:number}|{kind:'supervision';role:'controller'|'reviewer';round:number});
+export type TaskRequestAttribution = Extract<RequestAttribution,{kind:'task'}>;
 
 export function validateRequestAttribution(value:unknown):RequestAttribution {
   shape(value,['version','kind','eventId','eventHash','sessionId'],['taskId','attempt','role','round']);

@@ -10,7 +10,7 @@ import {improvementCapabilities} from './capabilities.js';
 import {improvementHostCapabilities} from './host-capabilities.js';
 import type {ImprovementCycle} from './types.js';
 
-export const IMPROVEMENT_USAGE='calliope improve [capabilities|host-capabilities [--contract-version 1]|history|propose|run <cycle-id> --approve <hash>|rollback <cycle-id>] [--run <run-id>] [--allow-mutations] [--json]';
+export const IMPROVEMENT_USAGE='calliope improve [capabilities|host-capabilities [--contract-version 1|2]|history|propose|run <cycle-id> --approve <hash>|rollback <cycle-id>] [--run <run-id>] [--allow-mutations] [--json]';
 export function improvementLines(cycles:ImprovementCycle[]):string[] {
   return cycles.slice(-20).flatMap(c=>[`${c.id} · ${c.principle} · ${c.proposedChange.action} · ${c.status}${c.parentCycleId?' · parent '+c.parentCycleId:''}`,
     ...c.metrics.filter(m=>m.comparable).map(m=>`  ${m.name}: ${m.before} → ${m.after} ${m.unit}; observed, not a causal guarantee`)]);
@@ -24,9 +24,9 @@ export async function runImprovementCommand(args:string[],options:CoordinatorOpt
     if(!['capabilities','host-capabilities','history','propose','run','rollback'].includes(action)||positionals.length>(['run','rollback'].includes(action)?2:1)||['run','rollback'].includes(action)&&!positionals[1]||action==='run'&&!values.approve||action!=='run'&&values.approve||action!=='host-capabilities'&&values['contract-version']!==undefined)throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
     if(action==='host-capabilities'){
       if(Object.keys(values).some(key=>!['json','contract-version'].includes(key)))throw new OrchestrationError('invalid',IMPROVEMENT_USAGE);
-      if(values['contract-version']!==undefined&&values['contract-version']!=='1')throw new OrchestrationError('invalid','Unsupported improvement host contract version; supported version: 1.');
+      if(values['contract-version']!==undefined&&!['1','2'].includes(values['contract-version']))throw new OrchestrationError('invalid','Unsupported improvement host contract version; supported versions: 1, 2.');
       options.signal?.throwIfAborted();
-      const data=improvementHostCapabilities();
+      const data=values['contract-version']==='2'?improvementHostCapabilities(2):improvementHostCapabilities();
       if(json)emit({version:1,type:'improvement',action,localOnly:true,data});
       else write(`Native improvement host contract ${data.version} (${data.implementation.package.name}@${data.implementation.package.version})\n${data.notice}\n`);
       return 0;

@@ -18,21 +18,23 @@ import {LEDGER_PROTOCOL,LedgerServerState,mintLedgerToken} from './ledger-protoc
 function option(args:string[],name:string):string|undefined {const i=args.indexOf(name);return i>=0?args[i+1]:undefined;}
 
 export async function runLedgerCommand(args:string[],write:(text:string)=>void=t=>process.stdout.write(t),options:RunActionOptions={}):Promise<number> {
-  const reviewed=args[0]==='serve-reviewed',budget=option(args,'--budget'),project=option(args,'--project'),tokenFile=option(args,'--token-file');
+  const taskBound=args[0]==='serve-task',reviewed=args[0]==='serve-reviewed'||taskBound,budget=option(args,'--budget'),project=option(args,'--project'),tokenFile=option(args,'--token-file');
   const runId=option(args,'--run'),agentId=option(args,'--agent'),maxOutput=option(args,'--max-output-tokens');
-  const flags=new Set(['--run','--agent','--max-output-tokens','--project','--token-file','--host','--port']),seen=new Set<string>();
+  const taskId=option(args,'--task'),attempt=option(args,'--attempt');
+  const flags=new Set(['--run',...(taskBound?['--task','--attempt']:['--agent']),'--max-output-tokens','--project','--token-file','--host','--port']),seen=new Set<string>();
   let valid=true;
   if(reviewed)for(let n=1;n<args.length;n+=2){const flag=args[n]!;if(!flags.has(flag)||seen.has(flag)||!args[n+1]||args[n+1]!.startsWith('--'))valid=false;seen.add(flag);}
-  if(!project||!tokenFile||(reviewed?(!runId||!agentId||!maxOutput||!valid):(args[0]!=='serve'||!budget))){
-    process.stderr.write('usage: calliope ledger serve --budget DIR --project DIR --token-file FILE [--host 127.0.0.1] [--port 0]\n       calliope ledger serve-reviewed --run ID --agent ID --max-output-tokens N --project DIR --token-file FILE [--host 127.0.0.1] [--port 0]\n');return 2;
+  if(!project||!tokenFile||(reviewed?(!runId||!(taskBound?taskId&&attempt:agentId)||!maxOutput||!valid):(args[0]!=='serve'||!budget))){
+    process.stderr.write('usage: calliope ledger serve --budget DIR --project DIR --token-file FILE [--host 127.0.0.1] [--port 0]\n       calliope ledger serve-reviewed --run ID --agent ID --max-output-tokens N --project DIR --token-file FILE [--host 127.0.0.1] [--port 0]\n       calliope ledger serve-task --run ID --task ID --attempt N --max-output-tokens N --project DIR --token-file FILE [--host 127.0.0.1] [--port 0]\n');return 2;
   }
   const cwd=resolve(project!),file=resolve(tokenFile!),host=option(args,'--host')??'127.0.0.1',port=Number(option(args,'--port')??0);
   let server:ReturnType<typeof createLedgerServer>,token:string,id:string,metadata:object={};
   if(reviewed){
     assertExecutionStoreOutsideProject(cwd,file);privateDirectory(dirname(file));
-    const {prepareReviewedLedger}=await import('../orchestration/reviewed-ledger.js');
-    const prepared=await prepareReviewedLedger(cwd,runId!,agentId!,Number(maxOutput),options);
-    server=prepared.server;token=prepared.ownerToken;id=runId!;metadata={ownerAgentId:agentId,deadline:prepared.deadline,reviewed:prepared.capability};
+    const {prepareReviewedLedger,prepareReviewedTaskLedger}=await import('../orchestration/reviewed-ledger.js');
+    const prepared=taskBound?await prepareReviewedTaskLedger(cwd,runId!,taskId!,Number(attempt),Number(maxOutput),options):await prepareReviewedLedger(cwd,runId!,agentId!,Number(maxOutput),options);
+    server=prepared.server;token=prepared.ownerToken;id=runId!;metadata={ownerAgentId:prepared.execution.agentId,deadline:prepared.deadline,reviewed:prepared.capability,
+      ...(taskBound?{attribution:prepared.execution.attribution}:{})};
   }else{
     const ledger=new ReservationLedger(resolve(budget!)),{manifest}=ledger.read(cwd),state=new LedgerServerState(join(dirname(ledger.root),`${manifest.runId}.ledger-server`));
     token=mintLedgerToken(state.secret(),{v:1,run:manifest.runId,role:'parent',exp:manifest.deadline});server=createLedgerServer({ledger,cwd,state});id=manifest.runId;

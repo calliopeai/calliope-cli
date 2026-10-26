@@ -2,7 +2,8 @@
 import {dirname,join} from 'node:path';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {throwIfCancelled} from '../cancellation.js';
-import {accountLineage} from '../execution/authority.js';
+import {accountLineage,identifier,integer} from '../execution/authority.js';
+import type {TaskRequestAttribution} from '../execution/attribution.js';
 import {effectiveExecutionManifest} from '../execution/child-grants.js';
 import {createLedgerServer} from '../execution/ledger-server.js';
 import {LedgerServerState,mintLedgerToken} from '../execution/ledger-protocol.js';
@@ -17,14 +18,43 @@ import type {RunActionOptions} from './actions.js';
 import {matchesAgentPreference} from './routing.js';
 
 export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,grants:'native-admissions-only'} as const;
+export const REVIEWED_TASK_LEDGER_CAPABILITY={version:2,ownerScope:1,tokenVersion:2,reviewedAuthority:1,taskBinding:1,grants:'unavailable'} as const;
+
+interface ReviewedTaskBinding {agentId:string;ownerId:string;attribution:TaskRequestAttribution}
+function currentTask(history:ExecutionStore,taskId:string,attempt:number):ReviewedTaskBinding {
+  identifier(taskId);integer(attempt,1,4);
+  const current=history.read(),task=current.state.tasks[taskId];
+  const event=[...current.events].reverse().find(event=>event.change.type==='task_started'&&event.change.taskId===taskId);
+  const owner=[...current.events].reverse().find(event=>event.change.type==='started');
+  if(current.state.status!=='running'||!current.state.ownerId||!task||task.status!=='running'||task.attempts!==attempt||
+    !owner||owner.change.type!=='started'||owner.change.ownerId!==current.state.ownerId||!event||event.sequence<=owner.sequence||
+    event.change.type!=='task_started'||event.change.attempt!==attempt||event.change.requestAttribution!==1||event.change.sessionId!==task.sessionId)
+    throw new ExecutionLimitError('authority','Task requires its current attributed native attempt.');
+  return {agentId:task.agentId,ownerId:current.state.ownerId,attribution:{version:1,kind:'task',eventId:event.id,eventHash:event.hash,
+    sessionId:event.change.sessionId,taskId,attempt}};
+}
+
+/** Bind a child to a native start event; this neither dispatches nor takes task ownership. */
+export async function prepareReviewedTaskLedger(cwd:string,runId:string,taskId:string,attempt:number,maxOutputTokens:number,options:RunActionOptions={}) {
+  const runs=options.store??new RunStore(),view=await runs.read(runId,cwd,options.signal);
+  const binding=currentTask(new ExecutionStore(join(runs.root,runId),view.manifest),taskId,attempt);
+  return prepareReviewedHost(cwd,runId,binding.agentId,maxOutputTokens,{...options,store:runs},binding);
+}
 
 /** Returns an unbound server and a private owner token. Only the trusted host listens or delivers credentials. */
 export async function prepareReviewedLedger(cwd:string,runId:string,agentId:string,maxOutputTokens:number,options:RunActionOptions={}) {
+  return prepareReviewedHost(cwd,runId,agentId,maxOutputTokens,options);
+}
+async function prepareReviewedHost(cwd:string,runId:string,agentId:string,maxOutputTokens:number,options:RunActionOptions,task?:ReviewedTaskBinding) {
   const runs=options.store??new RunStore(),execution=await prepareAgentExecution(cwd,runId,agentId,maxOutputTokens,{...options,store:runs});
   const ledger=execution.ledger as ReservationLedger,view=await runs.read(runId,cwd,options.signal),history=new ExecutionStore(join(runs.root,runId),view.manifest);
-  const assertOwner=()=>{throwIfCancelled(options.signal);execution.assertAuthority!();};
+  const assertOwner=()=>{
+    throwIfCancelled(options.signal);execution.assertAuthority!();
+    if(task&&canonicalJson(currentTask(history,task.attribution.taskId,task.attribution.attempt))!==canonicalJson(task))throw new ExecutionLimitError('authority','Native task execution binding changed.');
+  };
   const assertAccount=(id:string)=>{
     assertOwner();
+    if(task&&id!==task.agentId)throw new ExecutionLimitError('authority','Task endpoint cannot act for another account.');
     const current=history.exists()?inspectSpawnAuthority(history,ledger):undefined,context=current?.context??view.manifest;
     const agent=context.plan.agents.find(agent=>agent.id===id);
     if(!agent||current&&agentStopped(current.view.state,context,id))throw new ExecutionLimitError('authority','Account is not active in the reviewed native graph.');
@@ -41,14 +71,17 @@ export async function prepareReviewedLedger(cwd:string,runId:string,agentId:stri
   if(Date.now()>=deadline)throw new ExecutionLimitError('deadline','Original owner allowance expired.');
   history.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(saved.manifest.createdAt).toISOString(),deadline:saved.manifest.deadline});
   assertAccount(agentId);
-  const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision}));
+  const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,
+    ...(task?{task:{...task,maxOutputTokens}}:{})}));
   const state=new LedgerServerState(join(dirname(ledger.root),`${runId}.ledger-server`));
   const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,
+    ...(task?{taskExecution:{attribution:task.attribution,maxOutputTokens}}:{}),
     assertReservationAuthority:reservation=>{
       const agent=assertAccount(reservation.agentId);
       if(!matchesAgentPreference(agent.preference,reservation.provider,reservation.model))throw new ExecutionLimitError('authority','Request changes an explicit reviewed provider or model.');
       if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');
     }});
   const ownerToken=mintLedgerToken(state.secret(),{v:2,authority,run:runId,role:'parent',owner:agentId,exp:deadline});
-  return {server,ownerToken,execution,deadline,capability:REVIEWED_LEDGER_CAPABILITY};
+  return {server,ownerToken,execution:task?{...execution,assertAuthority:assertOwner,attribution:structuredClone(task.attribution)}:execution,deadline,
+    capability:task?REVIEWED_TASK_LEDGER_CAPABILITY:REVIEWED_LEDGER_CAPABILITY};
 }

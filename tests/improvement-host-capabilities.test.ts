@@ -21,7 +21,15 @@ describe('installed improvement host discovery',()=>{
         review:{version:1,authority:'request-only-no-execution'},taskOutcome:{version:1,reward:false},sourceChange:{version:1,merge:false,push:false}},
       transport:{discovery:'cli-json',operations:'native-library',cliEnvelopeVersion:1}}});
   });
-  it.each(['0','2','','01','latest'])('refuses unsupported contract version %j',async version=>{
+  it('requires explicit version 2 to discover reviewed feedback without granting learning authority',async()=>{
+    const lines:string[]=[],approve=vi.fn();
+    expect(await runImprovementCommand(['host-capabilities','--contract-version','2','--json'],{cwd:'/nonexistent-host-project',approve,write:line=>lines.push(line)})).toBe(0);
+    expect(JSON.parse(lines[0]!).data).toMatchObject({version:2,interfaces:{taskFeedback:{version:1,operations:['record','inspect','history'],awardsReward:false,changesTaskOutcome:false}}});
+    expect(approve).not.toHaveBeenCalled();
+    lines.length=0;await runImprovementCommand(['host-capabilities','--json'],{write:line=>lines.push(line)});
+    expect(JSON.parse(lines[0]!).data.version).toBe(1);expect(JSON.parse(lines[0]!).data.interfaces.taskFeedback).toBeUndefined();
+  });
+  it.each(['0','3','','01','latest'])('refuses unsupported contract version %j',async version=>{
     const lines:string[]=[];
     expect(await runImprovementCommand(['host-capabilities',`--contract-version=${version}`,'--json'],{write:line=>lines.push(line)})).toBe(2);
     expect(JSON.parse(lines[0]!).error).toMatchObject({code:'invalid',message:expect.stringContaining('Unsupported')});

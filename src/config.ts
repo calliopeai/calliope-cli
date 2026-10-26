@@ -109,7 +109,7 @@ export interface CalliopeConfig {
   };
 }
 
-const DEFAULT_CONFIG: CalliopeConfig = {
+const DEFAULT_CONFIG = {
   setupComplete: false,
   defaultProvider: 'auto',
   maxIterations: 0,  // 0 = unlimited (circuit breakers provide safety)
@@ -122,7 +122,7 @@ const DEFAULT_CONFIG: CalliopeConfig = {
   circuitBreakersEnabled: false,
   sandboxMode: 'auto',
   sessionLogLimit: 0,  // Unlimited by default; set > 0 to cap retained session log items
-};
+} satisfies CalliopeConfig;
 
 /**
  * Resolve the directory conf stores `config.json` in, and hard-guard tests.
@@ -317,7 +317,7 @@ export function get<K extends keyof CalliopeConfig>(key: K): CalliopeConfig[K] {
  */
 export function set<K extends keyof CalliopeConfig>(key: K, value: CalliopeConfig[K]): void {
   validateConfigValue(key, value);
-  config.set(key, value);
+  config.set(key, value as Exclude<CalliopeConfig[K], undefined>);
 }
 
 /**
@@ -334,7 +334,7 @@ export function setMultiple(values: Partial<CalliopeConfig>): void {
   }
   // All validations passed, now set values
   for (const [key, value] of Object.entries(values)) {
-    config.set(key as keyof CalliopeConfig, value);
+    set(key as keyof CalliopeConfig, value);
   }
 }
 
@@ -342,6 +342,7 @@ export function setMultiple(values: Partial<CalliopeConfig>): void {
  * Validate a single config value without setting it
  */
 function validateConfigValue(key: keyof CalliopeConfig, value: unknown): void {
+  if (value === undefined) throw new TypeError('Use unset() to clear config values');
   if (key === 'defaultProvider' && value === 'litellm') throw new Error('LiteLLM support has been removed. Select a supported provider explicitly.');
   if (key === 'maxIterations' && typeof value === 'number') {
     if (value < 0 || value > 1000000) {
