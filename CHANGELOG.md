@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add read-only improvement host discovery with independently versioned native interfaces, explicit contract negotiation and installed build identity. Source metadata remains self-reported until verified against release attestations; cross-run learning and feedback import remain unavailable (#413).
+
 - Add persistent ACP Work/Plan modes and session model selection through stable configuration options. Models come from live discovery, delegated model choices remain parent-controlled, and stale or concurrent control updates refuse rather than overwrite another session state (#444).
 - Enforce explicit reviewed provider and model choices at remote-ledger reservation admission, including newly admitted descendants. A different runtime preference cannot consume the account's allowance under another explicit inference choice (#415).
 
