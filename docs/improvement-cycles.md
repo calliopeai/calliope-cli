@@ -9,6 +9,24 @@ its controller draft is not a second improvement.
 
 ## Host capability discovery
 
+`calliope improve host-capabilities --contract-version 1 --json` returns the
+additive version-1 `improvement.host-capabilities` contract. It inventories the
+native execution, review-request, task-outcome and source-change interfaces with
+their independent versions. Discovery uses CLI JSON; operations use the native
+library APIs described below. This declaration does not create remote RPC methods.
+Unknown requested versions and run/approval/mutation selectors are refused.
+
+`implementation` identifies the installed package version, artifact form and
+build metadata status. Source metadata records the build's Git commit and dirty
+state when available; builds outside their own source repository retain `null`.
+The query never runs Git in the caller's project. Missing, malformed or mismatched
+metadata cannot establish source identity. Even clean metadata is self-reported:
+verify npm integrity and publisher provenance, or standalone release checksums
+and binary attestations, against the same release tag and source commit before
+trusting it. The query explicitly reports `external-attestation-required`.
+
+Legacy execution discovery remains unchanged:
+
 `calliope improve capabilities --json` returns a version-1 `improvement` envelope
 whose action is `capabilities` and whose data kind is `improvement.capabilities`.
 The data contract is version 2; its `hostAdmission` field advertises the native

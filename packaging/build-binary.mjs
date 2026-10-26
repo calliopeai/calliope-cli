@@ -77,6 +77,8 @@ if (!existsSync(entrypoint)) {
 
 const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf-8'));
 const version = pkg.version;
+const buildMetadata = JSON.parse(readFileSync(join(repoRoot, 'dist/build-metadata.json'), 'utf8'));
+if(buildMetadata.package?.name!==pkg.name||buildMetadata.package?.version!==version)throw new Error('Rebuild before packaging: build identity does not match package.');
 
 /** All supported Bun compile targets, in the release matrix order. */
 const ALL_TARGETS = ['bun-darwin-arm64', 'bun-darwin-x64', 'bun-linux-x64', 'bun-linux-arm64', 'bun-windows-x64'];
@@ -146,6 +148,7 @@ for (const target of targets) {
     plugins: [stubReactDevtools],
     define: {
       'globalThis.__CALLIOPE_BINARY_VERSION__': JSON.stringify(version),
+      'globalThis.__CALLIOPE_BUILD_METADATA__': JSON.stringify(buildMetadata),
     },
     // The CLI owns .env precedence; its private credential worker must inherit
     // the parent snapshot without Bun importing project credentials first.

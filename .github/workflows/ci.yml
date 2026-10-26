@@ -36,6 +36,9 @@ jobs:
       - name: Qualify reviewed host transport and native child execution
         run: node scripts/qualification/reviewed-host.mjs
 
+      - name: Qualify installed improvement host discovery
+        run: node scripts/qualification/improvement-host.mjs
+
       - name: Run tests
         # Keep worker contention bounded; the release gate uses the same limit.
         run: npm test -- --maxWorkers=2

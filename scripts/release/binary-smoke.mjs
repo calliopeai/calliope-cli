@@ -141,6 +141,18 @@ try {
     acp: PROTOCOL_VERSION,
     headless: { protocol: 1, delegation: 1, workspaceBinding: 1 },
   });
+  const hostCapabilities = JSON.parse(run(["improve", "host-capabilities", "--contract-version", "1", "--json"]));
+  assert.equal(hostCapabilities.data.kind, "improvement.host-capabilities");
+  assert.equal(hostCapabilities.data.version, 1);
+  assert.equal(hostCapabilities.data.implementation.package.version, version);
+  assert.equal(hostCapabilities.data.implementation.artifact, "standalone");
+  assert.equal(hostCapabilities.data.implementation.metadataStatus, "available");
+  assert.equal(hostCapabilities.data.implementation.verification, "external-attestation-required");
+  assert.equal(hostCapabilities.data.interfaces.execution.mechanisms.crossRunLearnedStrategy, false);
+  assert.equal(hostCapabilities.data.interfaces.review.authority, "request-only-no-execution");
+  assert.equal(hostCapabilities.data.interfaces.taskOutcome.reward, false);
+  assert.equal(hostCapabilities.data.interfaces.sourceChange.merge, false);
+  assert.equal(JSON.parse(run(["improve", "host-capabilities", "--contract-version", "999", "--json"], 2)).error.code, "invalid");
   await acpHandshake();
   await ahpAttach();
   run(["--internal-aws-credentials"], 2);

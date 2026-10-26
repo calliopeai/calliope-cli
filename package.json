@@ -38,10 +38,11 @@
     "docs/migration-*.md",
     "docs/migration-example-*.json",
     "docs/delegation-ledger.md",
+    "docs/improvement-cycles.md",
     "docs/releases/3.6.0.md"
   ],
   "scripts": {
-    "build": "tsc && chmod +x dist/bin.js",
+    "build": "tsc && node scripts/build-metadata.mjs && chmod +x dist/bin.js",
     "dev": "tsc --watch",
     "start": "node dist/bin.js",
     "test": "vitest run",
