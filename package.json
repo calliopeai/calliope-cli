@@ -75,7 +75,7 @@
     "@inquirer/prompts": "^8.5.2",
     "conf": "16.0.0",
     "ink": "8.0.0",
-    "openai": "^6.46.0",
+    "openai": "7.43.0",
     "react": "^19.2.3",
     "sql.js": "1.15.1",
     "string-width": "8.3.0",

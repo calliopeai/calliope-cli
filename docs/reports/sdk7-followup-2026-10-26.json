@@ -1,0 +1,375 @@
+{
+  "version": 1,
+  "date": "2026-10-26",
+  "sourceCommit": "a9aad034494e0e2f1549fa2d42f911ca57869104",
+  "sdkVersions": {
+    "openai": "7.43.0",
+    "@anthropic-ai/sdk": "1.2.0"
+  },
+  "runId": "provider-sdk-majors-2026-10-26-02",
+  "status": "partial",
+  "authorization": {
+    "additionalRequests": 12,
+    "additionalReserveUsd": 0.4,
+    "combinedOriginalReserveCapUsd": 1,
+    "cumulativeCapUsd": 500,
+    "automaticRetries": 0,
+    "inputTokensReservedPerRequest": 5000,
+    "outputTokensPerRequest": 512,
+    "deadlineSecondsPerRequest": 30
+  },
+  "accounting": {
+    "requests": 11,
+    "reservedUsd": 0.34008,
+    "previousPassReservedUsd": 0.3768,
+    "combinedReservedUsd": 0.71688,
+    "billedCostReconciled": false,
+    "unusedRequests": 1
+  },
+  "pricingReview": {
+    "checkedAt": "2026-10-26T23:15:53.204Z",
+    "anthropic": {
+      "model": "claude-haiku-4-5-20251001",
+      "inputUsdPerMillion": 1,
+      "outputUsdPerMillion": 5,
+      "reservationInputCeiling": 5,
+      "reservationOutputCeiling": 25,
+      "source": "https://platform.claude.com/docs/en/models/haiku-4-5/overview"
+    },
+    "together": {
+      "model": "MiniMaxAI/MiniMax-M3.1-Flash",
+      "inputUsdPerMillion": 0.15,
+      "outputUsdPerMillion": 0.6,
+      "reservationInputCeiling": 2,
+      "reservationOutputCeiling": 5,
+      "source": "https://www.together.ai/pricing"
+    },
+    "mistral": {
+      "model": "ministral-3b-2512",
+      "inputUsdPerMillion": 0.1,
+      "outputUsdPerMillion": 0.1,
+      "reservationInputCeiling": 2,
+      "reservationOutputCeiling": 5,
+      "source": "https://docs.mistral.ai/models/ministral-3-3b-25-12"
+    }
+  },
+  "results": [
+    {
+      "key": "together/MiniMaxAI/MiniMax-M3.1-Flash/system-instructions/true",
+      "provider": "together",
+      "model": "MiniMaxAI/MiniMax-M3.1-Flash",
+      "scenario": "system-instructions",
+      "stream": true,
+      "type": "semantic",
+      "at": "2026-10-26T23:16:12.210Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-semantic/together-system-instructions-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "d3da4123-78c8-4447-b548-c0407e430582",
+          "status": "captured",
+          "reservedNanoUsd": 12560000
+        }
+      ],
+      "semantic": {
+        "version": 1,
+        "kind": "semantic-probe-result",
+        "backend": "together",
+        "model": "MiniMaxAI/MiniMax-M3.1-Flash",
+        "scenario": "system-instructions",
+        "stream": true,
+        "maxOutputTokens": 512,
+        "attempts": [
+          {
+            "reservationId": "d3da4123-78c8-4447-b548-c0407e430582",
+            "outcome": "captured"
+          }
+        ],
+        "outcome": "captured",
+        "captureFile": "tests/fixtures/provider-semantic/together-system-instructions-stream-sdk7-followup-20261026.json"
+      },
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "mistral/ministral-3b-2512/tool-result-replay/true",
+      "provider": "mistral",
+      "model": "ministral-3b-2512",
+      "scenario": "tool-result-replay",
+      "stream": true,
+      "type": "semantic",
+      "at": "2026-10-26T23:16:14.665Z",
+      "outcome": "incomplete",
+      "httpStatus": 200,
+      "file": null,
+      "reservations": [
+        {
+          "id": "1e5e78ad-c7be-4319-b0fa-71bc683586b9",
+          "status": "captured",
+          "reservedNanoUsd": 12560000
+        },
+        {
+          "id": "dbe2d96a-5318-493d-bcf4-f084813d27d3",
+          "status": "failed",
+          "reservedNanoUsd": 12560000
+        }
+      ],
+      "semantic": {
+        "version": 1,
+        "kind": "semantic-probe-result",
+        "backend": "mistral",
+        "model": "ministral-3b-2512",
+        "scenario": "tool-result-replay",
+        "stream": true,
+        "maxOutputTokens": 512,
+        "attempts": [
+          {
+            "reservationId": "1e5e78ad-c7be-4319-b0fa-71bc683586b9",
+            "outcome": "captured"
+          },
+          {
+            "reservationId": "dbe2d96a-5318-493d-bcf4-f084813d27d3",
+            "outcome": "failed"
+          }
+        ],
+        "outcome": "incomplete",
+        "httpStatus": 200,
+        "observed": {
+          "finishReason": "stop",
+          "toolCount": 0,
+          "contentBytes": 7,
+          "contentSha256": "284b886705242a48ec8f97886796c07dc5bb903447676bc7bbc0354b70c88c6f",
+          "usage": {
+            "inputTokens": 137,
+            "outputTokens": 3
+          }
+        }
+      },
+      "exitCode": 1,
+      "uncertain": false,
+      "diagnostic": {
+        "kind": "normalized-response-fingerprint-match",
+        "reconstructedPublicText": "Hello\u03c0",
+        "expectedText": "Hello \u03c0",
+        "evidence": "The SHA256 and 7-byte length in the observed failure match this fixed public candidate. Failed raw wire bytes were not retained.",
+        "interpretation": "Exact tool-result conformance failed; both HTTP calls succeeded. This does not establish an authentication failure."
+      }
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/text/false",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "text",
+      "stream": false,
+      "type": "basic",
+      "at": "2026-10-26T23:16:16.546Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-wire/anthropic-text-json-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "cff5f5f0-4ed0-41af-a772-5694bdf58751",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/text/true",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "text",
+      "stream": true,
+      "type": "basic",
+      "at": "2026-10-26T23:16:17.652Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-wire/anthropic-text-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "678dff42-4beb-4794-bf3e-d7ed339bb7ff",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/tool/false",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool",
+      "stream": false,
+      "type": "basic",
+      "at": "2026-10-26T23:16:19.030Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-wire/anthropic-tool-json-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "f8db6185-802f-4aee-860f-04dd7ab70f50",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/tool/true",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool",
+      "stream": true,
+      "type": "basic",
+      "at": "2026-10-26T23:16:20.350Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-wire/anthropic-tool-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "37cb486b-2f29-4b33-b788-807f6c8f9706",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/system-instructions/true",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "system-instructions",
+      "stream": true,
+      "type": "semantic",
+      "at": "2026-10-26T23:16:21.557Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-semantic/anthropic-system-instructions-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "a37a4c27-0369-488e-8a68-fb5de8a9cfc5",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "semantic": {
+        "version": 1,
+        "kind": "semantic-probe-result",
+        "backend": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "scenario": "system-instructions",
+        "stream": true,
+        "maxOutputTokens": 512,
+        "attempts": [
+          {
+            "reservationId": "a37a4c27-0369-488e-8a68-fb5de8a9cfc5",
+            "outcome": "captured"
+          }
+        ],
+        "outcome": "captured",
+        "captureFile": "tests/fixtures/provider-semantic/anthropic-system-instructions-stream-sdk7-followup-20261026.json"
+      },
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/tool-result-replay/true",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "tool-result-replay",
+      "stream": true,
+      "type": "semantic",
+      "at": "2026-10-26T23:16:23.545Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-semantic/anthropic-tool-result-replay-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "d656f6b4-b8d8-463f-9b0b-a9d8f7dc2acf",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        },
+        {
+          "id": "a5a578e0-50dc-451d-a808-8b06e4c63789",
+          "status": "captured",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "semantic": {
+        "version": 1,
+        "kind": "semantic-probe-result",
+        "backend": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "scenario": "tool-result-replay",
+        "stream": true,
+        "maxOutputTokens": 512,
+        "attempts": [
+          {
+            "reservationId": "d656f6b4-b8d8-463f-9b0b-a9d8f7dc2acf",
+            "outcome": "captured"
+          },
+          {
+            "reservationId": "a5a578e0-50dc-451d-a808-8b06e4c63789",
+            "outcome": "captured"
+          }
+        ],
+        "outcome": "captured",
+        "captureFile": "tests/fixtures/provider-semantic/anthropic-tool-result-replay-stream-sdk7-followup-20261026.json"
+      },
+      "exitCode": 0,
+      "uncertain": false
+    },
+    {
+      "key": "anthropic/claude-haiku-4-5-20251001/cancellation/true",
+      "provider": "anthropic",
+      "model": "claude-haiku-4-5-20251001",
+      "scenario": "cancellation",
+      "stream": true,
+      "type": "semantic",
+      "at": "2026-10-26T23:16:24.768Z",
+      "outcome": "captured",
+      "file": "tests/fixtures/provider-semantic/anthropic-cancellation-stream-sdk7-followup-20261026.json",
+      "reservations": [
+        {
+          "id": "7b677b4a-d1fc-47eb-9ec3-2da7b00f1fbf",
+          "status": "cancelled",
+          "reservedNanoUsd": 37800000
+        }
+      ],
+      "semantic": {
+        "version": 1,
+        "kind": "semantic-probe-result",
+        "backend": "anthropic",
+        "model": "claude-haiku-4-5-20251001",
+        "scenario": "cancellation",
+        "stream": true,
+        "maxOutputTokens": 512,
+        "attempts": [
+          {
+            "reservationId": "7b677b4a-d1fc-47eb-9ec3-2da7b00f1fbf",
+            "outcome": "cancelled"
+          }
+        ],
+        "outcome": "captured",
+        "captureFile": "tests/fixtures/provider-semantic/anthropic-cancellation-stream-sdk7-followup-20261026.json"
+      },
+      "exitCode": 0,
+      "uncertain": false
+    }
+  ],
+  "remaining": [
+    "Mistral tool-result replay: both HTTP requests completed, but the final response failed the exact-result assertion; no passing capture was saved. A full new two-request probe would exceed the one remaining request, so no retry was made.",
+    "Hugging Face: previous HTTP 402 billing blocker remains untested in this pass; support retained."
+  ],
+  "excluded": [
+    "xai",
+    "openrouter",
+    "litellm"
+  ],
+  "validation": {
+    "fullTestsPassed": 6455,
+    "existingSkipped": 6,
+    "conformanceTestsPassed": 558,
+    "types": "passed",
+    "captureSafety": "8 captures passed format, replay and configured-credential scans"
+  }
+}

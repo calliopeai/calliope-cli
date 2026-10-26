@@ -23,6 +23,34 @@ never executed by conformance probes. Runtime tests separately establish permiss
 and execution semantics. Reported token usage is not an independent measurement of
 provider billing; absent usage cannot support complete token/cost totals.
 
+## OpenAI SDK 7 recapture candidate
+
+The [approved follow-up](reports/sdk7-followup-2026-10-26.json) adds eight
+captures on OpenAI 7.43.0 / Anthropic 1.2.0: Together instruction handling and
+Anthropic text/tool JSON and streams, instructions, tool-result replay and
+cancellation. All eight replay offline. Eleven requests retained $0.34008 in
+conservative reservations ($0.71688 combined with the first pass); billed cost
+is unreconciled. Mistral completed both HTTP calls but failed the final exact
+result check: its normalized response fingerprint matches `Helloπ`, missing the
+space in `Hello π`. It contributes no passing capture. One request remains in the
+approved cap, insufficient for another two-request replay. Hugging Face's prior
+billing blocker remains open. The SDK candidate retains those open live-qualification gaps; existing
+conformance success does not erase this failed live result.
+
+The October 26 [recapture report](reports/sdk7-recapture-2026-10-26.json) records
+14 new streaming semantic captures using OpenAI SDK 7.43.0. Both instruction and
+tool-result replay passed on OpenAI Chat/Responses, Groq, Fireworks, DeepSeek and
+Cerebras; Together tool replay and Mistral instructions also passed. Earlier
+captures remain unchanged and continue to replay through the candidate SDK.
+
+The first pass left Together instruction and Mistral tool-result cases incomplete.
+Together now passes in the approved follow-up above; Mistral remains incomplete.
+Hugging Face remains core support, but its fresh requests returned HTTP 402;
+that account needs billing access before those captures can be completed.
+OpenRouter and xAI were not probed under their existing deferrals, and no
+LiteLLM probe was made. Thirty requests retained $0.3768 in conservative
+reservations within the new $1 allowance; this is not reconciled billed cost.
+
 ## Real-wire release evidence
 
 LiteLLM is retired. Its original captures remain in the historical corpus for

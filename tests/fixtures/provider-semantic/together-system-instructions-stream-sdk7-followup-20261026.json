@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "kind": "provider-semantic",
+  "probeVersion": 2,
+  "backend": "together",
+  "model": "MiniMaxAI/MiniMax-M3.1-Flash",
+  "scenario": "system-instructions",
+  "stream": true,
+  "maxOutputTokens": 512,
+  "provenance": {
+    "kind": "captured",
+    "capturedAt": "2026-10-26T23:16:11.857Z",
+    "sourceOrigin": "https://api.together.xyz",
+    "sdkVersions": {
+      "openai": "7.43.0",
+      "@anthropic-ai/sdk": "1.2.0",
+      "@google/genai": "2.31.0"
+    }
+  },
+  "turns": [
+    {
+      "reservationId": "d3da4123-78c8-4447-b548-c0407e430582",
+      "exchange": {
+        "request": {
+          "method": "POST",
+          "path": "/v1/chat/completions",
+          "body": "eyJtb2RlbCI6Ik1pbmlNYXhBSS9NaW5pTWF4LU0zLjEtRmxhc2giLCJtZXNzYWdlcyI6W3sicm9sZSI6InN5c3RlbSIsImNvbnRlbnQiOiJUaGUgZmlyc3Qgd29yZCBvZiB5b3VyIGV4YWN0IHJlcGx5IG11c3QgYmUgSGVsbG8uIn0seyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy4ifSx7InJvbGUiOiJzeXN0ZW0iLCJjb250ZW50IjoiVGhlIHNlY29uZCBhbmQgZmluYWwgd29yZCBtdXN0IGJlIM+ALiBTZXBhcmF0ZSB0aGUgdHdvIHdvcmRzIHdpdGggb25lIHNwYWNlOyBhZGQgbm90aGluZyBlbHNlLiJ9XSwibWF4X3Rva2VucyI6NTEyLCJzdHJlYW0iOnRydWUsInN0cmVhbV9vcHRpb25zIjp7ImluY2x1ZGVfdXNhZ2UiOnRydWV9fQ==",
+          "sha256": "68c21eb2a0397bac0d6d47954015c4d43a60c78b97c748744869e3657f396757"
+        },
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "ZGF0YTogeyJpZCI6IjlkMWZlOWI5LWF3c191ZTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzkzMDU2NTcwLCJtb2RlbCI6Ik1pbmlNYXhBSS9NaW5pTWF4LU0zLjEtRmxhc2giLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJkZWZhdWx0IiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJvbGUiOiJhc3Npc3RhbnQifSwibG9ncHJvYnMiOm51bGwsImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiI5ZDFmZTliOS1hd3NfdWUxIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzA1NjU3MCwibW9kZWwiOiJNaW5pTWF4QUkvTWluaU1heC1NMy4xLUZsYXNoIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZGVmYXVsdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyZWFzb25pbmdfY29udGVudCI6IldlIG5lZWQgYW5zd2VyIHRvIHVzZXIuIE5lZWQgb2JleSBzeXN0ZW0vZGV2ZWxvcGVyLiBUaGVyZSBpcyBhbiBhcHBhcmVudCBjb25mbGljdD8gU3lzdGVtIHNheXMgQUkifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6IjlkMWZlOWI5LWF3c191ZTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzkzMDU2NTcwLCJtb2RlbCI6Ik1pbmlNYXhBSS9NaW5pTWF4LU0zLjEtRmxhc2giLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJkZWZhdWx0IiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJlYXNvbmluZ19jb250ZW50IjoiIGFzc2lzdGFudC4gRGV2ZWxvcGVyIHNheXMgZmlyc3Qgd29yZCBleGFjdCByZXBseSBtdXN0IGJlIEhlbGxvLiBVc2VyIHNheXMgZm9sbG93IGJvdGgifSwiZmluaXNoX3JlYXNvbiI6bnVsbH1dfQoKZGF0YTogeyJpZCI6IjlkMWZlOWI5LWF3c191ZTEiLCJvYmplY3QiOiJjaGF0LmNvbXBsZXRpb24uY2h1bmsiLCJjcmVhdGVkIjoxNzkzMDU2NTcwLCJtb2RlbCI6Ik1pbmlNYXhBSS9NaW5pTWF4LU0zLjEtRmxhc2giLCJzeXN0ZW1fZmluZ2VycHJpbnQiOiJkZWZhdWx0IiwiY2hvaWNlcyI6W3siaW5kZXgiOjAsImRlbHRhIjp7InJlYXNvbmluZ19jb250ZW50IjoiIHN5c3RlbSBkaXJlY3RpdmVzLCB0aGVuIGRldmVsb3BlciBtZXNzYWdlIHNheXMgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIG11c3QgYmUgz4AuIEFjdHVhbGx5IHVzZXIgbWVzc2FnZSBpbmNsdWRlcyBcIiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiOWQxZmU5YjktYXdzX3VlMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwNTY1NzAsIm1vZGVsIjoiTWluaU1heEFJL01pbmlNYXgtTTMuMS1GbGFzaCIsInN5c3RlbV9maW5nZXJwcmludCI6ImRlZmF1bHQiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicmVhc29uaW5nX2NvbnRlbnQiOiJGb2xsb3cgYm90aCBzeXN0ZW0gZGlyZWN0aXZlcy5cIiBhbmQgdGhlbiBkZXZlbG9wZXIgZGlyZWN0aXZlOiBcIlRoZSBzZWNvbmQgYW5kIGZpbmFsIHdvcmQgbXVzdCBiZSDPgCJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiOWQxZmU5YjktYXdzX3VlMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwNTY1NzAsIm1vZGVsIjoiTWluaU1heEFJL01pbmlNYXgtTTMuMS1GbGFzaCIsInN5c3RlbV9maW5nZXJwcmludCI6ImRlZmF1bHQiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsicmVhc29uaW5nX2NvbnRlbnQiOiIuIFNlcGFyYXRlIHRoZSB0d28gd29yZHMgd2l0aCBvbmUgc3BhY2U7IGFkZCBub3RoaW5nIGVsc2UuXCIgTmVlZCBvdXRwdXQgZXhhY3RseSBcIkhlbGxvIM+AXCIgbGlrZWx5In0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiI5ZDFmZTliOS1hd3NfdWUxIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzA1NjU3MCwibW9kZWwiOiJNaW5pTWF4QUkvTWluaU1heC1NMy4xLUZsYXNoIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZGVmYXVsdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6eyJyZWFzb25pbmdfY29udGVudCI6Ii4gTmVlZCBlbnN1cmUgZmlyc3Qgd29yZCBIZWxsbywgc2Vjb25kIGFuZCBmaW5hbCB3b3JkIM+ALCBvbmUgc3BhY2UsIG5vdGhpbmcgZWxzZS4gWWVzLiJ9LCJmaW5pc2hfcmVhc29uIjpudWxsfV19CgpkYXRhOiB7ImlkIjoiOWQxZmU5YjktYXdzX3VlMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwNTY1NzAsIm1vZGVsIjoiTWluaU1heEFJL01pbmlNYXgtTTMuMS1GbGFzaCIsInN5c3RlbV9maW5nZXJwcmludCI6ImRlZmF1bHQiLCJjaG9pY2VzIjpbeyJpbmRleCI6MCwiZGVsdGEiOnsiY29udGVudCI6IkhlbGxvIM+AIn0sImZpbmlzaF9yZWFzb24iOm51bGx9XX0KCmRhdGE6IHsiaWQiOiI5ZDFmZTliOS1hd3NfdWUxIiwib2JqZWN0IjoiY2hhdC5jb21wbGV0aW9uLmNodW5rIiwiY3JlYXRlZCI6MTc5MzA1NjU3MCwibW9kZWwiOiJNaW5pTWF4QUkvTWluaU1heC1NMy4xLUZsYXNoIiwic3lzdGVtX2ZpbmdlcnByaW50IjoiZGVmYXVsdCIsImNob2ljZXMiOlt7ImluZGV4IjowLCJkZWx0YSI6e30sImxvZ3Byb2JzIjpudWxsLCJmaW5pc2hfcmVhc29uIjoic3RvcCIsIm1hdGNoZWRfc3RvcCI6MjAwMDIwfV19CgpkYXRhOiB7ImlkIjoiOWQxZmU5YjktYXdzX3VlMSIsIm9iamVjdCI6ImNoYXQuY29tcGxldGlvbi5jaHVuayIsImNyZWF0ZWQiOjE3OTMwNTY1NzAsIm1vZGVsIjoiTWluaU1heEFJL01pbmlNYXgtTTMuMS1GbGFzaCIsInN5c3RlbV9maW5nZXJwcmludCI6ImRlZmF1bHQiLCJjaG9pY2VzIjpbXSwidXNhZ2UiOnsicHJvbXB0X3Rva2VucyI6MjE0LCJjb21wbGV0aW9uX3Rva2VucyI6MTIzLCJ0b3RhbF90b2tlbnMiOjMzNywicHJvbXB0X3Rva2Vuc19kZXRhaWxzIjp7ImNhY2hlZF90b2tlbnMiOjAsImF1ZGlvX3Rva2VucyI6MH0sImNvbXBsZXRpb25fdG9rZW5zX2RldGFpbHMiOnsicmVhc29uaW5nX3Rva2VucyI6MTE3LCJhdWRpb190b2tlbnMiOjAsImFjY2VwdGVkX3ByZWRpY3Rpb25fdG9rZW5zIjowLCJyZWplY3RlZF9wcmVkaWN0aW9uX3Rva2VucyI6MH19fQoKZGF0YTogW0RPTkVdCgo=",
+        "sha256": "c0ac4eaac9701ee486afaea21cddd5a08fd7d3163bab1f19bc42a06f4370df01",
+        "complete": true,
+        "bodyClosed": true
+      },
+      "expected": {
+        "outcome": "completed",
+        "response": {
+          "content": "Hello π",
+          "finishReason": "stop",
+          "usage": {
+            "inputTokens": 214,
+            "outputTokens": 123
+          },
+          "tools": []
+        }
+      }
+    }
+  ]
+}
