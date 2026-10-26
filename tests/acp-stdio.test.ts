@@ -18,7 +18,7 @@ import { executionManifest } from './helpers/execution-manifest.js';
 import { projectIdentity } from '../src/approvals/index.js';
 import { join, resolve } from 'node:path';
 import { Readable, Writable } from 'node:stream';
-import { ClientSideConnection, ndJsonStream, type Client, type SessionNotification } from '@zed-industries/agent-client-protocol';
+import { client as createClient, ndJsonStream, type SessionNotification } from '@agentclientprotocol/sdk';
 
 type ChatMessage = { role: string; content: unknown };
 let build: string, root: string, server: Server, port: number;
@@ -102,14 +102,19 @@ function start(project: string, args: string[] = []) {
   let stderr = '';
   child.stderr!.on('data', chunk => { stderr += chunk; });
   const updates: SessionNotification[] = [];
-  const client: Client = {
-    async sessionUpdate(notification) { updates.push(notification); },
+  const client = {
+    async sessionUpdate(notification: SessionNotification) { updates.push(notification); },
     async requestPermission() { return { outcome: { outcome: 'cancelled' } }; },
     async readTextFile() { throw new Error('fs is not advertised'); },
     async writeTextFile() { throw new Error('fs is not advertised'); },
   };
   const stream = ndJsonStream(Writable.toWeb(child.stdin!) as WritableStream<Uint8Array>, Readable.toWeb(child.stdout!) as ReadableStream<Uint8Array>);
-  const conn = new ClientSideConnection(() => client, stream);
+  const conn = createClient()
+    .onNotification('session/update', ({params}) => client.sessionUpdate(params))
+    .onRequest('session/request_permission', () => client.requestPermission())
+    .onRequest('fs/read_text_file', () => client.readTextFile())
+    .onRequest('fs/write_text_file', () => client.writeTextFile())
+    .connect(stream);
   const exited = new Promise<number | null>(done => child.once('close', code => done(code)));
   return { child, conn, client, updates, exited, stderr: () => stderr };
 }
@@ -122,16 +127,16 @@ it('restores a session with its history in a new process after the first one is 
   fs.writeFileSync(join(project, 'notes.txt'), 'stdio evidence line\n');
 
   const first = start(project);
-  expect((await first.conn.initialize({ protocolVersion: 1, clientCapabilities: {} })).agentCapabilities?.loadSession).toBe(true);
-  const { sessionId } = await first.conn.newSession({ cwd: project, mcpServers: [] });
-  expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
+  expect((await first.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} })).agentCapabilities?.loadSession).toBe(true);
+  const { sessionId } = await first.conn.agent.request('session/new', { cwd: project, mcpServers: [] });
+  expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
   expect(requests).toHaveLength(2);
   first.child.kill('SIGKILL');
   await first.exited;
 
   const second = start(project);
-  await second.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
-  expect(await second.conn.loadSession({ sessionId, cwd: project, mcpServers: [] })).toEqual({});
+  await second.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
+  expect(await second.conn.agent.request('session/load', { sessionId, cwd: project, mcpServers: [] })).toEqual({});
   const replay = second.updates.map(update => update.update);
   expect(second.updates.every(update => update.sessionId === sessionId)).toBe(true);
   expect(replay.map(update => update.sessionUpdate)).toEqual(['user_message_chunk', 'tool_call', 'tool_call_update', 'agent_message_chunk']);
@@ -142,7 +147,7 @@ it('restores a session with its history in a new process after the first one is 
   expect(replay[3]).toMatchObject({ content: { type: 'text', text: 'Read it.' } });
   expect(requests).toHaveLength(2);
 
-  expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'what did it say?' }] })).stopReason, second.stderr()).toBe('end_turn');
+  expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'what did it say?' }] })).stopReason, second.stderr()).toBe('end_turn');
   const resumed = requests.at(-1)!.messages;
   expect(resumed.map(message => message.role)).toEqual(['system', 'user', 'assistant', 'tool', 'assistant', 'user']);
   expect(JSON.stringify(resumed)).toContain('stdio evidence line');
@@ -189,11 +194,11 @@ it('retains the parent account, workspace, history and spent allowance over a na
     fs.writeFileSync(file, childToken, { mode: 0o600 });
     const args = ['--ledger-url', url, '--ledger-token-file', file, '--ledger-agent', 'child'];
     const first = start(copy, args);
-    const init = await first.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
+    const init = await first.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
     expect(init.agentCapabilities?._meta).toMatchObject({ calliopeDelegation: { version: 1, workspaceBinding: 1, sessionBinding: 1 } });
-    await expect(first.conn.newSession({ cwd: project, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
-    const { sessionId } = await first.conn.newSession({ cwd: copy, mcpServers: [] });
-    expect((await first.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
+    await expect(first.conn.agent.request('session/new', { cwd: project, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+    const { sessionId } = await first.conn.agent.request('session/new', { cwd: copy, mcpServers: [] });
+    expect((await first.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'read notes.txt' }] })).stopReason, first.stderr() + JSON.stringify(first.updates)).toBe('end_turn');
     expect(requests).toHaveLength(2);
     expect(JSON.stringify(requests)).toContain('allowed automatic context');
     expect(JSON.stringify(requests)).not.toContain('DENIED automatic context');
@@ -203,16 +208,16 @@ it('retains the parent account, workspace, history and spent allowance over a na
     // A plain process and a different valid account both refuse the retained session.
     for (const options of [[], [...args.slice(0, -1), 'sibling']]) {
       const denied = start(copy, options);
-      await denied.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
-      await expect(denied.conn.loadSession({ sessionId, cwd: copy, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
+      await denied.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
+      await expect(denied.conn.agent.request('session/load', { sessionId, cwd: copy, mcpServers: [] })).rejects.toMatchObject({ code: -32602 });
       expect(denied.updates).toEqual([]);
       denied.child.stdin!.end(); expect(await denied.exited, denied.stderr()).toBe(0);
     }
     expect(requests).toHaveLength(2);
     const second = start(copy, args);
-    await second.conn.initialize({ protocolVersion: 1, clientCapabilities: {} });
-    expect(await second.conn.loadSession({ sessionId, cwd: copy, mcpServers: [] })).toEqual({});
-    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason, second.stderr()).toBe('end_turn');
+    await second.conn.agent.request('initialize', { protocolVersion: 1, clientCapabilities: {} });
+    expect(await second.conn.agent.request('session/load', { sessionId, cwd: copy, mcpServers: [] })).toEqual({});
+    expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'continue' }] })).stopReason, second.stderr()).toBe('end_turn');
     expect(requests).toHaveLength(3);
     expect(JSON.stringify(requests.at(-1)!.messages)).toContain('delegated evidence');
     const spent = ledger.read(project);
@@ -222,18 +227,18 @@ it('retains the parent account, workspace, history and spent allowance over a na
 
     // Delegation retains native one-time permissions and cancellation.
     second.client.requestPermission = async () => ({ outcome: { outcome: 'selected', optionId: 'reject' } });
-    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
+    expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
     expect(fs.readFileSync(join(copy, 'notes.txt'), 'utf8')).toBe('delegated evidence');
     second.client.requestPermission = async () => ({ outcome: { outcome: 'selected', optionId: 'allow' } });
-    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
+    expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] })).stopReason).toBe('end_turn');
     expect(fs.readFileSync(join(copy, 'notes.txt'), 'utf8')).toBe('approved edit');
     let notifyPermission!: () => void;
     const permissionReady = new Promise<void>(ready => { notifyPermission = ready; });
     let resolvePermission!: (value: import('@zed-industries/agent-client-protocol').RequestPermissionResponse) => void;
     second.client.requestPermission = async () => { notifyPermission(); return new Promise(resolve => { resolvePermission = resolve; }); };
-    const pending = second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] });
+    const pending = second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'write notes.txt' }] });
     await permissionReady;
-    await second.conn.cancel({ sessionId });
+    await second.conn.agent.notify('session/cancel', { sessionId });
     expect((await pending).stopReason).toBe('cancelled');
     resolvePermission({ outcome: { outcome: 'selected', optionId: 'allow' } });
     const requestsBeforeExhaustion = requests.length;
@@ -243,7 +248,7 @@ it('retains the parent account, workspace, history and spent allowance over a na
 
     // Pending work consumes the remaining allowance. Continuing cannot mint another.
     await ledger.reserve(project, hash, { id: randomUUID(), agentId: 'child', provider: 'deepseek', model: 'stdio-model', target: 'a'.repeat(64), inputTokens: 100000 - charged - 1, outputTokens: 1, inputPrice: 0, outputPrice: 0, costNanos: 0 });
-    expect((await second.conn.prompt({ sessionId, prompt: [{ type: 'text', text: 'exhausted' }] })).stopReason, second.stderr()).toBe('refusal');
+    expect((await second.conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'exhausted' }] })).stopReason, second.stderr()).toBe('refusal');
     expect(requests).toHaveLength(requestsBeforeExhaustion);
     expect(ledger.read(project).projection.accounts.child!.tokens).toBe(100000);
     second.child.stdin!.end(); expect(await second.exited, second.stderr()).toBe(0);
