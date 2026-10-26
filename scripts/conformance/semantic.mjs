@@ -1,5 +1,5 @@
 /** Fixed public semantic probes. No project input and no executed tools. */
-import { BACKENDS, TOOL, PROBE_TEXT, invoke, normalize } from "./contract.mjs";
+import { BACKENDS, CAPTURE_BACKENDS, TOOL, PROBE_TEXT, invoke, normalize } from "./contract.mjs";
 import { digest } from "./captures.mjs";
 import { createRecorder } from "./recorder.mjs";
 
@@ -125,7 +125,7 @@ export function validateSemanticCapture(value) {
   if (
     value.version !== 1 ||
     value.kind !== "provider-semantic" ||
-    !BACKENDS.some((b) => b.id === value.backend) ||
+    !CAPTURE_BACKENDS.some((b) => b.id === value.backend) ||
     !SEMANTIC_CHECKS.includes(value.scenario) ||
     typeof value.stream !== "boolean" ||
     typeof value.model !== "string" ||
@@ -528,6 +528,7 @@ export async function runSemanticProbe({
 /** Never opens a socket. Reconstructs both turns using actual adapter results. */
 export async function replaySemanticCapture(capture, adapters) {
   validateSemanticCapture(capture);
+  if (!BACKENDS.some(backend => backend.id === capture.backend)) throw new Error('Retired provider captures are archival evidence only.');
   let index = 0, historicalReasoningOmission=false;
   // Historical captures used input/output instead of the API's prompt/completion
   // keys. Retain their bytes and replay model semantics, never treat those old

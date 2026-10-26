@@ -6,14 +6,14 @@
  * which resolves the provider's hosted base URL + API key — NOT through
  * chatOllama, which hard-codes the local Ollama endpoint and ignores the
  * configured key. `ollama` must still route through chatOllama, and
- * `litellm` / `bedrock` routing must be unchanged.
+ * `bedrock` routing must be unchanged.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { LLMProvider } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
-// Config: every hosted provider has a key, ollama/litellm have a base URL.
+// Config: every hosted provider has a key, ollama have a base URL.
 // ---------------------------------------------------------------------------
 
 const apiKeys: Record<string, string | undefined> = {
@@ -28,7 +28,6 @@ const apiKeys: Record<string, string | undefined> = {
 
 const baseUrls: Record<string, string | undefined> = {
   ollama: 'http://localhost:11434',
-  litellm: 'http://localhost:4000',
   bedrock: 'https://bedrock-gw.example.com',
 };
 
@@ -138,12 +137,6 @@ describe('chat() provider routing (#145)', () => {
     expect(chatOllama).toHaveBeenCalledTimes(1);
     expect(handlers.ollamaCalls).toEqual(['ollama']);
     expect(chatOpenAICompatible).not.toHaveBeenCalled();
-  });
-
-  it('litellm routing is unchanged (chatOpenAICompatible)', async () => {
-    await chat('litellm', [{ role: 'user', content: 'hi' }], [], 'gpt-4o');
-    expect(handlers.compatCalls).toEqual(['litellm']);
-    expect(chatOllama).not.toHaveBeenCalled();
   });
 
   it('bedrock gateway mode (base URL set) routes through chatOpenAICompatible', async () => {

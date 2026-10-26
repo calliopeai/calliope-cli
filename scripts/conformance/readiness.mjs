@@ -1,5 +1,5 @@
 /** Offline release evidence inventory. Unknown or unavailable never means pass. */
-import { BACKENDS } from './contract.mjs';
+import { BACKENDS, RETIRED_BACKENDS } from './contract.mjs';
 import { validateCapture, missingCaptures } from './captures.mjs';
 import { validateSemanticCapture } from './semantic.mjs';
 
@@ -14,7 +14,7 @@ export function credentialStatus(backend, config, env = process.env) {
     return Boolean((env.AWS_ACCESS_KEY_ID && env.AWS_SECRET_ACCESS_KEY) ||
       env.AWS_PROFILE || config.getProviderCred('bedrock').profile || config.hasAWSCredentials?.()) ? 'configured' : 'missing';
   }
-  if (['ollama', 'litellm', 'bedrock-compat', 'openai-compat'].includes(backend.id)) {
+  if (['ollama', 'bedrock-compat', 'openai-compat'].includes(backend.id)) {
     return config.getBaseUrl(backend.provider) ? 'configured' : 'missing-endpoint';
   }
   return config.getApiKey(backend.provider) ? 'configured' : 'missing';
@@ -56,7 +56,7 @@ export function createReadiness(captures, availability = {}, now = new Date(), s
     wireGateReady: missing.length === 0,
     productGateReady: adapters.every(adapter => Object.values(adapter.checks).every(status => status === 'captured')),
     missingWireCombinations: missing, adapters,
-    retired: [{ provider: 'ai21', status: 'retired', includedInReleaseGate: false }],
+    retired: ['ai21', ...RETIRED_BACKENDS.map(backend => backend.id)].map(provider => ({ provider, status: 'retired', includedInReleaseGate: false })),
   };
 }
 

@@ -41,7 +41,7 @@ const cases: [string, Request][] = [
   ['Google', (signal, stream) => chatGoogle(messages, [], 'fixture-model', stream, signal)],
   ['Ollama', (signal, stream) => chatOllama(messages, [], 'fixture-model', stream, { signal })],
   ['Bedrock native', (signal, stream) => chatBedrock(messages, [], 'fixture-model', stream, signal)],
-  ...(['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'ai21', 'huggingface', 'litellm', 'bedrock', 'openai-compat'] as LLMProvider[])
+  ...(['openrouter', 'together', 'groq', 'fireworks', 'mistral', 'ai21', 'huggingface', 'bedrock', 'openai-compat'] as LLMProvider[])
     .map(provider => [provider, (signal, stream) => chatOpenAICompatible(provider, messages, [], 'fixture-model', stream, signal)] as [string, Request]),
 ];
 

@@ -81,7 +81,7 @@ entry is a subset of these fields:
 | Field | Applies to | Notes |
 |-------|-----------|-------|
 | `apiKey` | most providers | The API key/token. |
-| `baseUrl` | ollama, litellm, bedrock (gateway), openai-compat | Server or proxy URL. |
+| `baseUrl` | ollama, bedrock (gateway), openai-compat | Server or proxy URL. |
 | `model` | any | Pins a default model for the provider (no environment fallback). |
 | `region` | bedrock | AWS region for the native Bedrock backend. |
 | `profile` | bedrock | AWS named profile for the native Bedrock backend. |
@@ -122,7 +122,6 @@ wins). The `model` field has no environment fallback.
 | xai | `XAI_API_KEY` | `XAI_BASE_URL` | — |
 | cerebras | `CEREBRAS_API_KEY` | `CEREBRAS_BASE_URL` | — |
 | ollama | — | `OLLAMA_BASE_URL` | — |
-| litellm | `LITELLM_API_KEY` | `LITELLM_BASE_URL` | — |
 | bedrock | `BEDROCK_API_KEY` | `BEDROCK_BASE_URL` | `AWS_REGION` / `AWS_DEFAULT_REGION` (region), `AWS_PROFILE` (profile) |
 | openai-compat | `OPENAI_COMPAT_API_KEY` | `OPENAI_COMPAT_BASE_URL` | — |
 

@@ -2,7 +2,7 @@
  * Calliope CLI - Local Model Excellence
  *
  * A single home for the behaviours that make Calliope a good harness for
- * self-hosted 7-70B models (Ollama, or an OpenAI-compatible/LiteLLM server
+ * self-hosted 7-70B models (Ollama, or an OpenAI-compatible server
  * pointed at localhost / a private box running vLLM etc.). Cloud providers are
  * untouched — every helper here is a no-op or "cloud" answer unless the active
  * backend is detected as local.
@@ -33,7 +33,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1', '[::
 
 /**
  * True when a URL points at the local machine (loopback host, `*.local`, or the
- * docker host bridge). Used to decide whether an openai-compat / LiteLLM server
+ * docker host bridge). Used to decide whether an openai-compat server
  * is a self-hosted backend rather than a hosted proxy.
  */
 export function isLoopbackUrl(url: string | undefined): boolean {
@@ -55,8 +55,8 @@ export function isLoopbackUrl(url: string | undefined): boolean {
  * Whether the active backend is a locally-hosted model.
  *
  *  - `ollama` is always local.
- *  - `openai-compat` / `litellm` are local when their base URL is loopback
- *    (LM Studio, vLLM, llama.cpp, a local LiteLLM proxy, ...).
+ *  - `openai-compat` are local when their base URL is loopback
+ *    (LM Studio, vLLM, llama.cpp, ...).
  *  - Everything else (Anthropic, OpenAI, Bedrock, hosted OpenAI-compat, and the
  *    `auto` sentinel) is treated as cloud.
  *
@@ -64,7 +64,7 @@ export function isLoopbackUrl(url: string | undefined): boolean {
  */
 export function isLocalBackend(provider: LLMProvider, baseUrl?: string): boolean {
   if (provider === 'ollama') return true;
-  if (provider === 'litellm' || provider === 'openai-compat') {
+  if (provider === 'openai-compat') {
     const url = baseUrl ?? config.getBaseUrl(provider);
     return isLoopbackUrl(url);
   }

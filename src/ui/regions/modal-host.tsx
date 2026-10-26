@@ -150,8 +150,6 @@ function ModalHostInner(props: ModalHostProps) {
             ? 'e.g. http://localhost:11434  (start with: ollama serve)'
             : pendingSetupProvider.id === 'bedrock'
             ? 'Enter your AWS profile name. Ensure it exists in ~/.aws/credentials or ~/.aws/config.'
-            : pendingSetupProvider.id === 'litellm'
-            ? 'e.g. http://localhost:4000'
             : undefined
         }
       />

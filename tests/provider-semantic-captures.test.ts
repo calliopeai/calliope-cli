@@ -13,6 +13,7 @@ import * as compat from "../src/providers/compat.js";
 import * as ollama from "../src/providers/ollama.js";
 import * as bedrock from "../src/providers/bedrock.js";
 import * as config from "../src/config.js";
+import { BACKENDS } from '../scripts/conformance/contract.mjs';
 const adapters = { anthropic, google, openai, compat, ollama, bedrock };
 function read(directory: string) {
   const root = new URL(`./fixtures/${directory}/`, import.meta.url);
@@ -34,7 +35,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
-for (const capture of captures)
+for (const capture of captures.filter(capture => BACKENDS.some(backend => backend.id === capture.backend)))
   it(`semantic captured ${capture.backend}/${capture.scenario}/${capture.stream ? "stream" : "JSON"}`, async () => {
     assertSafeSemanticCapture(capture);
     const path = capture.turns[0].exchange.request.path;
