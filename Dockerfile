@@ -23,7 +23,7 @@ RUN npm ci
 # Compile TypeScript → dist/
 COPY tsconfig.json ./
 COPY src/ ./src/
-COPY scripts/verify-runlog.mjs ./scripts/verify-runlog.mjs
+COPY scripts/verify-runlog.mjs scripts/build-metadata.mjs ./scripts/
 RUN npm run build
 
 # Prune to production dependencies only
