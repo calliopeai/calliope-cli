@@ -2,7 +2,7 @@
  * Tests for src/providers/compat.ts
  *
  * Covers: OpenAI-compatible provider routing (OpenRouter, Together, Groq,
- * Fireworks, Mistral, AI21, HuggingFace, Ollama, LiteLLM, Bedrock),
+ * Fireworks, Mistral, AI21, HuggingFace, Ollama, Bedrock),
  * base URL configuration, API key handling, message/tool format reuse
  * from openai.ts, streaming, response parsing, finish reason mapping,
  * Ollama fallback behavior, and error handling.
@@ -34,7 +34,6 @@ const apiKeys: Record<string, string | undefined> = {
 
 const baseUrls: Record<string, string | undefined> = {
   ollama: 'http://localhost:11434',
-  litellm: 'http://localhost:4000',
   bedrock: 'https://bedrock-gateway.example.com',
 };
 
@@ -503,11 +502,6 @@ describe('chatOpenAICompatible', () => {
 
       // Restore
       vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => baseUrls[p]);
-    });
-
-    it('should append /v1 for LiteLLM base URL', async () => {
-      await chatOpenAICompatible('litellm', [{ role: 'user', content: 'hi' }], [], 'test-model');
-      expect(lastClientConfig!.baseURL).toBe('http://localhost:4000/v1');
     });
 
     it('should append /v1 for Bedrock base URL', async () => {

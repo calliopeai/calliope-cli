@@ -41,7 +41,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     if(capabilities.chat!==true || tools.length&&capabilities.tools!==true || streaming&&capabilities.streaming!==true)
       throw new ExecutionLimitError('authority','Live discovery did not confirm the required model capabilities.');
     // The full discovered input capacity is a conservative bound, not a tokenizer estimate.
-    const local=route.provider==='ollama'||route.provider==='litellm'||route.provider==='openai-compat';
+    const local=route.provider==='ollama'||route.provider==='openai-compat';
     // Local servers expose a context window but no billable input reservation;
     // reserve the measured request size so token budgets remain meaningful.
     const contextLimit=route.contextLength??0;

@@ -18,7 +18,7 @@ export function providerTarget(provider: HealthProvider): HealthTarget {
     protocol = provider === 'ollama' ? 'ollama' : 'openai-chat';
   }
   if (provider === 'bedrock' && !credential.baseUrl) credentials = hasAWSCredentials() || !!credential.profile ? 'configured' : 'missing';
-  else if (['ollama', 'litellm', 'openai-compat', 'bedrock'].includes(provider)) credentials = !endpoint ? 'missing' : credential.apiKey ? 'configured' : 'not-required';
+  else if (['ollama', 'openai-compat', 'bedrock'].includes(provider)) credentials = !endpoint ? 'missing' : credential.apiKey ? 'configured' : 'not-required';
   else credentials = credential.apiKey ? 'configured' : 'missing';
   let display = 'not-configured', identity = endpoint;
   if (endpoint) {

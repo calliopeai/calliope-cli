@@ -2,7 +2,7 @@
  * OpenAI-Compatible Provider
  *
  * Handles OpenRouter, Together, Groq, Fireworks, Mistral, AI21,
- * HuggingFace, DeepSeek, xAI, Cerebras, Ollama, and LiteLLM via the OpenAI SDK.
+ * HuggingFace, DeepSeek, xAI, Cerebras, and Ollama via the OpenAI SDK.
  */
 
 import OpenAI from 'openai';
@@ -251,8 +251,9 @@ export async function chatOpenAICompatible(
   signal?: AbortSignal,
   limits?: AdapterLimits
 ): Promise<LLMResponse> {
+  if (String(provider) === 'litellm') throw new Error('LiteLLM support has been removed. Select a supported provider explicitly.');
   const routingBounds = provider === 'openrouter' && limits?.bounded ? openRouterBounds(limits.priceCeiling) : {};
-  // Ollama and LiteLLM use base URL, others use API key
+  // Local endpoints use base URL, others use API key
   let apiKey: string | undefined;
   let baseURL: string;
 
@@ -261,11 +262,6 @@ export async function chatOpenAICompatible(
     // Append /v1 for OpenAI-compatible endpoint, unless already present
     baseURL = ollamaBase.endsWith('/v1') ? ollamaBase : `${ollamaBase}/v1`;
     apiKey = 'ollama'; // Ollama doesn't require a real API key
-  } else if (provider === 'litellm') {
-    const litellmBase = config.getBaseUrl('litellm') || 'http://localhost:4000';
-    // Append /v1 for OpenAI-compatible endpoint, unless already present
-    baseURL = litellmBase.endsWith('/v1') ? litellmBase : `${litellmBase}/v1`;
-    apiKey = config.getApiKey('litellm') || 'litellm'; // LiteLLM may or may not require key
   } else if (provider === 'bedrock') {
     const bedrockBase = config.getBaseUrl('bedrock');
     if (!bedrockBase) throw new Error('Bedrock base URL not configured. Set BEDROCK_BASE_URL to your Bedrock gateway/proxy endpoint.');

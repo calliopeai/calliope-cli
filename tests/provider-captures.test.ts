@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.stubEnv('AWS_ACCESS_KEY_ID', 'offline-replay'); vi.stubEnv('AWS_SECRET_ACCESS_KEY', 'offline-replay');
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
-for (const capture of captures) it(`captured ${capture.backend}/${capture.scenario}/${capture.stream ? 'stream' : 'json'}`, async () => {
+for (const capture of captures.filter(capture => BACKENDS.some(backend => backend.id === capture.backend))) it(`captured ${capture.backend}/${capture.scenario}/${capture.stream ? 'stream' : 'json'}`, async () => {
   const replay = replayFetch(capture); vi.stubGlobal('fetch', replay.fetch);
   const backend = BACKENDS.find(backend => backend.id === capture.backend)!;
   // Preserve a private gateway's path prefix without contacting its origin.

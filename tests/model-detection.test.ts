@@ -710,60 +710,6 @@ describe('getOllamaFallbackModel', () => {
 });
 
 // ===========================================================================
-// getAvailableModels — LiteLLM
-// ===========================================================================
-
-describe('getAvailableModels - litellm', () => {
-  it('should use default base URL and filter incompatible models', async () => {
-    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
-    clearModelCache('litellm');
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        data: [
-          { id: 'gpt-4o' },
-          { id: 'text-embedding-ada-002' },
-          { id: 'claude-3-sonnet' },
-          { id: 'whisper-1' },
-          { id: 'dall-e-3' },
-          { id: 'tts-1' },
-        ],
-      }),
-    });
-
-    const models = await getAvailableModels('litellm');
-    expect(models.some(m => m.id === 'gpt-4o')).toBe(true);
-    expect(models.some(m => m.id === 'claude-3-sonnet')).toBe(true);
-    // These should be filtered
-    expect(models.some(m => m.id === 'text-embedding-ada-002')).toBe(false);
-    expect(models.some(m => m.id === 'whisper-1')).toBe(false);
-    expect(models.some(m => m.id === 'dall-e-3')).toBe(false);
-    expect(models.some(m => m.id === 'tts-1')).toBe(false);
-  });
-
-  it('should strip /v1 suffix from configured base URL', async () => {
-    vi.mocked(config.getBaseUrl).mockReturnValue('http://myproxy:4000/v1');
-    clearModelCache('litellm');
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ data: [{ id: 'gpt-4o' }] }),
-    });
-
-    await getAvailableModels('litellm');
-    expect(mockFetch).toHaveBeenCalledWith('http://myproxy:4000/v1/models');
-  });
-
-  it('should return [] when LiteLLM is not running', async () => {
-    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
-    clearModelCache('litellm');
-    mockFetch.mockRejectedValueOnce(new Error('ECONNREFUSED'));
-
-    const models = await getAvailableModels('litellm');
-    expect(models).toEqual([]);
-  });
-});
-
-// ===========================================================================
 // getAvailableModels — Bedrock
 // ===========================================================================
 
@@ -827,38 +773,6 @@ describe('getAvailableModels - unsupported', () => {
 // ===========================================================================
 
 describe('isCompatibleModel (indirect)', () => {
-  describe('openai patterns', () => {
-    it('should filter embedding, speech, image, and legacy models', async () => {
-      vi.mocked(config.getApiKey).mockReturnValue('test-key');
-      clearModelCache('litellm');
-      vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
-
-      // Test via litellm which passes models through isCompatibleModel with 'litellm' patterns
-      // For OpenAI patterns, we'd need to test through OpenAI client mock
-      // Instead test litellm patterns which overlap: embed, whisper, dall-e, tts
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          data: [
-            { id: 'gpt-4o' },
-            { id: 'embed-something' },
-            { id: 'whisper-large' },
-            { id: 'dall-e-3' },
-            { id: 'tts-1-hd' },
-          ],
-        }),
-      });
-
-      const models = await getAvailableModels('litellm');
-      const ids = models.map(m => m.id);
-      expect(ids).toContain('gpt-4o');
-      expect(ids).not.toContain('embed-something');
-      expect(ids).not.toContain('whisper-large');
-      expect(ids).not.toContain('dall-e-3');
-      expect(ids).not.toContain('tts-1-hd');
-    });
-  });
-
   describe('ollama patterns', () => {
     it('should filter embedding models from Ollama', async () => {
       vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
@@ -2077,17 +1991,6 @@ describe('getAvailableModels - ollama API errors', () => {
 // ===========================================================================
 // LiteLLM API error status
 // ===========================================================================
-
-describe('getAvailableModels - litellm API errors', () => {
-  it('should return [] when LiteLLM returns non-ok status', async () => {
-    vi.mocked(config.getBaseUrl).mockReturnValue(undefined);
-    clearModelCache('litellm');
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
-
-    const models = await getAvailableModels('litellm');
-    expect(models).toEqual([]);
-  });
-});
 
 // ===========================================================================
 // Anthropic model without display_name (formatModelName branch)

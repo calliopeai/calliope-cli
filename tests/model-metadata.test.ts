@@ -169,7 +169,7 @@ it.each([undefined, null, ''])('discovers Bedrock native models with terminal cu
   expect(fetch).toHaveBeenCalledTimes(3);
 });
 
-it.each(['deepseek', 'openai-compat', 'litellm', 'ollama', 'bedrock'] as const)('refuses malformed %s discovery instead of granting an explicit fallback', async provider => {
+it.each(['deepseek', 'openai-compat', 'ollama', 'bedrock'] as const)('refuses malformed %s discovery instead of granting an explicit fallback', async provider => {
   vi.mocked(fetch).mockImplementation(async () => json({ data: 'wrong', models: null }));
   const route = await selectRoute({ provider, model: 'arbitrary' });
   expect(route.status).toBe('unavailable');
