@@ -312,6 +312,11 @@ CALLIOPE_REVIEWED_HOST_BINARY="$PWD/packaging/dist/calliope-native" \
   node scripts/qualification/reviewed-host.mjs
 ```
 
+To qualify an extracted npm tarball with its production dependencies installed,
+set `CALLIOPE_REVIEWED_HOST_PACKAGE` to that package directory instead. Both the
+host library and all child processes then use the extracted package. The package
+and standalone-binary options are mutually exclusive.
+
 The executable reports its tested artifact type and invariant results as JSON.
 This is a local HTTP host example, not a deployed Astrolift acceptance test.
 Use `delegation-ledger/v1`, reviewed host capability version 1 and the headless

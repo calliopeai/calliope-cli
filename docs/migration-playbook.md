@@ -134,7 +134,8 @@ this example is not evidence for a user project. Review the pair without executi
 code using `migration review-evidence --plan docs/migration-example-plan.json
 --report docs/migration-example-report.json --json` (on one shell line).
 
-The qualification checks stale pins, a broken baseline, an ineffective negative control,
+The qualification checks unsupported adapters, stale source and rule pins, a
+broken baseline, an ineffective negative control, a regressing candidate,
 distinct baseline/candidate approvals and actual container cleanup.
 
 Schemas and deterministic helpers ship in `dist/migration`. The example is
