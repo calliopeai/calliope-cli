@@ -44,6 +44,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ahp-protocol": "npm run build && node --test scripts/qualification/ahp-protocol.mjs",
+    "test:reviewed-host": "npm run build && node scripts/qualification/reviewed-host.mjs",
     "test:native-policy": "npm run build && node --test scripts/qualification/native-policy.mjs",
     "bench": "node bench/run.mjs",
     "bench:cold": "npm run build && node bench/cold-start.mjs",

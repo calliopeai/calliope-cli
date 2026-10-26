@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Extend reviewed host authority to owner-bound workspaces and retained native ACP sessions; recheck live authority before inference and tool effects. Add real-process Node/standalone host qualification, and let project-budget readers wait for an initializing writer without treating its partial commit as lost history (#415).
+
 - Retire the LiteLLM provider: remove setup, discovery and request routing, ignore its environment variables, and refuse old explicit selections without choosing a replacement. Preserve stored settings and historical capture evidence.
 
 ## 3.5.3: patched protocol validation
