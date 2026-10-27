@@ -20,7 +20,7 @@ export function executionManifestForRun(input:RunManifest,now=Date.now()):Execut
     accounts:plan.agents.map(agent=>({id:agent.id,parentId:agent.parentId,tokenBudget:agent.tokenBudget,costBudgetNanos:Math.floor(agent.costBudgetUsd*1e9),deadline:now+agent.timeBudgetMs,allowedTools:agent.allowedTools,allowedPaths:agent.allowedPaths}))});
 }
 /** Library boundary only; preparing a budget never launches a worker or spends tokens. */
-export async function prepareAgentExecution(cwd:string,runId:string,agentId:string,maxOutputTokens:number,options:RunActionOptions={}):Promise<AgentExecution> {
+export async function prepareAgentExecution(cwd:string,runId:string,agentId:string,maxOutputTokens:number,options:RunActionOptions & {reviewedProviderTargets?:Readonly<Record<string,string>>}={}):Promise<AgentExecution> {
   const store=options.store??new RunStore(),view=await store.read(runId,cwd,options.signal);
   assertExecutionStoreOutsideProject(view.manifest.project.root,store.root);
   if(view.run.status!=='approved')throw new OrchestrationError('policy-denied','Run must be explicitly approved before preparing execution authority.');
@@ -31,7 +31,7 @@ export async function prepareAgentExecution(cwd:string,runId:string,agentId:stri
   const selected=options.parentBudget===undefined?undefined:validateParentBudgetLink(options.parentBudget);
   if(existing&&selected&&canonicalJson(existing.parent??null)!==canonicalJson(selected))throw new OrchestrationError('conflict','An existing run budget cannot change its parent allowance.');
   const parent=selected??existing?.parent;
-  await authorizeSessionAction(cwd,'orchestration_budget',{path:cwd,runId,agentId,planHash:view.manifest.planHash,revision:view.run.revision,maxOutputTokens,...(parent?{parentBudget:parent}:{})},options);
+  await authorizeSessionAction(cwd,'orchestration_budget',{path:cwd,runId,agentId,planHash:view.manifest.planHash,revision:view.run.revision,maxOutputTokens,...(options.reviewedProviderTargets?{providerTargets:options.reviewedProviderTargets}:{}),...(parent?{parentBudget:parent}:{})},options);
   throwIfCancelled(options.signal);const latest=await store.read(runId,cwd,options.signal);
   if(latest.run.revision!==view.run.revision)throw new OrchestrationError('conflict','Run approval changed while authorizing execution.');
   const {goalRunAuthority}=await import('../goals/index.js'),goalAuthority=goalRunAuthority(view.manifest,store.root);

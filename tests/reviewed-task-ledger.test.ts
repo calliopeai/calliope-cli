@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
+import {providerTarget} from '../src/health/target.js';
 import {saveHooks} from '../src/hooks.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
 import {prepareReviewedTaskLedger,prepareReviewedLedger,controlExecution,collectTaskOutput} from '../src/orchestration/index.js';
@@ -33,7 +34,7 @@ const prepare=(taskId='inspect-a',attempt=1,cap=10)=>prepareReviewedTaskLedger(f
 async function listen(server:Server){servers.push(server);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;}
 async function start(taskId='inspect-a',attempt=1,cap=10){const host=await prepare(taskId,attempt,cap);return {...host,url:await listen(host.server)};}
 const connect=(url:string,token:string,agentId='a')=>RemoteReservationLedger.connect({url,token,root:join(root,'cache-'+randomUUID()),execution:{cwd:fixture.project,agentId}});
-const request=()=>({id:randomUUID(),agentId:'a',provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
+const request=()=>({id:randomUUID(),agentId:'a',provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 const post=async(url:string,token:string,op:string,body:object={})=>{
   const response=await fetch(`${url}/v1/${op}`,{method:'POST',headers:{authorization:`Bearer ${token}`},body:JSON.stringify(body)});
   return {status:response.status,body:await response.json() as Record<string,unknown>};
@@ -159,7 +160,7 @@ it('carries attribution and the host output cap through the delegated guard and 
   const binding=executionBinding(execution);expect(binding).toMatchObject({version:2,attribution:host.execution.attribution});
   expect(()=>assertExecutionBinding(binding,execution)).not.toThrow();
   expect(()=>assertExecutionBinding(binding,{...execution,attribution:{...host.execution.attribution!,attempt:2}})).toThrow();
-  const route={provider:'deepseek',model:'fixture',target:'a'.repeat(64),evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:100,maxOutputTokens:100,price:{input:0,output:0},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'fixture'} as RouteCandidate;
+  const route={provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,evidence:'live',discoveredAt:new Date().toISOString(),capabilities:{chat:true,tools:true,streaming:true},contextLength:100,maxOutputTokens:100,price:{input:0,output:0},estimatedCost:null,latencyMs:null,errorRate:null,score:0,reason:'fixture'} as RouteCandidate;
   const quote=new ExecutionGuard(execution,fixture.project).budget(route,[{role:'user',content:'public fixture'}],[],false);
   await quote.reserve({provider:route.provider,model:route.model,target:route.target,maxOutputTokens:10});
   const admitted=Object.values(fixture.authority.ledger.read(fixture.project).projection.requests);
@@ -220,7 +221,7 @@ it.each([
   [{provider:'deepseek'},'deepseek','initial'],
 ])('preserves explicit reviewed preference %j with Smart routing',async(preference,provider,model)=>{
   await smartFixture(preference);await nativeStart();const host=await start(),client=await connect(host.url,host.ownerToken);
-  await client.reserve(fixture.project,host.execution.manifestHash,{...request(),provider,model,attribution:host.execution.attribution});
+  await client.reserve(fixture.project,host.execution.manifestHash,{...request(),provider,model,target:providerTarget(provider as never).key,attribution:host.execution.attribution});
   const before=fixture.authority.ledger.read(fixture.project);
   await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),provider:'anthropic',model:'outside',attribution:host.execution.attribution})).rejects.toMatchObject({code:'authority'});
   expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);

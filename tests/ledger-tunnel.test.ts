@@ -8,6 +8,7 @@ import {createServer,request as httpRequest,Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {PassThrough} from 'node:stream';
 import * as config from '../src/config.js';
+import {providerTarget} from '../src/health/target.js';
 import {saveHooks} from '../src/hooks.js';
 import {canonicalJson,projectIdentity} from '../src/approvals/index.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
@@ -42,7 +43,7 @@ function fakeCredential(){
   return {token,binding};
 }
 const post=(url:string,token:string,path='/v1/hello',body='{}')=>fetch(url+path,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body});
-const charge=()=>({id:randomUUID(),agentId:'c',provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
+const charge=()=>({id:randomUUID(),agentId:'c',provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 async function native(){
   const plan=verifiedPlan();plan.limits.timeBudgetMs=120000;for(const a of plan.agents)a.timeBudgetMs=120000;
   const r=await coordinatorRun(root,plan),remote=join(root,'remote');fs.mkdirSync(remote);fs.mkdirSync(join(remote,'c'));
