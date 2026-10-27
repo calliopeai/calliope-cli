@@ -50,7 +50,11 @@ authority binding. Child credentials retain that binding. A sibling owner endpoi
 cannot accept the token, and reservations, settlements and revocations enforce the
 selected subtree. Each new request also checks the target account's native admission,
 stop/escalation state, explicit reviewed provider/model choices and the host's
-output cap. The provider/model check uses the current admitted graph and runs
+output cap. Smart agents also enforce their reviewed initial pool. Task-bound
+hosts derive escalation eligibility from that task's retained native failed-check
+evidence; account-only hosts cannot select an escalation pool. Explicit reviewed
+pins retain the same precedence as local Smart routing. The provider/model check
+uses the current admitted graph and runs
 again under the ledger writer lock before a new reservation commits. Existing requests can still settle
 after owner cancellation; grant revocation and token expiry retain their existing
 semantics.
