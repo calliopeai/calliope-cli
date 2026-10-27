@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import {createServer,type Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
+import {providerTarget} from '../src/health/target.js';
 import {saveHooks} from '../src/hooks.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
 import {prepareReviewedLedger,controlExecution,changePreparedRun} from '../src/orchestration/index.js';
@@ -31,7 +32,7 @@ const prepare=(agentId='coordinator')=>prepareReviewedLedger(fixture.project,fix
 async function listen(server:Server){servers.push(server);await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;}
 async function start(agentId='coordinator'){const host=await prepare(agentId),url=await listen(host.server);return {...host,url};}
 const connect=(url:string,token:string,agentId?:string)=>RemoteReservationLedger.connect({url,token,root:join(root,'cache-'+randomUUID()),...(agentId?{execution:{cwd:fixture.project,agentId}}:{})});
-const request=(agentId='a')=>({id:randomUUID(),agentId,provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
+const request=(agentId='a')=>({id:randomUUID(),agentId,provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 const post=async(url:string,token:string,op:string,body:object)=>{
   const response=await fetch(`${url}/v1/${op}`,{method:'POST',headers:{authorization:`Bearer ${token}`},body:JSON.stringify(body)});
   return {status:response.status,body:await response.json() as Record<string,unknown>};
@@ -174,4 +175,46 @@ it('does not write credentials when another listener owns the selected port',asy
   const holder=createServer(),reserved=await listen(holder),tokenFile=join(root,'undelivered.token');
   await expect(runLedgerCommand(['serve-reviewed','--run',fixture.view.run.id,'--agent','a','--max-output-tokens','10','--project',fixture.project,'--token-file',tokenFile,'--port',new URL(reserved).port],()=>{},{store:fixture.runs})).rejects.toMatchObject({code:'EADDRINUSE'});
   expect(fs.existsSync(tokenFile)).toBe(false);expect(holder.listening).toBe(true);
+});
+
+
+it('binds endpoint hashes in approval and refuses a changed target without charging the parent',async()=>{
+  let approvalTargets:unknown;
+  const host=await prepareReviewedLedger(fixture.project,fixture.view.run.id,'a',10,{store:fixture.runs,confirmation:'mutating',approve:async decision=>{
+    if(decision.request?.tool==='orchestration_budget')approvalTargets=decision.request.details;
+    return 'allow';
+  }});
+  const url=await listen(host.server),client=await connect(url,host.ownerToken,'a'),before=fixture.authority.ledger.read(fixture.project);
+  expect(host.capability.endpointBinding).toBe(1);
+  expect(approvalTargets).toContain(`Provider target: deepseek SHA-256 ${providerTarget('deepseek').key}`);
+  await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),target:'f'.repeat(64)})).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+  await client.reserve(fixture.project,host.execution.manifestHash,request());
+});
+
+it.each(['path','query'])('preserves API key rotation but refuses a changed endpoint %s across restart',async change=>{
+  config.setProviderCred('deepseek',{baseUrl:'http://127.0.0.1:11111/v1?deployment=first'});
+  const host=await start('a'),client=await connect(host.url,host.ownerToken,'a'),saved=request();
+  await client.reserve(fixture.project,host.execution.manifestHash,saved);
+  config.setProviderCred('deepseek',{apiKey:'public-fixture-rotation'});
+  const rotated=await start('a');expect(rotated.ownerToken).toBe(host.ownerToken);
+  config.setProviderCred('deepseek',{baseUrl:change==='path'?'http://127.0.0.1:11111/other?deployment=first':'http://127.0.0.1:11111/v1?deployment=second'});
+  const before=fixture.authority.ledger.read(fixture.project);
+  await expect(client.reserve(fixture.project,host.execution.manifestHash,request())).rejects.toMatchObject({code:'authority'});
+  const changed=await start('a');expect(changed.ownerToken).not.toBe(host.ownerToken);
+  await expect(connect(changed.url,host.ownerToken,'a')).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+  await client.reserve(fixture.project,host.execution.manifestHash,saved);
+  await client.settle(fixture.project,host.execution.manifestHash,{requestId:saved.id,outcome:'success',usage:{inputTokens:5,outputTokens:1}});
+  expect(fixture.authority.ledger.read(fixture.project).projection.spent.tokens).toBe(6);
+});
+
+it('rechecks endpoint configuration after admission waits for the ledger writer',async()=>{
+  const host=await start('a'),client=await connect(host.url,host.ownerToken,'a'),ledger=host.execution.ledger,before=ledger.read(fixture.project);
+  const lock=join(ledger.root,'writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600,flag:'wx'});
+  let entered!:()=>void;const waiting=new Promise<void>(resolve=>{entered=resolve;}),original=ledger.reserve.bind(ledger);
+  vi.spyOn(ledger,'reserve').mockImplementation((...args)=>{entered();return original(...args);});
+  const pending=client.reserve(fixture.project,host.execution.manifestHash,request()).then(value=>({value}),error=>({error}));
+  try{await waiting;config.setProviderCred('deepseek',{baseUrl:'http://127.0.0.1:11112/v1'});}finally{fs.unlinkSync(lock);}
+  expect(await pending).toMatchObject({error:{code:'authority'}});expect(ledger.read(fixture.project)).toEqual(before);
 });

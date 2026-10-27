@@ -31,6 +31,7 @@ const prefix = nativeBinary ? [] : [binary];
 const {RunStore, prepareRun, changePreparedRun, prepareAgentExecution, prepareReviewedLedger,
   ExecutionStore} = await import(pathToFileURL(join(packageRoot, 'dist/orchestration/index.js')).href);
 const {RemoteReservationLedger} = await import(pathToFileURL(join(packageRoot, 'dist/execution/index.js')).href);
+const {providerTarget} = await import(pathToFileURL(join(packageRoot, 'dist/health/index.js')).href);
 let inference = 0;
 const servers = [], children = new Set();
 const listen = async server => {
@@ -142,7 +143,7 @@ try {
   for(const choice of [{provider:'openai',model:'reviewed-fixture'},
     {provider:'openai-compat',model:'unreviewed-model'}]){
     await assert.rejects(scopedClient.reserve(project,authority.manifestHash,{id:randomUUID(),agentId:'a',
-      ...choice,target:'a'.repeat(64),inputTokens:1,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0}),
+      ...choice,target:providerTarget(choice.provider).key,inputTokens:1,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0}),
       error=>error.code==='authority');
     assert.deepEqual(authority.ledger.read(project),beforePinChecks,'Rejected inference choices must not charge the parent');
   }
@@ -212,7 +213,7 @@ try {
   const client=await RemoteReservationLedger.connect({url,token:host.ownerToken,root:join(root,'verified-parent')});
   for(const id of ['a','b']){
     await client.reserve(project,authority.manifestHash,{id:randomUUID(),agentId:id,provider:'openai-compat',model:'reviewed-fixture',
-      target:'a'.repeat(64),inputTokens:99997,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
+      target:providerTarget('openai-compat').key,inputTokens:99997,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
   }
   saved=authority.ledger.read(project);assert.equal(saved.projection.spent.tokens,200000);
   await Promise.all([close(host.server),...Object.values(bindings).map(stopHost)]);

@@ -25,8 +25,9 @@ export function providerTarget(provider: HealthProvider): HealthTarget {
     try {
       const url = new URL(endpoint);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol');
-      // Userinfo, query strings, fragments and arbitrary path segments may contain credentials.
+      // Sensitive URL components belong only in the digest; fragments never reach the server.
       identity = url.origin + url.pathname;
+      if(url.search||url.username||url.password)identity=JSON.stringify({endpoint:identity,query:url.search,user:url.username,password:url.password});
       display = url.origin + (['', '/', '/v1', '/api/v1', '/v1beta'].includes(url.pathname) ? url.pathname : '/[configured-path]');
     } catch { display = 'invalid-endpoint'; credentials = 'missing'; }
   }

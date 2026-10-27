@@ -1,5 +1,7 @@
 /** Host an existing reviewed allowance; native graph admission remains the only writer of children. */
 import {dirname,join} from 'node:path';
+import {getProviderNames} from '../config.js';
+import {providerTarget} from '../health/target.js';
 import {canonicalJson,digest} from '../approvals/index.js';
 import {throwIfCancelled} from '../cancellation.js';
 import {accountLineage,identifier,integer} from '../execution/authority.js';
@@ -17,8 +19,8 @@ import {prepareAgentExecution} from './execution.js';
 import type {RunActionOptions} from './actions.js';
 import {matchesAgentRouting,taskSmartSelection} from './routing.js';
 
-export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,grants:'native-admissions-only'} as const;
-export const REVIEWED_TASK_LEDGER_CAPABILITY={version:2,ownerScope:1,tokenVersion:2,reviewedAuthority:1,taskBinding:1,grants:'unavailable'} as const;
+export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,endpointBinding:1,grants:'native-admissions-only'} as const;
+export const REVIEWED_TASK_LEDGER_CAPABILITY={version:2,ownerScope:1,tokenVersion:2,reviewedAuthority:1,taskBinding:1,endpointBinding:1,grants:'unavailable'} as const;
 
 interface ReviewedTaskBinding {agentId:string;ownerId:string;attribution:TaskRequestAttribution}
 function currentTask(history:ExecutionStore,taskId:string,attempt:number):ReviewedTaskBinding {
@@ -46,10 +48,13 @@ export async function prepareReviewedLedger(cwd:string,runId:string,agentId:stri
   return prepareReviewedHost(cwd,runId,agentId,maxOutputTokens,options);
 }
 async function prepareReviewedHost(cwd:string,runId:string,agentId:string,maxOutputTokens:number,options:RunActionOptions,task?:ReviewedTaskBinding) {
-  const runs=options.store??new RunStore(),execution=await prepareAgentExecution(cwd,runId,agentId,maxOutputTokens,{...options,store:runs});
+  const captureTargets=()=>Object.fromEntries(getProviderNames().map(provider=>[provider,providerTarget(provider).key]));
+  const targets=Object.freeze(captureTargets());
+  const runs=options.store??new RunStore(),execution=await prepareAgentExecution(cwd,runId,agentId,maxOutputTokens,{...options,store:runs,reviewedProviderTargets:targets});
   const ledger=execution.ledger as ReservationLedger,view=await runs.read(runId,cwd,options.signal),history=new ExecutionStore(join(runs.root,runId),view.manifest);
   const assertOwner=()=>{
     throwIfCancelled(options.signal);execution.assertAuthority!();
+    if(canonicalJson(captureTargets())!==canonicalJson(targets))throw new ExecutionLimitError('authority','Reviewed provider endpoint configuration changed.');
     if(task&&canonicalJson(currentTask(history,task.attribution.taskId,task.attribution.attempt))!==canonicalJson(task))throw new ExecutionLimitError('authority','Native task execution binding changed.');
   };
   const assertAccount=(id:string)=>{
@@ -71,13 +76,14 @@ async function prepareReviewedHost(cwd:string,runId:string,agentId:string,maxOut
   if(Date.now()>=deadline)throw new ExecutionLimitError('deadline','Original owner allowance expired.');
   history.create({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,createdAt:new Date(saved.manifest.createdAt).toISOString(),deadline:saved.manifest.deadline});
   assertAccount(agentId);
-  const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,
+  const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,providerTargets:targets,
     ...(task?{task:{...task,maxOutputTokens}}:{})}));
   const state=new LedgerServerState(join(dirname(ledger.root),`${runId}.ledger-server`));
   const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,
     ...(task?{taskExecution:{attribution:task.attribution,maxOutputTokens}}:{}),
     assertReservationAuthority:reservation=>{
       const agent=assertAccount(reservation.agentId);
+      if(targets[reservation.provider]!==reservation.target)throw new ExecutionLimitError('authority','Request changes a reviewed provider endpoint.');
       const selection=agent.routing?taskSmartSelection(agent.routing,history.read().events,task?.attribution.taskId):undefined;
       if(!matchesAgentRouting(agent,reservation.provider,reservation.model,selection))throw new ExecutionLimitError('authority','Request exceeds the reviewed provider, model or Smart routing stage.');
       if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');

@@ -59,6 +59,14 @@ again under the ledger writer lock before a new reservation commits. Existing re
 after owner cancellation; grant revocation and token expiry retain their existing
 semantics.
 
+Reviewed host capabilities additionally advertise `endpointBinding: 1`. Hosting
+captures the owner's configured provider target hashes in the native budget approval
+and token audience. New reservations must match that target for their provider;
+changing an owner's endpoint fences existing hosts and changes newly issued tokens.
+Restarting with unchanged endpoint configuration preserves credentials and allowance.
+API key rotation does not change target identity. Child-side endpoint overrides cannot
+widen this authority. Target hashes contain no API keys or raw endpoint strings.
+
 The HTTP grant operation only returns credentials for an **exact, already admitted**
 native child grant. It cannot create a proposal, approve children, bypass native
 depth/count limits or promote an interrupted ledger grant into the execution graph.
@@ -105,8 +113,7 @@ attempt ends; the original token expiry and accounting still apply.
 Task-bound sessions retain version 2 restrictions with the start-event provenance.
 A different task/attempt or an account-only connection cannot resume them. Reopening
 the same active attempt preserves its token, allowance, history and deadline.
-This does not dispatch work, acquire an exclusive process lease, bind endpoint or
-Smartpool selection, or implement Astrolift enrollment. A trusted scheduler still
+This does not dispatch work, acquire an exclusive process lease, implement Astrolift enrollment. A trusted scheduler still
 owns those actions and the delivery of the private credential.
 
 Run `CALLIOPE_REVIEWED_HOST_TASKS=1 npm run test:reviewed-host` for the real-process
