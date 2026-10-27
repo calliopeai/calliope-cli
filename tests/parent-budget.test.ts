@@ -8,8 +8,8 @@ import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
-import {RunStore,prepareRun,changePreparedRun,prepareAgentExecution,type RunInspection} from '../src/orchestration/index.js';
-import {ReservationLedger,ExecutionGuard,ProjectSpendLedger,parentRequestId,readParentBudgetAccounting,validateExecutionManifest,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type AgentExecution,type ParentBudgetLink} from '../src/execution/index.js';
+import {RunStore,prepareRun,changePreparedRun,prepareAgentExecution,ExecutionStore,activeRemoteTasks,type RunInspection} from '../src/orchestration/index.js';
+import {ReservationLedger,ExecutionGuard,ProjectSpendLedger,parentRequestId,acquireParentTask,readParentBudgetAccounting,validateExecutionManifest,createLedgerServer,LedgerServerState,mintLedgerToken,RemoteReservationLedger,type AgentExecution,type ParentBudgetLink} from '../src/execution/index.js';
 import {projectBudgetPath} from '../src/budget.js';
 import type {RouteCandidate} from '../src/routing/index.js';
 import {toyPlan} from './helpers/orchestration-plan.js';
@@ -195,4 +195,16 @@ it('reports unavailable funding without replacing damaged histories with zero ba
   expect(await readParentBudgetAccounting(manifest,elsewhere)).toEqual({version:1,status:'unavailable'});
   expect(await readParentBudgetAccounting(manifest,project,AbortSignal.abort())).toEqual({version:1,status:'unavailable'});
   expect(await readParentBudgetAccounting(snapshot(p.exec).manifest,project)).toEqual({version:1,status:'unlinked'});
+});
+
+
+it('shares native task capacity through every local funding ancestor and releases it idempotently',async()=>{
+ const p=await parent(),middleView=await reviewed(),middle=await execution(middleView,p.link),leafView=await reviewed(1000,.01,5000),leaf=await execution(leafView,link(middleView,middle));
+ const attribution={version:1 as const,kind:'task' as const,taskId:'nested-work',attempt:1,eventId:randomUUID(),eventHash:'a'.repeat(64),sessionId:randomUUID()};
+ const ticket=await acquireParentTask(snapshot(leaf).manifest,project,'coordinator',attribution);
+ const parentStore=new ExecutionStore(join(store.root,p.view.run.id),p.view.manifest),middleStore=new ExecutionStore(join(store.root,middleView.run.id),middleView.manifest);
+ expect(activeRemoteTasks(parentStore.read().state)).toMatchObject([{runId:leafView.run.id,startEventId:attribution.eventId}]);
+ expect(activeRemoteTasks(middleStore.read().state)).toMatchObject([{runId:leafView.run.id,startEventId:attribution.eventId}]);
+ await ticket!.release();await ticket!.release();
+ expect(activeRemoteTasks(parentStore.read().state)).toEqual([]);expect(activeRemoteTasks(middleStore.read().state)).toEqual([]);
 });

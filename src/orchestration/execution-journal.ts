@@ -1,3 +1,4 @@
+import {validateRemoteTaskAdmission,activeRemoteTasks,occupiedExecutionSlots,remoteScopesConflict} from './remote-task-capacity.js';
 import {validateImprovementReviewRequest,validateImprovementReviewEvent} from '../improvement/review-contract.js';
 import {validateTaskFeedbackRecord,validateTaskFeedbackEvent} from '../improvement/task-feedback-contract.js';
 import {validateRecordedRoute,taskSmartSelection} from './routing.js';
@@ -12,7 +13,7 @@ import {validateQuestionRequest,validateQuestionAnswer} from './question-contrac
 export const MAX_EXECUTION_EVENTS=10000,MAX_EXECUTION_BYTES=32*1024*1024,MAX_EXECUTION_EVENT_BYTES=128*1024;
 export const journalHash=(header:ExecutionHeader,events:ExecutionEvent[])=>digest(canonicalJson({header,events:events.map(e=>e.hash)}));
 export function executionEventVersion(change:ExecutionChange):ExecutionEvent['version'] {
-  return change.type==='task_feedback_recorded'?12:change.type==='tool'&&change.name==='artifact'&&change.mutating?11:change.type==='interruption_recovered'?10:change.type==='improvement_review_requested'||change.type==='improvement_review_dismissed'?9:change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
+  return change.type==='remote_task_admitted'||change.type==='remote_task_released'?13:change.type==='task_feedback_recorded'?12:change.type==='tool'&&change.name==='artifact'&&change.mutating?11:change.type==='interruption_recovered'?10:change.type==='improvement_review_requested'||change.type==='improvement_review_dismissed'?9:change.type==='question_asked'||change.type==='question_answered'?8:change.type==='supervision_started'&&change.health!==undefined?7:'requestAttribution'in change&&change.requestAttribution===1?6:change.type==='agent_routed'?5:change.type==='proposal_validated'?4:change.type.startsWith('supervision_')?3:change.type==='graph_admitted'?2:1;
 }
 export function validateExecutionHeader(value:unknown,manifest:RunManifest):ExecutionHeader {
   shape(value,['version','runId','manifestHash','approvalRevision','createdAt','deadline']);
@@ -56,11 +57,13 @@ export function mechanicallyVerified(output:TaskOutput,manifest:RunPlanContext):
 }
 export function validateExecutionEvent(value:unknown,manifest:RunManifest,header?:ExecutionHeader):ExecutionEvent {
   shape(value,['version','id','runId','sequence','at','previous','change','hash']);
-  if(![1,2,3,4,5,6,7,8,9,10,11,12].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
-  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer','requestId','executionRevision','feedback']);const c=value.change;
+  if(![1,2,3,4,5,6,7,8,9,10,11,12,13].includes(value.version as number)||!uuid(value.id)||value.runId!==manifest.id||!iso(value.at)||!hex(value.previous)||!hex(value.hash))fail('Invalid execution event.');integer(value.sequence,1,MAX_EXECUTION_EVENTS);
+  shape(value.change,['type'],['ownerId','taskId','attempt','sessionId','callId','name','path','stage','mutating','success','artifact','status','output','source','artifactsHash','agentId','target','admission','round','role','evidenceIds','evidenceHash','health','decision','decisionId','receipts','outcome','reason','proposalHash','proposalOnly','outcomeId','artifactId','artifactHash','goalManifestHash','valid','diagnostics','route','requestAttribution','request','questionId','answer','requestId','executionRevision','feedback','admissionId']);const c=value.change;
   if(c.requestAttribution!==undefined&&(c.requestAttribution!==1||c.type!=='task_started'&&c.type!=='supervision_started'))fail('Request attribution requires a supported start event.');
   if(value.version!==executionEventVersion(c as unknown as ExecutionChange))fail('Execution event version does not match its change.');
   if(String(c.type).startsWith('supervision_'))validateSupervisionChange(c,manifest.plan);
+  else if(c.type==='remote_task_admitted'){shape(c,['type','admission']);validateRemoteTaskAdmission(c.admission);}
+  else if(c.type==='remote_task_released'){shape(c,['type','admissionId']);if(!hex(c.admissionId))fail('Invalid remote admission release.');}
   else if(c.type==='task_feedback_recorded'){shape(c,['type','feedback']);validateTaskFeedbackRecord(c.feedback);}
   else if(c.type==='proposal_validated'){
     shape(c,['type','taskId','artifactId','artifactHash','goalManifestHash','valid','diagnostics']);
@@ -113,7 +116,17 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     validateExecutionEvent(event,manifest,header);if(seen.has(event.id)||event.sequence!==seen.size+1||event.previous!==state.revision||event.at<last)fail('Broken execution event ancestry.');seen.add(event.id);last=event.at;
     if('requestAttribution'in event.change&&event.change.requestAttribution===1)attributed=true;
     const c=event.change,task='taskId' in c&&c.taskId?state.tasks[c.taskId]!:undefined;
+    if(c.type==='supervision_started'&&activeRemoteTasks(state).length)conflict('Supervision requires a barrier with no active remote workers.');
     if(c.type.startsWith('supervision_'))replaySupervisionChange(event,manifest.plan,state,events.slice(0,event.sequence-1),Date.parse(header.createdAt),manifest);
+    else if(c.type==='remote_task_admitted'){
+      const a=c.admission,agent=manifest.plan.agents.find(item=>item.id===a.agentId);
+      if(!agent||a.runId===manifest.id||state.status==='completed'||agentStopped(state,manifest,a.agentId)||Date.parse(event.at)>=a.deadline||a.deadline>Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs)||state.remoteTasks?.[a.id])conflict('Remote task cannot acquire parent execution authority.');
+      if(occupiedExecutionSlots(state)>=manifest.plan.limits.maxConcurrent)conflict('Run concurrency limit reached.');
+      if(remoteScopesConflict(state,manifest,a.agentId))conflict('Concurrent remote task scopes conflict.');
+      state.remoteTasks??=Object.create(null);state.remoteTasks![a.id]={admission:a,status:'active'};
+    }else if(c.type==='remote_task_released'){
+      const prior=state.remoteTasks?.[c.admissionId];if(!prior||prior.status!=='active')conflict('Remote task is not active.');prior!.status='released';
+    }
     else if(c.type==='task_feedback_recorded')validateTaskFeedbackEvent(c.feedback,manifest,header,state,events.slice(0,event.sequence-1));
     else if(c.type==='improvement_review_requested'||c.type==='improvement_review_dismissed')validateImprovementReviewEvent(event,manifest,header,state,events.slice(0,event.sequence-1));
     else if(c.type==='agent_routed'){
@@ -149,7 +162,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
     }else if(c.type==='task_recovery_started'){
       active();const spec=manifest.plan.tasks.find(t=>t.id===c.taskId)!,agent=manifest.plan.agents.find(a=>a.id===spec.agentId)!,key=c.taskId+':'+task!.attempts;
       const outcome=events.slice(0,event.sequence-1).reverse().find(e=>e.change.type==='task_finished'&&e.change.taskId===c.taskId);
-      if(!spec.isolation||!manifest.plan.workspace.isolation||task!.status!=='failed'||!task!.mutations||task!.output?.summary!=='Worker stopped: length.'||task!.artifactIds.length||outcome?.id!==c.outcomeId||recoveries.has(key)||agentStopped(state,manifest,agent.id)||Object.values(state.tasks).some(t=>t.status==='running')||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Evidence recovery requires an unexpired, inactive cutoff attempt without receipts; each attempt permits one recovery.');
+      if(!spec.isolation||!manifest.plan.workspace.isolation||task!.status!=='failed'||!task!.mutations||task!.output?.summary!=='Worker stopped: length.'||task!.artifactIds.length||outcome?.id!==c.outcomeId||recoveries.has(key)||agentStopped(state,manifest,agent.id)||Object.values(state.tasks).some(t=>t.status==='running')||activeRemoteTasks(state).length>0||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs))conflict('Evidence recovery requires an unexpired, inactive cutoff attempt without receipts; each attempt permits one recovery.');
       recoveries.add(key);recovering.add(c.taskId);task!.status='running';task!.output=null;
       // New receipts invalidate the old decision, while retaining every round and allowance.
       if(state.supervision){const s=state.supervision;s.phase='halted';s.active=null;s.draft=null;s.decision=null;s.decisionId=null;s.review=null;s.reviewedHash=null;s.forceReview=true;s.halt={outcome:'interrupted',reason:'Task evidence recovery requires inspection and a fresh bounded controller review.'};}
@@ -157,7 +170,8 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       active();const spec=manifest.plan.tasks.find(t=>t.id===c.taskId)!,agent=manifest.plan.agents.find(a=>a.id===spec.agentId)!;
       if(state.supervision&&state.supervision.phase!=='ready')conflict('Resolve the controller decision before starting another worker.');
       if(task!.status!=='pending'||agentStopped(state,manifest,agent.id)||c.attempt!==task!.attempts+1||c.attempt>agent.escalationPolicy.maxRetries+1||Date.parse(event.at)>=Math.min(header.deadline,Date.parse(header.createdAt)+agent.timeBudgetMs)||spec.dependencies.some(d=>!['completed','review_required'].includes(state.tasks[d]!.status)))conflict('Task is not ready or exceeds its retry/deadline limit.');
-      if(Object.values(state.tasks).filter(t=>t.status==='running').length>=manifest.plan.limits.maxConcurrent)conflict('Run concurrency limit reached.');
+      if(occupiedExecutionSlots(state)>=manifest.plan.limits.maxConcurrent)conflict('Run concurrency limit reached.');
+      for(const remote of activeRemoteTasks(state)){const other=manifest.plan.agents.find(item=>item.id===remote.agentId)!;if(agent.allowedPaths.some(a=>other.allowedPaths.some(b=>(a.access==='write'||b.access==='write')&&(a.path==='.'||b.path==='.'||a.path===b.path||a.path.startsWith(b.path+'/')||b.path.startsWith(a.path+'/')))))conflict('Concurrent remote task scopes conflict.');}
       for(const t of Object.values(state.tasks).filter(t=>t.status==='running'))if(analysis.conflicts.some(pair=>pair.tasks.includes(t.id)&&pair.tasks.includes(c.taskId)))conflict('Concurrent task scopes conflict.');
       task!.status='running';task!.attempts=c.attempt;task!.sessionId=c.sessionId;delete task!.route;
     }else if(c.type==='agent_started'||c.type==='agent_finished'){
@@ -212,11 +226,12 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       task!.status='pending';task!.output=null;task!.artifactIds=[];task!.changedFiles=[];task!.mutations=false;task!.escalation=null;delete task!.route;
     }else if(c.type==='task_accepted'){
       if(state.ownerId||task!.status!=='review_required'||!task!.output||task!.output.checks.some(check=>!check.passed)||artifactSetHash(task!.output.artifacts)!==c.artifactsHash||manifest.plan.tasks.find(t=>t.id===c.taskId)!.outputs.some(o=>!task!.artifactIds.includes(o.id)))conflict('Task is not eligible for human acceptance.');
-      task!.status='completed';task!.output={...task!.output!,status:'success',unresolvedRisks:task!.output!.unresolvedRisks.filter(r=>r!=='Natural-language acceptance criteria still require human review.'),recommendedNextAction:'Human acceptance recorded.'};if(!state.supervision&&Object.values(state.tasks).every(t=>t.status==='completed'))state.status='completed';
+      task!.status='completed';task!.output={...task!.output!,status:'success',unresolvedRisks:task!.output!.unresolvedRisks.filter(r=>r!=='Natural-language acceptance criteria still require human review.'),recommendedNextAction:'Human acceptance recorded.'};if(!state.supervision&&!activeRemoteTasks(state).length&&Object.values(state.tasks).every(t=>t.status==='completed'))state.status='completed';
     }else if(c.type==='agent_stop'){if(!state.stoppedAgents.includes(c.agentId))state.stoppedAgents.push(c.agentId);}
     else if(c.type==='agent_reset'){if(state.ownerId)conflict('Stop the coordinator before resetting an agent.');state.stoppedAgents=state.stoppedAgents.filter(a=>a!==c.agentId);}
     else if(c.type==='finished'){
       active();if(c.status==='completed'&&state.supervision){const reviewedStop=state.supervision.phase==='halted'&&state.supervision.halt?.outcome==='stop'&&!state.supervision.forceReview;if(!reviewedStop&&(state.supervision.phase!=='ready'||state.supervision.forceReview||state.supervision.reviewedHash!==supervisionEvidence(events.slice(0,event.sequence-1)).hash))conflict('Completion requires the final recorded controller review.');}
+      if(c.status==='completed'&&activeRemoteTasks(state).length)conflict('Remote tasks still hold execution capacity.');
       if(c.ownerId!==state.ownerId||Object.values(state.tasks).some(t=>t.status==='running')||c.status==='completed'&&!Object.values(state.tasks).every(t=>t.status==='completed'))conflict('Coordinator cannot finish with active or unverified work.');state.status=c.status;state.ownerId=null;
     }
     if(state.routes)state.version=5;if(attributed)state.version=6;
@@ -224,6 +239,7 @@ export function replayExecution(header:ExecutionHeader,manifest:RunManifest,even
       state.version=7;
       for(const q of Object.values(state.questions))if(q.status==='pending'&&(state.ownerId!==q.ownerId||state.tasks[q.taskId]!.status!=='running'||toolStarts.get(q.taskId+':'+q.attempt+':'+q.callId)==='finished'||agentStopped(state,manifest,state.tasks[q.taskId]!.agentId)))q.status='closed';
     }
+    if(state.remoteTasks)state.version=8;
     state.revision=event.hash;
   }
   return state;

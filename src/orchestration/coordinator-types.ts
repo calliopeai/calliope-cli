@@ -17,6 +17,8 @@ export interface TaskOutput {
   unresolvedRisks:string[];recommendedNextAction:string;checks:CheckEvidence[];
 }
 export type ExecutionChange=
+  |{type:'remote_task_admitted';admission:import('./remote-task-capacity.js').RemoteTaskAdmission}
+  |{type:'remote_task_released';admissionId:string}
   |{type:'task_feedback_recorded';feedback:import('../improvement/task-feedback-contract.js').TaskFeedbackRecord}
   |{type:'improvement_review_requested';request:import('../improvement/review-contract.js').ImprovementReviewRequest}
   |{type:'improvement_review_dismissed';requestId:string;executionRevision:string}
@@ -42,7 +44,7 @@ export type ExecutionChange=
   |{type:'agent_reset';agentId:string}
   |{type:'finished';ownerId:string;status:Exclude<ExecutionStatus,'ready'|'running'>};
 export interface ExecutionEvent {
-  version:1|2|3|4|5|6|7|8|9|10|11|12;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
+  version:1|2|3|4|5|6|7|8|9|10|11|12|13;id:string;runId:string;sequence:number;at:string;previous:string;change:ExecutionChange;hash:string;
 }
 export interface TaskState {
   id:string;agentId:string;status:TaskStatus;attempts:number;sessionId:string|null;output:TaskOutput|null;escalation:'stop'|'parent'|'human'|null;
@@ -50,7 +52,7 @@ export interface TaskState {
   route?:import('./routing.js').RecordedAgentRoute;
 }
 export interface ExecutionProjection {
-  version:1|2|3|4|5|6|7;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
+  version:1|2|3|4|5|6|7|8;remoteTasks?:Record<string,{admission:import('./remote-task-capacity.js').RemoteTaskAdmission;status:'active'|'released'}>;runId:string;revision:string;status:ExecutionStatus;ownerId:string|null;deadline:number;graph?:SpawnGraph;
   questions?:Record<string,import('./question-contract.js').ExecutionQuestion>;
   routes?:Record<string,{sessionId:string;taskId?:string;route:import('./routing.js').RecordedAgentRoute}>;
   supervision?:import('../supervision/types.js').SupervisionProjection;

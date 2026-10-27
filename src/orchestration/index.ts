@@ -26,3 +26,5 @@ export * from './interruption.js';
 export * from './reviewed-ledger.js';
 
 export * from './source-candidates.js';
+
+export * from './remote-task-capacity.js';
