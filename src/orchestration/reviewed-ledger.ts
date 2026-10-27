@@ -15,7 +15,7 @@ import {ExecutionStore} from './execution-store.js';
 import {agentStopped} from './execution-journal.js';
 import {prepareAgentExecution} from './execution.js';
 import type {RunActionOptions} from './actions.js';
-import {matchesAgentPreference} from './routing.js';
+import {matchesAgentRouting,taskSmartSelection} from './routing.js';
 
 export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,grants:'native-admissions-only'} as const;
 export const REVIEWED_TASK_LEDGER_CAPABILITY={version:2,ownerScope:1,tokenVersion:2,reviewedAuthority:1,taskBinding:1,grants:'unavailable'} as const;
@@ -78,7 +78,8 @@ async function prepareReviewedHost(cwd:string,runId:string,agentId:string,maxOut
     ...(task?{taskExecution:{attribution:task.attribution,maxOutputTokens}}:{}),
     assertReservationAuthority:reservation=>{
       const agent=assertAccount(reservation.agentId);
-      if(!matchesAgentPreference(agent.preference,reservation.provider,reservation.model))throw new ExecutionLimitError('authority','Request changes an explicit reviewed provider or model.');
+      const selection=agent.routing?taskSmartSelection(agent.routing,history.read().events,task?.attribution.taskId):undefined;
+      if(!matchesAgentRouting(agent,reservation.provider,reservation.model,selection))throw new ExecutionLimitError('authority','Request exceeds the reviewed provider, model or Smart routing stage.');
       if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');
     }});
   const ownerToken=mintLedgerToken(state.secret(),{v:2,authority,run:runId,role:'parent',owner:agentId,exp:deadline});

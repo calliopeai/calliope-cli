@@ -15,6 +15,13 @@ export interface RecordedAgentRoute {
 export function matchesAgentPreference(preference:AgentContract['preference'],provider:string,model:string):boolean {
   return (preference.provider==='auto'||preference.provider===provider)&&(!preference.model||preference.model===model);
 }
+/** Match the same reviewed pins and stage pool for native routes and remote admission. */
+export function matchesAgentRouting(agent:AgentContract,provider:string,model:string,selection?:SmartRoutingSelection):boolean {
+  if(!matchesAgentPreference(agent.preference,provider,model))return false;
+  if(!selection)return true;
+  const pool=smartPool(selection),preference=agent.preference;
+  return !!preference.model||preference.provider!=='auto'&&!pool.some(target=>target.provider===preference.provider)||smartTargetMatches(pool,provider,{id:model});
+}
 /** Only a recorded failed check with immutable evidence opens the escalation pool. */
 export function taskSmartSelection(policy:SmartRoutingPolicy,events:ExecutionEvent[],taskId?:string):SmartRoutingSelection {
   const last=taskId?[...events].reverse().find(event=>event.change.type==='task_finished'&&event.change.taskId===taskId):undefined;
@@ -31,7 +38,7 @@ export function validateRecordedRoute(value:unknown,context:RunPlanContext,agent
   if(value.stage==='escalation'?!policy.escalationPool||!uuid(value.evidenceId):value.evidenceId!==undefined)fail('Escalated routing requires recorded verification evidence.');
   const preference=agent!.preference;
   if(!matchesAgentPreference(preference,value.provider,value.model))fail('Routing evidence changed an explicit agent pin.');
-  if(!preference.model&&(preference.provider==='auto'||smartPool({policy,stage:value.stage as SmartRoutingSelection['stage']}).some(t=>t.provider===preference.provider))&&!smartTargetMatches(smartPool({policy,stage:value.stage as SmartRoutingSelection['stage']}),value.provider,{id:value.model}))fail('Routing evidence exceeds the reviewed model pool.');
+  if(!matchesAgentRouting(agent!,value.provider,value.model,{policy,stage:value.stage as SmartRoutingSelection['stage']}))fail('Routing evidence exceeds the reviewed model pool.');
   return value as unknown as RecordedAgentRoute;
 }
 /** Await the event before dispatch so failure to record cannot send a paid request. */

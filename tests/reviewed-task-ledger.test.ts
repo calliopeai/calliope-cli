@@ -8,7 +8,7 @@ import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
-import {prepareReviewedTaskLedger,prepareReviewedLedger,controlExecution} from '../src/orchestration/index.js';
+import {prepareReviewedTaskLedger,prepareReviewedLedger,controlExecution,collectTaskOutput} from '../src/orchestration/index.js';
 import {RemoteReservationLedger} from '../src/execution/remote-ledger.js';
 import {connectDelegatedExecution,executionBinding,assertExecutionBinding} from '../src/execution/delegated.js';
 import {ExecutionGuard} from '../src/execution/guard.js';
@@ -177,4 +177,51 @@ it('serves task CLI metadata with a private token and refuses conflicting argume
     if(process.platform!=='win32')expect(fs.statSync(file).mode&0o077).toBe(0);
     expect((await connect(output.url,token)).taskExecutionBinding!.attribution).toEqual(output.attribution);
   }finally{process.emit('SIGTERM');await expect(running).resolves.toBe(0);}
+});
+
+const smartPolicy=()=>({version:1 as const,profile:'cost' as const,pool:[{provider:'deepseek' as const,model:'initial'}],escalationPool:[{provider:'deepseek' as const,model:'escalated'}]});
+async function smartFixture(preference={provider:'auto' as string},pool=smartPolicy()){
+  const directory=join(root,'smart');fs.mkdirSync(directory);
+  const plan=verifiedPlan();plan.limits.timeBudgetMs=120000;
+  for(const agent of plan.agents)agent.timeBudgetMs=120000;
+  plan.agents[1]!.routing=pool;plan.agents[1]!.preference=preference as (typeof plan.agents)[number]['preference'];
+  delete plan.tasks[0]!.outputs[0]!.path;
+  fixture=await coordinatorRun(directory,plan);
+}
+it('enforces the initial Smart pool on task and account hosts before spending',async()=>{
+  await smartFixture();await nativeStart();
+  const task=await start(),legacy=await prepareReviewedLedger(fixture.project,fixture.view.run.id,'a',10,{store:fixture.runs});
+  for(const host of [task,{...legacy,url:await listen(legacy.server)}]){
+    const client=await connect(host.url,host.ownerToken),before=fixture.authority.ledger.read(fixture.project);
+    for(const choice of [{provider:'deepseek',model:'escalated'},{provider:'deepseek',model:'unreviewed'},{provider:'google',model:'initial'}])
+      await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),...choice,...(host===task?{attribution:task.execution.attribution}:{})})).rejects.toMatchObject({code:'authority'});
+    expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+    await client.reserve(fixture.project,host.execution.manifestHash,{...request(),model:'initial',...(host===task?{attribution:task.execution.attribution}:{})});
+  }
+});
+it.each([true,false])('opens escalation only for a task with retained failed-check evidence (%s)',async verified=>{
+  await smartFixture();await nativeStart();
+  const task=fixture.view.manifest.plan.tasks[0]!;
+  const output=verified?(await collectTaskOutput(fixture.store,task,JSON.stringify({version:1,summary:'Failed check.',outputs:[{id:task.outputs[0]!.id,content:'does not meet check'}]}))).output:
+    {version:1 as const,taskId:task.id,agentId:'a',status:'failed' as const,summary:'Provider failed.',changedFiles:[],artifacts:[],testEvidence:[],unresolvedRisks:[],recommendedNextAction:'Inspect.',checks:[]};
+  await fixture.store.append({type:'task_finished',taskId:task.id,status:'failed',output});
+  await fixture.store.append({type:'task_reset',taskId:task.id,source:'manual'});await nativeStart(task.id,2);
+  const host=await start(task.id,2),client=await connect(host.url,host.ownerToken),before=fixture.authority.ledger.read(fixture.project);
+  const denied=verified?'initial':'escalated',allowed=verified?'escalated':'initial';
+  await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),model:denied,attribution:host.execution.attribution})).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
+  await client.reserve(fixture.project,host.execution.manifestHash,{...request(),model:allowed,attribution:host.execution.attribution});
+  const legacy=await prepareReviewedLedger(fixture.project,fixture.view.run.id,'a',10,{store:fixture.runs}),legacyClient=await connect(await listen(legacy.server),legacy.ownerToken);
+  await expect(legacyClient.reserve(fixture.project,legacy.execution.manifestHash,{...request(),model:'escalated'})).rejects.toMatchObject({code:'authority'});
+});
+it.each([
+  [{provider:'deepseek',model:'pinned'},'deepseek','pinned'],
+  [{provider:'google'},'google','operator-model'],
+  [{provider:'deepseek'},'deepseek','initial'],
+])('preserves explicit reviewed preference %j with Smart routing',async(preference,provider,model)=>{
+  await smartFixture(preference);await nativeStart();const host=await start(),client=await connect(host.url,host.ownerToken);
+  await client.reserve(fixture.project,host.execution.manifestHash,{...request(),provider,model,attribution:host.execution.attribution});
+  const before=fixture.authority.ledger.read(fixture.project);
+  await expect(client.reserve(fixture.project,host.execution.manifestHash,{...request(),provider:'anthropic',model:'outside',attribution:host.execution.attribution})).rejects.toMatchObject({code:'authority'});
+  expect(fixture.authority.ledger.read(fixture.project)).toEqual(before);
 });
