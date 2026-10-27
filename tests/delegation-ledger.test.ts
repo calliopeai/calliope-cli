@@ -1,6 +1,8 @@
 /** delegation-ledger/v1 conformance (#415): one parent allowance shared with children over a real transport. */
 import {beforeEach,afterEach,it,expect,vi} from 'vitest';
 import * as fs from 'node:fs';
+import nativeFs from 'node:fs';
+import {syncBuiltinESMExports} from 'node:module';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {tmpdir} from 'node:os';
@@ -78,7 +80,7 @@ it('retains the newer shared checkpoint when concurrent responses arrive out of 
 });
 
 it('keeps a server reservation charged when the local checkpoint writer is unavailable',async()=>{
-  const token=(await allocate(grant('child',5000))).token,child=await connect(token),r=request('child',1000);
+  const token=(await allocate(grant('child',5000))).token,child=await connect(token,{timeoutMs:100}),r=request('child',1000);
   const lock=join(root,'child-cache','verified-parent','writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600});
   try{
     const error=await child.reserve(project,hash,r).catch(error=>error);
@@ -305,4 +307,30 @@ it.each([['reserve','revoked'],['reserve','expired'],['grant','revoked'],['grant
   expect(await result).toMatchObject({error:{code:'authority'}});
   expect(ledger.read(project).projection.spent.tokens).toBe(0);
   expect(ledger.read(project).projection.childGrants).toHaveLength(1);
+});
+
+
+it('waits for a live checkpoint writer without losing a confirmed parent reservation',async()=>{
+  const token=(await allocate(grant('child',5000))).token,child=await connect(token),r=request('child',1000);
+  const lock=join(root,'child-cache','verified-parent','writer.lock');fs.writeFileSync(lock,String(process.pid),{mode:0o600});
+  const pending=child.reserve(project,hash,r);
+  try{
+    await vi.waitFor(()=>expect(ledger.read(project).projection.requests[r.id]?.state).toBe('pending'));
+    fs.unlinkSync(lock);
+    expect((await pending).requests[r.id]!.state).toBe('pending');
+    expect((await connect(token)).read(project).projection.spent.tokens).toBe(1000);
+  }finally{if(fs.existsSync(lock))fs.unlinkSync(lock);await pending.catch(()=>undefined);}
+});
+
+it('reads a valid checkpoint replaced atomically between stat and open without discarding its floor',async()=>{
+  await connect(parent);const file=join(root,'child-cache','verified-parent','history.json'),replacement=file+'.next';
+  fs.copyFileSync(file,replacement);fs.chmodSync(replacement,0o600);
+  const open=fs.openSync;let replaced=false;
+  vi.spyOn(nativeFs,'openSync').mockImplementation(((path:fs.PathLike,flags:string|number,mode?:fs.Mode)=>{
+    if(String(path)===file&&!replaced){replaced=true;fs.renameSync(replacement,file);}
+    return open(path,flags,mode);
+  }) as typeof fs.openSync);
+  syncBuiltinESMExports();
+  try{expect((await connect(parent)).read(project).manifest).toEqual(manifest);expect(replaced).toBe(true);}
+  finally{vi.restoreAllMocks();syncBuiltinESMExports();}
 });

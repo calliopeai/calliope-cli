@@ -1,10 +1,11 @@
+import {validateRemoteTaskAdmission,type RemoteTaskAdmission} from '../orchestration/remote-task-capacity.js';
 /** Serve one run's ReservationLedger over delegation-ledger/v1 (#415). The ledger stays the only
  * authority: this adds authentication, per-account ownership, idempotent replay and grant fencing. */
 import * as http from 'node:http';
 import {canonicalJson} from '../approvals/index.js';
 import {ReservationLedger} from './ledger.js';
-import {ExecutionLimitError,type ChildGrant,type RequestReservation,type RequestSettlement} from './types.js';
-import {accountLineage,identifier,integer,hex,validateExecutionProject} from './authority.js';
+import {ExecutionLimitError,type ChildGrant,type RequestReservation,type RequestSettlement,type ReviewedLedgerContext} from './types.js';
+import {accountLineage,identifier,integer,hex,validateExecutionProject,validateReviewedLedgerContext} from './authority.js';
 import {validateRequestAttribution,type TaskRequestAttribution} from './attribution.js';
 import {effectiveExecutionManifest,executionProjectForAccount} from './child-grants.js';
 import {LEDGER_PROTOCOL,LEDGER_OPERATIONS,MAX_LEDGER_REQUEST_BYTES,LedgerServerState,mintLedgerToken,verifyLedgerToken,type LedgerTokenClaims} from './ledger-protocol.js';
@@ -20,6 +21,9 @@ export interface LedgerServerOptions {
   /** Exact reviewed-host audience; authenticated tokens cannot downgrade to raw serving. */
   authority?:string;
   /** A separately negotiated endpoint for one immutable native worker attempt. */
+  admitRemoteTask?:(admission:RemoteTaskAdmission)=>Promise<void>;
+  releaseRemoteTask?:(admission:RemoteTaskAdmission)=>Promise<void>;
+  reviewedContext?:ReviewedLedgerContext;
   taskExecution?:{attribution:TaskRequestAttribution;maxOutputTokens:number};
   /** Trusted reviewed host: target-account lifecycle and existing native grant checks. */
   assertAccountAuthority?:(agentId:string)=>void;
@@ -35,12 +39,14 @@ interface AdmissionOutcome {admission:'refused'|'unknown'}
 
 export function createLedgerServer(options:LedgerServerOptions):http.Server {
   const {ledger,cwd,state}=options,now=options.now??Date.now,secret=state.secret();
+  const reviewed=options.reviewedContext?validateReviewedLedgerContext(options.reviewedContext):undefined;
+  if(reviewed&&(reviewed.authority!==options.authority||reviewed.runId!==ledger.read(cwd).manifest.runId))throw new ExecutionLimitError('invalid','Invalid reviewed ledger context.');
   const task=options.taskExecution?structuredClone(options.taskExecution):undefined;
   if(task){
     if(!options.authority||!options.ownerAgentId||validateRequestAttribution(task.attribution).kind!=='task')throw new ExecutionLimitError('invalid','Task execution requires reviewed owner authority.');
     integer(task.maxOutputTokens,1,100000000);
   }
-  const operations:readonly string[]=task?['hello','journal','task-execution','reserve','settle']:LEDGER_OPERATIONS;
+  const operations:readonly string[]=task?['hello','journal','task-execution','reserve','settle']:LEDGER_OPERATIONS.filter(op=>!['task-admit','task-release'].includes(op)||!!options.admitRemoteTask&&!!options.releaseRemoteTask);
   if(options.authority!==undefined&&!hex(options.authority))throw new ExecutionLimitError('invalid','Invalid ledger authority binding.');
   const current=()=>ledger.read(cwd);
   if(options.ownerAgentId!==undefined){identifier(options.ownerAgentId);const saved=current();accountLineage(effectiveExecutionManifest(saved.manifest,saved.projection),options.ownerAgentId);}
@@ -80,7 +86,18 @@ export function createLedgerServer(options:LedgerServerOptions):http.Server {
     if(task&&(reservation.agentId!==options.ownerAgentId||canonicalJson(reservation.attribution??null)!==canonicalJson(task.attribution)))throw new ExecutionLimitError('authority','Request does not match the bound native task attempt.');
   };
   const handlers:Record<string,(token:LedgerTokenClaims,body:Record<string,unknown>,outcome:AdmissionOutcome)=>Promise<unknown>>={
-    hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations,runId:manifest.runId};},
+    'task-admit':async(token,body)=>{
+      if(!options.admitRemoteTask)throw new ExecutionLimitError('unavailable','Remote task admission is unavailable.');
+      const admission=validateRemoteTaskAdmission(body.admission);owns(token,admission.agentId);assertActive(token);options.assertAuthority?.();options.assertAccountAuthority?.(admission.agentId);
+      const saved=current(),project=validateExecutionProject(body.project);if(canonicalJson(project)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,admission.agentId)))throw new ExecutionLimitError('authority','Remote task workspace changed.');
+      await options.admitRemoteTask(admission);return {admissionId:admission.id};
+    },
+    'task-release':async(token,body)=>{
+      if(!options.releaseRemoteTask)throw new ExecutionLimitError('unavailable','Remote task release is unavailable.');
+      const admission=validateRemoteTaskAdmission(body.admission);owns(token,admission.agentId);
+      await options.releaseRemoteTask(admission);return {admissionId:admission.id};
+    },
+    hello:async()=>{const {manifest}=current();return {protocol:LEDGER_PROTOCOL,operations,runId:manifest.runId,...(reviewed?{reviewed:structuredClone(reviewed)}:{})};},
     journal:async()=>journal(),
     execution:async(token,body)=>{
       identifier(body.agentId);owns(token,body.agentId);

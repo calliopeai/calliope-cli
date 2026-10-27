@@ -6,7 +6,7 @@ import {randomUUID} from 'node:crypto';
 import * as config from '../src/config.js';
 import {saveHooks} from '../src/hooks.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
-import {collectTaskOutput,replayExecution,ExecutionStore,type ExecutionChange} from '../src/orchestration/index.js';
+import {collectTaskOutput,replayExecution,ExecutionStore,remoteTaskAdmission,type ExecutionChange} from '../src/orchestration/index.js';
 import {supervisionEvidence,reviewEvidence,assertSupervisedRetry,assertSupervisionProposal,type SupervisionDecision} from '../src/supervision/index.js';
 import {canonicalJson,digest} from '../src/approvals/index.js';
 let root:string;
@@ -126,4 +126,14 @@ it('retains proposed child budgets and ancestor authority before graph admission
   const children={version:1 as const,parentId:'coordinator',agents:[agent],tasks:[task]},decision={version:1 as const,action:'decompose' as const,reason:'Inspect a related task.',evidence:supervisionEvidence(f.store.read().events).ids,hypothesis:'A child supplies independent evidence.',expectedMetric:{name:'acceptance-check-pass-rate',direction:'increase' as const},children};
   await f.store.append({type:'supervision_decided',round:1,role:'controller',agentId:'coordinator',sessionId:'controller-1',decision});
   const cycle=projectImprovementHistory(f.view.manifest,f.store.read(),f.store.context()).cycles[0]!;expect(cycle.status).toBe('proposed');expect(cycle.budget.accounts.map(a=>a.id)).toEqual(['coordinator','child']);expect(cycle.budget.accounts.find(a=>a.id==='child')!.tokenBudget).toBe(agent.tokenBudget);expect(f.store.read().state.graph?.admissions).toBeUndefined();
+});
+
+
+it('keeps remote work outside an active controller scope during journal replay',async()=>{
+  const f=await fixture();await f.finish();await f.start();const before=f.store.read();
+  const admission=remoteTaskAdmission({version:1,runId:randomUUID(),manifestHash:'a'.repeat(64),taskId:'remote-work',attempt:1,startEventId:randomUUID(),startEventHash:'b'.repeat(64),sessionId:randomUUID(),agentId:'a',deadline:Date.parse(before.header.createdAt)+9999});
+  await expect(f.store.append({type:'remote_task_admitted',admission})).rejects.toThrow(/scopes conflict/);
+  expect(f.store.read()).toEqual(before);
+  await f.decide();await f.apply();await f.store.append({type:'remote_task_admitted',admission});
+  expect(f.store.read().state.remoteTasks?.[admission.id]?.status).toBe('active');
 });
