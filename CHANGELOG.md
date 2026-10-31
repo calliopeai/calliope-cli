@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `brain import` reads Mimwell's `mimwell-kg/v1` graphs alongside `calliope-kg/v1` and `conflict-kg/v1`; a graph re-imported under a different name stays unchanged.
+
 ## 3.7.0: ACP controls and native host discovery
 
 - Add read-only improvement host discovery with independently versioned native interfaces, explicit contract negotiation and installed build identity. Source metadata remains self-reported until verified against release attestations; cross-run learning and feedback import remain unavailable (#413).

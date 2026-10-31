@@ -128,16 +128,29 @@ it('retains nested claims and timestamps, proposes inferred knowledge and expose
 it('retries are idempotent across alias, whitespace and local transfer file changes', async () => {
   write();
   const first = await importKnowledgeGraph(f.cwd, 'graph.json', opts());
-  const alias = { ...graph(), format: 'conflict-kg/v1' };
-  fs.writeFileSync(join(f.cwd, 'copy.json'), JSON.stringify(alias, null, 4));
-  const again = await importKnowledgeGraph(f.cwd, 'copy.json', {
-    ...opts(),
-    allowLoss: false,
-  });
-  expect(again.unchanged).toBe(true);
-  expect(again.imported).toBe(0);
-  expect(again.state).toEqual(first.state);
-  expect(again.report.mappings.every((m) => m.status === 'unchanged')).toBe(true);
+  for (const format of ['conflict-kg/v1', 'mimwell-kg/v1']) {
+    const alias = { ...graph(), format };
+    fs.writeFileSync(join(f.cwd, 'copy.json'), JSON.stringify(alias, null, 4));
+    const again = await importKnowledgeGraph(f.cwd, 'copy.json', {
+      ...opts(),
+      allowLoss: false,
+    });
+    expect(again.unchanged).toBe(true);
+    expect(again.imported).toBe(0);
+    expect(again.state).toEqual(first.state);
+    expect(again.report.mappings.every((m) => m.status === 'unchanged')).toBe(true);
+  }
+});
+it('keeps identities stored under a legacy name when the graph arrives as mimwell-kg/v1', async () => {
+  write({ ...graph(), format: 'mimwell-kg/v1' });
+  const { report } = await importKnowledgeGraph(f.cwd, 'graph.json', { ...opts(), preview: true });
+  // Recorded from a conflict-kg/v1 import; neither hash depends on the name.
+  expect(report.origin.revision).toBe(
+    '0018731c82bd05b93bfb6356868efeb40032e3ec8520dee1b11a45f73abfc52c',
+  );
+  expect(report.metadataSourceId).toBe(
+    'source:kg:95e5192e2753f3b803500e533484adf25b14e7fcac740bf455f2abadd3d38b82',
+  );
 });
 it('rechecks retained source access even on an exact retry or preview', async () => {
   write();
