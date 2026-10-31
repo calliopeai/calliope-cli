@@ -49,7 +49,7 @@ it('previews graph loss and requires acknowledgement before exclusive private ou
     ...opts(),
     allowLoss: true,
   });
-  expect(JSON.parse(fs.readFileSync(result.path, 'utf8')).format).toBe('calliope-kg/v1');
+  expect(JSON.parse(fs.readFileSync(result.path, 'utf8')).format).toBe('mimwell-kg/v1');
   expect(fs.statSync(result.path).mode & 0o777).toBe(0o600);
   await expect(
     exportKnowledgeGraphFile(f.cwd, 'graph.json', {
@@ -273,7 +273,7 @@ it('exports the knowledge graph on Windows, where the target directory cannot be
   const restore = simulateWindowsDirectoryFsyncDenial();
   try {
     const result = await exportKnowledgeGraphFile(f.cwd, 'graph.json', { ...opts(), allowLoss: true });
-    expect(JSON.parse(fs.readFileSync(result.path, 'utf8')).format).toBe('calliope-kg/v1');
+    expect(JSON.parse(fs.readFileSync(result.path, 'utf8')).format).toBe('mimwell-kg/v1');
   } finally {
     restore();
   }

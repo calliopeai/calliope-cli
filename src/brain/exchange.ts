@@ -25,7 +25,11 @@ export interface ExchangeArchive {
 
 function sourceFormat(value: unknown): ExchangeArchive['sourceFormat'] {
   if (!obj(value)) throw new BrainError('invalid', 'Exchange payload must be an object.');
-  if (value.format === 'calliope-kg/v1' || value.format === 'conflict-kg/v1') {
+  if (
+    value.format === 'mimwell-kg/v1' ||
+    value.format === 'calliope-kg/v1' ||
+    value.format === 'conflict-kg/v1'
+  ) {
     parseKnowledgeGraph(value);
     return value.format;
   }
@@ -106,7 +110,7 @@ export function compiledGraph(value: Record<string, unknown>): PortableKnowledge
     const { source, target, rel, ...props } = raw;
     return { source, target, type: rel, props };
   });
-  return parseKnowledgeGraph({ format: 'conflict-kg/v1', nodes, edges });
+  return parseKnowledgeGraph({ format: 'mimwell-kg/v1', nodes, edges });
 }
 
 export function archiveGraph(archive: ExchangeArchive): PortableKnowledgeGraph {

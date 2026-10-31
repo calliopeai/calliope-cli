@@ -1,18 +1,19 @@
 # Brain interchange
 
 Calliope keeps its append-only local Brain journal as the audit and rollback
-source. Portable graph exchange uses the `calliope-kg/v1` envelope, which has the
-same shape and semantics as Project Brain's `conflict-kg/v1` contract.
+source. Portable graph exchange uses the `mimwell-kg/v1` envelope, the graph
+contract of Mimwell (formerly Project Brain). The legacy `calliope-kg/v1` and
+`conflict-kg/v1` names carry the same shape and semantics.
 
 ```json
 {
-  "format": "calliope-kg/v1",
+  "format": "mimwell-kg/v1",
   "nodes": [{"id": "stable-id", "name": "Display name", "type": "concept", "props": {}}],
   "edges": [{"source": "node-id", "target": "node-id", "type": "depends-on", "props": {}}]
 }
 ```
 
-Readers and importers must accept both format names. Node IDs are stable within a
+Calliope writes `mimwell-kg/v1` and reads all three names. Node IDs are stable within a
 graph; node metadata belongs under `props`; and edge endpoints always reference
 node IDs. Calliope maps its entity `kind` to `type`, `name` to `name`, and retains
 state, confidence, provenance, timestamps, and source locators in `props`. Its

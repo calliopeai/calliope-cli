@@ -12,6 +12,14 @@ describe('brain exchange archive', () => {
     expect(makeExchange(fixture.payload, fixture.origin, fixture.manifest)).toEqual(fixture);
     expect(archiveGraph(fixture)).toEqual(fixture.payload);
   });
+  it('archives mimwell-kg/v1 graphs and still reads the legacy names', () => {
+    for (const format of ['mimwell-kg/v1', 'calliope-kg/v1', 'conflict-kg/v1']) {
+      const archive = makeExchange({ ...fixture.payload, format }, fixture.origin);
+      expect(archive.sourceFormat).toBe(format);
+      expect(parseExchangeArchive(archive)).toEqual(archive);
+      expect(archiveGraph(archive)).toEqual({ ...fixture.payload, format });
+    }
+  });
   it('rejects altered bodies, relabelled versions, unknown source formats and grants outside the schema', () => {
     for (const value of [
       { ...fixture, format: 'brain-exchange/v1' },
@@ -51,6 +59,7 @@ describe('brain exchange archive', () => {
     const archive = makeExchange(native, fixture.origin, fixture.manifest);
     expect(archive.payload).toEqual(native);
     const graph = archiveGraph(archive);
+    expect(graph.format).toBe('mimwell-kg/v1');
     expect(graph.nodes[0]).toEqual({
       id: 'decision:a',
       name: 'Decision',
@@ -96,9 +105,8 @@ describe('brain exchange archive', () => {
     };
     const graph = parseKnowledgeGraph(original);
     expect(graph.nodes[0].props).toEqual({ sessions: ['s'], confidence: 0.25 });
-    expect(knowledgeGraphDigest(graph)).toBe(
-      knowledgeGraphDigest({ ...graph, format: 'calliope-kg/v1' }),
-    );
+    for (const format of ['calliope-kg/v1', 'mimwell-kg/v1'] as const)
+      expect(knowledgeGraphDigest({ ...graph, format })).toBe(knowledgeGraphDigest(graph));
     expect(() =>
       parseKnowledgeGraph({
         ...original,

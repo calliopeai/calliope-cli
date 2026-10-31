@@ -16,7 +16,7 @@ export interface PortableKgEdge {
   props: Record<string, unknown>;
 }
 export interface PortableKnowledgeGraph {
-  format: 'calliope-kg/v1' | 'conflict-kg/v1';
+  format: 'mimwell-kg/v1' | 'calliope-kg/v1' | 'conflict-kg/v1';
   nodes: PortableKgNode[];
   edges: PortableKgEdge[];
 }
@@ -24,7 +24,7 @@ export interface PortableKnowledgeGraph {
 /** Project Brain-compatible projection; the journal remains the write/audit source. */
 export function exportKnowledgeGraph(
   view: BrainInspection,
-  format: PortableKnowledgeGraph['format'] = 'calliope-kg/v1',
+  format: PortableKnowledgeGraph['format'] = 'mimwell-kg/v1',
 ): PortableKnowledgeGraph {
   const origin = {
     id: view.state.header.id,
@@ -77,7 +77,11 @@ export function exportKnowledgeGraph(
 
 export function parseKnowledgeGraph(value: unknown): PortableKnowledgeGraph {
   shape(value, ['format', 'nodes', 'edges']);
-  if (value.format !== 'calliope-kg/v1' && value.format !== 'conflict-kg/v1')
+  if (
+    value.format !== 'mimwell-kg/v1' &&
+    value.format !== 'calliope-kg/v1' &&
+    value.format !== 'conflict-kg/v1'
+  )
     throw new BrainError('invalid', 'Unsupported knowledge graph format.');
   if (
     !Array.isArray(value.nodes) ||
@@ -133,6 +137,7 @@ export const knowledgeGraphDigest = (graph: PortableKnowledgeGraph) =>
   digest(
     canonicalExchangeJson({
       ...parseKnowledgeGraph(graph),
+      // Frozen identity label, not the emitted name: stored origin revisions hash it.
       format: 'conflict-kg/v1',
     }),
   );

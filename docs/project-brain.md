@@ -180,8 +180,9 @@ network reads. Review knowledge before exporting it to other people.
 ## Portable graphs and explicit exchange
 
 `brain export` still emits the complete `calliope.brain` v1 journal by default.
-`brain export --kg` still emits `calliope-kg/v1`; import accepts that name and
-`conflict-kg/v1`. Unknown versions and ambiguous legacy properties are rejected.
+`brain export --kg` emits `mimwell-kg/v1`; import also accepts the legacy
+`calliope-kg/v1` and `conflict-kg/v1` names. Unknown versions and ambiguous
+legacy properties are rejected.
 Legacy node/edge fields outside `props` are normalized into `props` when there
 is no collision. Graph exports retain referenced source snapshots, locators,
 origin claims, record revisions and created/updated timestamps.
