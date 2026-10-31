@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: bun-darwin-arm64, asset: darwin-arm64, os: macos-14 }
+          - { target: bun-darwin-arm64, asset: darwin-arm64, os: macos-26 }
           - { target: bun-darwin-x64, asset: darwin-x64, os: macos-15-intel }
           - { target: bun-linux-x64, asset: linux-x64, os: ubuntu-24.04 }
           - { target: bun-linux-arm64, asset: linux-arm64, os: ubuntu-24.04-arm }
