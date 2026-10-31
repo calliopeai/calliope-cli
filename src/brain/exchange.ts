@@ -110,7 +110,7 @@ export function compiledGraph(value: Record<string, unknown>): PortableKnowledge
     const { source, target, rel, ...props } = raw;
     return { source, target, type: rel, props };
   });
-  return parseKnowledgeGraph({ format: 'mimwell-kg/v1', nodes, edges });
+  return parseKnowledgeGraph({ format: 'conflict-kg/v1', nodes, edges });
 }
 
 export function archiveGraph(archive: ExchangeArchive): PortableKnowledgeGraph {

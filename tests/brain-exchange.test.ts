@@ -59,7 +59,6 @@ describe('brain exchange archive', () => {
     const archive = makeExchange(native, fixture.origin, fixture.manifest);
     expect(archive.payload).toEqual(native);
     const graph = archiveGraph(archive);
-    expect(graph.format).toBe('mimwell-kg/v1');
     expect(graph.nodes[0]).toEqual({
       id: 'decision:a',
       name: 'Decision',

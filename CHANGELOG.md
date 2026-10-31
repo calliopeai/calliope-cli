@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Emit `mimwell-kg/v1` from `brain export --kg`. Import still reads the legacy `calliope-kg/v1` and `conflict-kg/v1` names, and graphs imported under them re-import unchanged because stored import identities do not depend on the format name.
+- `brain import` reads Mimwell's `mimwell-kg/v1` graphs alongside `calliope-kg/v1` and `conflict-kg/v1`; a graph re-imported under a different name stays unchanged.
 
 ## 3.7.0: ACP controls and native host discovery
 

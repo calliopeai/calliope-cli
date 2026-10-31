@@ -19,11 +19,11 @@ const view = replayBrain(
 );
 
 describe('portable Brain KG', () => {
-  it('projects the journal state as mimwell-kg/v1 and still reads the legacy names', () => {
+  it('projects the journal state and accepts every interchange name', () => {
     const graph = exportKnowledgeGraph(view);
-    expect(graph.format).toBe('mimwell-kg/v1');
+    expect(graph.format).toBe('calliope-kg/v1');
     expect(parseKnowledgeGraph(graph)).toEqual(graph);
-    for (const format of ['calliope-kg/v1', 'conflict-kg/v1'] as const)
+    for (const format of ['mimwell-kg/v1', 'conflict-kg/v1'] as const)
       expect(parseKnowledgeGraph({ ...graph, format }).format).toBe(format);
     expect(graph.nodes[0]).toMatchObject({
       id: 'a',

@@ -24,7 +24,7 @@ export interface PortableKnowledgeGraph {
 /** Project Brain-compatible projection; the journal remains the write/audit source. */
 export function exportKnowledgeGraph(
   view: BrainInspection,
-  format: PortableKnowledgeGraph['format'] = 'mimwell-kg/v1',
+  format: PortableKnowledgeGraph['format'] = 'calliope-kg/v1',
 ): PortableKnowledgeGraph {
   const origin = {
     id: view.state.header.id,
@@ -137,7 +137,6 @@ export const knowledgeGraphDigest = (graph: PortableKnowledgeGraph) =>
   digest(
     canonicalExchangeJson({
       ...parseKnowledgeGraph(graph),
-      // Frozen identity label, not the emitted name: stored origin revisions hash it.
       format: 'conflict-kg/v1',
     }),
   );

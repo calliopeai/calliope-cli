@@ -144,7 +144,7 @@ it('retries are idempotent across alias, whitespace and local transfer file chan
 it('keeps identities stored under a legacy name when the graph arrives as mimwell-kg/v1', async () => {
   write({ ...graph(), format: 'mimwell-kg/v1' });
   const { report } = await importKnowledgeGraph(f.cwd, 'graph.json', { ...opts(), preview: true });
-  // Recorded from a conflict-kg/v1 import before the rename; neither hash depends on the name.
+  // Recorded from a conflict-kg/v1 import; neither hash depends on the name.
   expect(report.origin.revision).toBe(
     '0018731c82bd05b93bfb6356868efeb40032e3ec8520dee1b11a45f73abfc52c',
   );

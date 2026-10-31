@@ -72,7 +72,6 @@ export async function importKnowledgeGraph(
     {
       format: 'calliope-kg-transfer/v1',
       origin,
-      // Frozen identity label, not the emitted name: imported claims cite this source's hash.
       sourceFormat:
         archive?.sourceFormat === 'compiled-brain/v1' ? archive.sourceFormat : 'conflict-kg/v1',
       manifest: archive?.manifest ?? null,
