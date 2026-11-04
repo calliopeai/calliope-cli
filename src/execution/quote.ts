@@ -71,11 +71,12 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
 }
 
 /** Project-capped ordinary turns use the same pre-dispatch accounting as child turns. */
-export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,signal?:AbortSignal,onEvent?:(id:string,stage:string,evidence?:QuoteEvidence)=>void,measuredInput=false):ProviderAttemptBudget {
+export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,maxOutputTokens:number,signal?:AbortSignal,onEvent?:(id:string,stage:string,evidence?:QuoteEvidence)=>void,measuredInput=false,additionalProjectCap?:number):ProviderAttemptBudget {
   route=structuredClone(route);const project=projectIdentity(cwd).project,billing=readBillingEvidence(route,project);
   const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,undefined,measuredInput),ledger=new ProjectSpendLedger(projectBudgetPath(cwd));
   const quotes=new Map<string,ReturnType<typeof providerQuote>>();
   return {
+    billingRates: Object.freeze({input:base.inputPrice,output:base.outputPrice}),
     ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
     ...(billing?.profile.admission==='provider-count-v1'?{inputCounting:'anthropic-count-tokens' as const}:{}),
     reserve:async actual=>{
@@ -84,7 +85,8 @@ export function projectAttemptBudget(cwd:string,runId:string,route:RouteCandidat
       if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after project budget admission.');
       if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,project)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
       const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount,measuredInput);
-      const id=randomUUID(),cap=getBudgetCaps().maxCostPerProject;
+      const id=randomUUID(),configuredCap=getBudgetCaps().maxCostPerProject;
+      const cap=additionalProjectCap===undefined?configuredCap:Math.min(additionalProjectCap,configuredCap??Infinity);
       await ledger.reserve(id,runId,quote.costNanos,cap===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(cap),signal);quotes.set(id,quote);onEvent?.(id,'reserved',quote.quoteEvidence);
       throwIfCancelled(signal);
       if(billing&&readBillingEvidence(route,project)?.hash!==billing.hash)throw new ExecutionLimitError('authority','Billing admission was revoked while committing its reservation.');

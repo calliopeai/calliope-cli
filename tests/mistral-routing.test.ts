@@ -32,12 +32,14 @@ const baseUrls: Record<string, string | undefined> = {
 };
 
 vi.mock('../src/config.js', () => ({
+  getProviderCred: vi.fn(() => ({})),
   getApiKey: vi.fn((provider: string) => apiKeys[provider]),
   getBaseUrl: vi.fn((provider: string) => baseUrls[provider]),
 }));
 
 // Disable retry wrapping so we observe a single dispatch per call.
-vi.mock('../src/errors.js', () => ({
+vi.mock('../src/errors.js', async original => ({
+  ...await original<typeof import('../src/errors.js')>(),
   withRetry: vi.fn((fn: () => Promise<unknown>) => fn()),
 }));
 

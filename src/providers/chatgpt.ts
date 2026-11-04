@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { apiKeyAccessActive, ChatGPTQuotaError, quotaCircuit, openQuotaCircuit } from '../auth/chatgpt/fallback.js';
 import * as config from '../config.js';
 import { ChatGPTStore, accessToken, RESOURCE, ChatGPTAuthError } from '../auth/chatgpt/index.js';
 import type { Message, Tool, LLMResponse } from '../types.js';
@@ -7,7 +8,7 @@ import { ExecutionLimitError } from '../execution/types.js';
 import { StreamProtocolError } from '../errors.js';
 import { throwIfCancelled } from '../cancellation.js';
 import type { AdapterLimits, StreamCallback } from './types.js';
-export function chatGPTSelected(): boolean { return config.getProviderCred('openai').accessMethod === 'chatgpt'; }
+export function chatGPTSelected(): boolean { return !apiKeyAccessActive() && config.getProviderCred('openai').accessMethod === 'chatgpt'; }
 export function chatGPTAccountKey(): string { const a = new ChatGPTStore().active(); return a?.accessToken ? a.clientId : 'signed-out'; }
 export function assertChatGPTLimits(limits?: AdapterLimits): void {
   const budget = config.get('budget');
@@ -17,7 +18,12 @@ export function assertChatGPTLimits(limits?: AdapterLimits): void {
 export async function chatGPTModels(signal?: AbortSignal): Promise<ModelInfo[]> {
   const credential = await accessToken(undefined, signal);
   const response = await fetch(`${RESOURCE}/models`, { redirect: 'error', headers: { Authorization: `Bearer ${credential.token}` }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
-  if (!response.ok) throw new ChatGPTAuthError(`ChatGPT model discovery failed (HTTP ${response.status}).`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { error?: { code?: string } };
+    const failure = subscriptionFailure(body.error?.code, response.status);
+    if (failure instanceof ChatGPTQuotaError) { await openQuotaCircuit(credential.clientId, failure.reason); throw failure; }
+    throw new ChatGPTAuthError(`ChatGPT model discovery failed (HTTP ${response.status}).`);
+  }
   const body = await response.json() as { models?: { slug: string; display_name: string; visibility: string }[] };
   if (!Array.isArray(body.models)) throw new ChatGPTAuthError('Invalid ChatGPT model catalog.');
   if (chatGPTAccountKey() !== credential.clientId) throw new ChatGPTAuthError('ChatGPT account changed during model discovery.');
@@ -48,7 +54,9 @@ export function chatGPTInput(messages: Message[], account?: string, model?: stri
   return input;
 }
 
-function subscriptionFailure(code: unknown): StreamProtocolError {
+function subscriptionFailure(code: unknown, status?: number, partial = false): StreamProtocolError {
+  if (code === 'subscription_sharing_usage_limit_exceeded' || code === 'insufficient_quota') return new ChatGPTQuotaError('quota', partial);
+  if (status === 429 || code === 'rate_limit_exceeded') return new ChatGPTQuotaError('rate-limit', partial);
   const recovery: Record<string, string> = {
     subscription_sharing_usage_limit_exceeded: 'ChatGPT plan usage limit reached. Wait for the limit to reset or explicitly select another billing method.',
     subscription_sharing_usage_unavailable: 'ChatGPT plan usage is currently unavailable. Check plan settings and retry later.',
@@ -61,6 +69,8 @@ function subscriptionFailure(code: unknown): StreamProtocolError {
 
 export async function chatChatGPT(messages: Message[], tools: Tool[], model: string, onToken?: StreamCallback, signal?: AbortSignal, limits?: AdapterLimits): Promise<LLMResponse> {
   assertChatGPTLimits(limits); throwIfCancelled(signal);
+  const circuit = quotaCircuit();
+  if (circuit) throw new ChatGPTQuotaError(circuit.reason);
   const credential = await accessToken(undefined, signal);
   const models = await chatGPTModels(signal);
   if (!models.some(m => m.id === model)) throw new ChatGPTAuthError('Selected model is not available to this ChatGPT account. Refresh the model picker.');
@@ -72,19 +82,21 @@ export async function chatChatGPT(messages: Message[], tools: Tool[], model: str
     ...(tools.length ? { tools: [{ type: 'namespace', name: 'calliope', description: 'Calliope AI runtime tools', tools: tools.map(t => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters, strict: false })) }] } : {}),
     ...(limits?.reasoningEffort ? { reasoning: { effort: limits.reasoningEffort } } : {}) };
   let completed: OpenAI.Responses.Response | undefined;
+  let partial = false;
   try {
     const stream = await client.responses.create(request, { signal });
     for await (const event of stream) {
       throwIfCancelled(signal);
-      if (event.type === 'response.output_text.delta') onToken?.(event.delta);
-      if (event.type === 'response.failed' || event.type === 'response.incomplete') throw subscriptionFailure(event.response?.error?.code);
-      if (event.type === 'error') throw subscriptionFailure(event.code);
+      if (event.type === 'response.output_text.delta') { partial ||= !!event.delta; onToken?.(event.delta); }
+      if (event.type === 'response.failed' || event.type === 'response.incomplete') throw subscriptionFailure(event.response?.error?.code, undefined, partial);
+      if (event.type === 'error') throw subscriptionFailure(event.code, undefined, partial);
       if (event.type === 'response.completed') completed = event.response;
     }
   } catch (error) {
     throwIfCancelled(signal);
-    if (error instanceof StreamProtocolError) throw error;
-    if (error instanceof OpenAI.APIError) throw subscriptionFailure(error.code);
+    const failure = error instanceof OpenAI.APIError ? subscriptionFailure(error.code, error.status, partial) : error;
+    if (failure instanceof ChatGPTQuotaError) await openQuotaCircuit(credential.clientId, failure.reason);
+    if (failure instanceof StreamProtocolError) throw failure;
     throw new StreamProtocolError('ChatGPT subscription request failed. Check your connection, plan limits and sign-in status.');
   }
   throwIfCancelled(signal);

@@ -3,6 +3,7 @@
 ## 3.8.0: subscription access and reviewed task authority
 
 - Add experimental, opt-in ChatGPT-plan sign-in, account selection and streamed Responses inference with live model discovery. Keep API-key billing separate; subscription inference refuses output-token and USD enforcement it cannot provide (#467, #472).
+- Add opt-in ChatGPT quota fallback to an API key, with persistent cooldowns, shared project spending limits and saved paid-session continuity (#476).
 - Add experimental `calliope claude` delegation to an authenticated local Claude Code CLI. Claude owns permissions, tools, sessions and plan usage (#468, #471).
 - Bind delegated headless/ACP execution to native task attempts, enforce reviewed Smart pools, and bind new inference reservations to the reviewed provider endpoint (#453, #458, #459).
 - Record native-policy-reviewed feedback for an exact completed task attempt through version-2 host discovery. Feedback does not alter task acceptance or activate learned strategies (#455, #456).

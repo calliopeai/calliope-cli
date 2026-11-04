@@ -28,3 +28,10 @@ it('explains missing consent and incomplete remote revocation', async () => {
   mocks.logout.mockResolvedValueOnce(true); await runAuthCommand(['chatgpt', 'logout']); expect(console.log).toHaveBeenLastCalledWith('ChatGPT signed out.');
 });
 it.each([[], ['other'], ['chatgpt', 'use'], ['chatgpt', 'status', 'unexpected'], ['chatgpt', 'bad'], ['chatgpt', 'use', 'oaiapp_unknown']])('rejects invalid commands %j', async args => { await expect(runAuthCommand(args)).rejects.toThrow(); });
+it('dispatches explicit fallback commands through the auth CLI', async () => {
+  config.setProviderCred('openai', { apiKey: 'fixture-api-key' });
+  await runAuthCommand(['chatgpt', 'fallback', 'enable', 'gpt-fixture', '5', '100']);
+  expect(config.get('chatgptFallback')).toMatchObject({model:'gpt-fixture',maxProjectCostUsd:5,maxOutputTokens:100});
+  await runAuthCommand(['chatgpt', 'fallback', 'status']); expect(console.log).toHaveBeenLastCalledWith(expect.stringContaining('"enabled": true'));
+  await runAuthCommand(['chatgpt', 'fallback', 'disable']); expect(config.get('chatgptFallback')).toBeNull();
+});
