@@ -1,5 +1,8 @@
 # ChatGPT plan access
 
+Experimental in 3.8.0: opt-in access with fixture-based implementation tests.
+Live subscription prompt/tool qualification remains outstanding.
+
 Calliope AI CLI can explicitly select ChatGPT-plan inference instead of an OpenAI
 Platform API key. This uses the open-source Sign in with ChatGPT flow and the public
 Responses API. Availability and usage limits depend on the signed-in account.
