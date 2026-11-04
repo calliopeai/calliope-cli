@@ -62,6 +62,20 @@ Headless, for CI and scripts:
 calliope --headless --json "run the tests and summarize failures"
 ```
 
+Hard-cap a headless run by spend and wall-clock time:
+
+```bash
+calliope --headless --json --max-cost 0.50 --max-time 600 "fix the failing test"
+# or: CALLIOPE_MAX_COST=0.50 CALLIOPE_MAX_TIME=600 calliope --headless --json "..."
+```
+
+`--max-cost` is in USD and uses the same per-run accounting as `calliope cost --json`;
+`--max-time` is in seconds. A flag overrides its env var; invalid values exit 2.
+When a cap is reached the run stops, emits
+`{"type":"budget_exceeded","kind":"cost"|"time",...}` and exits 6 (a configured
+`budget.maxCostPerRun` halt still exits 3). The final `done` event carries
+`costUsd`, `inputTokens`, `outputTokens`, `elapsedMs`, the `limits` in force and `stoppedBy` (`"cost"`, `"time"` or `null`).
+
 Plan a project goal within a fixed budget, then approve the returned proposal hash:
 
 ```bash

@@ -7,6 +7,7 @@
  */
 
 import { runTurn } from './runtime/index.js';
+import type { TurnTotals } from './runtime/turn.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
@@ -29,10 +30,19 @@ import type { Message, LLMProvider } from './types.js';
 // ============================================================================
 
 export interface HeadlessEvent {
-  type: 'message' | 'tool_call' | 'tool_result' | 'error' | 'status' | 'done';
+  type: 'message' | 'tool_call' | 'tool_result' | 'error' | 'status' | 'done' | 'budget_exceeded';
   timestamp: string;
+  /** Which hard cap stopped the run (budget_exceeded only). */
+  kind?: HeadlessCapKind;
   data: Record<string, unknown>;
 }
+
+export type HeadlessCapKind = 'cost' | 'time';
+
+/** Exit code when a hard cap stops the run; shared with configured budget caps. */
+export const BUDGET_EXIT_CODE = 3;
+/** A --max-cost or --max-time cap stopped the run (5 is planning-review). */
+export const CAP_EXIT_CODE = 6;
 
 export type HeadlessOutputMode = 'json' | 'text';
 
@@ -44,6 +54,10 @@ export interface HeadlessOptions {
   outputMode?: HeadlessOutputMode;
   maxIterations?: number;
   maxRetries?: number;
+  /** Hard spend cap in USD for this run (--max-cost / CALLIOPE_MAX_COST). */
+  maxCost?: number;
+  /** Hard wall-clock cap in seconds for this run (--max-time / CALLIOPE_MAX_TIME). */
+  maxTime?: number;
   cwd?: string;
   /** Run as a delegated child admitted through a parent's served ledger (#415). */
   ledger?: DelegatedExecutionOptions;
@@ -74,6 +88,9 @@ function emit(event: HeadlessEvent, mode: HeadlessOutputMode): void {
       case 'status':
         process.stderr.write(`STATUS: ${event.data.message}\n`);
         break;
+      case 'budget_exceeded':
+        process.stderr.write(`BUDGET: ${event.data.message}\n`);
+        break;
       case 'done':
         // Silence
         break;
@@ -85,13 +102,59 @@ function now(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Parse `--max-cost <usd>` / `--max-time <seconds>`, falling back to
+ * CALLIOPE_MAX_COST / CALLIOPE_MAX_TIME. A flag wins over its env var; an empty
+ * env var is unset. Invalid values throw: silently dropping a cap would let a
+ * run overspend while the caller believes it is bounded.
+ */
+export function parseHeadlessCaps(args: readonly string[], env: NodeJS.ProcessEnv = process.env): { maxCost?: number; maxTime?: number } {
+  const read = (flag: string, variable: string): number | undefined => {
+    const index = args.indexOf(flag);
+    const source = index === -1 ? variable : flag;
+    const raw = index === -1 ? env[variable]?.trim() || undefined : args[index + 1];
+    if (index === -1 && raw === undefined) return undefined;
+    const value = raw === undefined || raw.startsWith('--') ? NaN : Number(raw);
+    if (!Number.isFinite(value) || value <= 0) throw new Error(`${source} must be a positive number (got ${raw === undefined ? 'no value' : JSON.stringify(raw)})`);
+    return value;
+  };
+  const maxCost = read('--max-cost', 'CALLIOPE_MAX_COST');
+  const maxTime = read('--max-time', 'CALLIOPE_MAX_TIME');
+  return { ...(maxCost !== undefined ? { maxCost } : {}), ...(maxTime !== undefined ? { maxTime } : {}) };
+}
+
 // ============================================================================
 // Headless Runner
 // ============================================================================
 
+interface RunClock { started: number; timedOut: boolean }
+
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
-  const signal = options.signal;
+  const clock: RunClock = { started: Date.now(), timedOut: false };
+  if (options.maxTime === undefined) return run(options, options.signal, clock);
+  // The time cap aborts like cancellation; `clock.timedOut` tells the two apart.
+  const deadline = new AbortController();
+  const timer = setTimeout(() => { clock.timedOut = true; deadline.abort(); }, Math.min(options.maxTime * 1000, 2 ** 31 - 1));
+  try { return await run(options, options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal, clock); }
+  finally { clearTimeout(timer); }
+}
+
+async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  const summary = (totals: TurnTotals | undefined, stoppedBy: HeadlessCapKind | null) => ({
+    costUsd: totals?.cost ?? 0, inputTokens: totals?.inputTokens ?? 0, outputTokens: totals?.outputTokens ?? 0,
+    elapsedMs: Date.now() - clock.started, stoppedBy, limits: { maxCost: options.maxCost, maxTime: options.maxTime },
+  });
+  const timeCapHit = () => clock.timedOut && !options.signal?.aborted;
+  const capExceeded = (kind: HeadlessCapKind, totals: TurnTotals | undefined, message: string): void => {
+    const elapsedMs = Date.now() - clock.started;
+    emit({ type: 'budget_exceeded', kind, timestamp: now(), data: {
+      cap: kind === 'cost' ? options.maxCost : options.maxTime,
+      spent: kind === 'cost' ? totals?.cost ?? 0 : elapsedMs / 1000,
+      costUsd: totals?.cost ?? 0, elapsedMs, message } }, outputMode);
+    if (outputMode === 'json') process.stderr.write(message + '\n');
+  };
+  const timeMessage = () => `Time cap reached: ${((Date.now() - clock.started) / 1000).toFixed(1)}s of ${options.maxTime}s. Halting.`;
   const maxIterations = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
@@ -128,6 +191,11 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       });
     }
   } catch (error) {
+    if (timeCapHit()) {
+      capExceeded('time', undefined, timeMessage());
+      emit({ type: 'done', timestamp: now(), data: { reason: 'budget', ...summary(undefined, 'time') } }, outputMode);
+      return CAP_EXIT_CODE;
+    }
     if (signal?.aborted || isCancellation(error)) {
       emit({ type: 'done', timestamp: now(), data: { reason: 'cancelled' } }, outputMode);
       return 130;
@@ -224,6 +292,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       sessionId, cwd, provider, model, prompt, execution,
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
+      ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {
         if (!response.toolCalls?.length) emit({ type: 'message', timestamp: now(), data: { role: 'assistant', content: response.content } }, outputMode);
@@ -234,13 +303,18 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
       onWarning: message => emit({ type: 'status', timestamp: now(), data: { message } }, outputMode),
       onRoute: decision => emit({ type: 'status', timestamp: now(), data: { message: decision.reason, routing: decision, provider: decision.selected?.provider, model: decision.selected?.model } }, outputMode),
     });
-    if (result.budget?.exceeded) {
+    // A configured budget cap tighter than --max-cost keeps its own (status) reporting.
+    const stoppedBy: HeadlessCapKind | null = result.reason === 'cancelled' && timeCapHit() ? 'time'
+      : result.reason === 'budget' && result.budget?.scope === 'run' && result.budget.kind === 'cost' && options.maxCost !== undefined && result.budget.cap === options.maxCost ? 'cost' : null;
+    if (stoppedBy) capExceeded(stoppedBy, result.totals, stoppedBy === 'time' ? timeMessage() : formatBudgetHalt(result.budget!));
+    else if (result.budget?.exceeded) {
       const message = formatBudgetHalt(result.budget);
       emit({ type: 'status', timestamp: now(), data: { message } }, outputMode);
       process.stderr.write(message + '\n');
     }
-    emit({ type: 'done', timestamp: now(), data: { iterations: result.iterations, reason: result.reason } }, outputMode);
-    return result.reason === 'cancelled' ? 130 : result.reason === 'budget' ? 3 : result.reason === 'completed' ? 0 : 4;
+    emit({ type: 'done', timestamp: now(), data: { iterations: result.iterations, reason: stoppedBy ? 'budget' : result.reason, ...summary(result.totals, stoppedBy) } }, outputMode);
+    if (stoppedBy) return CAP_EXIT_CODE;
+    return result.reason === 'cancelled' ? 130 : result.reason === 'budget' ? BUDGET_EXIT_CODE : result.reason === 'completed' ? 0 : 4;
   } catch (error) {
     emit({ type: 'error', timestamp: now(), data: { message: error instanceof Error ? error.message : String(error) } }, outputMode);
     return 1;
