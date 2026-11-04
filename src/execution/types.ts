@@ -5,10 +5,18 @@ export interface ExecutionAccount {
   tokenBudget: number; costBudgetNanos: number; deadline: number;
   allowedTools: string[]; allowedPaths: ExecutionPath[];
 }
-export interface ParentBudgetLink {
+export interface LocalParentBudgetLink {
   version:1;runsRoot:string;runId:string;runManifestHash:string;
   approvalRevision:string;budgetManifestHash:string;agentId:string;
 }
+export interface ReviewedLedgerContext {
+  version:1;runId:string;runManifestHash:string;approvalRevision:string;authority:string;lineage:string[];
+}
+export interface RemoteParentBudgetLink {
+  version:2;url:string;tokenFile:string;checkpointRoot:string;
+  runId:string;budgetManifestHash:string;agentId:string;accountMap:Record<string,string>;reviewed:ReviewedLedgerContext;
+}
+export type ParentBudgetLink=LocalParentBudgetLink|RemoteParentBudgetLink;
 export interface ExecutionManifest {
   version: 1|2; runId: string; planHash: string;
   project: { root: string; key: string };
@@ -24,6 +32,7 @@ export interface RequestReservation {
   inputPrice: number; outputPrice: number;
   limits?: {tokens?:number;costNanos?:number};
   quoteEvidence?:import('./billing.js').QuoteEvidence;
+  remoteAdmission?:import('../orchestration/remote-task-capacity.js').RemoteTaskAdmission;
   attribution?:import('./attribution.js').RequestAttribution;
 }
 export interface RequestSettlement {
@@ -39,7 +48,7 @@ interface ChildGrantFields {
 export type ChildGrant = ChildGrantFields & ({version:1}|{version:2;project:ExecutionManifest['project']});
 export interface RecordedChildGrant {grant:ChildGrant;eventId:string;eventHash:string;at:number}
 export interface ReservationEvent {
-  version: 1|2|3|4|5; id: string; at: number; previous: string;
+  version: 1|2|3|4|5|6; id: string; at: number; previous: string;
   change: { type: 'reserve'; reservation: RequestReservation } | { type: 'settle'; settlement: RequestSettlement } | {type:'child_grant';grant:ChildGrant};
   hash: string;
 }

@@ -10,7 +10,7 @@ import {privateDirectory,readArtifactBytes} from '../orchestration/execution-sto
 import {recoverDeadWriterLock} from './writer-recovery.js';
 
 export const LEDGER_PROTOCOL='delegation-ledger/v1';
-export const LEDGER_OPERATIONS=['hello','journal','execution','reserve','settle','grant','revoke'] as const;
+export const LEDGER_OPERATIONS=['hello','journal','execution','reserve','settle','grant','revoke','task-admit','task-release'] as const;
 export type LedgerOperation=typeof LEDGER_OPERATIONS[number];
 export const MAX_LEDGER_REQUEST_BYTES=256*1024;
 

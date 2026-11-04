@@ -2,7 +2,7 @@ import { isAbsolute, relative, resolve, sep, posix, win32 } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
 import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
-import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath, type ParentBudgetLink } from './types.js';
+import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath, type ParentBudgetLink, type ReviewedLedgerContext } from './types.js';
 
 export const MAX_EXECUTION_ACCOUNTS = 256;
 export const uuid = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(v);
@@ -27,9 +27,26 @@ export function validateExecutionProject(value:unknown):ExecutionManifest['proje
   if(typeof value.root!=='string'||value.root.length>4096||/[\x00-\x1f\x7f]/.test(value.root)||!(posix.isAbsolute(value.root)||win32.isAbsolute(value.root))||!hex(value.key))invalid();
   return {root:value.root,key:value.key};
 }
+export function validateReviewedLedgerContext(value:unknown):ReviewedLedgerContext {
+  shape(value,['version','runId','runManifestHash','approvalRevision','authority','lineage']);
+  if(value.version!==1||!uuid(value.runId)||!uuid(value.approvalRevision)||!hex(value.runManifestHash)||!hex(value.authority)||!Array.isArray(value.lineage)||value.lineage.length<1||value.lineage.length>9||value.lineage[0]!==value.runId||value.lineage.some(id=>!uuid(id))||new Set(value.lineage).size!==value.lineage.length)invalid();
+  return JSON.parse(canonicalJson(value)) as ReviewedLedgerContext;
+}
 export function validateParentBudgetLink(value:unknown):ParentBudgetLink {
+  const absolute=(path:unknown)=>typeof path==='string'&&path.length>0&&path.length<=4096&&!/[\x00-\x1f\x7f]/.test(path)&&(posix.isAbsolute(path)&&posix.normalize(path)===path||win32.isAbsolute(path)&&win32.normalize(path)===path);
+  if(value&&typeof value==='object'&&(value as {version?:unknown}).version===2){
+    shape(value,['version','url','tokenFile','checkpointRoot','runId','budgetManifestHash','agentId','accountMap','reviewed']);
+    if(typeof value.url!=='string'||value.url.length>2048||/[\s\\]/.test(value.url)||!absolute(value.tokenFile)||!absolute(value.checkpointRoot)||!uuid(value.runId)||!hex(value.budgetManifestHash))invalid();
+    try{const u=new URL(value.url);if(!['http:','https:'].includes(u.protocol)||!u.hostname||u.username||u.password||u.search||u.hash||!['','/'].includes(u.pathname))invalid();}catch{invalid();}
+    identifier(value.agentId);
+    if(!value.accountMap||typeof value.accountMap!=='object'||Array.isArray(value.accountMap)||Object.getPrototypeOf(value.accountMap)!==Object.prototype||!Object.keys(value.accountMap).length||Object.keys(value.accountMap).length>256)invalid();
+    for(const [child,parent] of Object.entries(value.accountMap)){identifier(child);identifier(parent);}
+    if(new Set(Object.values(value.accountMap)).size!==Object.keys(value.accountMap).length)invalid();
+    const reviewed=validateReviewedLedgerContext(value.reviewed);if(reviewed.runId!==value.runId)invalid();
+    return JSON.parse(canonicalJson(value)) as ParentBudgetLink;
+  }
   shape(value,['version','runsRoot','runId','runManifestHash','approvalRevision','budgetManifestHash','agentId']);
-  if(value.version!==1||typeof value.runsRoot!=='string'||!value.runsRoot||value.runsRoot.length>4096||!(posix.isAbsolute(value.runsRoot)&&posix.normalize(value.runsRoot)===value.runsRoot||win32.isAbsolute(value.runsRoot)&&win32.normalize(value.runsRoot)===value.runsRoot)||/[\x00-\x1f\x7f]/.test(value.runsRoot)||!uuid(value.runId)||!uuid(value.approvalRevision)||!hex(value.runManifestHash)||!hex(value.budgetManifestHash))invalid();
+  if(value.version!==1||!absolute(value.runsRoot)||!uuid(value.runId)||!uuid(value.approvalRevision)||!hex(value.runManifestHash)||!hex(value.budgetManifestHash))invalid();
   identifier(value.agentId);return JSON.parse(canonicalJson(value)) as ParentBudgetLink;
 }
 export function validateExecutionManifest(value: unknown): ExecutionManifest {
