@@ -180,7 +180,8 @@ describe('native AWS credential chain',()=>{
       await vi.waitFor(()=>expect(existsSync(pidFile)).toBe(true),{timeout:3000});
       const pid=Number(readFileSync(pidFile,'utf8'));
       await outcome;
-      await vi.waitFor(()=>expect(()=>process.kill(pid,0)).toThrow(),{timeout:1000});
+      // Reaping is asserted, not its speed: a loaded CI host can take seconds to schedule the kill.
+      await vi.waitFor(()=>expect(()=>process.kill(pid,0)).toThrow(),{timeout:5000});
     } finally {
       if(existsSync(pidFile)){try{process.kill(Number(readFileSync(pidFile,'utf8')),'SIGKILL');}catch{}}
       await outcome;
