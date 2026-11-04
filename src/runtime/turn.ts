@@ -46,6 +46,8 @@ export interface TurnOptions {
   sessionId: string; cwd: string; provider: LLMProvider; model?: string; prompt: string;
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
   maxIterations?: number; maxRetries?: number; parallel?: boolean; continueOnLength?: boolean;
+  /** Per-invocation run cost cap (USD); tightens, never loosens, configured `budget.maxCostPerRun`. */
+  maxCostPerRun?: number;
   /** Bound provider transport retries independently from tool/turn retries. */
   maxProviderRetries?: number;
   inheritScope?: boolean; runlog?: RunLog; toolOptions?: ExecuteToolOptions;
@@ -123,7 +125,9 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const started = Date.now();
   const totals: TurnTotals = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
   const runlog = options.runlog ?? RunLog.open(options.sessionId);
-  const caps = getBudgetCaps();
+  const configuredCaps = getBudgetCaps();
+  const caps = options.maxCostPerRun === undefined ? configuredCaps
+    : { ...configuredCaps, maxCostPerRun: Math.min(configuredCaps.maxCostPerRun ?? Infinity, options.maxCostPerRun) };
   const trackProject = typeof caps.maxCostPerProject === 'number';
   const projectRunId=guard?.manifest.runId??randomUUID();
   const seenWarnings = new Set<string>();
