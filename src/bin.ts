@@ -164,6 +164,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (args[0] === 'auth') {
+    const controller = new AbortController(); headlessCancellation = controller;
+    try { await (await import('./auth/cli.js')).runAuthCommand(args.slice(1), controller.signal); return completeCommand(0); }
+    catch (error) { console.error(error instanceof Error ? error.message : 'Authentication failed.'); return completeCommand(controller.signal.aborted ? 130 : 1); }
+  }
+
   // Handle --help
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
@@ -453,6 +459,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 
 ${bold('USAGE')}
   calliope [options] [prompt]
+  calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
   calliope brain init|ingest|search|entity|neighbors|path|export [--json]   Local project knowledge
   calliope kg search|graph [--json]   Knowledge graph

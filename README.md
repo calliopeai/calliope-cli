@@ -125,6 +125,13 @@ One file, 16 keys. Credentials live in a per-provider map with environment-varia
 
 Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [model preferences](docs/model-preferences.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
 
+### ChatGPT plan access
+
+Run `calliope auth chatgpt login` to select subscription-backed OpenAI access.
+Use `calliope auth chatgpt status` to inspect accounts, and `api-key` to return to
+Platform API billing. See [ChatGPT plan access](docs/chatgpt-plan.md) for account
+management, output/budget restrictions and live-validation requirements.
+
 ## Editors
 
 Run Calliope as an [Agent Client Protocol](https://agentclientprotocol.com) agent (`calliope acp`) inside Zed, JetBrains, Neovim, and other ACP editors — client-side file edits, per-tool permissions, and the same audit trail. See [docs/acp.md](docs/acp.md).
