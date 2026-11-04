@@ -136,6 +136,12 @@ management, output/budget restrictions and live-validation requirements.
 
 Run Calliope as an [Agent Client Protocol](https://agentclientprotocol.com) agent (`calliope acp`) inside Zed, JetBrains, Neovim, and other ACP editors — client-side file edits, per-tool permissions, and the same audit trail. See [docs/acp.md](docs/acp.md).
 
+### Local Claude plan access
+
+Run `calliope claude status`, then `calliope claude -- <prompt>` to delegate to your
+installed, signed-in Claude agent. Claude owns permissions and plan usage in this
+mode. See [local Claude delegation](docs/claude-plan.md).
+
 ## Fleet mode
 
 Coordinate a fleet of agents and human operators over a self-hosted IRC channel that doubles as an audit trail. Off by default, zero cost when disabled. See [docs/fleet.md](docs/fleet.md).

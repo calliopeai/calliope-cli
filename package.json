@@ -34,6 +34,7 @@
   "files": [
     "dist",
     "README.md",
+    "docs/claude-plan.md",
     "scripts/verify-runlog.mjs",
     "docs/migration-*.md",
     "docs/migration-example-*.json",
