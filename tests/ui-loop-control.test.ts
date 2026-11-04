@@ -6,6 +6,7 @@ const chatMock = vi.fn();
 const saveMessageHistoryMock = vi.fn();
 
 vi.mock('../src/config.js', () => ({
+  getProviderCred: vi.fn(() => ({})),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 1;
@@ -52,7 +53,8 @@ vi.mock('../src/risk.js', () => ({
   requiresConfirmation: vi.fn(() => false),
 }));
 
-vi.mock('../src/errors.js', () => ({
+vi.mock('../src/errors.js', async original => ({
+  ...await original<typeof import('../src/errors.js')>(),
   formatError: vi.fn((error: unknown) => error instanceof Error ? error.message : String(error)),
   classifyError: vi.fn(() => ({ category: 'other' })),
 }));

@@ -26,6 +26,7 @@ export interface ProviderCred {
 }
 
 export interface CalliopeConfig {
+  chatgptFallback?: { model: string; maxProjectCostUsd: number; maxOutputTokens: number; cooldownSeconds: number } | null;
   // Setup state
   setupComplete: boolean;
 
