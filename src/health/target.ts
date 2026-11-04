@@ -1,3 +1,4 @@
+import { chatGPTSelected, chatGPTAccountKey } from '../providers/chatgpt.js';
 import * as config from '../config.js';
 import { PROVIDER_BASE_URLS } from '../providers/compat.js';
 import { hasAWSCredentials } from '../providers/bedrock.js';
@@ -7,6 +8,10 @@ import type { HealthProvider, HealthTarget } from './types.js';
 export function providerTarget(provider: HealthProvider): HealthTarget {
   if (!config.getProviderNames().includes(provider)) throw new Error('Unknown or retired provider');
   const credential = config.getProviderCred(provider);
+  if (provider === 'openai' && chatGPTSelected()) {
+    const account = chatGPTAccountKey();
+    return { provider, endpoint: 'https://api.openai.com/v1', protocol: 'chatgpt-responses', credentials: account === 'signed-out' ? 'missing' : 'configured', key: healthDigest({ provider, protocol: 'chatgpt-responses', account }) };
+  }
   let endpoint: string, protocol: string, credentials: HealthTarget['credentials'];
   if (provider === 'anthropic') { endpoint = credential.baseUrl || 'https://api.anthropic.com/v1'; protocol = 'anthropic-messages'; }
   else if (provider === 'google') { endpoint = credential.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'; protocol = 'google-genai'; }
@@ -25,8 +30,9 @@ export function providerTarget(provider: HealthProvider): HealthTarget {
     try {
       const url = new URL(endpoint);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error('protocol');
-      // Userinfo, query strings, fragments and arbitrary path segments may contain credentials.
+      // Sensitive URL components belong only in the digest; fragments never reach the server.
       identity = url.origin + url.pathname;
+      if(url.search||url.username||url.password)identity=JSON.stringify({endpoint:identity,query:url.search,user:url.username,password:url.password});
       display = url.origin + (['', '/', '/v1', '/api/v1', '/v1beta'].includes(url.pathname) ? url.pathname : '/[configured-path]');
     } catch { display = 'invalid-endpoint'; credentials = 'missing'; }
   }

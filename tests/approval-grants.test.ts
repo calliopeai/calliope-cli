@@ -279,3 +279,13 @@ it.skipIf(process.platform !== 'darwin')('denies sandboxed reads and writes of a
     expect(execFileSync('/usr/bin/sandbox-exec', ['-p', profile, '/bin/echo', 'allowed'], { encoding: 'utf8' })).toBe('allowed\n');
   } finally { fs.unlinkSync(target); }
 });
+
+
+it('shows only bounded provider target hashes in reviewed budget approvals',()=>{
+  const budget={id:'budget',name:'orchestration_budget',arguments:{providerTargets:{deepseek:'a'.repeat(64)}}};
+  const request=describeApproval(budget,cwd);
+  expect(request.details).toContain(`Provider target: deepseek SHA-256 ${'a'.repeat(64)}`);
+  expect(describeApproval({...budget,arguments:{providerTargets:{deepseek:'b'.repeat(64)}}},cwd).key).not.toBe(request.key);
+  for(const providerTargets of [null,false,0,'raw-endpoint',[],{deepseek:'https://user:secret@example.test'},{'bad\nprovider':'a'.repeat(64)},Object.fromEntries(Array.from({length:33},(_,i)=>['provider'+i,'a'.repeat(64)]))])
+    expect(()=>describeApproval({...budget,arguments:{providerTargets}},cwd)).toThrow(ApprovalError);
+});

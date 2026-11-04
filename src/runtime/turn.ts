@@ -1,3 +1,5 @@
+import { chatGPTSelected } from '../providers/chatgpt.js';
+import { ChatGPTStore, ChatGPTAuthError, ChatGPTQuotaError, fallbackPolicy, fallbackHistory, publicFallbackHistory, quotaCircuit, withAPIKeyAccess, type ChatGPTFallbackPolicy } from '../auth/chatgpt/index.js';
 /** One model/tool turn engine. Clients adapt context, presentation and approval. */
 import { chat } from '../providers/index.js';
 import type { ChatOptions, StreamCallback, RetryCallback } from '../providers/types.js';
@@ -150,21 +152,44 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   };
   let currentRequest: RuntimeRequest = { provider: options.provider, model: options.model || DEFAULT_MODELS[options.provider], messages: messages.current, tools: [] };
   const origin = { provider: options.provider, model: options.model };
+  let paidFallback: { policy: ChatGPTFallbackPolicy; clientId: string } | undefined;
+  const activateFallback = async (): Promise<void> => {
+    throwIfCancelled(signal);
+    const policy = fallbackPolicy(), account = new ChatGPTStore().active();
+    if (!policy || !chatGPTSelected() || !account?.accessToken || !config.getApiKey('openai'))
+      throw new ChatGPTAuthError('ChatGPT quota reached; paid fallback requires an enabled policy, the same signed-in account and an OpenAI API key.');
+    if (guard || options.smart) throw new ExecutionLimitError('authority','Reviewed execution cannot change billing targets automatically. Review an API-key run explicitly.');
+    const converted = publicFallbackHistory(messages.current, account.clientId, policy.model);
+    paidFallback = { policy, clientId: account.clientId };
+    messages.current = converted;
+    currentRequest = { ...currentRequest, provider: 'openai', model: policy.model, messages: converted, route: undefined };
+    await checkpoint('active');
+    const notice = `ChatGPT fallback: this session uses paid OpenAI API-key access (${policy.model}); shared project cap $${policy.maxProjectCostUsd}.`;
+    runlog.policyEvent({tool:'provider',source:'chatgpt-fallback',decision:'allow',reason:notice,durationMs:0});
+    options.onWarning?.(notice);
+  };
+  const access = <T>(action: () => T): T => paidFallback ? withAPIKeyAccess(action) : action();
   const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
     throwIfCancelled(signal);
-    const decision = await selectRoute({ provider: initial ? options.provider : input.provider, model: initial ? options.model : input.model,
-      ...(initial ? {} : { origin }), messages: input.messages, preferences: options.routing, smart:options.smart, signal,
+    const decision = await access(() => selectRoute({ provider: paidFallback ? 'openai' : initial ? options.provider : input.provider, model: paidFallback ? paidFallback.policy.model : initial ? options.model : input.model,
+      ...(initial || paidFallback ? {} : { origin }), messages: input.messages, preferences: options.routing, smart:options.smart, signal,
       requirements: { reasoningEffort: options.reasoningEffort, tools: input.tools.length > 0, streaming: stream && !!options.onToken,
         vision: input.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')),
         json: extra.format !== undefined,
         inputTokens: Math.ceil(JSON.stringify(input.messages).length / 3), outputTokens: 250 },
-    });
+    }));
     if (options.preferenceSources) decision.preferenceSources = options.preferenceSources;
     runlog.routingDecision(decision);
     if (options.onRoute) await cancellable(Promise.resolve(options.onRoute(decision)),signal);
     else options.onWarning?.(formatRoutingDecision(decision));
     if (decision.status === 'cancelled') throw cancellationError();
-    if (!decision.selected) throw new RoutingUnavailableError(decision);
+    if (!decision.selected) {
+      if (!paidFallback && (input.provider === 'openai' || initial && options.provider === 'openai') && chatGPTSelected() && quotaCircuit() && fallbackPolicy()) {
+        await activateFallback();
+        return resolveRoute({ ...input, provider: 'openai', model: paidFallback!.policy.model, messages: publicFallbackHistory(input.messages, paidFallback!.clientId, paidFallback!.policy.model), route: undefined }, initial, extra, stream);
+      }
+      throw new RoutingUnavailableError(decision);
+    }
     return { ...input, provider: decision.selected.provider, model: decision.selected.model, route: decision.selected,
       messages: adaptRoutingPrompt(input.messages, decision.selected.provider) };
   };
@@ -179,25 +204,45 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throw error;
     }
   };
-  const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
+  const requestCore = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
     await guard?.refreshAuthority(signal);
     checkBudget();
     if(guard)input={...input,tools:guard.tools(input.tools)};
+    const alreadyPaid = !!paidFallback;
     input = await resolveRoute(input, false, extra, stream);
+    if (paidFallback && !alreadyPaid) return withAPIKeyAccess(() => requestCore(input, extra, stream));
     throwIfCancelled(signal);
     if(guard)input={...input,tools:guard.tools(input.tools)};
-    const maxOutputTokens=guard?.maxOutputTokens??(trackProject?input.route?.maxOutputTokens??0:undefined);
-    const requestController=!guard&&trackProject?new AbortController():undefined;
+    const policy = paidFallback ? fallbackPolicy() : undefined;
+    const requestTracksProject = trackProject || !!paidFallback;
+    const maxOutputTokens=guard?.maxOutputTokens??(policy?Math.min(policy.maxOutputTokens,input.route?.maxOutputTokens??policy.maxOutputTokens):trackProject?input.route?.maxOutputTokens??0:undefined);
+    const assertPaidAdmission = () => {
+      if (!paidFallback) return;
+      const current = fallbackPolicy(), account = new ChatGPTStore().active();
+      if (!policy || !current || current.model !== paidFallback.policy.model || !account?.accessToken || account.clientId !== paidFallback.clientId || !config.getApiKey('openai') || current.maxProjectCostUsd < policy.maxProjectCostUsd || current.maxOutputTokens < maxOutputTokens!)
+        throw new ExecutionLimitError('authority','API-key fallback was disabled or its account/model/limits changed. Retry with the current policy or start a new session.');
+    };
+    assertPaidAdmission();
+    const requestController=!guard&&requestTracksProject?new AbortController():undefined;
     const abortRequest=()=>requestController?.abort(signal?.reason);
     const requestSignal=requestController?.signal??signal;
     let attemptBudget:ProviderAttemptBudget|undefined;
     try {
       attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
-        ??(trackProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0}),options.measuredInputReservation??false):undefined);
+        ??(requestTracksProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0}),options.measuredInputReservation??false,policy?.maxProjectCostUsd):undefined);
     } catch (error) {
       runlog.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Budget admission failed',durationMs:0});
       throw error;
+    }
+    if (paidFallback && attemptBudget) {
+      const nativeBudget = attemptBudget;
+      attemptBudget = { ...nativeBudget, reserve: async actual => {
+        assertPaidAdmission();
+        const ticket = await nativeBudget.reserve(actual);
+        assertPaidAdmission();
+        return ticket;
+      } };
     }
     signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
     const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
@@ -205,7 +250,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     try {response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
       reasoningEffort: options.reasoningEffort,
-      ...(options.maxProviderRetries !== undefined ? { maxProviderRetries: options.maxProviderRetries } : {}),
+      ...(paidFallback ? { maxProviderRetries: 0 } : options.maxProviderRetries !== undefined ? { maxProviderRetries: options.maxProviderRetries } : {}),
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
       onStreamReset: stream ? options.onStreamReset : undefined,
       onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },
@@ -215,9 +260,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       },
     });}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     throwIfCancelled(signal);
-    const prices = input.route?.price;
-    const costSource = prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
-    const cost = response.usage ? costSource === 'discovery'
+    if (paidFallback) response = { ...response, providerMetadata: { ...response.providerMetadata, openai: { chatgptFallback: { clientId: paidFallback.clientId, model: paidFallback.policy.model } } } };
+    const prices = paidFallback ? attemptBudget?.billingRates : input.route?.price;
+    const costSource = response.billing === 'subscription' ? 'subscription' : paidFallback ? 'fallback' : prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
+    const cost = response.billing === 'subscription' ? 0 : response.usage ? prices?.input !== undefined && prices.output !== undefined
       ? response.usage.inputTokens / 1000000 * prices!.input! + response.usage.outputTokens / 1000000 * prices!.output!
       : calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
     totals.inputTokens += response.usage?.inputTokens ?? 0;
@@ -228,6 +274,19 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     options.onUsage?.(response, input, cost);
     for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
     return response;
+  };
+  const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
+    const paidInput = () => paidFallback ? { ...input, provider: 'openai' as const, model: paidFallback.policy.model,
+      messages: publicFallbackHistory(input.messages, paidFallback.clientId, paidFallback.policy.model), route: undefined } : input;
+    try { return await access(() => requestCore(paidInput(), extra, stream)); }
+    catch (error) {
+      throwIfCancelled(signal);
+      if (paidFallback && error instanceof Error && (('status' in error && error.status === 429) || ('code' in error && ['insufficient_quota','rate_limit_exceeded'].includes(String(error.code)))))
+        throw new StreamProtocolError('API-key fallback quota or rate limit reached. Paid inference stopped; check the API account before retrying.');
+      if (paidFallback || !(error instanceof ChatGPTQuotaError) || error.partial || input.provider !== 'openai' || !fallbackPolicy()) throw error;
+      await activateFallback();
+      return request(paidInput(), extra, stream);
+    }
   };
   const report = async (call: ToolCall, result: ToolResult, durationMs: number, answeredQuestion = false) => {
     let output: CapturedToolOutput | undefined;
@@ -335,6 +394,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     await checkpoint('active');
     checkBudget();
+    if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
     const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));

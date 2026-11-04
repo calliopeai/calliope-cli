@@ -7,6 +7,7 @@ import {randomUUID} from 'node:crypto';
 import type {Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import * as config from '../src/config.js';
+import {providerTarget} from '../src/health/target.js';
 import {saveHooks} from '../src/hooks.js';
 import {projectIdentity,canonicalJson,digest} from '../src/approvals/index.js';
 import {coordinatorRun,verifiedPlan} from './helpers/coordinator-run.js';
@@ -46,7 +47,7 @@ async function host(){
   const parent=await RemoteReservationLedger.connect({url,token:h.ownerToken,root:join(root,'parent-'+randomUUID())});
   return{...h,url,parent};
 }
-const request=(agentId='c')=>({id:randomUUID(),agentId,provider:'deepseek',model:'fixture',target:'a'.repeat(64),inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
+const request=(agentId='c')=>({id:randomUUID(),agentId,provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 
 it.each(['file','host'])('admits exact observed %s placement without local tasks, binds remote spending, and preserves replay and stop authority',async origin=>{
   // A parent-side alias is irrelevant to a separately observed remote workspace.

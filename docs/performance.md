@@ -148,3 +148,22 @@ The CI workflow (`.github/workflows/ci.yml`) sets `CALLIOPE_BENCH_CI=1` on the
 `bench` job, which runs after `build` on `ubuntu-latest`.
 
 All budgets and the multiplier live in one place: `bench/budgets.mjs`.
+
+## 3.8.0 verification (2026-11-04)
+
+Node 24.22.1 on Darwin arm64 (Mac14,6), including the #476 quota fallback,
+using the unchanged budgets:
+
+| Metric | Observed | Base budget |
+|--------|----------|-------------|
+| Node `--help` exit median | 103.66 ms | 200 ms |
+| Keystroke p95 | 7.44 ms | 16 ms |
+| Final-300 heap slope | 19.52 KB/message | 40 KB/message |
+| Absolute heap growth | 13.56 MB | 40 MB |
+
+All default `npm run bench` gates passed. Before #476, the initial 3.8.0 candidate
+compiled with Bun 1.3.11 measured 173.9 ms initially and 161.7 ms on repetition for `--help` exit, exceeding the
+150 ms developer target. The published 3.7.0 binary measured 159.4 ms in the same
+loaded environment. These measurements do not establish an unloaded-machine
+baseline or a passing 150 ms result. The harness returned exit 1 on both budget
+breaches, confirming failure propagation; no budgets were increased.
