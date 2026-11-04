@@ -143,4 +143,5 @@ it('waits for asynchronous post-tool hooks and cancels their process when an age
     await delay(10);
   }
   }finally{controller.abort();if(running)await running.catch(()=>{});vi.useRealTimers();}
-});
+// Its own waits allow 5 s for the hook to start and 5 s to be reaped; the 5 s default cut it short under load.
+},15000);
