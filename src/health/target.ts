@@ -1,3 +1,4 @@
+import { chatGPTSelected, chatGPTAccountKey } from '../providers/chatgpt.js';
 import * as config from '../config.js';
 import { PROVIDER_BASE_URLS } from '../providers/compat.js';
 import { hasAWSCredentials } from '../providers/bedrock.js';
@@ -7,6 +8,10 @@ import type { HealthProvider, HealthTarget } from './types.js';
 export function providerTarget(provider: HealthProvider): HealthTarget {
   if (!config.getProviderNames().includes(provider)) throw new Error('Unknown or retired provider');
   const credential = config.getProviderCred(provider);
+  if (provider === 'openai' && chatGPTSelected()) {
+    const account = chatGPTAccountKey();
+    return { provider, endpoint: 'https://api.openai.com/v1', protocol: 'chatgpt-responses', credentials: account === 'signed-out' ? 'missing' : 'configured', key: healthDigest({ provider, protocol: 'chatgpt-responses', account }) };
+  }
   let endpoint: string, protocol: string, credentials: HealthTarget['credentials'];
   if (provider === 'anthropic') { endpoint = credential.baseUrl || 'https://api.anthropic.com/v1'; protocol = 'anthropic-messages'; }
   else if (provider === 'google') { endpoint = credential.baseUrl || 'https://generativelanguage.googleapis.com/v1beta'; protocol = 'google-genai'; }

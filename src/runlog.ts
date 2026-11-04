@@ -75,7 +75,7 @@ export interface AssistantMessagePayload {
   tokens: { input: number; output: number };
   cost: number;
   /** Missing discovery prices use the documented emergency estimate. */
-  costSource?: 'discovery' | 'fallback';
+  costSource?: 'discovery' | 'fallback' | 'subscription';
 }
 
 export interface ToolCallPayload {
