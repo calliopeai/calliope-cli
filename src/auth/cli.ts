@@ -1,9 +1,10 @@
 import * as config from '../config.js';
-import { ChatGPTStore, login, logout, ChatGPTAuthError } from './chatgpt/index.js';
+import { ChatGPTStore, login, logout, ChatGPTAuthError, runFallbackCommand } from './chatgpt/index.js';
 export async function runAuthCommand(args: string[], signal?: AbortSignal): Promise<void> {
-  if (args[0] !== 'chatgpt') throw new ChatGPTAuthError('Usage: calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key');
+  if (args[0] !== 'chatgpt') throw new ChatGPTAuthError('Usage: calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key | fallback');
   const store = new ChatGPTStore();
   const [, action, id] = args;
+  if (action === 'fallback') return runFallbackCommand(args.slice(2), signal);
   if (args.length > (action === 'login' || action === 'use' ? 3 : 2)) throw new ChatGPTAuthError('Unexpected auth arguments.');
   if (action === 'login') {
     await login(store, id, signal);
@@ -21,5 +22,5 @@ export async function runAuthCommand(args: string[], signal?: AbortSignal): Prom
     console.log(revoked ? 'ChatGPT signed out.' : 'Signed out locally. Remote revocation failed; disconnect Calliope AI CLI in ChatGPT settings.');
   } else if (action === 'api-key') {
     config.setProviderCred('openai', { accessMethod: 'api-key' }); console.log('OpenAI API-key access selected.');
-  } else throw new ChatGPTAuthError('Usage: calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key');
+  } else throw new ChatGPTAuthError('Usage: calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key | fallback');
 }

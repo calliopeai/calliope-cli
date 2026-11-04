@@ -79,6 +79,7 @@ describe('#155 executeParallel propagates tool-level isError', () => {
 // ---------------------------------------------------------------------------
 
 vi.mock('../src/config.js', () => ({
+  getProviderCred: vi.fn(() => ({})),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 10;

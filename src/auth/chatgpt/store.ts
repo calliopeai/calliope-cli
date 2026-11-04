@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getConfigPath } from '../../config.js';
 import { ChatGPTAuthError, type Registration } from './protocol.js';
-export interface Account extends Registration { accessToken?: string; refreshToken?: string; expiresAt?: number; earliestRefreshAt?: number; scopes: string[] }
+export interface Account extends Registration { quotaCircuit?: { reason: 'quota' | 'rate-limit'; until: number }; accessToken?: string; refreshToken?: string; expiresAt?: number; earliestRefreshAt?: number; scopes: string[] }
 export interface AuthState { version: 1; hostId: string; active?: string; accounts: Record<string, Account> }
 export class ChatGPTStore {
   constructor(readonly directory = path.join(path.dirname(getConfigPath()), 'chatgpt-auth')) {}
@@ -21,6 +21,7 @@ export class ChatGPTStore {
       for (const [id, a] of Object.entries(value.accounts)) if (id !== a.clientId || !/^oaiapp_[\w-]+$/.test(id) || typeof a.subject !== 'string' || !a.subject || !Array.isArray(a.scopes) || !a.scopes.every(s => typeof s === 'string')) throw Error();
       for (const a of Object.values(value.accounts)) {
         for (const token of [a.accessToken, a.refreshToken, a.idToken]) if (token !== undefined && (typeof token !== 'string' || !token)) throw Error();
+        if (a.quotaCircuit && (!['quota', 'rate-limit'].includes(a.quotaCircuit.reason) || !Number.isSafeInteger(a.quotaCircuit.until) || a.quotaCircuit.until <= 0)) throw Error();
         if (a.expiresAt !== undefined && (!Number.isFinite(a.expiresAt) || a.expiresAt <= 0)) throw Error();
       }
       if (value.active && !value.accounts[value.active]) throw Error();

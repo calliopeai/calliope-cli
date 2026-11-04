@@ -45,7 +45,8 @@
     "docs/releases/3.7.0.md",
     "docs/releases/3.6.0.md",
     "docs/chatgpt-plan.md",
-    "docs/releases/3.8.0.md"
+    "docs/releases/3.8.0.md",
+    "docs/reviewed-provider-metadata.md"
   ],
   "scripts": {
     "build": "tsc && node scripts/build-metadata.mjs && chmod +x dist/bin.js",
