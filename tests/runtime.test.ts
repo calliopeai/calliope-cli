@@ -50,6 +50,15 @@ beforeEach(async () => {
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.useRealTimers(); });
 
 describe('shared turn runtime', () => {
+  it('records subscription tokens without inventing API dollar charges', async () => {
+    chatMock.mockResolvedValue({ ...text('done', 1000), billing: 'subscription', warnings: ['USD totals exclude subscription usage.'] });
+    const onUsage = vi.fn(), onWarning = vi.fn();
+    const result = await runTurn(options({ onUsage, onWarning }));
+    expect(result.totals.inputTokens).toBe(1000);
+    expect(result.totals.cost).toBe(0);
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ billing: 'subscription' }), expect.anything(), 0);
+    expect(onWarning).toHaveBeenCalledWith('USD totals exclude subscription usage.');
+  });
   it('surfaces a fixed refusal diagnostic without executing tools or retrying the turn', async () => {
     chatMock.mockResolvedValue({...response(tool('write_file')),content:'private response text',finishReason:'error',errorCode:'refusal'});
     const onError=vi.fn((_error:unknown)=> 'retry' as const),onUsage=vi.fn(),opts=options({onError,onUsage});

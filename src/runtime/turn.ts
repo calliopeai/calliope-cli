@@ -212,8 +212,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     });}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     throwIfCancelled(signal);
     const prices = input.route?.price;
-    const costSource = prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
-    const cost = response.usage ? costSource === 'discovery'
+    const costSource = response.billing === 'subscription' ? 'subscription' : prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
+    const cost = response.billing === 'subscription' ? 0 : response.usage ? costSource === 'discovery'
       ? response.usage.inputTokens / 1000000 * prices!.input! + response.usage.outputTokens / 1000000 * prices!.output!
       : calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
     totals.inputTokens += response.usage?.inputTokens ?? 0;

@@ -43,7 +43,8 @@
     "docs/task-feedback.md",
     "docs/acp.md",
     "docs/releases/3.7.0.md",
-    "docs/releases/3.6.0.md"
+    "docs/releases/3.6.0.md",
+    "docs/chatgpt-plan.md"
   ],
   "scripts": {
     "build": "tsc && node scripts/build-metadata.mjs && chmod +x dist/bin.js",
@@ -76,6 +77,7 @@
     "@inquirer/prompts": "^8.5.2",
     "conf": "16.0.0",
     "ink": "8.0.0",
+    "jose": "6.2.15",
     "openai": "7.43.0",
     "react": "^19.2.3",
     "sql.js": "1.15.1",

@@ -17,6 +17,7 @@ import type { LLMProvider } from './types.js';
  * `baseUrl` is Ollama/Bedrock/openai-compat).
  */
 export interface ProviderCred {
+  accessMethod?: 'api-key' | 'chatgpt';
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -248,6 +249,7 @@ export function getProviderCred(provider: string): ProviderCred {
     apiKey: firstEnv(env.apiKey) || stored.apiKey,
     baseUrl,
     model: stored.model,
+    ...(stored.accessMethod ? { accessMethod: stored.accessMethod } : {}),
     region: firstEnv(env.region) || stored.region,
     profile: firstEnv(env.profile) || stored.profile,
   };
@@ -260,6 +262,7 @@ export function getProviderCred(provider: string): ProviderCred {
  */
 export function setProviderCred(provider: string, patch: ProviderCred): void {
   if (provider === 'litellm') throw new Error('LiteLLM support has been removed. Select a supported provider explicitly.');
+  if (patch.accessMethod !== undefined && (provider !== 'openai' || !['api-key', 'chatgpt'].includes(patch.accessMethod))) throw new Error('Invalid provider access method');
   if (patch.apiKey !== undefined) {
     if (typeof patch.apiKey !== 'string' || patch.apiKey.trim().length === 0) {
       throw new Error(`API key for ${provider} must be a non-empty string`);
@@ -392,7 +395,7 @@ export function getConfiguredProviders(): LLMProvider[] {
 
   if (getProviderCred('anthropic').apiKey) providers.push('anthropic');
   if (getProviderCred('google').apiKey) providers.push('google');
-  if (getProviderCred('openai').apiKey) providers.push('openai');
+  if (getProviderCred('openai').accessMethod === 'chatgpt' || getProviderCred('openai').apiKey) providers.push('openai');
   if (getProviderCred('together').apiKey) providers.push('together');
   if (getProviderCred('openrouter').apiKey) providers.push('openrouter');
   if (getProviderCred('groq').apiKey) providers.push('groq');

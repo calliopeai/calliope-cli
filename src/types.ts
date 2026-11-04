@@ -77,6 +77,7 @@ export interface Tool {
 }
 
 export interface LLMResponse {
+  billing?: 'subscription';
   content: string;
   toolCalls?: ToolCall[];
   finishReason: 'stop' | 'tool_use' | 'length' | 'error';

@@ -1,3 +1,4 @@
+import { chatGPTSelected, chatGPTAccountKey, chatGPTModels } from './providers/chatgpt.js';
 /**
  * Calliope CLI - Model Detection
  *
@@ -200,6 +201,7 @@ export function getPreviousDiscoveredModels(provider: LLMProvider): ModelInfo[] 
 }
 
 function modelCacheTarget(provider: LLMProvider): string {
+  if (provider === 'openai' && chatGPTSelected()) return 'chatgpt:' + chatGPTAccountKey();
   const profile = provider === 'bedrock' ? config.getProviderCred(provider) : { profile: undefined, region: undefined };
   return createHash('sha256').update(JSON.stringify([provider, config.getBaseUrl(provider), config.getApiKey(provider), profile.profile, profile.region])).digest('hex');
 }
@@ -490,6 +492,7 @@ function geminiOrder(aId: string, bId: string): number {
  * Get OpenAI models
  */
 async function getOpenAIModels(): Promise<ModelInfo[]> {
+  if (chatGPTSelected()) return chatGPTModels(discoveryContext.getStore()?.signal);
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
