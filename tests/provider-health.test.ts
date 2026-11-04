@@ -151,3 +151,17 @@ it('distinguishes timeout from user cancellation', () => {
   expect(healthOutcome(new Error('failure'))).toBe('error');
   expect(healthOutcome(new Error('failure'), AbortSignal.abort(new DOMException('deadline', 'TimeoutError')))).toBe('timeout');
 });
+
+
+it('binds routing query and URL credentials without exposing them in endpoint diagnostics',()=>{
+  config.setProviderCred('deepseek',{baseUrl:'https://example.invalid/v1?deployment=first'});
+  const first=providerTarget('deepseek');
+  config.setProviderCred('deepseek',{baseUrl:'https://example.invalid/v1?deployment=second'});
+  expect(providerTarget('deepseek').key).not.toBe(first.key);
+  config.setProviderCred('deepseek',{baseUrl:'https://example.invalid/v1?deployment=first#not-transmitted'});
+  expect(providerTarget('deepseek').key).toBe(first.key);
+  config.setProviderCred('deepseek',{baseUrl:'https://user:private-fixture@example.invalid/v1?deployment=first'});
+  const credentialed=providerTarget('deepseek');
+  expect(credentialed.key).not.toBe(first.key);
+  expect(JSON.stringify(credentialed)).not.toMatch(/private-fixture|deployment|user:/);
+});

@@ -69,6 +69,14 @@ export function describeApproval(call: ToolCall, cwd: string): ApprovalRequest {
   if (typeof call.arguments.command === 'string') details.push(`Command: ${approvalDisplayText(call.arguments.command)}`);
   if (typeof call.arguments.operation === 'string') details.push(`Operation: ${approvalDisplayText(call.arguments.operation)}`);
   if (typeof call.arguments.content === 'string') details.push(`Content: ${Buffer.byteLength(call.arguments.content)} bytes; SHA-256 ${digest(call.arguments.content)}`);
+  if(call.name==='orchestration_budget'&&call.arguments.providerTargets!==undefined){
+    const targets=call.arguments.providerTargets;
+    if(!targets||typeof targets!=='object'||Array.isArray(targets)||Object.keys(targets).length>32)throw new ApprovalError('invalid reviewed provider targets.');
+    for(const [provider,target] of Object.entries(targets).sort()){
+      if(!/^[a-z][a-z0-9-]{0,63}$/.test(provider)||typeof target!=='string'||!/^[a-f0-9]{64}$/.test(target))throw new ApprovalError('invalid reviewed provider target.');
+      details.push(`Provider target: ${provider} SHA-256 ${target}`);
+    }
+  }
   details.push(`Arguments: SHA-256 ${digest(args)} (${Buffer.byteLength(args)} bytes)`);
   return { version: 1, ...{ project, projectKey }, key: digest(canonicalJson({ projectKey, tool: call.name, args, path: path ?? null, policy })),
     tool: call.name, risk: risk.level, reason: approvalDisplayText(risk.reason), details, reusable };
