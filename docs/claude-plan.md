@@ -1,5 +1,8 @@
 # Local Claude plan delegation
 
+Experimental in 3.8.0: opt-in access with fixture-based implementation tests.
+Live subscription prompt/tool qualification remains outstanding.
+
 Use your existing local Claude agent from Calliope AI CLI:
 
 ```sh
