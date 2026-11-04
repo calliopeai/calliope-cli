@@ -183,6 +183,12 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  if (args[0] === 'claude') {
+    const controller = new AbortController(); headlessCancellation = controller;
+    try { return completeCommand(await (await import('./delegation/index.js')).runClaudeCommand(rawArgs.slice(1), controller.signal)); }
+    catch (error) { console.error(error instanceof Error ? error.message : 'Claude delegation failed.'); return completeCommand(controller.signal.aborted ? 130 : 1); }
+  }
+
   // Local diagnostics run before setup and do not require provider credentials.
   if (args[0] === 'doctor') {
     headlessCancellation = new AbortController();
@@ -482,6 +488,7 @@ ${bold('USAGE')}
   calliope judge --policy <rules.json>   Judgment-backed pre-tool policy engine (tool call on stdin)
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
+  calliope claude status | [--print] [--model <model>] [--permission-mode default|plan] [-- <prompt>]
   calliope acp                                 Run as an ACP agent over stdio (for editors)
   calliope attach (--url <ws-url> | --hub <url> --user <name>) [session-uri] [--read-only] [--once]
     Follow an agent host session and answer its tool approvals (no session-uri: list sessions)
