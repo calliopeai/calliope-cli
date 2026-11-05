@@ -7,7 +7,7 @@
  */
 
 import { runTurn } from './runtime/index.js';
-import type { TurnTotals } from './runtime/turn.js';
+import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnTotals } from './runtime/turn.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
@@ -289,6 +289,12 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         revision = saved.revision;
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
+      continueOnLength: true,
+      onContinue: ({ reason, attempt, max }) => {
+        const message = `[continue ${attempt}/${max}] ${reason === 'length' ? 'output length limit reached' : 'empty model reply'}; asking the model to continue`;
+        emit({ type: 'status', timestamp: now(), data: { message, continuing: true, reason, attempt, max } }, outputMode);
+        process.stderr.write(message + '\n');
+      },
       sessionId, cwd, provider, model, prompt, execution,
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
@@ -310,6 +316,11 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
     else if (result.budget?.exceeded) {
       const message = formatBudgetHalt(result.budget);
       emit({ type: 'status', timestamp: now(), data: { message } }, outputMode);
+      process.stderr.write(message + '\n');
+    }
+    if (!stoppedBy && (result.reason === 'length' || result.reason === 'empty_response')) {
+      const message = `Run gave up: ${result.reason === 'length' ? 'output length limit reached' : 'empty model replies'} (${result.reason}) after ${MAX_CONSECUTIVE_CONTINUATIONS} consecutive continuations.`;
+      emit({ type: 'error', timestamp: now(), data: { message, reason: result.reason } }, outputMode);
       process.stderr.write(message + '\n');
     }
     emit({ type: 'done', timestamp: now(), data: { iterations: result.iterations, reason: stoppedBy ? 'budget' : result.reason, ...summary(result.totals, stoppedBy) } }, outputMode);

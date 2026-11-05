@@ -222,6 +222,15 @@ describe('headless --max-time', () => {
     expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'budget', stoppedBy: 'time', costUsd: 0, limits: { maxTime: 0.05 } } });
   });
 
+  it('keeps exit 6 when the time cap fires during a length recovery', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'cut', toolCalls: [], finishReason: 'length', usage: { inputTokens: 1, outputTokens: 1 } })
+      .mockImplementation((...args: unknown[]) => untilAborted((args[6] as { signal?: AbortSignal }).signal));
+
+    expect(await runHeadless({ prompt: 'long', provider: 'anthropic', outputMode: 'json', maxTime: 0.05 })).toBe(CAP_EXIT_CODE);
+    expect(events().some(e => e.type === 'error')).toBe(false);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'budget', stoppedBy: 'time' } });
+  });
+
   it('reports spend already recorded when the time cap stops a running tool', async () => {
     mockChat.mockResolvedValueOnce(toolCallWithUsage('tc_1'));
     mockExecuteTool.mockImplementation((_call, _cwd, _timeout, _output, options: { signal?: AbortSignal }) => untilAborted(options.signal));

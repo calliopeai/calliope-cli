@@ -102,6 +102,40 @@ describe('headless retry budget', () => {
       expect(events.at(-1)).toMatchObject({ type: 'done', data: { reason: 'length' } });
     } finally { stdout.mockRestore(); }
   });
+  it('continues after a length stop and exits 0 with one continuing status event', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'part', finishReason: 'length' }).mockResolvedValueOnce(textResponse('rest'));
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(await runHeadless({ prompt: 'work', outputMode: 'json' })).toBe(0);
+      const events = stdout.mock.calls.map(call => JSON.parse(String(call[0])));
+      const continuing = events.filter(e => e.type === 'status' && e.data.continuing);
+      expect(continuing).toHaveLength(1);
+      expect(continuing[0].data).toMatchObject({ reason: 'length', attempt: 1, max: 3 });
+      expect(events.at(-1)).toMatchObject({ type: 'done', data: { reason: 'completed' } });
+    } finally { stdout.mockRestore(); }
+  });
+  it('never reports success for repeated empty replies: error, done, exit 4', async () => {
+    mockChat.mockResolvedValue({ content: '', toolCalls: [], finishReason: 'stop' });
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(await runHeadless({ prompt: 'work', outputMode: 'json' })).toBe(4);
+      const events = stdout.mock.calls.map(call => JSON.parse(String(call[0])));
+      expect(events.at(-2)).toMatchObject({ type: 'error', data: { reason: 'empty_response' } });
+      expect(events.at(-1)).toMatchObject({ type: 'done', data: { reason: 'empty_response' } });
+      expect(mockChat).toHaveBeenCalledTimes(4);
+    } finally { stdout.mockRestore(); }
+  });
+  it('gives up on constant length with an error, done and exit 4 after bound + 1 calls', async () => {
+    mockChat.mockResolvedValue({ content: 'partial', finishReason: 'length' });
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(await runHeadless({ prompt: 'work', outputMode: 'json' })).toBe(4);
+      const events = stdout.mock.calls.map(call => JSON.parse(String(call[0])));
+      expect(mockChat).toHaveBeenCalledTimes(4);
+      expect(events.at(-2)).toMatchObject({ type: 'error', data: { reason: 'length' } });
+      expect(events.filter(e => e.type === 'status' && e.data.continuing)).toHaveLength(3);
+    } finally { stdout.mockRestore(); }
+  });
   it('does not retry an unknown operation that may have side effects', async () => {
     mockChat.mockResolvedValueOnce(toolCallResponse('plugin_mutation')).mockResolvedValueOnce(textResponse());
     mockExecuteTool.mockResolvedValue({ result: 'network timeout', isError: true });

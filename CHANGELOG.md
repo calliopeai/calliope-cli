@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Headless runs no longer end as successful when a turn is cut off by the output limit or the model replies with nothing. They discard truncated tool calls, ask the model to continue (up to 3 times in a row, reported as `status` events with `continuing: true`), and exit 4 with an `error` if it still fails. Iteration, cost and time limits still apply (#470).
+
 ## 3.8.0: subscription access and reviewed task authority
 
 - Add experimental, opt-in ChatGPT-plan sign-in, account selection and streamed Responses inference with live model discovery. Keep API-key billing separate; subscription inference refuses output-token and USD enforcement it cannot provide (#467, #472).

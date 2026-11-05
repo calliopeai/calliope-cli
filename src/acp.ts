@@ -549,6 +549,7 @@ class CalliopeAgent {
       if (result.reason === 'budget') return 'refusal';
       if (result.reason === 'iteration_limit') return 'max_turn_requests';
       if (result.reason === 'length') return 'max_tokens';
+      if (result.reason === 'empty_response') return 'refusal';
       return 'end_turn';
     } finally { session.messages = messages.current; }
   }

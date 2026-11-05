@@ -32,7 +32,9 @@ import {randomUUID} from 'node:crypto';
 import { assertExecutionBinding } from '../execution/delegated.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
-export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'waiting_for_user' | 'stopped';
+export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'waiting_for_user' | 'stopped';
+/** Consecutive truncated or empty replies a `continueOnLength` turn recovers from before giving up. */
+export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict }
 export interface TurnOptions {
@@ -61,6 +63,8 @@ export interface TurnOptions {
   onStreamReset?: () => void;
   onStreamEvent?: ChatOptions['onStreamEvent'];
   onUsage?: (response: LLMResponse, request: RuntimeRequest, cost: number) => void;
+  /** Called each time a `continueOnLength` turn asks the model to continue after a truncated or empty reply. */
+  onContinue?: (event: { reason: 'length' | 'empty'; attempt: number; max: number; iteration: number }) => void;
   onResponse?: (response: LLMResponse, iteration: number) => void | 'stop' | Promise<void | 'stop'>;
   onRepair?: (event: RepairEvent) => void;
   onToolStart?: (call: ToolCall, iteration: number) => void | Promise<void>;
@@ -398,6 +402,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
     const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
+    let continuations = 0;
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
         throwIfCancelled(signal);
@@ -420,6 +425,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (options.prepare) currentRequest = await options.prepare(currentRequest, iterations);
         throwIfCancelled(signal);
         let response = await request(currentRequest);
+        // A reply cut off by the output limit may carry a partial tool call: never run, store or repair it.
+        if (options.continueOnLength && response.finishReason === 'length' && response.toolCalls?.length) response = { ...response, toolCalls: undefined };
         if (response.finishReason === 'error') throw response.errorCode === 'refusal' ? new ProviderRefusalError() : new Error('Provider returned an unsuccessful completion');
         try { checkBudget(); }
         catch (error) {
@@ -438,13 +445,22 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         throwIfCancelled(signal);
         checkBudget();
         if (stop === 'stop') { reason = 'stopped'; break; }
-        if (!pendingCalls?.length) {
-          if (response.finishReason === 'length' && options.continueOnLength) {
-            messages.current.push({ role: 'user', content: 'Please continue where you left off.' });
+        const truncated = response.finishReason === 'length';
+        const empty = !pendingCalls?.length && !truncated && !response.content?.trim();
+        if (options.continueOnLength && (truncated || empty)) {
+          if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
+            reason = truncated ? 'length' : 'empty_response';
             options.onIterationEnd?.(iterations);
-            continue;
+            break;
           }
-          reason = response.finishReason === 'length' ? 'length' : 'completed';
+          options.onContinue?.({ reason: truncated ? 'length' : 'empty', attempt: continuations, max: MAX_CONSECUTIVE_CONTINUATIONS, iteration: iterations });
+          messages.current.push({ role: 'user', content: 'Please continue where you left off.' });
+          options.onIterationEnd?.(iterations);
+          continue;
+        }
+        continuations = 0;
+        if (!pendingCalls?.length) {
+          reason = truncated ? 'length' : 'completed';
           options.onIterationEnd?.(iterations);
           break;
         }
