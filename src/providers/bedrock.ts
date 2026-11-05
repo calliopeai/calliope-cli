@@ -563,6 +563,7 @@ async function chatBedrockStreaming(
               currentToolId = start.start.toolUse.toolUseId;
               currentToolName = start.start.toolUse.name;
               currentToolInput = '';
+              trailingToolId = '';
             } else {
               trailingToolId = '';
             }

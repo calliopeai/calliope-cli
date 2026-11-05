@@ -8,7 +8,6 @@
 - Bind delegated headless/ACP execution to native task attempts, enforce reviewed Smart pools, and bind new inference reservations to the reviewed provider endpoint (#453, #458, #459).
 - Record native-policy-reviewed feedback for an exact completed task attempt through version-2 host discovery. Feedback does not alter task acceptance or activate learned strategies (#455, #456).
 - Complete streamed response capture handling for OpenAI SDK 7 and update runtime dependencies and container packaging. Remaining Mistral/Hugging Face live qualification is tracked in #457; xAI remains deferred (#438, #454, #465).
-
 - Anthropic, Bedrock, compat and OpenAI chat adapters flag (`truncatedToolCalls`) and drop tool calls cut off at the output limit, instead of sending `{}` arguments, dropping the block silently or throwing (#487).
 - `brain import` reads Mimwell's `mimwell-kg/v1` graphs alongside `calliope-kg/v1` and `conflict-kg/v1`; a graph re-imported under a different name stays unchanged.
 

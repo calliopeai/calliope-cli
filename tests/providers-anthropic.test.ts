@@ -829,6 +829,17 @@ describe('output-limit truncation (#487)', () => {
       expect(result.toolCalls!.map(c => c.id)).toEqual(['tc_ok']);
     });
 
+    it('keeps a closed call when a later tool block is still open at max_tokens', async () => {
+      mockStreamEvents = [
+        toolStart('tc_ok'), delta('{"path":"/a"}'), blockStop,
+        toolStart('tc_cut'), delta('{"path":"/te'), messageDelta('max_tokens'),
+      ];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls!.map(c => c.id)).toEqual(['tc_ok']);
+    });
+
     it('flags a block still open when the stream ends under max_tokens', async () => {
       mockStreamEvents = [toolStart('tc_cut'), delta('{"path":"/te'), messageDelta('max_tokens')];
       const result = await chatAnthropic(msgs, makeTools(), model, () => {});

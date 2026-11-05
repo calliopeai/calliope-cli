@@ -199,6 +199,7 @@ export async function chatAnthropic(
             currentToolId = event.content_block.id;
             currentToolName = event.content_block.name;
             currentToolInput = '';
+            trailingToolId = '';
           } else {
             trailingToolId = '';
           }

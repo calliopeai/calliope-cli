@@ -765,6 +765,17 @@ describe('chatBedrock - streaming', () => {
       expect(result.toolCalls!.map(c => c.id)).toEqual(['tc-ok']);
     });
 
+    it('keeps a closed call when a later tool block is still open at max_tokens', async () => {
+      const complete = [
+        { type: 'contentBlockStart', payload: JSON.stringify({ start: { toolUse: { toolUseId: 'tc-ok', name: 'shell' } } }) },
+        toolDelta('{"command":"ls"}'), blockStop,
+      ];
+      const result = await run([...complete, toolStart, toolDelta('{"command":"l'), stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls!.map(c => c.id)).toEqual(['tc-ok']);
+    });
+
     it('flags a block still open when the stream ends under max_tokens', async () => {
       const result = await run([toolStart, toolDelta('{"command":"l'), stop('max_tokens')]);
       expect(result.finishReason).toBe('length');
