@@ -12,6 +12,7 @@ import {getTools} from '../src/tools.js';
 import {RunLog,readRunLog,verifyChain} from '../src/runlog.js';
 import {ReservationLedger,manifestHash,type ExecutionManifest,type RequestAttribution} from '../src/execution/index.js';
 import {executionManifest} from './helpers/execution-manifest.js';
+import {reapedOrSigkilled} from './helpers/process-exit.js';
 import {saveHooks} from '../src/hooks.js';
 import {loadProjectSpend,projectBudgetPath} from '../src/budget.js';
 let root:string,project:string,manifest:ExecutionManifest,ledger:ReservationLedger,requests:any[],respond:(request:any,signal:AbortSignal)=>Promise<Response>,metadata:any;
@@ -136,9 +137,9 @@ it('waits for asynchronous post-tool hooks and cancels their process when an age
   const pid=Number(fs.readFileSync(marker,'utf8'));
   await vi.advanceTimersByTimeAsync(501);const result=await running;expect(result.reason).toBe('cancelled');expect(requests).toHaveLength(1);
   // Verify the actual child is gone, rather than merely observing cancellation.
+  // A shell that forks it dies in the same group kill, so reaping it falls to PID 1 (#481).
   const reapedBy=performance.now()+5000;
-  while(true){
-    try{process.kill(pid,0);}catch(error){expect((error as NodeJS.ErrnoException).code).toBe('ESRCH');break;}
+  while(!reapedOrSigkilled(pid)){
     if(performance.now()>reapedBy)throw new Error('Post-tool hook survived deadline cancellation');
     await delay(10);
   }
