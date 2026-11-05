@@ -380,3 +380,77 @@ available to library callers through `DelegatedExecutionOptions.maxOutputTokens`
 The existing ledger, workspace and session suites cover nested grants, lost
 acknowledgments, rollback and approval/session replay; those are separate from
 this example's process-level assertions.
+
+### Native reviewed runs funded by a remote parent
+
+The source API also accepts `RunActionOptions.parentBudget` version 2 when first
+preparing a native run. This is distinct from attaching an ACP session: the child
+still executes its own reviewed plan through `executeReviewedRun`, including
+native task outcomes, questions, verification and supervision.
+
+The link contains `url`, an absolute private `tokenFile`, an absolute private
+`checkpointRoot`, `runId`, `budgetManifestHash`, `agentId`, `accountMap`, and the
+owner's `reviewedContext`. Obtain that context from `prepareReviewedLedger`; it
+binds the owner run manifest, approval revision, endpoint authority and bounded
+run ancestry. The token and checkpoint must remain outside the worker workspace.
+Never derive these fields from task text or model preferences.
+
+Before preparing the child, the parent must admit the external workspace and its
+accounts through native reviewed child admission. `accountMap` maps every child
+account to a distinct, already admitted parent account. Parent relationships,
+workspace, scopes, absolute deadlines and allowances must agree. A later child
+grant also needs matching parent admissions; an embedded host cannot create an
+independent root allowance by starting another coordinator. Reopening an existing
+child preserves its original parent link.
+
+`remoteParentBudgetCapabilities()` describes link version 2, execution manifest
+version 2, execution event version 13 and reservation event version 6. The parent
+must advertise `task-admit` and `task-release` alongside its reviewed ledger
+context. Task-bound worker endpoints do not advertise these operations. Older
+runtimes must reject unsupported records or capabilities instead of falling back
+to unlinked execution.
+
+Before a worker, controller or reviewer runs, the native child acquires a parent
+execution slot bound to its run, manifest, start event, session, task/attempt or
+review role/round. The parent's execution journal serializes these slots with
+local workers and supervision. Nested funding propagates the same work identity
+to every ancestor. Requests carry the admitted identity, while reservation and
+settlement still use the existing parent-first budget chain.
+
+Disconnection, a lost acknowledgement or elapsed time does not release a slot.
+Replay the identical admission to recover its outcome. Once work has stopped,
+release that exact admission; release is idempotent and propagates through the
+funding chain. A restarted owner retains active slots. An unresolved dead worker
+therefore needs authoritative reconciliation; starting another run or deleting a
+checkpoint is not recovery. Cancellation blocks new work while recorded usage
+can still settle. Expired or revoked credentials cannot be reused for recovery.
+
+The source regression examples are `tests/remote-parent-budget.test.ts`,
+`tests/remote-task-capacity.test.ts` and `tests/remote-parent-process.test.ts`.
+The process suite compiles the current source into an isolated package and runs
+separate native coordinators through real HTTP, including mixed local/remote
+funding, owner restart, cancellation, worker death and retained-charge exhaustion. They exercise actual native coordinators,
+HTTP ledgers and deterministic inference without paid provider requests. These
+source checks do not establish published-release compatibility or disposable
+Astrolift deployment acceptance.
+
+Run the remote-parent process qualification with:
+
+```sh
+npx vitest run tests/remote-parent-process.test.ts --maxWorkers=1
+```
+
+It uses the normal `run resume` command in separate Node CLI processes. To run
+those same scenarios against a standalone binary built from this source:
+
+```sh
+npm run build
+bun packaging/build-binary.mjs --native
+CALLIOPE_REMOTE_PARENT_BINARY="$PWD/packaging/dist/calliope-native" \
+  npx vitest run tests/remote-parent-process.test.ts --maxWorkers=1
+```
+
+Both modes use disposable configuration, real HTTP and deterministic local
+inference. The worker-death case leaves its parent slot and charge unresolved;
+the exhaustion case releases only the verified dead process's slot and proves
+that its unknown provider charge still prevents another inference request.

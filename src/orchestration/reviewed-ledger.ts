@@ -1,3 +1,4 @@
+import {admitRemoteTask,releaseRemoteTask} from './remote-task-capacity.js';
 /** Host an existing reviewed allowance; native graph admission remains the only writer of children. */
 import {dirname,join} from 'node:path';
 import {getProviderNames} from '../config.js';
@@ -17,6 +18,7 @@ import {ExecutionStore} from './execution-store.js';
 import {agentStopped} from './execution-journal.js';
 import {prepareAgentExecution} from './execution.js';
 import type {RunActionOptions} from './actions.js';
+import {budgetRunLineage} from '../execution/parent-budget.js';
 import {matchesAgentRouting,taskSmartSelection} from './routing.js';
 
 export const REVIEWED_LEDGER_CAPABILITY={version:1,ownerScope:1,tokenVersion:2,reviewedAuthority:1,endpointBinding:1,grants:'native-admissions-only'} as const;
@@ -78,17 +80,22 @@ async function prepareReviewedHost(cwd:string,runId:string,agentId:string,maxOut
   assertAccount(agentId);
   const authority=digest(canonicalJson({version:1,runId,manifestHash:view.manifest.hash,approvalRevision:view.run.revision,providerTargets:targets,
     ...(task?{task:{...task,maxOutputTokens}}:{})}));
+  const reviewedContext={version:1 as const,runId,runManifestHash:view.manifest.hash,approvalRevision:view.run.revision,authority,lineage:budgetRunLineage(saved.manifest,cwd)};
   const state=new LedgerServerState(join(dirname(ledger.root),`${runId}.ledger-server`));
-  const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,
+  const server=createLedgerServer({ledger,cwd,state,ownerAgentId:agentId,authority,reviewedContext,assertAuthority:assertOwner,assertAccountAuthority:assertAccount,assertGrantAuthority:assertGrant,
+    ...(!task?{admitRemoteTask:(admission)=>admitRemoteTask(history,admission,()=>{assertAccount(admission.agentId);}),releaseRemoteTask:(admission)=>releaseRemoteTask(history,admission)}:{}),
     ...(task?{taskExecution:{attribution:task.attribution,maxOutputTokens}}:{}),
     assertReservationAuthority:reservation=>{
       const agent=assertAccount(reservation.agentId);
+      const remote=reservation.remoteAdmission,active=history.read().state.remoteTasks;
+      if(remote){const held=active?.[remote.id];if(!held||held.status!=='active'||canonicalJson(held.admission)!==canonicalJson(remote))throw new ExecutionLimitError('authority','Remote task no longer holds execution capacity.');if(Date.now()>=remote.deadline)throw new ExecutionLimitError('deadline','Remote task allowance expired.');}
+      else if(Object.values(active??{}).some(item=>item.status==='active'&&item.admission.agentId===reservation.agentId))throw new ExecutionLimitError('authority','Request lacks its remote task admission.');
       if(targets[reservation.provider]!==reservation.target)throw new ExecutionLimitError('authority','Request changes a reviewed provider endpoint.');
       const selection=agent.routing?taskSmartSelection(agent.routing,history.read().events,task?.attribution.taskId):undefined;
       if(!matchesAgentRouting(agent,reservation.provider,reservation.model,selection))throw new ExecutionLimitError('authority','Request exceeds the reviewed provider, model or Smart routing stage.');
       if(reservation.outputTokens>maxOutputTokens)throw new ExecutionLimitError('budget','Request exceeds the reviewed host output limit.');
     }});
   const ownerToken=mintLedgerToken(state.secret(),{v:2,authority,run:runId,role:'parent',owner:agentId,exp:deadline});
-  return {server,ownerToken,execution:task?{...execution,assertAuthority:assertOwner,attribution:structuredClone(task.attribution)}:execution,deadline,
+  return {server,ownerToken,reviewedContext,execution:task?{...execution,assertAuthority:assertOwner,attribution:structuredClone(task.attribution)}:execution,deadline,
     capability:task?REVIEWED_TASK_LEDGER_CAPABILITY:REVIEWED_LEDGER_CAPABILITY};
 }

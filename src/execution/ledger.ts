@@ -1,3 +1,5 @@
+import {validateRemoteTaskAdmission} from '../orchestration/remote-task-capacity.js';
+import {markParentAdmissionUncertain,parentAdmissionUncertain} from './parent-uncertainty.js';
 /** Reservations are charged before dispatch; unknown outcomes never restore capacity. */
 import * as fs from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -20,7 +22,7 @@ export function requestCostNanos(input: number, output: number, inputPrice: numb
   const nanos = input * Math.ceil(inputPrice * 1000) + output * Math.ceil(outputPrice * 1000); integer(nanos); return nanos;
 }
 function reservation(value: unknown): asserts value is RequestReservation {
-  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits','quoteEvidence','attribution']);
+  shape(value,['id','agentId','provider','model','target','inputTokens','outputTokens','costNanos','inputPrice','outputPrice'],['limits','quoteEvidence','attribution','remoteAdmission']);
   if (!uuid(value.id) || !hex(value.target)) invalid(); identifier(value.agentId);
   if (typeof value.provider !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(value.provider) || typeof value.model !== 'string' || !value.model || value.model.length > 256 || /[\x00-\x1f\x7f]/.test(value.model)) invalid();
   integer(value.inputTokens,1,100000000); integer(value.outputTokens,1,100000000); integer(value.costNanos);
@@ -32,6 +34,7 @@ function reservation(value: unknown): asserts value is RequestReservation {
     else{const terms=fullContextTerms(proof);if((proof.measuredInput!==true&&value.inputTokens!==terms.inputTokens)||value.inputTokens<1||value.inputTokens>terms.inputTokens||value.outputTokens>terms.maxOutputTokens||value.inputPrice!==terms.inputPrice||value.outputPrice!==terms.outputPrice)invalid();}
   }
   if(value.limits!==undefined){shape(value.limits,[],['tokens','costNanos']);for(const cap of Object.values(value.limits))integer(cap);}
+  if(value.remoteAdmission){const remote=validateRemoteTaskAdmission(value.remoteAdmission),attribution=validateRequestAttribution(value.attribution);if(remote.agentId!==value.agentId||remote.startEventId!==attribution.eventId||remote.startEventHash!==attribution.eventHash||remote.sessionId!==attribution.sessionId)invalid();if(remote.kind==='supervision'?attribution.kind!=='supervision'||remote.role!==attribution.role||remote.round!==attribution.round:attribution.kind!=='task'||remote.taskId!==attribution.taskId||remote.attempt!==attribution.attempt)invalid();}
   if(value.attribution!==undefined)validateRequestAttribution(value.attribution);
 }
 function settlement(value: unknown): asserts value is RequestSettlement {
@@ -39,7 +42,7 @@ function settlement(value: unknown): asserts value is RequestSettlement {
   if (value.usage !== undefined) { shape(value.usage,['inputTokens','outputTokens']); integer(value.usage.inputTokens,0,100000000); integer(value.usage.outputTokens,0,100000000); }
 }
 function validateEvent(value: unknown): asserts value is ReservationEvent {
-  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3,4,5].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
+  shape(value,['version','id','at','previous','change','hash']); if (![1,2,3,4,5,6].includes(value.version as number) || !uuid(value.id) || !hex(value.previous) || !hex(value.hash)) invalid(); integer(value.at,1,8640000000000000);
   shape(value.change,['type'],['reservation','settlement','grant']);
   if (value.change.type === 'reserve') { shape(value.change,['type','reservation']); reservation(value.change.reservation); }
   else if (value.change.type === 'settle') { shape(value.change,['type','settlement']); settlement(value.change.settlement); }
@@ -94,7 +97,7 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
 }
 interface Journal { version:1; manifest:ExecutionManifest; events:ReservationEvent[]; hash:string }
 function reservationVersion(change:ReservationEvent['change']):ReservationEvent['version'] {
-  return change.type==='child_grant'&&change.grant.version===2?5:change.type==='reserve'&&change.reservation.quoteEvidence?.version===2?4:change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
+  return change.type==='reserve'&&change.reservation.remoteAdmission?6:change.type==='child_grant'&&change.grant.version===2?5:change.type==='reserve'&&change.reservation.quoteEvidence?.version===2?4:change.type==='reserve'&&change.reservation.attribution?3:change.type==='child_grant'?2:1;
 }
 function decode(raw: string): Journal {
   let value: unknown; try { value = JSON.parse(raw); } catch { throw unavailable(); }
@@ -151,6 +154,10 @@ export class ReservationLedger {
     directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd);
     return {...journal,projection:replayReservations(journal.manifest,journal.events)};
   }
+  canReleaseFailedReservation(error:unknown):boolean {return !parentAdmissionUncertain(error);}
+  async refreshAuthority(cwd:string,_agentId:string,signal?:AbortSignal):Promise<void> {
+    const saved=this.read(cwd);if(saved.manifest.parent){const funding=await (await import('./parent-budget.js')).parentBudgetAuthority(saved.manifest,cwd,true,signal);await funding?.refreshAgent?.(_agentId,signal);}
+  }
   async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal,beforeCommit);
   }
@@ -181,13 +188,14 @@ export class ReservationLedger {
       throwIfCancelled(signal);sameDirectory(this.root,before);
       try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();recoverDeadWriterLock(lock);if(attempt===50)throw new ExecutionLimitError('locked','Budget writer is busy; no request was authorized.');await cancellableDelay(10,signal);}
     }
-    const identity=fs.fstatSync(fd!);let temp:string|undefined;
+    const identity=fs.fstatSync(fd!);let temp:string|undefined,funded=false;
     try{
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
       const raw=read(file),journal=decode(raw),current=replayReservations(journal.manifest,journal.events);checkExecutionIdentity(journal.manifest,cwd);
       if(current.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; request denied.');
       const funding=journal.manifest.parent&&change.type!=='settle'
         ?await (await import('./parent-budget.js')).parentBudgetAuthority(journal.manifest,cwd,true,signal):undefined;
+      if(change.type==='child_grant')funding?.validateGrant?.(change.grant);
       if(change.type==='child_grant'){const prior=current.childGrants?.find(r=>r.grant.id===change.grant.id);if(prior){if(canonicalJson(prior.grant)!==canonicalJson(change.grant))throw new ExecutionLimitError('conflict','Child grant identity already belongs to another proposal.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);return current;}}
       // Leave enough room to settle every pending reservation.
       const pending=Object.values(current.requests).filter(r=>r.state==='pending').length;
@@ -196,13 +204,13 @@ export class ReservationLedger {
       const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=replayReservations(journal.manifest,events),output=encode(journal.manifest,events);
       if(funding&&change.type==='reserve'){
         const {reserveParent}=await import('./parent-budget.js');
-        await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);
+        await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);funded=true;
       }
       temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd);
       const effective=effectiveExecutionManifest(journal.manifest,next);
       if(change.type==='reserve'&&this.now()>=Math.min(effective.deadline,...accountLineage(effective,change.reservation.agentId).map(a=>a.deadline))||change.type==='child_grant'&&change.grant.accounts.some(a=>this.now()>=a.deadline))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation or grant commit.');
       if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
-    }finally{
+    }catch(error){if(funded)markParentAdmissionUncertain(error);throw error;}finally{
       fs.closeSync(fd!);try{sameDirectory(this.root,before);if(temp)fs.unlinkSync(temp);const current=fs.lstatSync(lock);if(current.ino===identity.ino&&current.dev===identity.dev)fs.unlinkSync(lock);}catch{/* Preserve foreign directories and locks. */}
     }
   }

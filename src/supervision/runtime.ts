@@ -1,3 +1,4 @@
+import {acquireParentTask} from '../execution/parent-budget.js';
 import {taskSmartSelection,recordAgentRoute} from '../orchestration/routing.js';
 import {supervisionProposalHash} from './approval.js';
 import {readRunAccounting} from '../orchestration/accounting.js';
@@ -45,7 +46,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
   const agentId=role==='controller'?policy.controllerId:policy.reviewerId!,agent=plan.agents.find(a=>a.id===agentId)!,round=role==='controller'?s.rounds+1:s.rounds;
   const evidence=supervisionEvidence(view.events),session=createSession(context.project.root,{activate:false}),log=RunLog.open(session.id),controller=new AbortController();
   const abort=()=>controller.abort();options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
-  const agentDeadline=Date.parse(view.header.createdAt)+agent.timeBudgetMs;let authorityError:unknown,revision:string|null=null;
+  const agentDeadline=Date.parse(view.header.createdAt)+agent.timeBudgetMs;let authorityError:unknown,revision:string|null=null,parentTask:Awaited<ReturnType<typeof acquireParentTask>>;
   const check=()=>{assertRun();throwIfCancelled(controller.signal);const current=store.read();if(Date.now()>=agentDeadline)throw new ExecutionLimitError('deadline','Original controller deadline expired.');if(role==='controller'&&agentStopped(current.state,store.context(current),agentId))throw new ExecutionLimitError('authority','The controller agent was stopped.');};
   const observe=()=>{try{check();}catch(error){authorityError??=error;controller.abort();}};
   const timer=setInterval(observe,100),deadline=setTimeout(observe,Math.max(0,agentDeadline-Date.now()));
@@ -53,6 +54,8 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     check();
     const health=supervisionHealthEvidence(plan,view.state);
     const start=await store.append({type:'supervision_started',round,role,agentId,sessionId:session.id,evidenceIds:evidence.ids,evidenceHash:evidence.hash,health,requestAttribution:1},controller.signal,undefined,check);
+    const attribution={version:1 as const,kind:'supervision' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,role,round};
+    parentTask=await acquireParentTask(authority.ledger.read(context.project.root).manifest,context.project.root,agentId,attribution,controller.signal);
     const outcomes=await reviewEvidence(store,evidence.ids,{...options,signal:controller.signal},agentId,true),budget=authority.ledger.read(context.project.root);
     const current=store.read(),reviewContext=store.context(current),reviewPlan=reviewContext.plan,accounting=readRunAccounting(store,current),availability=supervisionAvailability(reviewPlan,current,Date.now());
     const {content,metrics}=buildControllerContext({role,round,plan:reviewPlan,availability,providerHealth:health,goalAccounting:linkedGoalAccounting(store,current,controller.signal),improvements:improvementFeedback(projectImprovementHistory(store.manifest,current,reviewContext,accounting.status==='available'?accounting.attribution:undefined)),tasks:current.state.tasks,outcomes,...(role==='reviewer'?{draft:s.draft}:{}),budget:{deadline:budget.manifest.deadline,spent:budget.projection.spent,accounts:budget.projection.accounts},strategies:s.strategies});
@@ -65,7 +68,6 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     const smart=agent.routing?taskSmartSelection(agent.routing,view.events):undefined;
     const route=await selectRoute({smart,provider:preference.provider,model:preference.model,messages:messages.current,requirements:{tools:false,reasoningEffort},signal:controller.signal});log.routingDecision(route);
     if(!route.selected)throw new RoutingUnavailableError(route);const maximum=reviewedOutputLimit(route.selected,store.manifest.project.root);if(!maximum)throw new ExecutionLimitError('budget','Controller model needs a live or reviewed output limit.');
-    const attribution={version:1 as const,kind:'supervision' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,role,round};
     // Controller reviews receive a derived, bounded context. Reserve against
     // that measured request size so prior worker charges do not reject a
     // review merely because the provider's full context window is larger than
@@ -100,7 +102,7 @@ async function controllerTurn(store:ExecutionStore,authority:AgentExecution,role
     }
     await store.append({type:'supervision_decided',round,role,agentId,sessionId:session.id,decision},controller.signal,undefined,check);
   }catch(error){throw authorityError??error;}
-  finally{clearInterval(timer);clearTimeout(deadline);options.signal?.removeEventListener('abort',abort);await log.flush();}
+  finally{clearInterval(timer);clearTimeout(deadline);options.signal?.removeEventListener('abort',abort);try{await log.flush();}finally{await parentTask?.release();}}
 }
 
 /** Resuming committed decisions never repeats the model call or creates a second child grant. */

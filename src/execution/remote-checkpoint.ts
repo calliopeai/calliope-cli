@@ -20,6 +20,7 @@ export function verifiedJournal(value:unknown):RemoteJournal {
 export function extendsJournal(previous:RemoteJournal,next:RemoteJournal):boolean {
   return canonicalJson(previous.manifest)===canonicalJson(next.manifest)&&previous.events.length<=next.events.length&&previous.events.every((event,i)=>event.hash===next.events[i]!.hash);
 }
+class CheckpointReplaced extends Error {}
 const conflict=()=>new ExecutionLimitError('conflict','Parent ledger history was rewritten or rolled back; execution stopped.');
 function directory(path:string):fs.Stats {
   const stat=fs.lstatSync(path);
@@ -34,7 +35,8 @@ function readFile(file:string):string {
   const fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
   try{
     const stat=fs.fstatSync(fd);
-    if(!stat.isFile()||stat.dev!==before.dev||stat.ino!==before.ino||stat.nlink!==1||stat.mode&0o077||stat.size>MAX_RESERVATION_BYTES)throw damaged();
+    if(stat.dev!==before.dev||stat.ino!==before.ino)throw new CheckpointReplaced();
+    if(!stat.isFile()||stat.nlink!==1||stat.mode&0o077||stat.size>MAX_RESERVATION_BYTES)throw damaged();
     const buffer=Buffer.alloc(stat.size+1);let size=0,n:number;
     while(size<buffer.length&&(n=fs.readSync(fd,buffer,size,buffer.length-size,null))>0)size+=n;
     if(size!==stat.size)throw damaged();return buffer.subarray(0,size).toString('utf8');
@@ -49,13 +51,14 @@ export class RemoteLedgerCheckpoint {
   private readonly dir:string;
   constructor(root:string){this.root=resolve(root);this.dir=join(this.root,'verified-parent');}
   read():RemoteJournal|undefined {
-    try{
+    for(let attempt=0;attempt<3;attempt++)try{
       if(!exists(this.root))return undefined;directory(this.root);
       if(!exists(this.dir))return undefined;directory(this.dir);
       const value=JSON.parse(readFile(join(this.dir,'history.json')));
       if(value?.version!==1||typeof value.hash!=='string'||value.hash!==digest(canonicalJson(value.journal)))throw damaged();
       return verifiedJournal(value.journal);
-    }catch{throw damaged();}
+    }catch(error){if(!(error instanceof CheckpointReplaced)||attempt===2)throw damaged();}
+    throw damaged();
   }
   save(next:RemoteJournal,current?:RemoteJournal,projectRoot=next.manifest.project.root):RemoteJournal {
     assertExecutionStoreOutsideProject(projectRoot,this.root);

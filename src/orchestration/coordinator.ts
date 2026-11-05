@@ -1,3 +1,5 @@
+import {acquireParentTask} from '../execution/parent-budget.js';
+import {activeRemoteTasks} from './remote-task-capacity.js';
 import {readRunAccounting,type RunAccounting} from './accounting.js';
 import {taskSmartSelection,recordAgentRoute} from './routing.js';
 import {join,relative,resolve,isAbsolute} from 'node:path';
@@ -110,7 +112,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
   const work=async(task:ProjectTask):Promise<void>=>{
     const child=new AbortController(),parentAbort=()=>child.abort();controller.signal.addEventListener('abort',parentAbort,{once:true});if(controller.signal.aborted)parentAbort();children.set(task.id,child);
     const context=store.context(),agent=context.plan.agents.find(a=>a.id===task.agentId)!,agentDeadline=budget.createdAt+agent.timeBudgetMs;let timedOut=false;
-    const taskTimer=setTimeout(()=>{timedOut=true;child.abort();},Math.max(0,agentDeadline-Date.now()));let began=false,agentBegan=false,taskLog:RunLog|undefined;
+    const taskTimer=setTimeout(()=>{timedOut=true;child.abort();},Math.max(0,agentDeadline-Date.now()));let began=false,agentBegan=false,taskLog:RunLog|undefined,parentTask:{release:()=>Promise<void>}|undefined;
     const finish=async(status:Exclude<TaskStatus,'pending'|'running'>,output:TaskOutput,verify=false)=>{
       const persistedStatus:TaskOutput['status']=status==='completed'?'success':status==='review_required'?'partial':status==='unknown'?'failed':status;
       const persistedOutput:TaskOutput={...output,status:persistedStatus};
@@ -122,6 +124,8 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       const session=createSession(cwd,{activate:false}),log=RunLog.open(session.id);taskLog=log;let revision:string|null=null;
       const attempt=state.tasks[task.id]!.attempts+1;
       const start=await store.append({type:'task_started',taskId:task.id,attempt,sessionId:session.id,requestAttribution:1},child.signal);began=true;
+      const taskAttribution={version:1 as const,kind:'task' as const,eventId:start.id,eventHash:start.hash,sessionId:session.id,taskId:task.id,attempt};
+      parentTask=await acquireParentTask(rootAuthority.ledger.read(cwd).manifest,cwd,agent.id,taskAttribution,child.signal);
       await store.append({type:'agent_started',agentId:agent.id,taskId:task.id},child.signal);agentBegan=true;
       const workspace=await taskWorktree(store,task,{...childOptions(child.signal),runlog:log});
       const messages={current:await taskMessages(store,task,childOptions(child.signal),workspace)};
@@ -235,7 +239,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
       }
       const status=timedOut?'denied':child.signal.aborted||isCancellation(error)?'cancelled':error instanceof SessionPolicyError||error instanceof ExecutionLimitError||requiresProposalValidation(store.manifest)&&error instanceof ProviderRefusalError?'denied':'failed';
       const taskState=store.read().state.tasks[task.id];if(taskState?.status==='running')await finish(status,incompleteOutput(store,task,status,timedOut?'Original agent deadline expired.':error instanceof Error?error.message:'Worker failed.'));
-    }finally{clearTimeout(taskTimer);controller.signal.removeEventListener('abort',parentAbort);children.delete(task.id);await taskLog?.flush();}
+    }finally{clearTimeout(taskTimer);controller.signal.removeEventListener('abort',parentAbort);children.delete(task.id);await taskLog?.flush();if(parentTask)try{await parentTask.release();}catch{throw new OrchestrationError('unavailable','Remote task release was not acknowledged; its parent slot remains reserved.');}}
   };
   try {
     assertRun();
@@ -256,7 +260,7 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         if(agent.escalationPolicy.onFailure==='stop'){stop(t.status==='denied'?'denied':'failed');break;}
       }
       if(!controller.signal.aborted&&state.supervision&&needsSupervision(store)&&!(options.proposalOnly&&state.supervision.phase==='decision'&&(state.supervision.review?.announced||!state.supervision.decision||!('hypothesis' in state.supervision.decision)))){
-        if(active.size){await Promise.race([...active.values(),cancellableDelay(100)]);continue;}
+        if(active.size||activeRemoteTasks(state).length){await Promise.race([...active.values(),cancellableDelay(100)]);continue;}
         await supervise(store,rootAuthority,{...options,store:runs,signal:controller.signal},assertRun);continue;
       }
       if(state.supervision?.phase==='halted'&&!stopReason){
@@ -279,12 +283,13 @@ export async function executeReviewedRun(cwd:string,runId:string,options:Coordin
         // is being committed.
         const supervisionPausesWork=state.supervision?.phase==='halted'||state.supervision?.phase==='decision'||state.supervision?.phase==='draft-ready';
         for(const task of supervisionPausesWork||options.proposalOnly?[]:context.plan.tasks){
-          if(controller.signal.aborted||active.size>=context.plan.limits.maxConcurrent)break;
+          if(controller.signal.aborted||active.size+activeRemoteTasks(state).length>=context.plan.limits.maxConcurrent)break;
           if(state.tasks[task.id]!.status!=='pending'||active.has(task.id)||agentStopped(state,context,task.agentId)||task.dependencies.some(d=>!['completed','review_required'].includes(state.tasks[d]!.status))||[...active.keys()].some(id=>analysis.conflicts.some(c=>c.tasks.includes(id)&&c.tasks.includes(task.id))))continue;
           const pending=work(task).catch(error=>{if(!isCancellation(error))stop(error instanceof ExecutionLimitError||error instanceof SessionPolicyError?'denied':'failed');}).finally(()=>active.delete(task.id));active.set(task.id,pending);
         }
       }
       if(active.size){await Promise.race(controller.signal.aborted?[...active.values()]:[...active.values(),cancellableDelay(100)]);continue;}
+      if(!controller.signal.aborted&&activeRemoteTasks(store.read().state).length){await cancellableDelay(100,controller.signal);continue;}
       const candidate=store.read();if((candidate.state.graph?.hash??view.manifest.planHash)!==graphHash)continue;
       const finished=await store.transaction(async current=>{
         if(current.state.revision!==candidate.state.revision)return[];
