@@ -51,9 +51,17 @@ validates bounded nonempty answer text, records one tool result, and continues
 with the original iteration and budget accounting. Cancellation discards a late
 answer and completes the pending tool pair without claiming success. This callback
 does not approve tools or alter the behavior of `create_plan`.
-Any unexecuted calls receive explicit placeholder results. Terminal length
-continuation remains bounded by the iteration limit; ACP and headless expose an
-incomplete outcome instead of claiming success.
+Any unexecuted calls receive explicit placeholder results. With
+`continueOnLength` (terminal and headless), a reply cut off by the output limit,
+or an empty reply, is not completion: any tool calls in the truncated reply are
+discarded unrun and the model is asked to continue, up to
+`MAX_CONSECUTIVE_CONTINUATIONS` (3) times in a row; any other reply resets the
+count. Headless emits a `status` event with `continuing: true`, `reason`,
+`attempt` and `max` for each continuation. If the bound is exceeded the turn
+ends as `length` or `empty_response`, headless emits an `error` then `done`, and
+exits 4. The iteration limit, budget, time caps and abort still apply. ACP and
+library callers that do not opt in expose an incomplete outcome instead of
+claiming success.
 
 | Outcome | Headless exit | ACP stop reason |
 |---|---:|---|
@@ -63,6 +71,7 @@ incomplete outcome instead of claiming success.
 | Budget reached | 3 | `refusal` |
 | Iteration limit | 4 | `max_turn_requests` |
 | Output length limit | 4 | `max_tokens` |
+| Repeated empty replies | 4 | `refusal` |
 | Waiting for user/plan approval | 4 | `end_turn` |
 | Cancelled | 130 | `cancelled` |
 

@@ -12,6 +12,7 @@ vi.mock('../src/providers/index.js', () => ({ chat: chatMock }));
 vi.mock('../src/tools.js', async importActual => ({ ...await importActual<typeof import('../src/tools.js')>(), executeTool: executeMock }));
 vi.mock('../src/local-model.js', async importActual => ({ ...await importActual<typeof import('../src/local-model.js')>(), getLocalModelProfile: vi.fn(async () => ({ supportsJsonSchemaFormat: true })) }));
 import { runTurn, completePendingTools, shouldRetryTool } from '../src/runtime/index.js';
+import { MAX_CONSECUTIVE_CONTINUATIONS } from '../src/runtime/turn.js';
 import { scopeManager, withScope, validatePath } from '../src/scope.js';
 import * as budget from '../src/budget.js';
 import * as compressor from '../src/auto-compressor.js';
@@ -263,6 +264,69 @@ describe('shared turn runtime', () => {
     const opts = options({ continueOnLength: true }); expect((await runTurn(opts)).reason).toBe('completed');
     expect(opts.messages.current.some(m => m.content === 'Please continue where you left off.')).toBe(true);
     chatMock.mockResolvedValue(response(tool())); expect((await runTurn(options({ onResponse: () => 'stop' }))).reason).toBe('stopped');
+  });
+  describe('continueOnLength recovery', () => {
+    const truncated = (...calls: ToolCall[]): LLMResponse => ({ ...text('cut off'), finishReason: 'length', ...(calls.length ? { toolCalls: calls } : {}) });
+    const empty = (): LLMResponse => text('');
+    it('discards a truncated tool call unrun and leaves no orphan toolCalls in the next request', async () => {
+      let sent: Message[] = [];
+      chatMock.mockResolvedValueOnce(truncated(tool('write_file', 'cut', { path: 'x.txt' })))
+        .mockImplementationOnce(async (_p: unknown, messages: Message[]) => { sent = structuredClone(messages); return text('finished'); });
+      const opts = options({ continueOnLength: true });
+      expect((await runTurn(opts)).reason).toBe('completed');
+      expect(executeMock).not.toHaveBeenCalled();
+      expect(chatMock).toHaveBeenCalledTimes(2);
+      expect(sent.some(m => m.role === 'assistant' && m.toolCalls?.length)).toBe(false);
+      expect(sent.at(-1)).toMatchObject({ role: 'user', content: 'Please continue where you left off.' });
+    });
+    it('does not store the truncated tool call when the budget is exceeded', async () => {
+      config.set('budget', { maxTokensPerRun: 1 });
+      chatMock.mockResolvedValue(truncated(tool('write_file', 'cut', { path: 'x.txt' })));
+      const opts = options({ continueOnLength: true });
+      expect((await runTurn(opts)).reason).toBe('budget');
+      expect(opts.messages.current.some(m => m.toolCalls?.length)).toBe(false);
+      expect(executeMock).not.toHaveBeenCalled();
+    });
+    it('nudges one empty stop and completes on the next text, reporting the continuation', async () => {
+      chatMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(text('answer'));
+      const onContinue = vi.fn();
+      expect((await runTurn(options({ continueOnLength: true, onContinue }))).reason).toBe('completed');
+      expect(onContinue).toHaveBeenCalledTimes(1);
+      expect(onContinue).toHaveBeenCalledWith({ reason: 'empty', attempt: 1, max: MAX_CONSECUTIVE_CONTINUATIONS, iteration: 1 });
+    });
+    it('ends as empty_response when every reply is empty', async () => {
+      chatMock.mockResolvedValue(empty());
+      expect((await runTurn(options({ continueOnLength: true, maxIterations: 20 }))).reason).toBe('empty_response');
+      expect(chatMock).toHaveBeenCalledTimes(MAX_CONSECUTIVE_CONTINUATIONS + 1);
+    });
+    it('ends as length after the bound when every reply is truncated', async () => {
+      chatMock.mockResolvedValue(truncated());
+      const onContinue = vi.fn();
+      expect((await runTurn(options({ continueOnLength: true, maxIterations: 20, onContinue }))).reason).toBe('length');
+      expect(chatMock).toHaveBeenCalledTimes(MAX_CONSECUTIVE_CONTINUATIONS + 1);
+      expect(onContinue).toHaveBeenCalledTimes(MAX_CONSECUTIVE_CONTINUATIONS);
+    });
+    it('resets the counter on any other reply so a long run with spread-out recoveries completes', async () => {
+      let recoveries = 0;
+      for (let i = 0; i < 29; i++) {
+        if (i % 4 === 1) { chatMock.mockResolvedValueOnce(i % 8 === 1 ? truncated() : empty()); recoveries++; }
+        else chatMock.mockResolvedValueOnce(response(tool()));
+      }
+      chatMock.mockResolvedValueOnce(text('all done'));
+      expect(recoveries).toBeGreaterThan(MAX_CONSECUTIVE_CONTINUATIONS);
+      const result = await runTurn(options({ continueOnLength: true, maxIterations: 40 }));
+      expect(result.reason).toBe('completed');
+      expect(result.iterations).toBe(30);
+    });
+    it('still honours the iteration limit during a recovery', async () => {
+      chatMock.mockResolvedValue(truncated());
+      expect((await runTurn(options({ continueOnLength: true, maxIterations: 2 }))).reason).toBe('iteration_limit');
+    });
+    it('without the opt-in an empty stop completes and a truncated reply stays length', async () => {
+      chatMock.mockResolvedValue(empty());
+      expect((await runTurn(options({ maxIterations: 5 }))).reason).toBe('completed');
+      expect(chatMock).toHaveBeenCalledTimes(1);
+    });
   });
   it('reports provider error finishes as failures', async () => {
     chatMock.mockResolvedValue({ ...text(), finishReason: 'error' });
