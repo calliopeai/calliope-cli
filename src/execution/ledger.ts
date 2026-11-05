@@ -52,7 +52,9 @@ function validateEvent(value: unknown): asserts value is ReservationEvent {
   const {hash,...body} = value; if (hash !== digest(canonicalJson(body))) throw unavailable();
 }
 /** Pure replay includes unresolved reservations in every ancestor's spend. */
-export function replayReservations(input: ExecutionManifest, events: ReservationEvent[]): ReservationProjection {
+export function replayReservations(input: ExecutionManifest, events: ReservationEvent[]): ReservationProjection { return replay(input,events,false); }
+/** `validated` means every event already passed validateEvent (decode did); chain checks always run. */
+function replay(input: ExecutionManifest, events: ReservationEvent[], validated: boolean): ReservationProjection {
   const base = validateExecutionManifest(input), initial = manifestHash(base);let manifest=base;
   if (!Array.isArray(events) || events.length > MAX_RESERVATION_EVENTS) throw unavailable();
   const state: ReservationProjection = {version:1,runId:manifest.runId,manifestHash:initial,revision:initial,spent:{tokens:0,costNanos:0},accounts:{},requests:{},exceeded:false};
@@ -64,7 +66,7 @@ export function replayReservations(input: ExecutionManifest, events: Reservation
     integer(state.spent.tokens); integer(state.spent.costNanos);
   };
   for (const event of events) {
-    validateEvent(event); if (ids.has(event.id) || event.previous !== state.revision || event.at < at) throw unavailable(); ids.add(event.id); at = event.at;
+    if (!validated) validateEvent(event); if (ids.has(event.id) || event.previous !== state.revision || event.at < at) throw unavailable(); ids.add(event.id); at = event.at;
     if(event.change.type==='child_grant'){
       manifest=applyChildGrant(base,manifest,state,{grant:event.change.grant,eventId:event.id,eventHash:event.hash,at:event.at});
     }else if (event.change.type === 'reserve') {
@@ -152,7 +154,7 @@ export class ReservationLedger {
   }
   read(cwd:string):{manifest:ExecutionManifest;events:ReservationEvent[];projection:ReservationProjection} {
     directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd);
-    return {...journal,projection:replayReservations(journal.manifest,journal.events)};
+    return {...journal,projection:replay(journal.manifest,journal.events,true)};
   }
   canReleaseFailedReservation(error:unknown):boolean {return !parentAdmissionUncertain(error);}
   async refreshAuthority(cwd:string,_agentId:string,signal?:AbortSignal):Promise<void> {
@@ -191,7 +193,7 @@ export class ReservationLedger {
     const identity=fs.fstatSync(fd!);let temp:string|undefined,funded=false;
     try{
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
-      const raw=read(file),journal=decode(raw),current=replayReservations(journal.manifest,journal.events);checkExecutionIdentity(journal.manifest,cwd);
+      const raw=read(file),journal=decode(raw),current=replay(journal.manifest,journal.events,true);checkExecutionIdentity(journal.manifest,cwd);
       if(current.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; request denied.');
       const funding=journal.manifest.parent&&change.type!=='settle'
         ?await (await import('./parent-budget.js')).parentBudgetAuthority(journal.manifest,cwd,true,signal):undefined;
@@ -201,7 +203,7 @@ export class ReservationLedger {
       const pending=Object.values(current.requests).filter(r=>r.state==='pending').length;
       if(journal.events.length+(change.type!=='settle'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
       const body={version:reservationVersion(change),id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
-      const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=replayReservations(journal.manifest,events),output=encode(journal.manifest,events);
+      const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=(validateEvent(event),replay(journal.manifest,events,true)),output=encode(journal.manifest,events);
       if(funding&&change.type==='reserve'){
         const {reserveParent}=await import('./parent-budget.js');
         await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);funded=true;

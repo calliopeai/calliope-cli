@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {ReservationLedger,manifestHash,replayReservations,requestCostNanos,MAX_RESERVATION_BYTES,type ExecutionManifest,type RequestReservation,type ReservationEvent} from '../src/execution/index.js';
 import {canonicalJson,digest} from '../src/approvals/index.js';
+import {verifiedJournal} from '../src/execution/remote-checkpoint.js';
 import {executionManifest} from './helpers/execution-manifest.js';
 import {simulateWindowsDirectoryFsyncDenial} from './helpers/windows-fsync.js';
 vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
@@ -69,6 +70,38 @@ it('reserves journal capacity for final settlement and rejects oversized history
   const file=join(ledger.root,'history.json');fs.writeFileSync(file,JSON.stringify({version:1,manifest,events,hash:digest(canonicalJson({manifest:hash,events:events.map(e=>e.hash)}))}));
   const last=request();await ledger.reserve(project,hash,last);await expect(ledger.reserve(project,hash,request())).rejects.toMatchObject({code:'limit'});await ledger.settle(project,hash,{requestId:last.id,outcome:'cancelled'});expect(ledger.read(project).events).toHaveLength(10000);
   fs.truncateSync(file,MAX_RESERVATION_BYTES+1);expect(()=>ledger.read(project)).toThrow();expect(()=>ledger.create(manifest)).toThrow();expect(fs.statSync(file).size).toBe(MAX_RESERVATION_BYTES+1);
+});
+/** Writes a journal whose event hashes and journal hash are all valid, so only the check under test can fail. */
+const chain=(links:Array<{id?:string;previous?:string}>)=>{
+  const events:ReservationEvent[]=[],start=manifestHash(manifest);
+  for(const link of links){const r={...request(),inputTokens:1,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0};
+    const body={version:1 as const,id:link.id??randomUUID(),at:manifest.createdAt,previous:link.previous??events.at(-1)?.hash??start,change:{type:'reserve' as const,reservation:r}};
+    events.push({...body,hash:digest(canonicalJson(body))});}
+  return events;
+};
+const journalHash=(events:ReservationEvent[])=>digest(canonicalJson({manifest:manifestHash(manifest),events:events.map(e=>e.hash)}));
+const store=(events:ReservationEvent[])=>{ledger.create(manifest);const file=join(ledger.root,'history.json');fs.writeFileSync(file,JSON.stringify({version:1,manifest,events,hash:journalHash(events)}));return {file,bytes:fs.readFileSync(file,'utf8')};};
+const expectRejectedAndPreserved=async(file:string,bytes:string)=>{
+  expect(()=>ledger.read(project)).toThrow();
+  await expect(ledger.reserve(project,manifestHash(manifest),request())).rejects.toMatchObject({code:'unavailable'});
+  expect(fs.readFileSync(file,'utf8')).toBe(bytes);
+};
+it('rejects a broken previous link even when every hash is re-signed',async()=>{
+  const {file,bytes}=store(chain([{},{previous:'f'.repeat(64)}]));await expectRejectedAndPreserved(file,bytes);
+});
+it('rejects a duplicate event id even when every hash is re-signed',async()=>{
+  const id=randomUUID(),{file,bytes}=store(chain([{id},{id}]));await expectRejectedAndPreserved(file,bytes);
+});
+it('rejects a tampered event inside a 10k history on read and on reserve',async()=>{
+  const events=chain(Array.from({length:9998},()=>({})));
+  const tampered=structuredClone(events);const mid=tampered[5000]!;if(mid.change.type!=='reserve')throw new Error('fixture');mid.change.reservation.inputTokens=2;
+  const {file,bytes}=store(tampered);await expectRejectedAndPreserved(file,bytes);
+});
+it('keeps validating every event in the exported replay used for remote parent journals',()=>{
+  const events=chain([{},{},{}]);ledger.create(manifest);const file=join(ledger.root,'history.json');fs.writeFileSync(file,JSON.stringify({version:1,manifest,events,hash:journalHash(events)}));
+  expect(replayReservations(manifest,events)).toEqual(ledger.read(project).projection);expect(verifiedJournal({manifest,events}).events).toHaveLength(3);
+  const forged=structuredClone(events),last=forged[2]!;if(last.change.type!=='reserve')throw new Error('fixture');last.change.reservation.inputTokens=2;
+  expect(()=>replayReservations(manifest,forged)).toThrow();expect(()=>verifiedJournal({manifest,events:forged})).toThrow();
 });
 it('creates and appends the budget journal on Windows, where its directories cannot be fsynced (#388)',async()=>{
   const restore=simulateWindowsDirectoryFsyncDenial();
