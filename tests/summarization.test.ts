@@ -788,12 +788,15 @@ describe('summarizeConversation with a discovered limit', () => {
   for (const [name, at] of [['before', 3], ['after', 38]] as const) {
     it(`keeps every system message exactly once (mid-history ${name} the split)`, () => {
       const msgs = history();
+      msgs[0] = userMsg('# FIRST-TOPIC\n' + 'x'.repeat(1900));
       msgs.unshift(systemMsg('LEADING'));
-      msgs.splice(at, 0, systemMsg('LOADED INSTRUCTIONS'));
+      msgs.splice(at, 0, systemMsg('# LOADED-TOPIC\nLOADED INSTRUCTIONS'));
       const result = summarizeConversation(msgs, { maxTokens: 100, preserveRecent: 5 });
       const count = (t: string) => result.messages.filter(m => m.role === 'system' && m.content === t).length;
       expect(count('LEADING')).toBe(1);
-      expect(count('LOADED INSTRUCTIONS')).toBe(1);
+      expect(count('# LOADED-TOPIC\nLOADED INSTRUCTIONS')).toBe(1);
+      expect(result.summary).toContain('FIRST-TOPIC');
+      expect(result.summary).not.toContain('LOADED-TOPIC');
       const nonSystemIn = msgs.filter(m => m.role !== 'system').length;
       const keptNonSystem = result.messages.filter(m => m.role !== 'system').length;
       expect(result.summarizedCount + keptNonSystem).toBe(nonSystemIn);

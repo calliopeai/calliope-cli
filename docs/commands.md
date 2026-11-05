@@ -118,9 +118,9 @@ the current session.
 
 ### `/compact [status]`
 Compress conversation context to free tokens. `/compact status` prints a summary
-of topics, decisions, and changes without compacting. The compaction target is 60% of the active model's discovered
-context window (the same target as auto-compaction), or 50,000 tokens when no model
-is active.
+of topics, decisions, and changes without compacting. The compaction target is
+60% of the active model's discovered context window (the same target as
+auto-compaction), or 50,000 tokens when no model is active.
 ```
 /compact
 /compact status
