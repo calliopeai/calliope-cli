@@ -1081,6 +1081,14 @@ describe('output-limit truncation (#487)', () => {
     expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
   });
 
+  it('non-streaming: does not flag a complete call followed by length', async () => {
+    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"path":"/a"}')] }, finish_reason: 'length' }] };
+    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');
+    expect(result.finishReason).toBe('length');
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+    expect(result.toolCalls).toEqual([{ id: 'call_ok', name: 'read_file', arguments: { path: '/a' } }]);
+  });
+
   it('non-streaming: still throws on invalid arguments for other finishes', async () => {
     mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '{"path":"/te')] }, finish_reason: 'tool_calls' }] };
     await expect(chatOpenAICompatible('groq', msgs, makeTools(), 'model')).rejects.toThrow('Invalid tool arguments from LLM');

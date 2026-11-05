@@ -1689,6 +1689,14 @@ describe('output-limit truncation (#487)', () => {
     expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
   });
 
+  it('non-streaming: does not flag a complete call followed by length', async () => {
+    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"a":1}')] }, finish_reason: 'length' }] };
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
+    expect(result.finishReason).toBe('length');
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+    expect(result.toolCalls).toEqual([{ id: 'call_ok', name: 'test_tool', arguments: { a: 1 } }]);
+  });
+
   it('non-streaming: still throws on invalid arguments for other finishes', async () => {
     mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '{"a":')] }, finish_reason: 'tool_calls' }] };
     await expect(chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o')).rejects.toThrow('Invalid tool arguments from LLM');
