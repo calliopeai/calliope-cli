@@ -34,6 +34,35 @@ client preference in every continuation decision and adds a `calliopeRouting`
 origin to assistant metadata. Start a new session or normalize history explicitly
 before moving opaque protocol state to another provider.
 
+## Private data policy
+
+`routing.dataPolicy: "private"` restricts routing to targets the user declares in
+`routing.privateTargets`. The policy is off by default and with it off nothing
+changes. Private is never inferred: localhost, private IP ranges and local model
+servers are not treated as private, because a local address can proxy to a public
+service.
+
+```json
+{ "routing": { "dataPolicy": "private",
+  "privateTargets": [{ "provider": "openai-compat", "endpoint": "http://10.0.0.5:8000/v1" }] } }
+```
+
+- A declaration is a provider plus its exact endpoint, compared as
+  `origin + pathname` with no trailing-slash folding. If the provider's endpoint
+  changes, the target is no longer declared. Endpoints with a query string or
+  userinfo never match. At most 32 entries.
+- The policy is read from user config only. A request's `preferences` cannot loosen it.
+- Undeclared targets are dropped in every mode (automatic, explicit, protocol-pinned,
+  Smart and escalation pools) before discovery, so an explicit undeclared selection
+  returns no route with the exclusion reason `outside-private-policy` and sends no
+  request. With nothing declared, nothing can be selected.
+- The ChatGPT quota fallback activates only when the OpenAI API-key target it would
+  switch to is declared. Otherwise it is refused before history conversion or
+  checkpointing, with `outside-private-policy`.
+- Known gap: callers that invoke a provider's `chat()` directly without routing
+  (the judgment engine with provider `auto`, `src/judgment/evaluate.ts`) are not yet
+  covered. This is tracked in a follow-up issue.
+
 ## Configuration and score
 
 ```json

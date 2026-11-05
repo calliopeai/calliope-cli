@@ -67,6 +67,9 @@ export interface CalliopeConfig {
     preferredProviders?: Exclude<LLMProvider, 'auto'>[];
     providerPool?: Exclude<LLMProvider, 'auto'>[];
     discoveryTimeoutMs?: number;
+    /** 'private' restricts routing to `privateTargets`; off when absent. */
+    dataPolicy?: 'private';
+    privateTargets?: { provider: string; endpoint: string }[];
   };
   providerHealth?: {
     retentionEvents?: number;
@@ -176,6 +179,9 @@ const config = new Conf<CalliopeConfig>({
       preferredProviders: { type: 'array', items: { type: 'string' }, maxItems: 32 },
       providerPool: { type: 'array', items: { type: 'string' }, maxItems: 32 },
       discoveryTimeoutMs: { type: 'integer', minimum: 100, maximum: 30000 },
+      dataPolicy: { type: 'string', enum: ['private'] },
+      privateTargets: { type: 'array', maxItems: 32, items: { type: 'object', additionalProperties: false, required: ['provider', 'endpoint'],
+        properties: { provider: { type: 'string' }, endpoint: { type: 'string', pattern: '^https?://' } } } },
     } },
     providerHealth: { type: 'object', additionalProperties: false, properties: {
       retentionEvents: { type: 'integer', minimum: 10, maximum: 10000 },
