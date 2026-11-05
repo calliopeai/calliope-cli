@@ -197,6 +197,28 @@ function findSafeSplitPoint(messages: LLMMessage[], targetIndex: number): number
 }
 
 /**
+ * Fraction of the context window to compact down to. Matches the target the
+ * shared turn engine uses for auto-compaction in ui/agent.ts.
+ */
+export const COMPACTION_TARGET_RATIO = 0.6;
+
+/**
+ * Fallback compaction target, used only when no provider or model is active
+ * (so no context limit is known).
+ */
+export const COMPACTION_FALLBACK_TOKENS = 50000;
+
+/**
+ * Derive the compaction target (in tokens) from a context limit. Never returns 0.
+ */
+export function compactionTargetTokens(contextLimit: number | undefined): number {
+  if (typeof contextLimit !== 'number' || !Number.isFinite(contextLimit) || contextLimit <= 0) {
+    return COMPACTION_FALLBACK_TOKENS;
+  }
+  return Math.max(1, Math.floor(contextLimit * COMPACTION_TARGET_RATIO));
+}
+
+/**
  * Summarize conversation to fit within token limit
  */
 export function summarizeConversation(
@@ -232,11 +254,13 @@ export function summarizeConversation(
   const targetSplitIndex = messages.length - opts.preserveRecent;
   const safeSplitIndex = findSafeSplitPoint(messages, targetSplitIndex);
 
-  const recentMessages = messages.slice(safeSplitIndex);
-  const toSummarize = messages.slice(
-    systemMessages.length,
-    safeSplitIndex
-  );
+  // Preserved system messages are hoisted to the front of the output, so they
+  // must be excluded from both the summarized and recent slices (a mid-history
+  // system message would otherwise be duplicated, and slicing by
+  // systemMessages.length would silently drop a leading non-system message).
+  const notHoisted = (m: LLMMessage) => !opts.preserveSystem || m.role !== 'system';
+  const recentMessages = messages.slice(safeSplitIndex).filter(notHoisted);
+  const toSummarize = messages.slice(0, safeSplitIndex).filter(notHoisted);
 
   // Create summary
   const summary = summarizeMessages(toSummarize);
