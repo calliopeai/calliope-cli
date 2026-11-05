@@ -837,8 +837,35 @@ describe('output-limit truncation (#487)', () => {
       expect(result.toolCalls).toBeUndefined();
     });
 
-    it('does not flag a complete call followed by max_tokens', async () => {
+    it('drops a trailing call under max_tokens even when its JSON parses', async () => {
       mockStreamEvents = [toolStart('tc_ok'), delta('{"path":"/a"}'), blockStop, messageDelta('max_tokens')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('drops a header-only call (no argument bytes) under max_tokens', async () => {
+      mockStreamEvents = [toolStart('tc_cut'), blockStop, messageDelta('max_tokens')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps a header-only call as {} on other finishes, without a flag', async () => {
+      mockStreamEvents = [toolStart('tc_cut'), blockStop, messageDelta('tool_use')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'tc_cut', name: 'read_file', arguments: {} }]);
+    });
+
+    it('does not flag a tool call followed by a text block under max_tokens', async () => {
+      mockStreamEvents = [
+        toolStart('tc_ok'), delta('{"path":"/a"}'), blockStop,
+        { type: 'content_block_start', content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', delta: { type: 'text_delta', text: 'more' } },
+        blockStop, messageDelta('max_tokens'),
+      ];
       const result = await chatAnthropic(msgs, makeTools(), model, () => {});
       expect(result).not.toHaveProperty('truncatedToolCalls');
       expect(result.toolCalls).toHaveLength(1);

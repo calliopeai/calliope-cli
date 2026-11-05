@@ -186,6 +186,8 @@ export async function chatAnthropic(
     let currentToolName = '';
     let currentToolInput = '';
     const unparsedToolIds = new Set<string>();
+    // Last tool call pushed with nothing after it: under `length` it was cut off.
+    let trailingToolId = '';
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
     try {
@@ -197,6 +199,8 @@ export async function chatAnthropic(
             currentToolId = event.content_block.id;
             currentToolName = event.content_block.name;
             currentToolInput = '';
+          } else {
+            trailingToolId = '';
           }
         } else if (event.type === 'content_block_delta') {
           if (event.delta.type === 'text_delta') {
@@ -222,6 +226,7 @@ export async function chatAnthropic(
                 arguments: {},
               });
             }
+            trailingToolId = currentToolId;
             currentToolId = '';
             currentToolName = '';
             currentToolInput = '';
@@ -250,10 +255,9 @@ export async function chatAnthropic(
       // Output limit mid-tool-call: drop the cut-off call(s) and flag instead of sending `{}`.
       let truncatedToolCalls = false;
       if (finishReason === 'length') {
+        if (trailingToolId) unparsedToolIds.add(trailingToolId);
         truncatedToolCalls = unparsedToolIds.size > 0 || !!currentToolId;
-        if (unparsedToolIds.size > 0) {
-          for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
-        }
+        for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
       }
 
       return {

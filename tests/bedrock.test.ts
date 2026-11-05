@@ -772,9 +772,29 @@ describe('chatBedrock - streaming', () => {
       expect(result.toolCalls).toBeUndefined();
     });
 
-    it('does not flag a complete call followed by max_tokens', async () => {
+    it('drops a trailing call under max_tokens even when its JSON parses', async () => {
       const result = await run([toolStart, toolDelta('{"command":"ls"}'), blockStop, stop('max_tokens')]);
       expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('drops a header-only call (no argument bytes) under max_tokens', async () => {
+      const result = await run([toolStart, blockStop, stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps a header-only call as {} on other finishes, without a flag', async () => {
+      const result = await run([toolStart, blockStop, stop('tool_use')]);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'tc-cut', name: 'shell', arguments: {} }]);
+    });
+
+    it('does not flag a tool call followed by text under max_tokens', async () => {
+      const text = { type: 'contentBlockDelta', payload: JSON.stringify({ delta: { text: 'more' } }) };
+      const result = await run([toolStart, toolDelta('{"command":"ls"}'), blockStop, text, stop('max_tokens')]);
       expect(result).not.toHaveProperty('truncatedToolCalls');
       expect(result.toolCalls).toHaveLength(1);
     });

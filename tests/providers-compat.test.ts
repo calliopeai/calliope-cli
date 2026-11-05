@@ -1045,6 +1045,34 @@ describe('output-limit truncation (#487)', () => {
     expect(result.toolCalls).toHaveLength(1);
   });
 
+  it('streaming: drops a header-only call (empty arguments) under length', async () => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'read_file', arguments: '' } }] }, finish_reason: null }] },
+      finish('length'),
+    ];
+    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
+    expect(result.finishReason).toBe('length');
+    expect(result.truncatedToolCalls).toBe(true);
+    expect(result.toolCalls).toBeUndefined();
+  });
+
+  it('streaming: keeps a header-only call as {} on other finishes, without a flag', async () => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'read_file', arguments: '' } }] }, finish_reason: null }] },
+      finish('tool_calls'),
+    ];
+    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+    expect(result.toolCalls).toEqual([{ id: 'call_cut', name: 'read_file', arguments: {} }]);
+  });
+
+  it('non-streaming: drops a header-only call (empty arguments) under length without throwing', async () => {
+    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '')] }, finish_reason: 'length' }] };
+    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');
+    expect(result.truncatedToolCalls).toBe(true);
+    expect(result.toolCalls).toBeUndefined();
+  });
+
   it('non-streaming: does not throw, drops the call and flags it under length', async () => {
     mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"path":"/a"}'), fn('call_cut', '{"path":"/te')] }, finish_reason: 'length' }] };
     const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');

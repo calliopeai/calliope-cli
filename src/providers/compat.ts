@@ -360,6 +360,11 @@ export async function chatOpenAICompatible(
       let truncatedToolCalls = false;
       for (const tc of Object.values(toolCallDeltas)) {
         if (!tc.id || !tc.name) continue;
+        // No argument bytes at the output limit: cut off, not a no-argument call (that arrives as `{}`).
+        if (finishReason === 'length' && !tc.arguments?.trim()) {
+          truncatedToolCalls = true;
+          continue;
+        }
         let parsedArgs: Record<string, unknown> = {};
         try {
           parsedArgs = JSON.parse(tc.arguments || '{}');
