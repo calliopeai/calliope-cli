@@ -956,6 +956,14 @@ describe('chatOpenAICompatible', () => {
       expect(lastCreateParams).not.toHaveProperty('max_tokens');
     });
 
+    it('sends max_completion_tokens only for gpt-6.1-terra on api.openai.com', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-terra');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
     it('sends max_completion_tokens only for api.openai.com (streaming)', async () => {
       await setBase('openai-compat', 'https://api.openai.com/v1');
       mockStreamChunks = streamChunks;
@@ -985,6 +993,7 @@ describe('chatOpenAICompatible', () => {
     it.each([
       ['openai-compat', undefined],
       ['openai-compat', 'http://localhost:8000'],
+      ['openai-compat', 'http://localhost:1234/v1'],
       ['groq', undefined],
       ['ollama', undefined],
       ['openai-compat', 'https://api.openai.com.example.test/v1'],
