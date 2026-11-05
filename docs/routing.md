@@ -59,9 +59,16 @@ service.
 - The ChatGPT quota fallback activates only when the OpenAI API-key target it would
   switch to is declared. Otherwise it is refused before history conversion or
   checkpointing, with `outside-private-policy`.
-- Known gap: callers that invoke a provider's `chat()` directly without routing
-  (the judgment engine with provider `auto`, `src/judgment/evaluate.ts`) are not yet
-  covered. This is tracked in a follow-up issue.
+- Known gap: callers that invoke a provider's `chat()` directly without routing are
+  not covered by the policy. In particular, the policy judge (`policy.judgment`) with
+  provider `auto`, or with an undeclared `policy.judgmentProvider`, can still send a
+  tool call's name and arguments to an undeclared provider
+  (`src/judgment/evaluate.ts`). The owner left this out of #489 and it is tracked
+  as a follow-up under #254 (enforce the policy at the provider `chat()` boundary).
+  Until then, keep `policy.judgment` off while `routing.dataPolicy` is `private`, or
+  set `policy.judgmentProvider` to a provider whose endpoint you have declared.
+  "No silent public fallback" covers routing, the quota fallback and escalation, not
+  direct `chat()` callers.
 
 ## Configuration and score
 
