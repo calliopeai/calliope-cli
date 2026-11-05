@@ -30,6 +30,7 @@ cli.env
 
 # Test coverage
 coverage/
+coverage-map.json
 
 # Backup files
 *.backup

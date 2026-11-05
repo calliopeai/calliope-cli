@@ -55,6 +55,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:affected": "node scripts/coverage-map.mjs select --base origin/main --run",
+    "coverage:map": "node scripts/coverage-map.mjs build",
     "test:ahp-protocol": "npm run build && node --test scripts/qualification/ahp-protocol.mjs",
     "test:reviewed-host": "npm run build && node scripts/qualification/reviewed-host.mjs",
     "test:native-policy": "npm run build && node --test scripts/qualification/native-policy.mjs",
