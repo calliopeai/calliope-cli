@@ -5,6 +5,7 @@ import * as config from '../src/config.js';
 import { HealthStore, providerTarget } from '../src/health/index.js';
 import { diagnoseProviders, formatDoctor, runDoctor } from '../src/doctor.js';
 import { clearModelCache } from '../src/model-detection.js';
+import { reapedOrSigkilled } from './helpers/process-exit.js';
 
 const shellPath=(value:string)=>{
   if(process.platform==='win32'){
@@ -128,8 +129,9 @@ it.skipIf(process.platform === 'win32')('cancels and reaps a real AWS credential
     expect((await pending).exitCode).toBe(130);
     // The outer discovery race must retain ownership through TERM escalation.
     expect(Date.now()-cancelledAt).toBeGreaterThanOrEqual(200);
-    // Reaping is asserted, not its speed: a loaded CI host can take seconds to schedule the kill.
-    await vi.waitFor(() => expect(() => process.kill(pid!, 0)).toThrow(), { timeout: 5000, interval: 10 });
+    // Removal is asserted, not its speed: a loaded CI host can take seconds to schedule the kill.
+    // The helper outlives its parent, so reaping it falls to PID 1 (#481).
+    await vi.waitFor(() => expect(reapedOrSigkilled(pid!)).toBe(true), { timeout: 5000, interval: 10 });
     expect(fetch).not.toHaveBeenCalled();
   } finally {
     controller.abort();
