@@ -173,3 +173,16 @@ it('allows the paid fallback when the API-key target is declared', async () => {
   expect(paidRequests).toBe(1);
   rmSync(root, { recursive: true, force: true }); rmSync(store.directory, { recursive: true, force: true });
 });
+
+it('checks the API-key baseUrl, not the ChatGPT endpoint, before the paid fallback', async () => {
+  await fallbackSetup();
+  config.setProviderCred('openai', { accessMethod: 'chatgpt', apiKey: 'paid-fixture-key', baseUrl: 'https://proxy.example/v1' });
+  config.set('routing', { enabled: true, costSensitivity: 0.3, dataPolicy: 'private', privateTargets: [{ provider: 'openai', endpoint: 'https://api.openai.com/v1' }] });
+  await expect(runTurn(turn())).rejects.toThrow(/outside-private-policy/);
+  expect(paidRequests).toBe(0);
+  config.set('routing', { enabled: true, costSensitivity: 0.3, dataPolicy: 'private', privateTargets: [{ provider: 'openai', endpoint: 'https://proxy.example/v1' }] });
+  const result = await runTurn(turn());
+  expect(result.reason).toBe('completed');
+  expect(paidRequests).toBe(1);
+  rmSync(root, { recursive: true, force: true }); rmSync(store.directory, { recursive: true, force: true });
+});

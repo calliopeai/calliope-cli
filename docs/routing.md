@@ -56,6 +56,10 @@ service.
   Smart and escalation pools) before discovery, so an explicit undeclared selection
   returns no route with the exclusion reason `outside-private-policy` and sends no
   request. With nothing declared, nothing can be selected.
+- The ChatGPT subscription and the OpenAI API-key path both resolve to
+  `https://api.openai.com/v1` unless the API key has a custom `baseUrl`. Declaring
+  `{ "provider": "openai", "endpoint": "https://api.openai.com/v1" }` therefore covers
+  both and permits the quota fallback. With a custom `baseUrl`, declare that `baseUrl`.
 - The ChatGPT quota fallback activates only when the OpenAI API-key target it would
   switch to is declared. Otherwise it is refused before history conversion or
   checkpointing, with `outside-private-policy`.
