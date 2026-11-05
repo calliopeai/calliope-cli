@@ -1,0 +1,82 @@
+name: Test selection
+
+# Which tests a change reaches, from measured per-test-file coverage (docs/test-selection.md).
+# Report only: the full suite in ci.yml stays the gate.
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [main, 'feat/**', 'fix/**']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-selection-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  map:
+    name: coverage map
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - name: Build the coverage map
+        # Writes the map before exiting with the suite's status, so a failing test still
+        # leaves a map (its own tests always run in a selection).
+        run: npm run --silent coverage:map -- --maxWorkers=2 >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('coverage-map.json') != ''
+        with:
+          name: coverage-map
+          path: coverage-map.json
+          retention-days: 14
+
+  report:
+    name: test selection (report)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # The merge base and the map's commit.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - run: npm ci
+      - name: Download the newest coverage map built on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY_ID: ${{ github.repository_id }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=coverage-map&per_page=50" --jq \
+            "[.artifacts[] | select((.expired | not) and .workflow_run.head_branch == \"main\" and .workflow_run.head_repository_id == $REPOSITORY_ID)] | sort_by(.created_at) | last | .id // empty")
+          if [ -z "$id" ]; then
+            echo "No coverage map from main yet; the selection runs everything."
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/coverage-map.zip"
+          unzip -o -q "$RUNNER_TEMP/coverage-map.zip" coverage-map.json
+      - name: Select, measure and summarize
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: node scripts/coverage-map.mjs select --base "origin/$BASE_REF" --report --jev --maxWorkers=2 >> "$GITHUB_STEP_SUMMARY"

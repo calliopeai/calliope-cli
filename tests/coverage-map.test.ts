@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse } from 'yaml';
 import {
   JEV_MIN_CONFIDENCE,
   JEV_MODEL,
@@ -521,6 +522,30 @@ describe('command line', () => {
     expect(() => parseArgs(['select', '--base'])).toThrow('--base needs a value');
     expect(() => parseArgs(['list'])).toThrow(/Usage/);
     expect(() => parseArgs(['select', '--base', 'x', '--max-age-hours', 'soon'])).toThrow(/positive number/);
+  });
+
+  it('wires CI as report only, beside the unchanged full suite', () => {
+    const workflow = (name: string) => parse(readFileSync(join(REPO, '.github', 'workflows', name), 'utf8'));
+    const selection = workflow('test-selection.yml');
+    expect(Object.keys(selection.on).sort()).toEqual(['pull_request', 'schedule', 'workflow_dispatch']);
+    const { map, report } = selection.jobs;
+    expect(map.if).toBe("github.event_name != 'pull_request'");
+    const upload = map.steps.find((s: { uses?: string }) => s.uses?.startsWith('actions/upload-artifact@'));
+    expect(upload.if).toContain('always()');
+    expect(upload.with).toEqual({ name: 'coverage-map', path: 'coverage-map.json', 'retention-days': 14 });
+    expect(map.steps.some((s: { run?: string }) => s.run?.startsWith('npm run --silent coverage:map'))).toBe(true);
+    expect(report.name).toBe('test selection (report)');
+    expect(report['continue-on-error']).toBe(true);
+    expect(report.if).toBe("github.event_name == 'pull_request'");
+    expect(report.steps.at(-1).run).toContain('select --base "origin/$BASE_REF" --report');
+    for (const step of [...map.steps, ...report.steps]) expect(step.run ?? '').not.toContain('secrets.');
+    // The required build job still runs the whole suite, and nothing else gates on the selector.
+    const ci = workflow('ci.yml');
+    expect(ci.jobs.build.steps.some((s: { run?: string }) => s.run === 'npm test -- --maxWorkers=2')).toBe(true);
+    expect(JSON.stringify(ci)).not.toContain('coverage-map');
+    const scripts = JSON.parse(readFileSync(join(REPO, 'package.json'), 'utf8')).scripts;
+    expect(scripts['coverage:map']).toBe('node scripts/coverage-map.mjs build');
+    expect(scripts['test:affected']).toBe('node scripts/coverage-map.mjs select --base origin/main --run');
   });
 
   it('classifies paths', () => {
