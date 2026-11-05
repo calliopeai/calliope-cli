@@ -62,6 +62,20 @@ Headless, for CI and scripts:
 calliope --headless --json "run the tests and summarize failures"
 ```
 
+Hard-cap a headless run by spend and wall-clock time:
+
+```bash
+calliope --headless --json --max-cost 0.50 --max-time 600 "fix the failing test"
+# or: CALLIOPE_MAX_COST=0.50 CALLIOPE_MAX_TIME=600 calliope --headless --json "..."
+```
+
+`--max-cost` is in USD and uses the same per-run accounting as `calliope cost --json`;
+`--max-time` is in seconds. A flag overrides its env var; invalid values exit 2.
+When a cap is reached the run stops, emits
+`{"type":"budget_exceeded","kind":"cost"|"time",...}` and exits 6 (a configured
+`budget.maxCostPerRun` halt still exits 3). The final `done` event carries
+`costUsd`, `inputTokens`, `outputTokens`, `elapsedMs`, the `limits` in force and `stoppedBy` (`"cost"`, `"time"` or `null`).
+
 Plan a project goal within a fixed budget, then approve the returned proposal hash:
 
 ```bash
@@ -125,9 +139,22 @@ One file, 16 keys. Credentials live in a per-provider map with environment-varia
 
 Docs: [getting started](docs/getting-started.md) · [commands](docs/commands.md) · [configuration](docs/configuration.md) · [model preferences](docs/model-preferences.md) · [providers](docs/providers.md) · [features](docs/features.md) · [fleet mode](docs/fleet.md)
 
+### ChatGPT plan access
+
+Run `calliope auth chatgpt login` to select subscription-backed OpenAI access.
+Use `calliope auth chatgpt status` to inspect accounts, and `api-key` to return to
+Platform API billing. See [ChatGPT plan access](docs/chatgpt-plan.md) for account
+management, output/budget restrictions and live-validation requirements.
+
 ## Editors
 
 Run Calliope as an [Agent Client Protocol](https://agentclientprotocol.com) agent (`calliope acp`) inside Zed, JetBrains, Neovim, and other ACP editors — client-side file edits, per-tool permissions, and the same audit trail. See [docs/acp.md](docs/acp.md).
+
+### Local Claude plan access
+
+Run `calliope claude status`, then `calliope claude -- <prompt>` to delegate to your
+installed, signed-in Claude agent. Claude owns permissions and plan usage in this
+mode. See [local Claude delegation](docs/claude-plan.md).
 
 ## Fleet mode
 

@@ -271,6 +271,7 @@ code=$?
 case "$code" in
   0) echo "done within budget" ;;
   3) echo "halted: budget cap reached (see the run log)"; exit 3 ;;
+  6) echo "halted: --max-cost or --max-time reached"; exit 6 ;;
   *) echo "agent error ($code)"; exit "$code" ;;
 esac
 ```

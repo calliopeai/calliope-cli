@@ -1,3 +1,4 @@
+import { chatGPTSelected, chatChatGPT, assertChatGPTLimits } from './chatgpt.js';
 /**
  * Provider Module - Entry Point
  *
@@ -31,7 +32,7 @@ export function getAvailableProviders(): LLMProvider[] {
 
   if (config.getApiKey('anthropic')) providers.push('anthropic');
   if (config.getApiKey('google')) providers.push('google');
-  if (config.getApiKey('openai')) providers.push('openai');
+  if (chatGPTSelected() || config.getApiKey('openai')) providers.push('openai');
   if (config.getApiKey('openrouter')) providers.push('openrouter');
   if (config.getApiKey('together')) providers.push('together');
   if (config.getApiKey('groq')) providers.push('groq');
@@ -119,6 +120,7 @@ function unavailableMessage(provider: LLMProvider): string {
  */
 export function selectProvider(preferred: LLMProvider): LLMProvider {
   if (String(preferred) === 'litellm') throw new ProviderUnavailableError(preferred, 'LiteLLM support has been removed. Select a supported provider explicitly; no replacement was chosen.');
+  if (preferred === 'openai' && chatGPTSelected()) return preferred;
   if (preferred !== 'auto') {
     if (preferred === 'ai21') throw new ProviderUnavailableError(preferred, unavailableMessage(preferred));
     // For local endpoints, check base URL instead of API key
@@ -164,6 +166,10 @@ export async function chat(
   const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
+  const subscription = actualProvider === 'openai' && chatGPTSelected();
+  if (subscription) assertChatGPTLimits(limits);
+  if (!subscription && messages.some(m => (m.providerMetadata?.openai as { chatgpt?: unknown } | undefined)?.chatgpt))
+    throw new ExecutionLimitError('authority', 'ChatGPT subscription history requires subscription access. Start a new session to use API-key access.');
   if (bounded && actualProvider === 'openrouter') {
     const ceiling = attemptBudget ? attemptBudget.priceCeiling : options?.priceCeiling;
     openRouterBounds(ceiling);
@@ -208,7 +214,7 @@ export async function chat(
         response = await chatGoogle(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'openai':
-        response = await chatOpenAI(messages, backendTools, actualModel, onToken, options?.signal, limits);
+        response = await (subscription ? chatChatGPT : chatOpenAI)(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
       case 'openrouter':
       case 'together':

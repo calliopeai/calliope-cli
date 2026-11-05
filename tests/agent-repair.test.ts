@@ -19,6 +19,7 @@ const READ_FILE_TOOL: Tool = {
 };
 
 vi.mock('../src/config.js', () => ({
+  getProviderCred: vi.fn(() => ({})),
   default: {},
   get: vi.fn((key: string) => {
     if (key === 'maxIterations') return 3;
@@ -83,7 +84,8 @@ vi.mock('../src/risk.js', () => ({
   requiresConfirmation: vi.fn(() => false),
 }));
 
-vi.mock('../src/errors.js', () => ({
+vi.mock('../src/errors.js', async original => ({
+  ...await original<typeof import('../src/errors.js')>(),
   formatError: vi.fn((e: unknown) => (e instanceof Error ? e.message : String(e))),
   classifyError: vi.fn(() => ({ category: 'other' })),
 }));

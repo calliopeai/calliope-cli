@@ -12,7 +12,8 @@ same shape and semantics as Project Brain's `conflict-kg/v1` contract.
 }
 ```
 
-Readers and importers must accept both format names. Node IDs are stable within a
+Readers and importers must accept both format names, and Calliope also reads
+Mimwell's `mimwell-kg/v1`. Node IDs are stable within a
 graph; node metadata belongs under `props`; and edge endpoints always reference
 node IDs. Calliope maps its entity `kind` to `type`, `name` to `name`, and retains
 state, confidence, provenance, timestamps, and source locators in `props`. Its

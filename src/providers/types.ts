@@ -42,6 +42,8 @@ export type RetryCallback = (attempt: number, error: Error, delayMs: number) => 
 export type ProviderPriceCeiling = Readonly<{ input: number; output: number }>;
 export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling; maxProviderRetries?: number }
 export interface ProviderAttemptBudget {
+  /** Conservative rates used by this native reservation, in USD per million tokens. */
+  readonly billingRates?: { input: number; output: number };
   readonly priceCeiling?: ProviderPriceCeiling;
   inputCounting?:'anthropic-count-tokens';
   reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?:ProviderPriceCeiling}): Promise<string>;

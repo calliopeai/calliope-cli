@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import * as config from '../src/config.js';
 import {resolveBedrockCredentials} from '../src/providers/bedrock-auth.js';
 import {chatBedrock,hasAWSCredentials} from '../src/providers/bedrock.js';
+import {reapedOrSigkilled} from './helpers/process-exit.js';
 
 let directory:string,server:Server|undefined,saved:Record<string,string|undefined>;
 const awsKey=(key:string)=>key.startsWith('AWS_')||key.startsWith('BEDROCK_');
@@ -180,7 +181,9 @@ describe('native AWS credential chain',()=>{
       await vi.waitFor(()=>expect(existsSync(pidFile)).toBe(true),{timeout:3000});
       const pid=Number(readFileSync(pidFile,'utf8'));
       await outcome;
-      await vi.waitFor(()=>expect(()=>process.kill(pid,0)).toThrow(),{timeout:1000});
+      // Removal is asserted, not its speed: a loaded CI host can take seconds to schedule the kill.
+      // The helper outlives its parent, so reaping it falls to PID 1 (#481).
+      await vi.waitFor(()=>expect(reapedOrSigkilled(pid)).toBe(true),{timeout:5000});
     } finally {
       if(existsSync(pidFile)){try{process.kill(Number(readFileSync(pidFile,'utf8')),'SIGKILL');}catch{}}
       await outcome;

@@ -164,6 +164,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  if (args[0] === 'auth') {
+    const controller = new AbortController(); headlessCancellation = controller;
+    try { await (await import('./auth/cli.js')).runAuthCommand(args.slice(1), controller.signal); return completeCommand(0); }
+    catch (error) { console.error(error instanceof Error ? error.message : 'Authentication failed.'); return completeCommand(controller.signal.aborted ? 130 : 1); }
+  }
+
   // Handle --help
   if (args.includes('--help') || args.includes('-h')) {
     printHelp();
@@ -181,6 +187,12 @@ async function main(): Promise<void> {
     console.log(`calliope v${getVersion()}`);
     await checkForUpdates();
     process.exit(0);
+  }
+
+  if (args[0] === 'claude') {
+    const controller = new AbortController(); headlessCancellation = controller;
+    try { return completeCommand(await (await import('./delegation/index.js')).runClaudeCommand(rawArgs.slice(1), controller.signal)); }
+    catch (error) { console.error(error instanceof Error ? error.message : 'Claude delegation failed.'); return completeCommand(controller.signal.aborted ? 130 : 1); }
   }
 
   // Local diagnostics run before setup and do not require provider credentials.
@@ -418,11 +430,19 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
 
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
-    const { runHeadless } = await import('./headless.js');
-    // Extract prompt from remaining args (non-flag args, skip --max-retries value)
+    const { runHeadless, parseHeadlessCaps } = await import('./headless.js');
+    let caps: ReturnType<typeof parseHeadlessCaps>;
+    try { caps = parseHeadlessCaps(parsed.args); }
+    catch (error) {
+      const message = (error as Error).message;
+      if (args.includes('--json')) console.log(JSON.stringify({ type: 'error', timestamp: new Date().toISOString(), data: { message } }));
+      else process.stderr.write(message + '\n');
+      return completeCommand(2);
+    }
+    // Extract prompt from remaining args (non-flag args, skip flag values)
     const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && ['--max-retries', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
+      if (i > 0 && ['--max-retries', '--max-cost', '--max-time', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
     const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
@@ -437,6 +457,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       prompt: prompt || undefined,
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
+      ...caps,
       ...(ledger ? { ledger } : {}),
     });
     return completeCommand(exitCode);
@@ -453,6 +474,7 @@ ${bold('calliope')} - Multi-model AI agent CLI
 
 ${bold('USAGE')}
   calliope [options] [prompt]
+  calliope auth chatgpt login [client-id] | status | use <client-id> | logout | api-key
   calliope permissions [list|reset|revoke <id>] [--json]   Inspect/revoke approvals
   calliope brain init|ingest|search|entity|neighbors|path|export [--json]   Local project knowledge
   calliope kg search|graph [--json]   Knowledge graph
@@ -482,6 +504,7 @@ ${bold('USAGE')}
   calliope judge --policy <rules.json>   Judgment-backed pre-tool policy engine (tool call on stdin)
   calliope replay <path|sessionId> [--json]   Render an audit run-log trace
   calliope cost [sessionId] [--json] [--dir <path>]   Report spend + tool usage from run logs
+  calliope claude status | [--print] [--model <model>] [--permission-mode default|plan] [-- <prompt>]
   calliope acp                                 Run as an ACP agent over stdio (for editors)
   calliope attach (--url <ws-url> | --hub <url> --user <name>) [session-uri] [--read-only] [--once]
     Follow an agent host session and answer its tool approvals (no session-uri: list sessions)
@@ -508,6 +531,8 @@ ${bold('OPTIONS')}
   --model ID       Select a live model for this invocation
   --               Treat following arguments as literal prompt text
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
+  --max-cost USD    Headless: stop once recorded run spend reaches USD (exit 6)
+  --max-time SECS   Headless: stop after SECS of wall-clock time (exit 6)
   --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
 ${bold('ENVIRONMENT VARIABLES')}
@@ -535,6 +560,8 @@ ${bold('ENVIRONMENT VARIABLES')}
 
   CALLIOPE_PROVIDER / CALLIOPE_MODEL  Defaults below explicit session/turn choices
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
+  CALLIOPE_MAX_COST     Default for --max-cost when the flag is absent
+  CALLIOPE_MAX_TIME     Default for --max-time when the flag is absent
 
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands
