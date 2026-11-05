@@ -264,6 +264,14 @@ describe('shared turn runtime', () => {
     expect(opts.messages.current.some(m => m.content === 'Please continue where you left off.')).toBe(true);
     chatMock.mockResolvedValue(response(tool())); expect((await runTurn(options({ onResponse: () => 'stop' }))).reason).toBe('stopped');
   });
+  it('treats a truncated-tool-call response with no calls left as a length stop, running nothing', async () => {
+    chatMock.mockResolvedValue({ ...text('cut off'), finishReason: 'length', truncatedToolCalls: true });
+    expect((await runTurn(options())).reason).toBe('length');
+    expect(executeMock).not.toHaveBeenCalled();
+    chatMock.mockReset(); chatMock.mockResolvedValueOnce({ ...text('cut off'), finishReason: 'length', truncatedToolCalls: true }).mockResolvedValueOnce(text('done'));
+    expect((await runTurn(options({ continueOnLength: true }))).reason).toBe('completed');
+    expect(executeMock).not.toHaveBeenCalled();
+  });
   it('reports provider error finishes as failures', async () => {
     chatMock.mockResolvedValue({ ...text(), finishReason: 'error' });
     await expect(runTurn(options())).rejects.toThrow('unsuccessful completion');

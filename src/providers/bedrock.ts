@@ -372,10 +372,16 @@ export async function chatBedrock(
   // Map stop reasons
   const finishReason = normalizeFinishReason(data.stopReason, toolCalls.length > 0);
 
+  // A toolUse block in last position under max_tokens was cut off: drop it and flag.
+  const lastBlock = data.output?.message?.content?.[data.output.message.content.length - 1];
+  const truncatedToolCalls = finishReason === 'length' && !!lastBlock?.toolUse;
+  if (truncatedToolCalls) toolCalls.pop();
+
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: data.usage ? {
       inputTokens: data.usage.inputTokens,
@@ -427,9 +433,13 @@ async function chatBedrockStreaming(
   let outputTokens = 0;
   let usageSeen = false;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+  let truncatedToolCalls = false;
   let currentToolId = '';
   let currentToolName = '';
   let currentToolInput = '';
+  const unparsedToolIds = new Set<string>();
+  // Last tool call pushed with nothing after it: under `length` it was cut off.
+  let trailingToolId = '';
 
   // Read the response body as a stream of bytes and parse events
   const reader = response.body?.getReader();
@@ -553,18 +563,22 @@ async function chatBedrockStreaming(
               currentToolId = start.start.toolUse.toolUseId;
               currentToolName = start.start.toolUse.name;
               currentToolInput = '';
+            } else {
+              trailingToolId = '';
             }
             break;
           }
           case 'contentBlockDelta': {
             const delta = event as { delta?: { text?: string; toolUse?: { input?: string }; reasoningContent?: unknown } };
             if (delta.delta?.text) {
+              trailingToolId = '';
               content += delta.delta.text;
               onToken(delta.delta.text);
             }
             if (delta.delta?.toolUse?.input) {
               currentToolInput += delta.delta.toolUse.input;
             }
+            if (delta.delta?.reasoningContent) trailingToolId = '';
             if (delta.delta?.reasoningContent) reasoningContent.push(delta.delta.reasoningContent);
             break;
           }
@@ -577,12 +591,14 @@ async function chatBedrockStreaming(
                   arguments: JSON.parse(currentToolInput || '{}'),
                 });
               } catch {
+                unparsedToolIds.add(currentToolId);
                 toolCalls.push({
                   id: currentToolId,
                   name: currentToolName,
                   arguments: {},
                 });
               }
+              trailingToolId = currentToolId;
               currentToolId = '';
               currentToolName = '';
               currentToolInput = '';
@@ -614,10 +630,17 @@ async function chatBedrockStreaming(
   }
 
   throwIfCancelled(signal);
+  // Output limit mid-tool-call: drop the cut-off call(s) and flag instead of sending `{}`.
+  if (finishReason === 'length') {
+    if (trailingToolId) unparsedToolIds.add(trailingToolId);
+    truncatedToolCalls = unparsedToolIds.size > 0 || !!currentToolId;
+    for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
+  }
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
   };

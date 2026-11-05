@@ -81,6 +81,8 @@ export interface LLMResponse {
   content: string;
   toolCalls?: ToolCall[];
   finishReason: 'stop' | 'tool_use' | 'length' | 'error';
+  /** Set only when the output limit cut off a tool call; that call is removed from toolCalls. */
+  truncatedToolCalls?: boolean;
   /** Normalized terminal diagnostic; never provider response text. */
   errorCode?: 'refusal';
   usage?: {

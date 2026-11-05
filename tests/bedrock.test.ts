@@ -737,6 +737,80 @@ describe('chatBedrock - streaming', () => {
     // Should fall back to empty arguments
     expect(result.toolCalls![0].arguments).toEqual({});
   });
+
+  describe('output-limit truncation (#487)', () => {
+    const toolStart = { type: 'contentBlockStart', payload: JSON.stringify({ start: { toolUse: { toolUseId: 'tc-cut', name: 'shell' } } }) };
+    const toolDelta = (input: string) => ({ type: 'contentBlockDelta', payload: JSON.stringify({ delta: { toolUse: { input } } }) });
+    const stop = (stopReason: string) => ({ type: 'messageStop', payload: JSON.stringify({ stopReason }) });
+    const blockStop = { type: 'contentBlockStop', payload: '{}' };
+    const run = async (events: Array<{ type: string; payload: string }>) => {
+      mockFetch.mockResolvedValue(makeStreamResponse(events));
+      return chatBedrock([makeTextMessage('user', 'go')], [], 'model-id', () => {});
+    };
+
+    it('drops a tool call with invalid JSON and flags it under max_tokens', async () => {
+      const result = await run([toolStart, toolDelta('{"command":"l'), blockStop, stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps a complete call and drops the cut-off one', async () => {
+      const complete = [
+        { type: 'contentBlockStart', payload: JSON.stringify({ start: { toolUse: { toolUseId: 'tc-ok', name: 'shell' } } }) },
+        toolDelta('{"command":"ls"}'), blockStop,
+      ];
+      const result = await run([...complete, toolStart, toolDelta('{"command":"l'), blockStop, stop('max_tokens')]);
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls!.map(c => c.id)).toEqual(['tc-ok']);
+    });
+
+    it('flags a block still open when the stream ends under max_tokens', async () => {
+      const result = await run([toolStart, toolDelta('{"command":"l'), stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('drops a trailing call under max_tokens even when its JSON parses', async () => {
+      const result = await run([toolStart, toolDelta('{"command":"ls"}'), blockStop, stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('drops a header-only call (no argument bytes) under max_tokens', async () => {
+      const result = await run([toolStart, blockStop, stop('max_tokens')]);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps a header-only call as {} on other finishes, without a flag', async () => {
+      const result = await run([toolStart, blockStop, stop('tool_use')]);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'tc-cut', name: 'shell', arguments: {} }]);
+    });
+
+    it('does not flag a tool call followed by text under max_tokens', async () => {
+      const text = { type: 'contentBlockDelta', payload: JSON.stringify({ delta: { text: 'more' } }) };
+      const result = await run([toolStart, toolDelta('{"command":"ls"}'), blockStop, text, stop('max_tokens')]);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toHaveLength(1);
+    });
+
+    it('keeps the {} substitute for invalid JSON on other finishes', async () => {
+      const result = await run([toolStart, toolDelta('{bad'), blockStop, stop('tool_use')]);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'tc-cut', name: 'shell', arguments: {} }]);
+    });
+
+    it('still drops an open block silently on other finishes, without a flag', async () => {
+      const result = await run([toolStart, toolDelta('{bad'), stop('end_turn')]);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toBeUndefined();
+    });
+  });
 });
 
 // ===========================================================================
@@ -845,5 +919,44 @@ describe('chatBedrock - response parsing edge cases', () => {
     expect(result.toolCalls).toHaveLength(2);
     expect(result.toolCalls![0].name).toBe('tool_a');
     expect(result.toolCalls![1].name).toBe('tool_b');
+  });
+});
+
+describe('chatBedrock - non-streaming output-limit truncation (#487)', () => {
+  beforeEach(() => {
+    process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
+    process.env.AWS_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+    process.env.AWS_REGION = 'us-east-1';
+  });
+  const toolUse = (id: string) => ({ toolUse: { toolUseId: id, name: 'shell', input: { command: 'ls' } } });
+  const reply = (content: unknown[], stopReason: string) => makeBedrockResponse({ output: { message: { role: 'assistant', content } }, stopReason });
+
+  it('drops a trailing toolUse block and flags it under max_tokens', async () => {
+    mockFetch.mockResolvedValueOnce(reply([{ text: 'working' }, toolUse('tc-cut')], 'max_tokens'));
+    const result = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+    expect(result.finishReason).toBe('length');
+    expect(result.truncatedToolCalls).toBe(true);
+    expect(result.toolCalls).toBeUndefined();
+  });
+
+  it('keeps earlier tool calls when only the last block is cut off', async () => {
+    mockFetch.mockResolvedValueOnce(reply([toolUse('tc-ok'), toolUse('tc-cut')], 'max_tokens'));
+    const result = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+    expect(result.truncatedToolCalls).toBe(true);
+    expect(result.toolCalls!.map(c => c.id)).toEqual(['tc-ok']);
+  });
+
+  it('does not flag a toolUse followed by a text block under max_tokens', async () => {
+    mockFetch.mockResolvedValueOnce(reply([toolUse('tc-ok'), { text: 'trailing' }], 'max_tokens'));
+    const result = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+    expect(result.toolCalls).toHaveLength(1);
+  });
+
+  it('does not flag a trailing toolUse on tool_use finish', async () => {
+    mockFetch.mockResolvedValueOnce(reply([toolUse('tc-ok')], 'tool_use'));
+    const result = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+    expect(result.toolCalls).toHaveLength(1);
   });
 });
