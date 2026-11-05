@@ -59,6 +59,17 @@ vi.mock('../src/tools.js', () => ({
   getTools: vi.fn(() => []),
 }));
 
+const forced = vi.hoisted(() => ({ reason: undefined as string | undefined }));
+vi.mock('../src/runtime/index.js', async original => {
+  const actual = await original<typeof import('../src/runtime/index.js')>();
+  return {
+    ...actual,
+    runTurn: (...args: Parameters<typeof actual.runTurn>) => forced.reason
+      ? Promise.resolve({ reason: forced.reason, iterations: 1, totals: {} })
+      : actual.runTurn(...args),
+  };
+});
+
 vi.mock('../src/memory.js', () => ({ buildMemoryContext: vi.fn(() => '') }));
 
 vi.mock('../src/local-model.js', () => ({
@@ -664,6 +675,20 @@ describe('edge cases', () => {
     const sessionId = await newSession(conn);
     mockChat.mockRejectedValueOnce(new Error('provider exploded'));
     await expect(conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] })).rejects.toThrow();
+  });
+
+  it('never reports an empty_response turn as end_turn', async () => {
+    const { conn } = connect();
+    await handshake(conn);
+    const sessionId = await newSession(conn);
+    forced.reason = 'empty_response';
+    try {
+      const res = await conn.agent.request('session/prompt', { sessionId, prompt: [{ type: 'text', text: 'go' }] });
+      expect(res.stopReason).toBe('refusal');
+      expect(res.stopReason).not.toBe('end_turn');
+    } finally {
+      forced.reason = undefined;
+    }
   });
 
   it('maps a length finish reason to stopReason max_tokens', async () => {

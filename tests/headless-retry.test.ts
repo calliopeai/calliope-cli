@@ -285,6 +285,25 @@ describe('headless cancellation', () => {
     expect(mockExecuteTool).not.toHaveBeenCalled();
   });
 
+  it('exits 130 without a give-up error when aborted during a length recovery', async () => {
+    const controller = new AbortController();
+    mockChat
+      .mockResolvedValueOnce({ content: 'cut', toolCalls: [], finishReason: 'length' })
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return { content: 'cut again', toolCalls: [], finishReason: 'length' };
+      });
+    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    try {
+      expect(await runHeadless({ prompt: 'work', provider: 'anthropic', outputMode: 'json', signal: controller.signal })).toBe(130);
+      const events = stdout.mock.calls.map(call => JSON.parse(String(call[0])));
+      expect(events.some(e => e.type === 'error')).toBe(false);
+      expect(mockChat).toHaveBeenCalledTimes(2);
+    } finally {
+      stdout.mockRestore();
+    }
+  });
+
   it('does not retry a transient tool failure after cancellation', async () => {
     const controller = new AbortController();
     mockChat.mockResolvedValueOnce(toolCallResponse('read_file'));

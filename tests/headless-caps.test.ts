@@ -197,6 +197,16 @@ describe('headless --max-cost', () => {
     expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'budget', stoppedBy: null } });
   });
 
+  it('keeps exit 3 when the configured budget cap is crossed during a length recovery', async () => {
+    configured.budget = { maxCostPerRun: 0.15 };
+    mockChat.mockImplementation(async () => ({ content: 'cut', toolCalls: [], finishReason: 'length', usage: { inputTokens: 800, outputTokens: 200 } }));
+
+    expect(await runHeadless({ prompt: 'long', provider: 'anthropic', outputMode: 'json' })).toBe(BUDGET_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(events().some(e => e.type === 'error')).toBe(false);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'budget' } });
+  });
+
   it('tightens a looser configured budget.maxCostPerRun', async () => {
     configured.budget = { maxCostPerRun: 5 };
     let call = 0;
