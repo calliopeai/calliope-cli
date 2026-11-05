@@ -185,6 +185,7 @@ export async function chatAnthropic(
     let currentToolId = '';
     let currentToolName = '';
     let currentToolInput = '';
+    const unparsedToolIds = new Set<string>();
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
     try {
@@ -214,6 +215,7 @@ export async function chatAnthropic(
                 arguments: JSON.parse(currentToolInput || '{}'),
               });
             } catch {
+              unparsedToolIds.add(currentToolId);
               toolCalls.push({
                 id: currentToolId,
                 name: currentToolName,
@@ -245,10 +247,20 @@ export async function chatAnthropic(
         }
       }
 
+      // Output limit mid-tool-call: drop the cut-off call(s) and flag instead of sending `{}`.
+      let truncatedToolCalls = false;
+      if (finishReason === 'length') {
+        truncatedToolCalls = unparsedToolIds.size > 0 || !!currentToolId;
+        if (unparsedToolIds.size > 0) {
+          for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
+        }
+      }
+
       return {
         content,
         toolCalls: finishReason !== 'error' && toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
+        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
         ...(finishReason === 'error' ? { errorCode: 'refusal' as const } : {}),
         usage: limits?.bounded && (!inputUsageSeen || !outputUsageSeen) ? undefined : { inputTokens, outputTokens },
       };
@@ -292,10 +304,16 @@ export async function chatAnthropic(
     if (!content) content = '[Request refused by the safety classifier]';
   }
 
+  // A tool_use block in last position under max_tokens was cut off: drop it and flag.
+  const lastBlock = response.content[response.content.length - 1];
+  const truncatedToolCalls = finishReason === 'length' && lastBlock?.type === 'tool_use';
+  if (truncatedToolCalls) toolCalls.pop();
+
   return {
     content,
     toolCalls: finishReason !== 'error' && toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(response.stop_reason === 'refusal' ? { errorCode: 'refusal' as const } : {}),
     usage: response.usage ? {
       inputTokens: response.usage.input_tokens + (response.usage.cache_creation_input_tokens || 0) + (response.usage.cache_read_input_tokens || 0),

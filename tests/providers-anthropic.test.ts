@@ -801,3 +801,88 @@ describe('adaptive thinking + refusal stop reason (#147)', () => {
     expect(result).toMatchObject({finishReason:'error',errorCode:'refusal',toolCalls:undefined,usage:{inputTokens:5,outputTokens:2}});
   });
 });
+
+describe('output-limit truncation (#487)', () => {
+  const msgs: Message[] = [{ role: 'user', content: 'go' }];
+  const model = 'claude-sonnet-4-20250514';
+  const toolStart = (id: string) => ({ type: 'content_block_start', content_block: { type: 'tool_use', id, name: 'read_file' } });
+  const delta = (partial_json: string) => ({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json } });
+  const messageDelta = (stop_reason: string) => ({ type: 'message_delta', delta: { stop_reason }, usage: { output_tokens: 8192 } });
+  const blockStop = { type: 'content_block_stop' };
+
+  describe('streaming', () => {
+    it('drops invalid-JSON call at block stop and flags it under max_tokens', async () => {
+      mockStreamEvents = [toolStart('tc_cut'), delta('{"path":"/te'), blockStop, messageDelta('max_tokens')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps a complete call next to the cut-off one', async () => {
+      mockStreamEvents = [
+        toolStart('tc_ok'), delta('{"path":"/a"}'), blockStop,
+        toolStart('tc_cut'), delta('{"path":"/te'), blockStop, messageDelta('max_tokens'),
+      ];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls!.map(c => c.id)).toEqual(['tc_ok']);
+    });
+
+    it('flags a block still open when the stream ends under max_tokens', async () => {
+      mockStreamEvents = [toolStart('tc_cut'), delta('{"path":"/te'), messageDelta('max_tokens')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('does not flag a complete call followed by max_tokens', async () => {
+      mockStreamEvents = [toolStart('tc_ok'), delta('{"path":"/a"}'), blockStop, messageDelta('max_tokens')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toHaveLength(1);
+    });
+
+    it('still drops an open block silently on other finishes, without a flag', async () => {
+      mockStreamEvents = [toolStart('tc_cut'), delta('{bad'), messageDelta('end_turn')];
+      const result = await chatAnthropic(msgs, makeTools(), model, () => {});
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toBeUndefined();
+    });
+  });
+
+  describe('non-streaming', () => {
+    const toolUse = (id: string) => ({ type: 'tool_use', id, name: 'read_file', input: { path: '/a' } });
+    const usage = { input_tokens: 10, output_tokens: 8192 };
+
+    it('drops a trailing tool_use block and flags it under max_tokens', async () => {
+      mockCreateResponse = { content: [{ type: 'text', text: 'working' }, toolUse('tc_cut')], stop_reason: 'max_tokens', usage };
+      const result = await chatAnthropic(msgs, makeTools(), model);
+      expect(result.finishReason).toBe('length');
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    });
+
+    it('keeps earlier calls when only the last block is cut off', async () => {
+      mockCreateResponse = { content: [toolUse('tc_ok'), toolUse('tc_cut')], stop_reason: 'max_tokens', usage };
+      const result = await chatAnthropic(msgs, makeTools(), model);
+      expect(result.toolCalls!.map(c => c.id)).toEqual(['tc_ok']);
+      expect(result.truncatedToolCalls).toBe(true);
+    });
+
+    it('does not flag a tool_use followed by text under max_tokens', async () => {
+      mockCreateResponse = { content: [toolUse('tc_ok'), { type: 'text', text: 'more' }], stop_reason: 'max_tokens', usage };
+      const result = await chatAnthropic(msgs, makeTools(), model);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toHaveLength(1);
+    });
+
+    it('does not flag a trailing tool_use on tool_use finish', async () => {
+      mockCreateResponse = { content: [toolUse('tc_ok')], stop_reason: 'tool_use', usage };
+      const result = await chatAnthropic(msgs, makeTools(), model);
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toHaveLength(1);
+    });
+  });
+});
