@@ -30,6 +30,7 @@ import {
   isFiniteIterationLimit,
 } from '../iteration-limit.js';
 import type { Message as LLMMessage, LLMProvider, Mode } from '../types.js';
+import { getModelContextLimit } from '../model-detection.js';
 import type { ModelInfo } from '../model-detection.js';
 import type { Session } from '../storage.js';
 import type { UIMessage, SessionStats, ThinkingState, ConversationSnapshot } from './types.js';
@@ -1038,7 +1039,11 @@ Stop a running loop with /loop stop`);
         }
       } else {
         // Default: summarize and compact the conversation
-        const result = summarization.summarizeConversation(ctx.llmMessages.current, { maxTokens: 50000 });
+        const result = summarization.summarizeConversation(ctx.llmMessages.current, {
+          maxTokens: summarization.compactionTargetTokens(
+            ctx.provider && ctx.model ? getModelContextLimit(ctx.provider, ctx.model) : undefined
+          ),
+        });
         if (result.summarizedCount > 0) {
           ctx.llmMessages.current = result.messages;
           ctx.setContextTokens(ctx.estimateContextTokens());
