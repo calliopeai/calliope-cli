@@ -17,6 +17,7 @@ import { resolveIterationLimit } from '../iteration-limit.js';
 import { getBudgetCaps, evaluateBudget, hasBudgetCaps, loadProjectSpend, formatBudgetHalt, type BudgetVerdict } from '../budget.js';
 import { RunLog } from '../runlog.js';
 import * as config from '../config.js';
+import { isDeclaredPrivate } from '../health/target.js';
 import { executeHooks } from '../hooks.js';
 import { resolvePermission, type PermissionContext } from './permissions.js';
 import type { PermissionDecision } from './types.js';
@@ -159,6 +160,11 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let paidFallback: { policy: ChatGPTFallbackPolicy; clientId: string } | undefined;
   const activateFallback = async (): Promise<void> => {
     throwIfCancelled(signal);
+    if (config.get('routing')?.dataPolicy === 'private' && !withAPIKeyAccess(() => isDeclaredPrivate('openai'))) {
+      const reason = 'outside-private-policy: the OpenAI API-key target is not declared in routing.privateTargets; paid fallback refused.';
+      runlog.policyEvent({tool:'provider',source:'chatgpt-fallback',decision:'deny',reason,durationMs:0});
+      throw new ExecutionLimitError('authority',reason);
+    }
     const policy = fallbackPolicy(), account = new ChatGPTStore().active();
     if (!policy || !chatGPTSelected() || !account?.accessToken || !config.getApiKey('openai'))
       throw new ChatGPTAuthError('ChatGPT quota reached; paid fallback requires an enabled policy, the same signed-in account and an OpenAI API key.');
