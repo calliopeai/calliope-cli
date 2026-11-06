@@ -6,6 +6,7 @@ import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { canonicalJson, canonicalPath, digest } from '../approvals/index.js';
 import { cancellableDelay, throwIfCancelled } from '../cancellation.js';
+import { portableProjectIdentity } from './portable-identity.js';
 import { accountLineage, checkExecutionIdentity, hex, identifier, integer, invalid, manifestHash, shape, uuid, validateExecutionManifest } from './authority.js';
 import { ExecutionLimitError, type ExecutionManifest, type RequestReservation, type RequestSettlement, type ReservationEvent, type ReservationProjection,type ChildGrant } from './types.js';
 import {validateChildGrant,applyChildGrant,assertChildCapacity,effectiveExecutionManifest} from './child-grants.js';
@@ -143,6 +144,7 @@ export class ReservationLedger {
   /** Explicit creation only. A missing journal inside an existing directory never resets spend. */
   create(input:ExecutionManifest,signal?:AbortSignal):ReservationProjection {
     throwIfCancelled(signal);const manifest=validateExecutionManifest(input);checkExecutionIdentity(manifest,manifest.project.root);
+    if(manifest.project.portable){const own=portableProjectIdentity(manifest.project.root);if(!own||canonicalJson(own)!==canonicalJson(manifest.project.portable))throw new ExecutionLimitError('authority','Execution belongs to a different or replaced project.');}
     if(this.now()>=manifest.deadline)throw new ExecutionLimitError('deadline','Run deadline expired.');
     if(canonicalPath(this.root)!==this.root)throw unavailable();
     // The caller owns creation of the private run directory; never create arbitrary ancestors.
@@ -153,7 +155,7 @@ export class ReservationLedger {
     return replayReservations(manifest,[]);
   }
   read(cwd:string):{manifest:ExecutionManifest;events:ReservationEvent[];projection:ReservationProjection} {
-    directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd);
+    directory(this.root);const journal=decode(read(join(this.root,'history.json')));checkExecutionIdentity(journal.manifest,cwd,{portable:true});
     return {...journal,projection:replay(journal.manifest,journal.events,true)};
   }
   canReleaseFailedReservation(error:unknown):boolean {return !parentAdmissionUncertain(error);}
@@ -193,7 +195,7 @@ export class ReservationLedger {
     const identity=fs.fstatSync(fd!);let temp:string|undefined,funded=false;
     try{
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
-      const raw=read(file),journal=decode(raw),current=replay(journal.manifest,journal.events,true);checkExecutionIdentity(journal.manifest,cwd);
+      const raw=read(file),journal=decode(raw),current=replay(journal.manifest,journal.events,true);checkExecutionIdentity(journal.manifest,cwd,{portable:true});
       if(current.manifestHash!==expectedManifest)throw new ExecutionLimitError('conflict','Execution contract changed; request denied.');
       const funding=journal.manifest.parent&&change.type!=='settle'
         ?await (await import('./parent-budget.js')).parentBudgetAuthority(journal.manifest,cwd,true,signal):undefined;
@@ -208,7 +210,7 @@ export class ReservationLedger {
         const {reserveParent}=await import('./parent-budget.js');
         await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);funded=true;
       }
-      temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd);
+      temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd,{portable:true});
       const effective=effectiveExecutionManifest(journal.manifest,next);
       if(change.type==='reserve'&&this.now()>=Math.min(effective.deadline,...accountLineage(effective,change.reservation.agentId).map(a=>a.deadline))||change.type==='child_grant'&&change.grant.accounts.some(a=>this.now()>=a.deadline))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation or grant commit.');
       if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;

@@ -2,6 +2,7 @@ import { isAbsolute, relative, resolve, sep, posix, win32 } from 'node:path';
 import { canonicalJson, canonicalPath, digest, projectIdentity } from '../approvals/index.js';
 import { BRAIN_TOOL_NAMES } from '../brain/tools.js';
 import type { ToolCall } from '../types.js';
+import { portableProjectIdentity } from './portable-identity.js';
 import { ExecutionLimitError, type ExecutionAccount, type ExecutionManifest, type ExecutionPath, type ParentBudgetLink, type ReviewedLedgerContext } from './types.js';
 
 export const MAX_EXECUTION_ACCOUNTS = 256;
@@ -23,9 +24,12 @@ export const covers = (parent: string, child: string): boolean => parent === '.'
 export const permits = (grants: ExecutionPath[], path: string, access: 'read' | 'write'): boolean => grants.some(g => covers(g.path,path) && (access === 'read' || g.access === 'write'));
 /** Serialized authority may originate on another OS; local use still checks real filesystem identity. */
 export function validateExecutionProject(value:unknown):ExecutionManifest['project'] {
-  shape(value,['root','key']);
+  shape(value,['root','key'],['portable']);
   if(typeof value.root!=='string'||value.root.length>4096||/[\x00-\x1f\x7f]/.test(value.root)||!(posix.isAbsolute(value.root)||win32.isAbsolute(value.root))||!hex(value.key))invalid();
-  return {root:value.root,key:value.key};
+  if(!Object.hasOwn(value,'portable'))return {root:value.root,key:value.key};
+  const p=value.portable;shape(p,['version','roots','origin']);
+  if(p.version!==1||!hex(p.origin)||!Array.isArray(p.roots)||p.roots.length<1||p.roots.length>16||p.roots.some((r,i)=>typeof r!=='string'||!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(r)||i>0&&!(String((p.roots as unknown[])[i-1])<r)))invalid();
+  return {root:value.root,key:value.key,portable:{version:1,roots:[...p.roots as string[]],origin:p.origin}};
 }
 export function validateReviewedLedgerContext(value:unknown):ReviewedLedgerContext {
   shape(value,['version','runId','runManifestHash','approvalRevision','authority','lineage']);
@@ -88,9 +92,20 @@ export function accountLineage(manifest: ExecutionManifest, agentId: string): Ex
   }
   return lineage;
 }
-export function checkExecutionIdentity(manifest: ExecutionManifest, cwd: string): void {
-  const current = projectIdentity(cwd);
-  if (current.project !== manifest.project.root || current.projectKey !== manifest.project.key) throw new ExecutionLimitError('authority','Execution belongs to a different or replaced project.');
+/**
+ * Returns the local identity of cwd. A manifest that declares a portable identity
+ * also accepts another checkout of the same repository, but only for callers that
+ * opt in and never for manifests funded by a parent ledger.
+ */
+export function checkExecutionIdentity(manifest: ExecutionManifest, cwd: string, options: {portable?: boolean} = {}): {root: string; key: string} {
+  const current = projectIdentity(cwd), local = {root: current.project, key: current.projectKey};
+  if (current.project === manifest.project.root && current.projectKey === manifest.project.key) return local;
+  const declared = manifest.project.portable;
+  if (options.portable && declared && manifest.parent === undefined) {
+    const derived = portableProjectIdentity(current.project);
+    if (derived && canonicalJson(derived) === canonicalJson(declared)) return local;
+  }
+  throw new ExecutionLimitError('authority','Execution belongs to a different or replaced project.');
 }
 export function assertExecutionStoreOutsideProject(project:string,path:string):void {
   // relative() returns OS-native separators (backslash on Windows); a hardcoded '../'
@@ -99,7 +114,7 @@ export function assertExecutionStoreOutsideProject(project:string,path:string):v
 }
 /** Shell, network and extensible tools need an enclosing sandbox with these exact grants. */
 export function executionToolDenial(manifest: ExecutionManifest, agentId: string, call: ToolCall, cwd: string, now = Date.now()): string | undefined {
-  checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;
+  const local = checkExecutionIdentity(manifest,cwd); const account = accountLineage(manifest,agentId)[0]!;
   if (now >= Math.min(manifest.deadline,account.deadline)) return 'Agent deadline expired.';
   if (!account.allowedTools.includes(call.name)) return 'Tool is outside the declared agent authority.';
   if (['think','ask_question','create_plan','artifact',...BRAIN_TOOL_NAMES].includes(call.name)) return undefined;
@@ -107,12 +122,13 @@ export function executionToolDenial(manifest: ExecutionManifest, agentId: string
   const arg = call.arguments.path ?? (call.name === 'list_files' ? '.' : undefined);
   if (typeof arg !== 'string' || !arg || arg.length > 4096) return 'Tool requires a bounded path inside the agent scope.';
   const access = call.name === 'write_file' || call.name === 'edit_file' ? 'write' : 'read';
-  return executionPathDenial(manifest,account,arg,access);
+  return executionPathDenial({root:local.root,protectGit:manifest.project.portable!==undefined},account,arg,access);
 }
-/** Shared source-path boundary, independent of which read-only tool consumes the file. */
-export function executionPathDenial(manifest: ExecutionManifest, account: ExecutionAccount, arg: string, access: 'read' | 'write'): string | undefined {
-  const absolute = resolve(manifest.project.root,arg), canonical = canonicalPath(absolute), rel = relative(manifest.project.root,canonical).split(sep).join('/') || '.';
+/** Shared source-path boundary, independent of which read-only tool consumes the file. `scope.root` is always the local realpath, never a manifest's recorded root. */
+export function executionPathDenial(scope: {root: string; protectGit: boolean}, account: ExecutionAccount, arg: string, access: 'read' | 'write'): string | undefined {
+  const absolute = resolve(scope.root,arg), canonical = canonicalPath(absolute), rel = relative(scope.root,canonical).split(sep).join('/') || '.';
   if (canonical !== absolute || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) return 'Tool path resolves outside the project or through a symlink alias.';
+  if (scope.protectGit && access === 'write' && rel.split('/').some(p => p.toLowerCase() === '.git')) return 'Tool path writes Git metadata, which a portable project identity depends on.';
   if (!permits(account.allowedPaths,rel,access)) return `Tool path is outside the agent ${access} scope.`;
   return undefined;
 }
