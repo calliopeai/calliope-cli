@@ -75,7 +75,7 @@ const lmstudioShim: CompatShim = {
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if (result.max_tokens == null) {
+    if (result.max_tokens == null && result.max_completion_tokens == null) {
       result.max_tokens = 8192;
     }
     return result;
@@ -116,7 +116,7 @@ const vllmShim: CompatShim = {
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if (result.max_tokens == null) {
+    if (result.max_tokens == null && result.max_completion_tokens == null) {
       result.max_tokens = 4096;
     }
     return result;
@@ -298,7 +298,15 @@ export async function chatOpenAICompatible(
 
   // Calculate dynamic max_tokens based on available context space
   const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens(provider, model, messages, tools), limits?.maxOutputTokens);
-  debugLog(`${provider} request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+  // OpenAI's own API rejects max_tokens on newer models; other servers only accept it.
+  let targetsOpenAI = false;
+  try {
+    targetsOpenAI = new URL(baseURL).hostname === 'api.openai.com';
+  } catch {
+    targetsOpenAI = false;
+  }
+  const tokenField = targetsOpenAI ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens };
+  debugLog(`${provider} request: model=${model}, ${targetsOpenAI ? 'max_completion_tokens' : 'max_tokens'}=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
   // Stream text content while collecting tool calls
@@ -314,7 +322,7 @@ export async function chatOpenAICompatible(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        max_tokens: dynamicMaxTokens,
+        ...tokenField,
         stream: true,
         ...(limits?.bounded ? { stream_options: { include_usage: true } } : {}),
         ...routingBounds,
@@ -400,7 +408,7 @@ export async function chatOpenAICompatible(
       model: actualModel,
       messages: openaiMessages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
-      max_tokens: dynamicMaxTokens,
+      ...tokenField,
       ...routingBounds,
     };
     if (activeShim) reqParams = activeShim.transformRequest(reqParams) as ChatCompletionCreateParamsNonStreaming;
@@ -417,7 +425,7 @@ export async function chatOpenAICompatible(
           model: actualModel,
           messages: openaiMessages,
           tools: openaiTools.length > 0 ? openaiTools : undefined,
-          max_tokens: dynamicMaxTokens,
+          ...tokenField,
         };
         if (activeShim) fallbackParams = activeShim.transformRequest(fallbackParams) as ChatCompletionCreateParamsNonStreaming;
         response = await client.chat.completions.create(fallbackParams, signal ? { signal } : undefined);

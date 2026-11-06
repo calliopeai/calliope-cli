@@ -627,6 +627,18 @@ describe('chatOpenAI (non-streaming, Chat Completions)', () => {
     expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
   });
 
+  it.each(['gpt-6.1-sol', 'gpt-6.1-terra'])('sends only max_completion_tokens for %s', async (model) => {
+    mockCreateResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] };
+    await chatOpenAI(makeSimpleMessages(), [], model);
+    expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+    expect(lastCreateParams).not.toHaveProperty('max_tokens');
+
+    mockStreamChunks = [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }];
+    await chatOpenAI(makeSimpleMessages(), [], model, () => {});
+    expect(typeof lastStreamCreateParams?.max_completion_tokens).toBe('number');
+    expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
+  });
+
   it('returns content and stop finish reason', async () => {
     mockCreateResponse = {
       choices: [

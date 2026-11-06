@@ -11,7 +11,7 @@
  * toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Message, Tool, ToolCall } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
@@ -929,6 +929,93 @@ describe('chatOpenAICompatible', () => {
   });
 
   // =========================================================================
+  // Output token field by target host
+  // =========================================================================
+
+  describe('output token field', () => {
+    const msgs: Message[] = [{ role: 'user', content: 'hi' }];
+    const okResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] };
+    const streamChunks = [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }];
+
+    async function setBase(provider: string, url: string | undefined) {
+      const configMod = await import('../src/config.js');
+      vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => (p === provider ? url : baseUrls[p]));
+    }
+
+    afterEach(async () => {
+      const configMod = await import('../src/config.js');
+      vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => baseUrls[p]);
+      delete process.env.OPENAI_COMPAT_SHIM;
+    });
+
+    it('sends max_completion_tokens only for api.openai.com (non-streaming)', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('sends max_completion_tokens only for gpt-6.1-terra on api.openai.com', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-terra');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('sends max_completion_tokens only for api.openai.com (streaming)', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockStreamChunks = streamChunks;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol', () => {});
+      expect(lastCreateParams?.stream).toBe(true);
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('respects the bounded output limit', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol', undefined, undefined, { maxOutputTokens: 512 } as never);
+      expect(lastCreateParams?.max_completion_tokens as number).toBeLessThanOrEqual(512);
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it.each(['lmstudio', 'vllm'])('a forced %s shim does not bring max_tokens back for OpenAI', async (shimId) => {
+      process.env.OPENAI_COMPAT_SHIM = shimId;
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it.each([
+      ['openai-compat', undefined],
+      ['openai-compat', 'http://localhost:8000'],
+      ['openai-compat', 'http://localhost:1234/v1'],
+      ['groq', undefined],
+      ['ollama', undefined],
+      ['openai-compat', 'https://api.openai.com.example.test/v1'],
+      ['openai-compat', 'https://proxy.example.test/api.openai.com/v1'],
+    ])('keeps max_tokens for %s at %s', async (provider, url) => {
+      await setBase(provider, url);
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible(provider as never, msgs, [], 'some-model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
+    });
+
+    it('does not throw on an unparseable base URL', async () => {
+      await setBase('openai-compat', 'not a url');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'some-model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
+    });
+  });
+
+  // =========================================================================
   // Ollama fallback
   // =========================================================================
 
@@ -953,6 +1040,8 @@ describe('chatOpenAICompatible', () => {
       );
 
       expect(result.content).toBe('from fallback model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
       // Should have been called twice (original + fallback)
       expect(createCallCount).toBe(2);
     });
