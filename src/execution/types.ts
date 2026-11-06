@@ -17,9 +17,11 @@ export interface RemoteParentBudgetLink {
   runId:string;budgetManifestHash:string;agentId:string;accountMap:Record<string,string>;reviewed:ReviewedLedgerContext;
 }
 export type ParentBudgetLink=LocalParentBudgetLink|RemoteParentBudgetLink;
+/** Names a repository, not a checkout, and authenticates nothing. */
+export interface PortableProjectIdentity {version:1;roots:string[];origin:string}
 export interface ExecutionManifest {
   version: 1|2; runId: string; planHash: string;
-  project: { root: string; key: string };
+  project: { root: string; key: string; portable?: PortableProjectIdentity };
   createdAt: number; deadline: number;
   tokenBudget: number; costBudgetNanos: number;
   accounts: ExecutionAccount[];
