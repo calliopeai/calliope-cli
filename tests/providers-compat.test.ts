@@ -1104,3 +1104,48 @@ describe('chatOpenAICompatible', () => {
     });
   });
 });
+
+describe('truncated tool calls at the output limit (#487)', () => {
+  const tc = (id: string, args: string) => ({ id, type: 'function', function: { name: 'read_file', arguments: args } });
+  const msgs = [{ role: 'user' as const, content: 'go' }];
+  const chunk = (index: number, id: string, args: string, finish: string | null = null) => ({
+    choices: [{ delta: { tool_calls: [{ index, id, function: { name: 'read_file', arguments: args } }] }, finish_reason: finish }],
+  });
+
+  it('streaming: unparseable arguments under length are dropped and flagged; complete call kept', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), chunk(1, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls).toEqual([{ id: 'ok1', name: 'read_file', arguments: { path: '/a' } }]);
+  });
+  it('streaming: valid call under length is not flagged; bad JSON under tool_calls is unchanged', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const ok = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(ok).not.toHaveProperty('truncatedToolCalls');
+    expect(ok.toolCalls).toHaveLength(1);
+    mockStreamChunks = [chunk(0, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
+    const bad = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(bad).not.toHaveProperty('truncatedToolCalls');
+    expect(bad.toolCalls).toEqual([{ id: 'cut', name: 'read_file', arguments: {} }]);
+  });
+  it('non-streaming: unparseable arguments under length do not throw and are flagged', async () => {
+    mockCreateResponse = {
+      choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}'), tc('cut', '{"path":"/b')] }, finish_reason: 'length' }],
+    };
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model');
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls!.map(t => t.id)).toEqual(['ok1']);
+  });
+  it('non-streaming: the same bad JSON with another finish still throws', async () => {
+    mockCreateResponse = { choices: [{ message: { content: '', tool_calls: [tc('cut', '{"path":"/b')] }, finish_reason: 'tool_calls' }] };
+    await expect(chatOpenAICompatible('openrouter', msgs, makeTools(), 'model')).rejects.toThrow('Invalid tool arguments');
+  });
+  it('non-streaming: valid call under length is not flagged', async () => {
+    mockCreateResponse = { choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}')] }, finish_reason: 'length' }] };
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model');
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toHaveLength(1);
+  });
+});

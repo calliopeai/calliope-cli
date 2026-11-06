@@ -801,3 +801,68 @@ describe('adaptive thinking + refusal stop reason (#147)', () => {
     expect(result).toMatchObject({finishReason:'error',errorCode:'refusal',toolCalls:undefined,usage:{inputTokens:5,outputTokens:2}});
   });
 });
+
+describe('truncated tool calls at the output limit (#487)', () => {
+  const run = (stream: boolean) => chatAnthropic(
+    [{ role: 'user', content: 'go' }], makeTools(), 'claude-sonnet-4-20250514', stream ? () => {} : undefined,
+  );
+  const start = (id: string) => ({ type: 'content_block_start', content_block: { type: 'tool_use', id, name: 'read_file' } });
+  const delta = (json: string) => ({ type: 'content_block_delta', delta: { type: 'input_json_delta', partial_json: json } });
+  const stop = (reason: string) => ({ type: 'message_delta', delta: { stop_reason: reason }, usage: { output_tokens: 9 } });
+  const full = [start('ok1'), delta('{"path":"/a"}'), { type: 'content_block_stop' }];
+
+  it('streaming: invalid JSON at block stop is dropped and flagged; complete call kept', async () => {
+    mockStreamEvents = [...full, start('cut'), delta('{"path":"/b'), { type: 'content_block_stop' }, stop('max_tokens')];
+    const r = await run(true);
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls).toEqual([{ id: 'ok1', name: 'read_file', arguments: { path: '/a' } }]);
+  });
+  it('streaming: block still open when the stream ends is flagged', async () => {
+    mockStreamEvents = [start('cut'), delta('{"path":"/b'), stop('max_tokens')];
+    const r = await run(true);
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls).toBeUndefined();
+  });
+  it('streaming: a complete call followed by length is not flagged', async () => {
+    mockStreamEvents = [...full, stop('max_tokens')];
+    const r = await run(true);
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toHaveLength(1);
+  });
+  it('streaming: unchanged off the length path', async () => {
+    mockStreamEvents = [start('cut'), delta('{"path":"/b'), { type: 'content_block_stop' }, stop('tool_use')];
+    const r = await run(true);
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toEqual([{ id: 'cut', name: 'read_file', arguments: {} }]);
+    mockStreamEvents = [start('open'), delta('{"pa'), stop('tool_use')];
+    const open = await run(true);
+    expect(open).not.toHaveProperty('truncatedToolCalls');
+    expect(open.toolCalls).toBeUndefined();
+  });
+  it('non-streaming: trailing tool_use under max_tokens is dropped and flagged', async () => {
+    mockCreateResponse = {
+      content: [
+        { type: 'tool_use', id: 'ok1', name: 'read_file', input: { path: '/a' } },
+        { type: 'tool_use', id: 'cut', name: 'read_file', input: {} },
+      ],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+    const r = await run(false);
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls!.map(t => t.id)).toEqual(['ok1']);
+  });
+  it('non-streaming: text last under max_tokens is not flagged', async () => {
+    mockCreateResponse = {
+      content: [{ type: 'tool_use', id: 'ok1', name: 'read_file', input: { path: '/a' } }, { type: 'text', text: 'more' }],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    };
+    const r = await run(false);
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toHaveLength(1);
+  });
+});
