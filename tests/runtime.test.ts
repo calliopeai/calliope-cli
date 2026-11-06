@@ -287,6 +287,17 @@ describe('shared turn runtime', () => {
       expect(opts.messages.current.some(m => m.toolCalls?.length)).toBe(false);
       expect(executeMock).not.toHaveBeenCalled();
     });
+    it('a flagged response with no calls left ends as length and runs no tool (#487)', async () => {
+      chatMock.mockResolvedValue({ ...truncated(), truncatedToolCalls: true });
+      expect((await runTurn(options())).reason).toBe('length');
+      expect(executeMock).not.toHaveBeenCalled();
+    });
+    it('a flagged response with no calls left continues under continueOnLength (#487)', async () => {
+      chatMock.mockResolvedValueOnce({ ...truncated(), truncatedToolCalls: true }).mockResolvedValueOnce(text('finished'));
+      expect((await runTurn(options({ continueOnLength: true }))).reason).toBe('completed');
+      expect(chatMock).toHaveBeenCalledTimes(2);
+      expect(executeMock).not.toHaveBeenCalled();
+    });
     it('nudges one empty stop and completes on the next text, reporting the continuation', async () => {
       chatMock.mockResolvedValueOnce(empty()).mockResolvedValueOnce(text('answer'));
       const onContinue = vi.fn();
