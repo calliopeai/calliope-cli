@@ -31,6 +31,7 @@ import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } fro
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
 import { assertExecutionBinding } from '../execution/delegated.js';
+import type { RuntimeControl, ControlBoundary, ControlCheckpoint } from './control.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'waiting_for_user' | 'stopped';
@@ -87,6 +88,11 @@ export interface TurnOptions {
   onRoute?: (decision: RoutingDecision) => void | Promise<void>;
   /** Must finish before execution continues. A failed recovery write stops the turn. */
   onCheckpoint?: (messages: Message[], status: RecoveryStatus) => void | Promise<void>;
+  /** Cooperatively control this same turn at persisted, quiescent boundaries. */
+  control?: RuntimeControl;
+  /** Proof from the existing checkpoint writer; this callback does not write another journal. */
+  controlSnapshot?: () => ControlCheckpoint;
+  onControlCommitted?: ControlBoundary['committed'];
   /** Called once before the first allowed medium-or-higher-risk action in a turn. */
   onSafetyBranch?: (call: ToolCall) => Promise<void>;
 }
@@ -146,13 +152,24 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let checkpointFailed = false;
   let questionCommitFailed = false;
   let safetyFailed = false;
+  let controlFailed = false;
+  if (options.control) {
+    options.control.bind(options.sessionId);
+    if (!options.onCheckpoint || !options.controlSnapshot) {
+      const error = new Error('Execution control requires the conversation writer and its saved checkpoint proof.');
+      options.control.stop(error); throw error;
+    }
+  }
   let safetyBranch: Promise<void> | undefined;
   // Parallel tools can finish together: serialize snapshots and copy each boundary now.
   let checkpointTail = Promise.resolve();
   const checkpoint = (status: RecoveryStatus): Promise<void> => {
     if (!options.onCheckpoint || checkpointFailed) return checkpointTail;
     const copy = structuredClone(messages.current);
-    checkpointTail = checkpointTail.then(() => options.onCheckpoint!(copy, status)).catch(error => {
+    checkpointTail = checkpointTail.then(async () => {
+      await options.onCheckpoint!(copy, status);
+      if (options.control) options.control.observe(options.controlSnapshot!());
+    }).catch(error => {
       checkpointFailed = true;
       throw error;
     });
@@ -216,6 +233,26 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       error.name = 'RuntimeBudgetExceeded';
       throw error;
     }
+  };
+  const controlBoundary: ControlBoundary = {
+    sessionId: options.sessionId, signal,
+    checkpoint: async () => { await checkpoint('active'); return options.controlSnapshot!(); },
+    validate: async () => { throwIfCancelled(signal); await guard?.refreshAuthority(signal); checkBudget(); },
+    steer: text => { messages.current.push({ role: 'user', content: text }); runlog.userPrompt(text); },
+    committed: options.onControlCommitted,
+  };
+  const boundary = async (allowSteering: boolean): Promise<boolean> => {
+    if (!options.control) return false;
+    const before = messages.current.length;
+    try { await options.control.boundary(controlBoundary, allowSteering); }
+    catch (error) { controlFailed = true; throw error; }
+    throwIfCancelled(signal); checkBudget();
+    return messages.current.length > before;
+  };
+  const parked = async <T>(operation: Promise<T>): Promise<T> => {
+    if (!options.control) return cancellable(operation, signal);
+    try { return await options.control.parked(operation, controlBoundary); }
+    catch (error) { controlFailed = true; throw error; }
   };
   const requestCore = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
     throwIfCancelled(signal);
@@ -318,6 +355,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     await checkpoint('active');
     if (answeredQuestion && options.onQuestionCommitted) {
       try {
+        // Its saved revision must stay stable until the host acknowledges it.
+        // Pause remains requested until this already-started receipt settles.
         await cancellable(options.onQuestionCommitted(structuredClone(call), structuredClone(result), signal), signal);
       } catch (error) { questionCommitFailed = true; throw error; }
       throwIfCancelled(signal); checkBudget();
@@ -391,7 +430,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     }
     let answeredQuestion = false;
     if (!result.isError && call.name === 'ask_question' && options.answerQuestion) {
-      const answer = await cancellable(options.answerQuestion(structuredClone(call), signal), signal);
+      const answer = await parked(options.answerQuestion(structuredClone(call), signal));
       throwIfCancelled(signal);checkBudget();
       if (typeof answer !== 'string' || !answer.trim() || answer.length > 8192) throw new Error('Question answer must be nonempty text of at most 8192 characters.');
       result = {toolCallId:call.id,result:answer};answeredQuestion = true;
@@ -401,7 +440,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(error => {
         throwIfCancelled(signal); options.onWarning?.(`Post-tool hook failed: ${String(error)}`);
       });
-      if (guard) await post; else void post.catch(() => {});
+      if (guard || options.control) await post; else void post.catch(() => {});
     }
     return !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
   };
@@ -415,6 +454,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throw new Error('Question delivery acknowledgement requires a conversation checkpoint writer.');
     }
     await checkpoint('active');
+    await boundary(true);
     checkBudget();
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
@@ -423,6 +463,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     let continuations = 0;
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
+        await boundary(true);
         throwIfCancelled(signal);
         checkBudget();
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
@@ -440,7 +481,9 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           currentRequest.messages = messages.current;
           options.onCompression?.(compressed);
         }
+        await boundary(true);
         if (options.prepare) currentRequest = await options.prepare(currentRequest, iterations);
+        await boundary(false);
         throwIfCancelled(signal);
         let response = await request(currentRequest);
         // A reply cut off by the output limit may carry a partial tool call: never run, store or repair it.
@@ -478,6 +521,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         }
         continuations = 0;
         if (!pendingCalls?.length) {
+          if (await boundary(true)) { options.onIterationEnd?.(iterations); continue; }
           reason = truncated ? 'length' : 'completed';
           options.onIterationEnd?.(iterations);
           break;
@@ -486,6 +530,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         const stages = canParallel ? analyzeDependencies(pendingCalls).stages : pendingCalls.map(call => [call]);
         let pause = false;
         for (const stage of stages) {
+          await boundary(false);
           const results = await Promise.allSettled(stage.map(execute));
           const failed = results.find(result => result.status === 'rejected');
           if (failed?.status === 'rejected') throw failed.reason;
@@ -495,7 +540,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || questionCommitFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || questionCommitFailed || controlFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }
@@ -516,6 +561,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       runlog.budgetEvent({ scope: budget.scope ?? 'run', kind: budget.kind ?? 'cost', spent: budget.spent ?? 0, cap: budget.cap ?? 0, message: formatBudgetHalt(budget) });
     } else { reason = 'error'; throw error; }
   } finally {
+    options.control?.stop(new Error(`Turn ended: ${reason}`));
     completePendingTools(messages.current, reason);
     try {
       if (!checkpointFailed) await checkpoint(reason === 'completed' || reason === 'cancelled' || reason === 'waiting_for_user' ? reason : 'interrupted');

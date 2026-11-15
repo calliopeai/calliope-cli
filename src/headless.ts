@@ -8,6 +8,7 @@
 
 import { runTurn } from './runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
+import type { RuntimeControl, ControlCheckpoint, ControlReceipt } from './runtime/control.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
@@ -58,6 +59,9 @@ export interface HeadlessQuestionReceipt {
 
 export interface HeadlessOptions {
   signal?: AbortSignal;
+  /** Control this original live turn; state and receipts do not recover a terminated process. */
+  control?: RuntimeControl;
+  onControlCommitted?: (receipt: ControlReceipt, signal?: AbortSignal) => Promise<void>;
   /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
   answerQuestion?: TurnOptions['answerQuestion'];
   /** Acknowledge the original conversation's saved answer before further execution. */
@@ -169,6 +173,10 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  if (options.onControlCommitted && !options.control) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Control acknowledgment requires an execution controller.' } }, outputMode);
+    return 2;
+  }
   if (options.reasoningEffort !== undefined && !isReasoningEffort(options.reasoningEffort)) {
     emit({ type: 'error', timestamp: now(), data: { message: 'Invalid headless reasoning effort' } }, outputMode);
     return 2;
@@ -305,6 +313,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
   let revision: string | null = null;
   let savedQuestion: ReturnType<typeof saveSessionConversation> | undefined;
+  let savedControl: ControlCheckpoint | undefined;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
@@ -321,6 +330,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
         revision = saved.revision;
         if (options.onQuestionCommitted) savedQuestion = saved;
+        if (options.control) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
       continueOnLength: true,
@@ -333,6 +343,18 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
+      control: options.control,
+      controlSnapshot: options.control ? () => {
+        if (!savedControl) throw new Error('Execution control checkpoint is unavailable.');
+        return savedControl;
+      } : undefined,
+      onControlCommitted: options.control ? async (receipt, controlSignal) => {
+        await options.onControlCommitted?.(receipt, controlSignal);
+        const current = readSessionConversation(sessionId);
+        if (current.revision !== receipt.revision)
+          throw new Error('Conversation changed during execution control; reload before continuing.');
+        emit({ type: 'status', timestamp: now(), data: { control: receipt } }, outputMode);
+      } : undefined,
       answerQuestion: options.answerQuestion,
       onQuestionCommitted: options.onQuestionCommitted ? async (call, toolResult, questionSignal) => {
         const message = savedQuestion?.messages.at(-1);
