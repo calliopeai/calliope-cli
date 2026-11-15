@@ -62,6 +62,7 @@ vi.mock('../src/routing/index.js', async importActual => ({
 
 import { runHeadless, parseHeadlessCaps, parseHeadlessEffort, BUDGET_EXIT_CODE, CAP_EXIT_CODE } from '../src/headless.js';
 import { summarizeDir } from '../src/cost.js';
+import type { ToolCall } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -99,6 +100,81 @@ afterEach(() => {
 });
 
 afterAll(() => fs.rmSync(runsDir, { recursive: true, force: true }));
+
+describe('headless host question answers', () => {
+  const question = () => ({ ...toolCallWithUsage('audience'), toolCalls: [{ id: 'audience', name: 'ask_question', arguments: { question: 'Which audience?' } }] });
+  const answered = () => ({ content: 'Report for operators.', toolCalls: [], usage: { inputTokens: 100, outputTokens: 50 } });
+
+  it('continues one saved conversation with the answer and cumulative usage', async () => {
+    mockChat.mockResolvedValueOnce(question()).mockResolvedValueOnce(answered());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    const answerQuestion = vi.fn(async (_call: ToolCall, _signal?: AbortSignal) => 'Operators');
+    expect(await runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json', maxCost: 1, answerQuestion })).toBe(0);
+    expect(answerQuestion).toHaveBeenCalledOnce();
+    expect(answerQuestion.mock.calls[0][0]).toMatchObject({ id: 'audience', name: 'ask_question' });
+    expect(mockChat.mock.calls[1][1]).toContainEqual({ role: 'tool', toolCallId: 'audience', content: 'Operators' });
+    const sessions = events().filter(event => event.type === 'status' && event.data.message?.startsWith('Session: '));
+    expect(sessions).toHaveLength(1);
+    const { readSessionConversation } = await import('../src/storage.js');
+    const saved = readSessionConversation(sessions[0].data.sessionId);
+    expect(saved.messages.filter(message => message.toolCallId === 'audience')).toEqual([{ role: 'tool', toolCallId: 'audience', content: 'Operators' }]);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'completed', inputTokens: 900, outputTokens: 250, limits: { maxCost: 1 } } });
+    expect(events().at(-1).data.costUsd).toBeCloseTo(0.115, 10);
+  });
+
+  it('keeps the existing waiting outcome when the host supplies no answer callback', async () => {
+    mockChat.mockResolvedValue(question());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    expect(await runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json' })).toBe(4);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'waiting_for_user' } });
+  });
+
+  it.each(['', 'x'.repeat(8193)])('rejects an invalid host answer before further inference', async answer => {
+    mockChat.mockResolvedValue(question());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    expect(await runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json', answerQuestion: async () => answer })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(events().at(-1)).toMatchObject({ type: 'error', data: { message: expect.stringContaining('8192') } });
+  });
+
+  it('reports a refused host answer without continuing inference', async () => {
+    mockChat.mockResolvedValue(question());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    expect(await runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json', answerQuestion: async () => { throw new Error('Stale question revision'); } })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(events().at(-1)).toMatchObject({ type: 'error', data: { message: 'Stale question revision' } });
+  });
+
+  it('cancels a pending host answer and discards a late answer', async () => {
+    mockChat.mockResolvedValue(question());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    let begin!: () => void, answer!: (text: string) => void;
+    const began = new Promise<void>(resolve => { begin = resolve; });
+    const held = new Promise<string>(resolve => { answer = resolve; });
+    const controller = new AbortController();
+    const running = runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json', signal: controller.signal,
+      answerQuestion: async (_call, signal) => { expect(signal).toBe(controller.signal); begin(); return held; } });
+    await began;
+    controller.abort();
+    expect(await running).toBe(130);
+    answer('Too late');
+    await Promise.resolve();
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'cancelled' } });
+    expect(events().some(event => event.type === 'tool_result' && event.data.result === 'Too late')).toBe(false);
+  });
+
+  it('includes an unresolved host answer in the original wall-clock cap', async () => {
+    mockChat.mockResolvedValue(question());
+    mockExecuteTool.mockResolvedValue({ result: 'Question displayed', isError: false });
+    const answerQuestion = vi.fn(async (_call: ToolCall, signal?: AbortSignal) => untilAborted(signal));
+    expect(await runHeadless({ prompt: 'Write a report', provider: 'anthropic', outputMode: 'json', maxTime: 0.1, answerQuestion })).toBe(CAP_EXIT_CODE);
+    expect(answerQuestion).toHaveBeenCalledOnce();
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'budget', stoppedBy: 'time', limits: { maxTime: 0.1 } } });
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Parsing
