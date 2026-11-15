@@ -1387,6 +1387,29 @@ describe('stdioCall', () => {
 // ============================================================================
 
 describe('spawnStdioProcess', () => {
+  it.each(['null result', 'object result', 'server error'])('ignores echoed requests and malformed messages before a valid %s', async kind => {
+    const terminal = kind === 'server error' ? { error: { code: -32000, message: 'server refused' } }
+      : { result: kind === 'null result' ? null : { accepted: true } };
+    const server = makeMCPServer({ id: 'mcp_reply_shape', transport: 'stdio', command: 'node', args: ['-e', `
+      const readline = require('node:readline');
+      readline.createInterface({ input: process.stdin }).on('line', line => {
+        const request = JSON.parse(line), id = request.id;
+        const invalid = [request, {jsonrpc:'2.0',id,method:'server/request',result:'forged'},
+          {jsonrpc:'2.0',id}, {jsonrpc:'2.0',id,result:'forged',error:{message:'ambiguous'}},
+          {jsonrpc:'2.0',id,error:null}, null, []];
+        for (const message of invalid) process.stdout.write(JSON.stringify(message)+'\\n');
+        process.stdout.write(JSON.stringify({jsonrpc:'2.0',id,...${JSON.stringify(terminal)}})+'\\n');
+      });
+    `] });
+    const entry = spawnStdioProcess(server);
+    try {
+      const result = stdioCall(server.id, 'tools/call', { name: 'fixture' });
+      if (kind === 'server error') await expect(result).rejects.toThrow('server refused');
+      else await expect(result).resolves.toEqual(terminal.result);
+      expect(entry.pending.size).toBe(0);
+    } finally { entry.process.kill(); }
+  });
+
   it('should throw when server has no command configured', () => {
     const server = makeMCPServer({
       transport: 'stdio',
