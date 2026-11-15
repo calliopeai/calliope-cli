@@ -73,6 +73,8 @@ export interface RunStartPayload {
 export interface AssistantMessagePayload {
   content: string;
   tokens: { input: number; output: number };
+  /** False when the provider omitted usage; numeric counters retain their legacy zero defaults. */
+  usageReported?: boolean;
   cost: number;
   /** Missing discovery prices use the documented emergency estimate. */
   costSource?: 'discovery' | 'fallback' | 'subscription';

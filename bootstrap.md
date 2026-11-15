@@ -50,6 +50,7 @@ React/Ink, ESM. Source version is recorded in `package.json`; published versions
 
 Modules live in subdirectories; import via each package's index.
 `runtime.runTurn` owns model/tool execution for terminal, headless and ACP clients.
+Its `assistant_message` journal events include `usageReported`: false means the provider omitted usage, even though the legacy numeric token counters remain zero. Consumers must distinguish missing usage from reported zero and preserve `costSource: subscription` separately from API dollar estimates. Older events lack the presence marker.
 Clients adapt presentation and approval; new execution gates belong in the runtime.
 See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics,
 and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.

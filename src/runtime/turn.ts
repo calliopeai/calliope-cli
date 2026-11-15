@@ -280,7 +280,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     totals.outputTokens += response.usage?.outputTokens ?? 0;
     totals.cost += cost;
     // Project accounting is committed by the attempt receipt, including retries and unknown outcomes.
-    runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, cost, costSource });
+    runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, usageReported: !!response.usage, cost, costSource });
     options.onUsage?.(response, input, cost);
     for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
     return response;
