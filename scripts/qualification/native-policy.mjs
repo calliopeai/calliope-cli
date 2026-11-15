@@ -15,6 +15,13 @@ import { test } from 'node:test';
 import {qualifyHeadlessEffort} from '../release/headless-effort-smoke.mjs';
 import {qualifyHeadlessQuestions} from './headless-questions.mjs';
 import {qualifyHeadlessControl} from './headless-control.mjs';
+import {qualifyHeadlessCompletion} from './headless-completion.mjs';
+
+test('headless completion checks repair original criteria without resetting the SDK turn', async () => {
+  const results = await qualifyHeadlessCompletion();
+  assert.deepEqual(results.map(result => [result.mode, result.exit, result.providerRequests]),
+    [['repair', 0, 4], ['host-refuse', 1, 2], ['deadline', 6, 2]]);
+});
 
 test('headless SDK execution control preserves checkpointed pause, steering and the original deadline', async () => {
   const results = await qualifyHeadlessControl();

@@ -102,6 +102,59 @@ afterEach(() => {
 
 afterAll(() => fs.rmSync(runsDir, { recursive: true, force: true }));
 
+describe('headless completion verification', () => {
+  it('reports accepted host evidence only after repairing the original goal in one session', async () => {
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 50 } });
+    const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: 'The original acceptance test still fails.' })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxCost: 1, completionCheck: check });
+    expect(code).toBe(0);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(mockChat.mock.calls[1][1].some((message: { content: string }) => message.content.includes('acceptance test still fails'))).toBe(true);
+    const sessions = events().filter(event => event.type === 'status' && event.data.message?.startsWith('Session: '));
+    expect(sessions).toHaveLength(1);
+    expect(check.mock.calls[0][0].sessionId).toBe(check.mock.calls[1][0].sessionId);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'completed', inputTokens: 200, outputTokens: 100,
+      verification: { checks: 2, evidenceSha256: 'a'.repeat(64) }, limits: { maxCost: 1 } } });
+  });
+
+  it('keeps the original time cap when host verification stalls', async () => {
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxTime: .1,
+      completionCheck: async (_proposal, signal) => untilAborted(signal) });
+    expect(code).toBe(CAP_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { stoppedBy: 'time' } });
+    expect(events().at(-1)?.data).not.toHaveProperty('verification');
+  });
+
+  it('refuses changed saved conversation proof before reporting acceptance', async () => {
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', completionCheck: async proposal => {
+      const saved = readSessionConversation(proposal.sessionId);
+      saveSessionConversation(proposal.sessionId, [...saved.messages, { role: 'user', content: 'Concurrent writer' }],
+        { expectedRevision: saved.revision, status: 'active' });
+      return { accepted: true, evidenceSha256: 'a'.repeat(64) };
+    } });
+    expect(code).toBe(1);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(events().some(event => event.type === 'done' && event.data.verification)).toBe(false);
+  });
+
+  it.each([0, 9, NaN, 1.5])('refuses invalid verification limit %s before inference', async maxCompletionChecks => {
+    const check = vi.fn();
+    expect(await runHeadless({ prompt: 'Original task', provider: 'anthropic', completionCheck: check, maxCompletionChecks })).toBe(2);
+    expect(check).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('does not silently ignore a check allowance without a host verifier', async () => {
+    expect(await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxCompletionChecks: 1 })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
+
 describe('headless host question answers', () => {
   const question = () => ({ ...toolCallWithUsage('audience'), toolCalls: [{ id: 'audience', name: 'ask_question', arguments: { question: 'Which audience?' } }] });
   const answered = () => ({ content: 'Report for operators.', toolCalls: [], usage: { inputTokens: 100, outputTokens: 50 } });

@@ -10,7 +10,8 @@ import {clearModelCache} from '../src/model-detection.js';
 import {runTurn,type TurnOptions} from '../src/runtime/index.js';
 import {getTools} from '../src/tools.js';
 import {RunLog,readRunLog,verifyChain} from '../src/runlog.js';
-import {ReservationLedger,manifestHash,type ExecutionManifest,type RequestAttribution} from '../src/execution/index.js';
+import {ReservationLedger,manifestHash,ExecutionLimitError,type ExecutionManifest,type RequestAttribution} from '../src/execution/index.js';
+import {createSession,saveSessionConversation} from '../src/storage.js';
 import {executionManifest} from './helpers/execution-manifest.js';
 import {reapedOrSigkilled} from './helpers/process-exit.js';
 import {saveHooks} from '../src/hooks.js';
@@ -31,6 +32,21 @@ beforeEach(()=>{
 });
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
 const options=(extra:Partial<TurnOptions>={}):TurnOptions=>({cwd:project,provider:'deepseek',model:'toy',sessionId:randomUUID(),prompt:'Use the public toy file.',messages:{current:[{role:'user',content:'Use the public toy file.'}]},confirmation:'none',maxIterations:3,tools:()=>[],runlog:RunLog.open(randomUUID(),{enabled:false}),execution:{ledger,manifestHash:manifestHash(manifest),agentId:'a',maxOutputTokens:100},...extra});
+it.each([false,true])('rechecks original agent authority after host verification (revoked=%s)',async revoke=>{
+  ledger.create(manifest);let revoked=false,saved:ReturnType<typeof saveSessionConversation>|undefined;
+  const session=createSession(project,{activate:false});
+  const opts=options({sessionId:session.id,
+    onCheckpoint:(messages,status)=>{saved=saveSessionConversation(session.id,messages,{expectedRevision:saved?.revision??null,status});},
+    controlSnapshot:()=>saved!,
+    completionCheck:async()=>{revoked=revoke;return {accepted:true,evidenceSha256:'a'.repeat(64)};},
+  });
+  opts.execution!.assertAuthority=()=>{if(revoked)throw new ExecutionLimitError('authority','Original agent authority was revoked');};
+  if(revoke)await expect(runTurn(opts)).rejects.toThrow('Original agent authority was revoked');
+  else expect((await runTurn(opts)).verification).toMatchObject({sessionId:session.id,evidenceSha256:'a'.repeat(64),checks:1});
+  expect(requests).toHaveLength(1);
+  const budget=ledger.read(project);expect(budget.projection.spent).toEqual({tokens:10,costNanos:13000});
+  expect(budget.events.map(event=>event.change.type)).toEqual(['reserve','settle']);
+});
 it('executes a bounded request using live metadata and records reservation/usage evidence',async()=>{
   ledger.create(manifest);const sessionId=randomUUID(),log=RunLog.open(sessionId,{dir:join(root,'audit')}),result=await runTurn(options({sessionId,runlog:log}));
   expect(result.reason).toBe('completed');expect(result.totals.inputTokens).toBe(7);expect(requests).toHaveLength(1);expect(requests[0].max_tokens).toBe(100);

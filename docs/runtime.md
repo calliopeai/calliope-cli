@@ -112,6 +112,33 @@ incoming operator intents before calling the controller. Its bounded request
 history belongs to one live turn; authoritative host intent retention, durable
 CLI homes and fenced process recovery require the host recovery implementation.
 
+Embedded hosts can set `completionCheck` on `runHeadless` or `runTurn` to check
+external acceptance evidence before this original turn completes. The callback
+receives a frozen proposal containing session ID, saved revision/checksum,
+iteration, check attempt and assistant content, plus the original cancellation
+signal. Return `{ accepted: true, evidenceSha256 }` for accepted host evidence,
+or `{ accepted: false, feedback }` for exact nonempty feedback of at most 16 KiB.
+The feedback returns to the same saved conversation as host verification data;
+it grants no permission and changes no acceptance criteria. The same provider
+selection policy, cost totals, iterations and deadline continue to apply.
+
+`maxCompletionChecks` defaults to 3 and accepts 1 through 8. Exhaustion stops
+incompletely, with headless exit 4; malformed results, a changed saved revision
+or a failed host callback stop without a provider retry. Truncated, empty,
+cancelled and budget-limited responses cannot become verified completions.
+A pause waits for in-flight verification to settle. Steering received during a
+check invalidates that acceptance and requires another iteration under the
+original bounds. Only an accepted, still-current completion carries
+`done.data.verification`, binding the proposal checkpoint and host evidence hash.
+
+Direct `runTurn` callers supply their existing `onCheckpoint` writer and
+`controlSnapshot` reader when using this hook. The host owns the verifier's
+configured commands, scope, evidence and resource cancellation. It must redact
+feedback before returning it and pin a model/account when its task requires one.
+An evidence hash identifies the host's report; the SDK does not independently
+certify its contents. Runs without a completion verifier retain their existing
+completion semantics.
+
 Any unexecuted calls receive explicit placeholder results. With
 `continueOnLength` (terminal and headless), a reply cut off by the output limit,
 or an empty reply, is not completion: any tool calls in the truncated reply are
