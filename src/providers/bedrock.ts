@@ -372,9 +372,9 @@ export async function chatBedrock(
   // Map stop reasons
   const finishReason = normalizeFinishReason(data.stopReason, toolCalls.length > 0);
 
-  // A toolUse block in last position under max_tokens was cut off: drop it and flag.
-  const lastBlock = data.output?.message?.content?.[data.output.message.content.length - 1];
-  const truncatedToolCalls = finishReason === 'length' && !!lastBlock?.toolUse;
+  // Output limit inside a tool block: the cut-off call must not run (#487).
+  const blocks = data.output?.message?.content;
+  const truncatedToolCalls = finishReason === 'length' && Boolean(blocks?.[blocks.length - 1]?.toolUse);
   if (truncatedToolCalls) toolCalls.pop();
 
   return {
@@ -433,13 +433,10 @@ async function chatBedrockStreaming(
   let outputTokens = 0;
   let usageSeen = false;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
-  let truncatedToolCalls = false;
   let currentToolId = '';
+  const unparsedToolIds = new Set<string>();
   let currentToolName = '';
   let currentToolInput = '';
-  const unparsedToolIds = new Set<string>();
-  // Last tool call pushed with nothing after it: under `length` it was cut off.
-  let trailingToolId = '';
 
   // Read the response body as a stream of bytes and parse events
   const reader = response.body?.getReader();
@@ -563,23 +560,18 @@ async function chatBedrockStreaming(
               currentToolId = start.start.toolUse.toolUseId;
               currentToolName = start.start.toolUse.name;
               currentToolInput = '';
-              trailingToolId = '';
-            } else {
-              trailingToolId = '';
             }
             break;
           }
           case 'contentBlockDelta': {
             const delta = event as { delta?: { text?: string; toolUse?: { input?: string }; reasoningContent?: unknown } };
             if (delta.delta?.text) {
-              trailingToolId = '';
               content += delta.delta.text;
               onToken(delta.delta.text);
             }
             if (delta.delta?.toolUse?.input) {
               currentToolInput += delta.delta.toolUse.input;
             }
-            if (delta.delta?.reasoningContent) trailingToolId = '';
             if (delta.delta?.reasoningContent) reasoningContent.push(delta.delta.reasoningContent);
             break;
           }
@@ -599,7 +591,6 @@ async function chatBedrockStreaming(
                   arguments: {},
                 });
               }
-              trailingToolId = currentToolId;
               currentToolId = '';
               currentToolName = '';
               currentToolInput = '';
@@ -631,15 +622,15 @@ async function chatBedrockStreaming(
   }
 
   throwIfCancelled(signal);
-  // Output limit mid-tool-call: drop the cut-off call(s) and flag instead of sending `{}`.
+  let truncatedToolCalls = false;
+  let keptToolCalls = toolCalls;
   if (finishReason === 'length') {
-    if (trailingToolId) unparsedToolIds.add(trailingToolId);
-    truncatedToolCalls = unparsedToolIds.size > 0 || !!currentToolId;
-    for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
+    truncatedToolCalls = unparsedToolIds.size > 0 || Boolean(currentToolId);
+    keptToolCalls = toolCalls.filter((tc) => !unparsedToolIds.has(tc.id));
   }
   return {
     content,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    toolCalls: keptToolCalls.length > 0 ? keptToolCalls : undefined,
     finishReason,
     ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),

@@ -62,6 +62,10 @@ Headless, for CI and scripts:
 calliope --headless --json "run the tests and summarize failures"
 ```
 
+For a model whose live metadata confirms the effort, add `--reasoning-effort medium`
+(or `CALLIOPE_REASONING_EFFORT=medium`). The flag overrides the environment value.
+Unsupported provider/model effort is refused; it is never silently replaced with a default.
+
 Hard-cap a headless run by spend and wall-clock time:
 
 ```bash

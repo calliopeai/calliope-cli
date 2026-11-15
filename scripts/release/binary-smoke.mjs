@@ -1,4 +1,4 @@
-/** Exercise the actual executable from an unrelated working directory, without inference. */
+/** Exercise the actual executable from an unrelated working directory, without paid inference. */
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -8,6 +8,7 @@ import { WebSocketServer } from "ws";
 import { Readable, Writable } from "node:stream";
 import assert from "node:assert/strict";
 import {qualifyBedrock} from "./bedrock-smoke.mjs";
+import {qualifyHeadlessEffort} from "./headless-effort-smoke.mjs";
 import { createHash } from "node:crypto";
 import {
   client as createClient,
@@ -157,6 +158,7 @@ try {
   await ahpAttach();
   run(["--internal-aws-credentials"], 2);
   await qualifyBedrock(binary, [], root);
+  await qualifyHeadlessEffort(binary, [], root);
   const doctor = JSON.parse(run(["doctor", "--json"]));
   assert.equal(doctor.version, 1);
   assert.equal(doctor.localOnly, true);
@@ -214,6 +216,8 @@ try {
       ahpAttach: true,
       doctor: true,
       bedrockCredentialsAndCancellation: true,
+      headlessReasoningEffort: true,
+      syntheticEffortRequests: 4,
       brainIndexedSearch: true,
       completeLargeJson: true,
       failureAndDenialExitCodes: true,

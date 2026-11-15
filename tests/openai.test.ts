@@ -627,6 +627,18 @@ describe('chatOpenAI (non-streaming, Chat Completions)', () => {
     expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
   });
 
+  it.each(['gpt-6.1-sol', 'gpt-6.1-terra'])('sends only max_completion_tokens for %s', async (model) => {
+    mockCreateResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] };
+    await chatOpenAI(makeSimpleMessages(), [], model);
+    expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+    expect(lastCreateParams).not.toHaveProperty('max_tokens');
+
+    mockStreamChunks = [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }];
+    await chatOpenAI(makeSimpleMessages(), [], model, () => {});
+    expect(typeof lastStreamCreateParams?.max_completion_tokens).toBe('number');
+    expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
+  });
+
   it('returns content and stop finish reason', async () => {
     mockCreateResponse = {
       choices: [
@@ -1610,103 +1622,76 @@ describe('chatOpenAIResponses streaming tool-call collection (regression #220)',
   });
 });
 
-describe('output-limit truncation (#487)', () => {
-  const badStream = (finish: string) => [
-    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_ok', function: { name: 'test_tool', arguments: '{"a":1}' } }] }, finish_reason: null }] },
-    { choices: [{ delta: { tool_calls: [{ index: 1, id: 'call_cut', function: { name: 'test_tool', arguments: '{"a":' } }] }, finish_reason: null }] },
-    { choices: [{ delta: {}, finish_reason: finish }] },
-  ];
-  const fn = (id: string, args: string) => ({ id, type: 'function' as const, function: { name: 'test_tool', arguments: args } });
-
-  it('streaming: drops the cut-off call and flags it under length', async () => {
-    mockStreamChunks = badStream('length');
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
+describe('truncated tool calls at the output limit (#487)', () => {
+  const tc = (id: string, args: string) => ({ id, type: 'function', function: { name: 'read_file', arguments: args } });
+  const chunk = (index: number, id: string, args: string) => ({
+    choices: [{ delta: { tool_calls: [{ index, id, function: { name: 'read_file', arguments: args } }] }, finish_reason: null }],
   });
 
-  it('streaming: keeps the {} fallback on other finishes, without a flag', async () => {
-    mockStreamChunks = badStream('tool_calls');
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls![1]).toEqual({ id: 'call_cut', name: 'test_tool', arguments: {} });
-  });
-
-  it('streaming: does not flag a complete call followed by length', async () => {
-    mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_ok', function: { name: 'test_tool', arguments: '{"a":1}' } }] }, finish_reason: null }] },
-      { choices: [{ delta: {}, finish_reason: 'length' }] },
-    ];
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toHaveLength(1);
-  });
-
-  it('streaming: drops a header-only call (empty arguments) under length', async () => {
-    mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'test_tool', arguments: '' } }] }, finish_reason: null }] },
-      { choices: [{ delta: {}, finish_reason: 'length' }] },
-    ];
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls).toBeUndefined();
-  });
-
-  it('streaming: keeps a header-only call as {} on other finishes, without a flag', async () => {
-    mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'test_tool', arguments: '' } }] }, finish_reason: null }] },
-      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
-    ];
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toEqual([{ id: 'call_cut', name: 'test_tool', arguments: {} }]);
-  });
-
-  it('streaming: keeps a complete no-argument call ("{}") under length', async () => {
-    mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_ok', function: { name: 'test_tool', arguments: '{}' } }] }, finish_reason: null }] },
-      { choices: [{ delta: {}, finish_reason: 'length' }] },
-    ];
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toHaveLength(1);
-  });
-
-  it('non-streaming: drops a header-only call (empty arguments) under length without throwing', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls).toBeUndefined();
-  });
-
-  it('non-streaming: does not throw, drops the call and flags it under length', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"a":1}'), fn('call_cut', '{"a":')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
-  });
-
-  it('non-streaming: does not flag a complete call followed by length', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"a":1}')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
-    expect(result.finishReason).toBe('length');
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toEqual([{ id: 'call_ok', name: 'test_tool', arguments: { a: 1 } }]);
-  });
-
-  it('non-streaming: still throws on invalid arguments for other finishes', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '{"a":')] }, finish_reason: 'tool_calls' }] };
-    await expect(chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o')).rejects.toThrow('Invalid tool arguments from LLM');
-  });
-
-  it('parseOpenAIToolCalls reports truncation only under length', () => {
+  it('parseOpenAIToolCalls skips and reports a bad call under length', () => {
     const onTruncated = vi.fn();
-    expect(parseOpenAIToolCalls([fn('c', '{"a":')], 'length', onTruncated)).toEqual([]);
+    const result = parseOpenAIToolCalls(
+      [tc('ok1', '{"path":"/a"}'), tc('cut', '{"pa')] as never, 'length', onTruncated,
+    );
+    expect(result.map(t => t.id)).toEqual(['ok1']);
     expect(onTruncated).toHaveBeenCalledTimes(1);
-    expect(() => parseOpenAIToolCalls([fn('c', '{"a":')], 'stop', onTruncated)).toThrow('Invalid tool arguments from LLM');
-    expect(onTruncated).toHaveBeenCalledTimes(1);
+  });
+  it('parseOpenAIToolCalls still throws for a bad call under another finish', () => {
+    expect(() => parseOpenAIToolCalls([tc('cut', '{"pa')] as never, 'tool_use')).toThrow('Invalid tool arguments');
+  });
+  it('streaming: unparseable arguments under length are dropped and flagged; complete call kept', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), chunk(1, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const r = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls).toEqual([{ id: 'ok1', name: 'read_file', arguments: { path: '/a' } }]);
+  });
+  it('streaming: valid call under length is not flagged; bad JSON under tool_calls is unchanged', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const ok = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(ok).not.toHaveProperty('truncatedToolCalls');
+    expect(ok.toolCalls).toHaveLength(1);
+    mockStreamChunks = [chunk(0, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
+    const bad = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(bad).not.toHaveProperty('truncatedToolCalls');
+    expect(bad.toolCalls).toEqual([{ id: 'cut', name: 'read_file', arguments: {} }]);
+  });
+  it('non-streaming: unparseable arguments under length do not throw and are flagged', async () => {
+    mockCreateResponse = {
+      choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}'), tc('cut', '{"path":"/b')] }, finish_reason: 'length' }],
+    };
+    const r = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls!.map(t => t.id)).toEqual(['ok1']);
+  });
+  it('non-streaming: valid call under length is not flagged', async () => {
+    mockCreateResponse = { choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}')] }, finish_reason: 'length' }] };
+    const r = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o');
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toHaveLength(1);
+  });
+});
+
+
+describe('header-only streaming calls at the output limit (#487)', () => {
+  it.each([
+    ['', 'length', true],
+    ['', 'tool_calls', false],
+    ['{}', 'length', false],
+  ] as const)('arguments %j with finish %s has truncation %s', async (argumentsText, finish, truncated) => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'header-call', function: { name: 'test_tool', arguments: argumentsText } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: finish }] },
+    ];
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(result.finishReason).toBe(finish === 'length' ? 'length' : 'tool_use');
+    if (truncated) {
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    } else {
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'header-call', name: 'test_tool', arguments: {} }]);
+    }
   });
 });

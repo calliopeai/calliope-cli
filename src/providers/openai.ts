@@ -117,7 +117,7 @@ export function parseOpenAIToolCalls(
     try {
       parsedArgs = JSON.parse(tc.function.arguments);
     } catch (error) {
-      // Cut off at the output limit: skip the call and report it instead of throwing.
+      // Output limit cut the arguments short: skip the call and report it (#487).
       if (finishReason === 'length') {
         onTruncated?.();
         continue;
@@ -560,12 +560,11 @@ export async function chatOpenAI(
       // The SDK's async iterator can end normally after an abort.
       throwIfCancelled(signal);
       // Convert tool call deltas to tool calls
-      const toolCalls: ToolCall[] = [];
       let truncatedToolCalls = false;
+      const toolCalls: ToolCall[] = [];
       for (const tc of Object.values(toolCallDeltas)) {
         if (!tc.id || !tc.name) continue;
-        // No argument bytes at the output limit: cut off, not a no-argument call (that arrives as `{}`).
-        if (finishReason === 'length' && !tc.arguments?.trim()) {
+        if (finishReason === 'length' && !tc.arguments.trim()) {
           truncatedToolCalls = true;
           continue;
         }
@@ -573,18 +572,14 @@ export async function chatOpenAI(
         try {
           parsedArgs = JSON.parse(tc.arguments || '{}');
         } catch {
-          // Cut off at the output limit: drop the call and flag instead of sending `{}`.
+          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          // Output limit cut the arguments short: drop the call and flag it (#487).
           if (finishReason === 'length') {
             truncatedToolCalls = true;
             continue;
           }
-          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
         }
-        toolCalls.push({
-          id: tc.id,
-          name: tc.name,
-          arguments: parsedArgs,
-        });
+        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
       }
 
       finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
@@ -621,9 +616,10 @@ export async function chatOpenAI(
 
   const choice = response.choices[0]!;
   const message = choice.message;
-  const rawFinish = normalizeFinishReason(choice.finish_reason);
   let truncatedToolCalls = false;
-  const toolCalls = parseOpenAIToolCalls(message.tool_calls, rawFinish, () => { truncatedToolCalls = true; });
+  const toolCalls = parseOpenAIToolCalls(message.tool_calls, normalizeFinishReason(choice.finish_reason), () => {
+    truncatedToolCalls = true;
+  });
 
   // Map OpenAI finish reasons
   const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);

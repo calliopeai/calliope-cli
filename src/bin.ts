@@ -430,9 +430,10 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
 
   if (useHeadless) {
     // Use headless renderer (no-TTY, JSON/text output)
-    const { runHeadless, parseHeadlessCaps } = await import('./headless.js');
+    const { runHeadless, parseHeadlessCaps, parseHeadlessEffort } = await import('./headless.js');
     let caps: ReturnType<typeof parseHeadlessCaps>;
-    try { caps = parseHeadlessCaps(parsed.args); }
+    let reasoningEffort: ReturnType<typeof parseHeadlessEffort>;
+    try { caps = parseHeadlessCaps(parsed.args); reasoningEffort = parseHeadlessEffort(parsed.args); }
     catch (error) {
       const message = (error as Error).message;
       if (args.includes('--json')) console.log(JSON.stringify({ type: 'error', timestamp: new Date().toISOString(), data: { message } }));
@@ -442,7 +443,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
     // Extract prompt from remaining args (non-flag args, skip flag values)
     const prompt = [...parsed.args.filter((a, i) => {
       if (a.startsWith('-')) return false;
-      if (i > 0 && ['--max-retries', '--max-cost', '--max-time', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
+      if (i > 0 && ['--max-retries', '--max-cost', '--max-time', '--reasoning-effort', ...LEDGER_FLAGS].includes(parsed.args[i - 1]!)) return false;
       return true;
     }), ...parsed.literal].join(' ');
     const { parseDelegatedExecutionOptions } = await import('./execution/delegated.js');
@@ -458,6 +459,7 @@ async function startCLI(options: { skipPermissions?: boolean } = {}): Promise<vo
       outputMode: args.includes('--json') ? 'json' : 'text',
       maxRetries,
       ...caps,
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
       ...(ledger ? { ledger } : {}),
     });
     return completeCommand(exitCode);
@@ -533,6 +535,7 @@ ${bold('OPTIONS')}
   --max-retries N   Retry failed tool calls N times in headless mode (default 3)
   --max-cost USD    Headless: stop once recorded run spend reaches USD (exit 6)
   --max-time SECS   Headless: stop after SECS of wall-clock time (exit 6)
+  --reasoning-effort LEVEL  Headless: request a live-supported reasoning effort
   --debug           Verbose logging to /tmp/calliope-debug.log (input, provider, modals)
 
 ${bold('ENVIRONMENT VARIABLES')}
@@ -562,6 +565,7 @@ ${bold('ENVIRONMENT VARIABLES')}
   CALLIOPE_MAX_RETRIES  Override --max-retries default (headless mode)
   CALLIOPE_MAX_COST     Default for --max-cost when the flag is absent
   CALLIOPE_MAX_TIME     Default for --max-time when the flag is absent
+  CALLIOPE_REASONING_EFFORT  Default headless effort when the flag is absent
 
 ${bold('INTERACTIVE COMMANDS')}
   /help             Show all commands

@@ -46,8 +46,12 @@ export class ExecutionGuard {
     this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution); this.measuredInputReservation=execution.measuredInputReservation===true;
     this.assertAuthority=execution.assertAuthority;this.assertAuthority?.();this.workspace=execution.workspace;this.workspace?.assertIdentity();
     const saved=execution.ledger.read(cwd);
-    const localProject=execution.ledger.executionProject?.(cwd,execution.agentId)??saved.manifest.project;
-    if(canonicalJson(localProject)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,execution.agentId)))throw new ExecutionLimitError('authority','Child project needs a verified native workspace binding.');
+    const remoteProject=execution.ledger.executionProject?.(cwd,execution.agentId);
+    const declaredProject=remoteProject??saved.manifest.project;
+    if(canonicalJson(declaredProject)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,execution.agentId)))throw new ExecutionLimitError('authority','Child project needs a verified native workspace binding.');
+    // A portable match scopes everything to this mount; the origin's recorded root is never used.
+    const portable=remoteProject?undefined:saved.manifest.project.portable;
+    const localProject=remoteProject??(()=>{const local=checkExecutionIdentity(saved.manifest,cwd,{portable:true});return {...local,...(portable?{portable}:{})};})();
     assertExecutionStoreOutsideProject(localProject.root,dirname(execution.ledger.root));
     if(saved.projection.manifestHash!==execution.manifestHash)throw new ExecutionLimitError('conflict','Execution contract does not match the budget ledger.');
     const effective=effectiveExecutionManifest(saved.manifest,saved.projection),agent=accountLineage(effective,execution.agentId)[0]!;
@@ -80,7 +84,7 @@ export class ExecutionGuard {
       const locator=source.locator;
       if(locator.path&&!locator.projectKey)return 'Knowledge file locator lacks a project binding.';
       if(locator.projectKey&&locator.projectKey!==this.scopeManifest.project.key)return 'Knowledge source belongs to another project.';
-      return executionPathDenial(this.scopeManifest,accountLineage(this.manifest,this.agentId)[0]!,locator.projectKey===this.scopeManifest.project.key?locator.path??'.':'.','read');
+      return executionPathDenial({root:this.scopeManifest.project.root,protectGit:this.scopeManifest.project.portable!==undefined},accountLineage(this.manifest,this.agentId)[0]!,locator.projectKey===this.scopeManifest.project.key?locator.path??'.':'.','read');
     }};
   }
   async refreshAuthority(signal?:AbortSignal):Promise<void> {

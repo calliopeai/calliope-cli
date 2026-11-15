@@ -183,11 +183,9 @@ export async function chatAnthropic(
     let inputUsageSeen = false, outputUsageSeen = false;
     const toolCalls: ToolCall[] = [];
     let currentToolId = '';
+    const unparsedToolIds = new Set<string>();
     let currentToolName = '';
     let currentToolInput = '';
-    const unparsedToolIds = new Set<string>();
-    // Last tool call pushed with nothing after it: under `length` it was cut off.
-    let trailingToolId = '';
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
 
     try {
@@ -199,9 +197,6 @@ export async function chatAnthropic(
             currentToolId = event.content_block.id;
             currentToolName = event.content_block.name;
             currentToolInput = '';
-            trailingToolId = '';
-          } else {
-            trailingToolId = '';
           }
         } else if (event.type === 'content_block_delta') {
           if (event.delta.type === 'text_delta') {
@@ -227,7 +222,6 @@ export async function chatAnthropic(
                 arguments: {},
               });
             }
-            trailingToolId = currentToolId;
             currentToolId = '';
             currentToolName = '';
             currentToolInput = '';
@@ -253,17 +247,16 @@ export async function chatAnthropic(
         }
       }
 
-      // Output limit mid-tool-call: drop the cut-off call(s) and flag instead of sending `{}`.
       let truncatedToolCalls = false;
+      let keptToolCalls = toolCalls;
       if (finishReason === 'length') {
-        if (trailingToolId) unparsedToolIds.add(trailingToolId);
-        truncatedToolCalls = unparsedToolIds.size > 0 || !!currentToolId;
-        for (let i = toolCalls.length - 1; i >= 0; i--) if (unparsedToolIds.has(toolCalls[i]!.id)) toolCalls.splice(i, 1);
+        truncatedToolCalls = unparsedToolIds.size > 0 || Boolean(currentToolId);
+        keptToolCalls = toolCalls.filter((tc) => !unparsedToolIds.has(tc.id));
       }
 
       return {
         content,
-        toolCalls: finishReason !== 'error' && toolCalls.length > 0 ? toolCalls : undefined,
+        toolCalls: finishReason !== 'error' && keptToolCalls.length > 0 ? keptToolCalls : undefined,
         finishReason,
         ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
         ...(finishReason === 'error' ? { errorCode: 'refusal' as const } : {}),
@@ -309,10 +302,12 @@ export async function chatAnthropic(
     if (!content) content = '[Request refused by the safety classifier]';
   }
 
-  // A tool_use block in last position under max_tokens was cut off: drop it and flag.
-  const lastBlock = response.content[response.content.length - 1];
-  const truncatedToolCalls = finishReason === 'length' && lastBlock?.type === 'tool_use';
-  if (truncatedToolCalls) toolCalls.pop();
+  // Output limit inside a tool block: the cut-off call must not run (#487).
+  let truncatedToolCalls = false;
+  if (finishReason === 'length' && response.content[response.content.length - 1]?.type === 'tool_use') {
+    toolCalls.pop();
+    truncatedToolCalls = true;
+  }
 
   return {
     content,

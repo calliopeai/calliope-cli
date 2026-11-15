@@ -11,7 +11,7 @@
  * toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Message, Tool, ToolCall } from '../src/types.js';
 
 // ---------------------------------------------------------------------------
@@ -929,6 +929,93 @@ describe('chatOpenAICompatible', () => {
   });
 
   // =========================================================================
+  // Output token field by target host
+  // =========================================================================
+
+  describe('output token field', () => {
+    const msgs: Message[] = [{ role: 'user', content: 'hi' }];
+    const okResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] };
+    const streamChunks = [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }];
+
+    async function setBase(provider: string, url: string | undefined) {
+      const configMod = await import('../src/config.js');
+      vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => (p === provider ? url : baseUrls[p]));
+    }
+
+    afterEach(async () => {
+      const configMod = await import('../src/config.js');
+      vi.mocked(configMod.getBaseUrl).mockImplementation((p: string) => baseUrls[p]);
+      delete process.env.OPENAI_COMPAT_SHIM;
+    });
+
+    it('sends max_completion_tokens only for api.openai.com (non-streaming)', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('sends max_completion_tokens only for gpt-6.1-terra on api.openai.com', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-terra');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('sends max_completion_tokens only for api.openai.com (streaming)', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockStreamChunks = streamChunks;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol', () => {});
+      expect(lastCreateParams?.stream).toBe(true);
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it('respects the bounded output limit', async () => {
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol', undefined, undefined, { maxOutputTokens: 512 } as never);
+      expect(lastCreateParams?.max_completion_tokens as number).toBeLessThanOrEqual(512);
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it.each(['lmstudio', 'vllm'])('a forced %s shim does not bring max_tokens back for OpenAI', async (shimId) => {
+      process.env.OPENAI_COMPAT_SHIM = shimId;
+      await setBase('openai-compat', 'https://api.openai.com/v1');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'gpt-6.1-sol');
+      expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_tokens');
+    });
+
+    it.each([
+      ['openai-compat', undefined],
+      ['openai-compat', 'http://localhost:8000'],
+      ['openai-compat', 'http://localhost:1234/v1'],
+      ['groq', undefined],
+      ['ollama', undefined],
+      ['openai-compat', 'https://api.openai.com.example.test/v1'],
+      ['openai-compat', 'https://proxy.example.test/api.openai.com/v1'],
+    ])('keeps max_tokens for %s at %s', async (provider, url) => {
+      await setBase(provider, url);
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible(provider as never, msgs, [], 'some-model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
+    });
+
+    it('does not throw on an unparseable base URL', async () => {
+      await setBase('openai-compat', 'not a url');
+      mockCreateResponse = okResponse;
+      await chatOpenAICompatible('openai-compat', msgs, [], 'some-model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
+    });
+  });
+
+  // =========================================================================
   // Ollama fallback
   // =========================================================================
 
@@ -953,6 +1040,8 @@ describe('chatOpenAICompatible', () => {
       );
 
       expect(result.content).toBe('from fallback model');
+      expect(typeof lastCreateParams?.max_tokens).toBe('number');
+      expect(lastCreateParams).not.toHaveProperty('max_completion_tokens');
       // Should have been called twice (original + fallback)
       expect(createCallCount).toBe(2);
     });
@@ -1016,81 +1105,70 @@ describe('chatOpenAICompatible', () => {
   });
 });
 
-describe('output-limit truncation (#487)', () => {
-  const msgs: Message[] = [{ role: 'user', content: 'go' }];
-  const fn = (id: string, args: string) => ({ id, type: 'function' as const, function: { name: 'read_file', arguments: args } });
-  const okChunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_ok', function: { name: 'read_file', arguments: '{"path":"/a"}' } }] }, finish_reason: null }] };
-  const cutChunk = { choices: [{ delta: { tool_calls: [{ index: 1, id: 'call_cut', function: { name: 'read_file', arguments: '{"path":"/te' } }] }, finish_reason: null }] };
-  const finish = (reason: string) => ({ choices: [{ delta: {}, finish_reason: reason }] });
-
-  it('streaming: drops the cut-off call and flags it under length', async () => {
-    mockStreamChunks = [okChunk, cutChunk, finish('length')];
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
+describe('truncated tool calls at the output limit (#487)', () => {
+  const tc = (id: string, args: string) => ({ id, type: 'function', function: { name: 'read_file', arguments: args } });
+  const msgs = [{ role: 'user' as const, content: 'go' }];
+  const chunk = (index: number, id: string, args: string, finish: string | null = null) => ({
+    choices: [{ delta: { tool_calls: [{ index, id, function: { name: 'read_file', arguments: args } }] }, finish_reason: finish }],
   });
 
-  it('streaming: keeps the {} fallback on other finishes, without a flag', async () => {
-    mockStreamChunks = [okChunk, cutChunk, finish('tool_calls')];
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls![1]).toEqual({ id: 'call_cut', name: 'read_file', arguments: {} });
+  it('streaming: unparseable arguments under length are dropped and flagged; complete call kept', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), chunk(1, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls).toEqual([{ id: 'ok1', name: 'read_file', arguments: { path: '/a' } }]);
   });
-
-  it('streaming: does not flag a complete call followed by length', async () => {
-    mockStreamChunks = [okChunk, finish('length')];
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toHaveLength(1);
+  it('streaming: valid call under length is not flagged; bad JSON under tool_calls is unchanged', async () => {
+    mockStreamChunks = [chunk(0, 'ok1', '{"path":"/a"}'), { choices: [{ delta: {}, finish_reason: 'length' }] }];
+    const ok = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(ok).not.toHaveProperty('truncatedToolCalls');
+    expect(ok.toolCalls).toHaveLength(1);
+    mockStreamChunks = [chunk(0, 'cut', '{"path":"/b'), { choices: [{ delta: {}, finish_reason: 'tool_calls' }] }];
+    const bad = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model', vi.fn());
+    expect(bad).not.toHaveProperty('truncatedToolCalls');
+    expect(bad.toolCalls).toEqual([{ id: 'cut', name: 'read_file', arguments: {} }]);
   });
+  it('non-streaming: unparseable arguments under length do not throw and are flagged', async () => {
+    mockCreateResponse = {
+      choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}'), tc('cut', '{"path":"/b')] }, finish_reason: 'length' }],
+    };
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model');
+    expect(r.finishReason).toBe('length');
+    expect(r.truncatedToolCalls).toBe(true);
+    expect(r.toolCalls!.map(t => t.id)).toEqual(['ok1']);
+  });
+  it('non-streaming: the same bad JSON with another finish still throws', async () => {
+    mockCreateResponse = { choices: [{ message: { content: '', tool_calls: [tc('cut', '{"path":"/b')] }, finish_reason: 'tool_calls' }] };
+    await expect(chatOpenAICompatible('openrouter', msgs, makeTools(), 'model')).rejects.toThrow('Invalid tool arguments');
+  });
+  it('non-streaming: valid call under length is not flagged', async () => {
+    mockCreateResponse = { choices: [{ message: { content: '', tool_calls: [tc('ok1', '{"path":"/a"}')] }, finish_reason: 'length' }] };
+    const r = await chatOpenAICompatible('openrouter', msgs, makeTools(), 'model');
+    expect(r).not.toHaveProperty('truncatedToolCalls');
+    expect(r.toolCalls).toHaveLength(1);
+  });
+});
 
-  it('streaming: drops a header-only call (empty arguments) under length', async () => {
+
+describe('header-only streaming calls at the output limit (#487)', () => {
+  it.each([
+    ['', 'length', true],
+    ['', 'tool_calls', false],
+    ['{}', 'length', false],
+  ] as const)('arguments %j with finish %s has truncation %s', async (argumentsText, finish, truncated) => {
     mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'read_file', arguments: '' } }] }, finish_reason: null }] },
-      finish('length'),
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'header-call', function: { name: 'read_file', arguments: argumentsText } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: finish }] },
     ];
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls).toBeUndefined();
-  });
-
-  it('streaming: keeps a header-only call as {} on other finishes, without a flag', async () => {
-    mockStreamChunks = [
-      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_cut', function: { name: 'read_file', arguments: '' } }] }, finish_reason: null }] },
-      finish('tool_calls'),
-    ];
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model', () => {});
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toEqual([{ id: 'call_cut', name: 'read_file', arguments: {} }]);
-  });
-
-  it('non-streaming: drops a header-only call (empty arguments) under length without throwing', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls).toBeUndefined();
-  });
-
-  it('non-streaming: does not throw, drops the call and flags it under length', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"path":"/a"}'), fn('call_cut', '{"path":"/te')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');
-    expect(result.finishReason).toBe('length');
-    expect(result.truncatedToolCalls).toBe(true);
-    expect(result.toolCalls!.map(c => c.id)).toEqual(['call_ok']);
-  });
-
-  it('non-streaming: does not flag a complete call followed by length', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_ok', '{"path":"/a"}')] }, finish_reason: 'length' }] };
-    const result = await chatOpenAICompatible('groq', msgs, makeTools(), 'model');
-    expect(result.finishReason).toBe('length');
-    expect(result).not.toHaveProperty('truncatedToolCalls');
-    expect(result.toolCalls).toEqual([{ id: 'call_ok', name: 'read_file', arguments: { path: '/a' } }]);
-  });
-
-  it('non-streaming: still throws on invalid arguments for other finishes', async () => {
-    mockCreateResponse = { choices: [{ message: { content: 'x', tool_calls: [fn('call_cut', '{"path":"/te')] }, finish_reason: 'tool_calls' }] };
-    await expect(chatOpenAICompatible('groq', msgs, makeTools(), 'model')).rejects.toThrow('Invalid tool arguments from LLM');
+    const result = await chatOpenAICompatible('groq', [{ role: 'user', content: 'go' }], makeTools(), 'model', vi.fn());
+    expect(result.finishReason).toBe(finish === 'length' ? 'length' : 'tool_use');
+    if (truncated) {
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    } else {
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'header-call', name: 'read_file', arguments: {} }]);
+    }
   });
 });

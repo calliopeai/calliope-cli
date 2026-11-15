@@ -7,12 +7,14 @@
  */
 
 import { runTurn } from './runtime/index.js';
-import type { TurnTotals } from './runtime/turn.js';
+import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
+import type { RuntimeControl, ControlCheckpoint, ControlReceipt } from './runtime/control.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
-import { createSession, saveSessionConversation } from './storage.js';
+import { createSession, readSessionConversation, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
+import { createHash } from 'node:crypto';
 import * as config from './config.js';
 import { selectProvider, ProviderUnavailableError } from './providers/index.js';
 import { getTools } from './tools.js';
@@ -24,6 +26,7 @@ import { RunLog } from './runlog.js';
 import { formatBudgetHalt } from './budget.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import type { Message, LLMProvider } from './types.js';
+import { isReasoningEffort, REASONING_EFFORTS, type ReasoningEffort } from './models/index.js';
 
 // ============================================================================
 // Types
@@ -46,8 +49,23 @@ export const CAP_EXIT_CODE = 6;
 
 export type HeadlessOutputMode = 'json' | 'text';
 
+export interface HeadlessQuestionReceipt {
+  readonly sessionId: string;
+  readonly toolCallId: string;
+  readonly revision: string;
+  readonly checksum: string;
+  readonly answerSha256: string;
+}
+
 export interface HeadlessOptions {
   signal?: AbortSignal;
+  /** Control this original live turn; state and receipts do not recover a terminated process. */
+  control?: RuntimeControl;
+  onControlCommitted?: (receipt: ControlReceipt, signal?: AbortSignal) => Promise<void>;
+  /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
+  answerQuestion?: TurnOptions['answerQuestion'];
+  /** Acknowledge the original conversation's saved answer before further execution. */
+  onQuestionCommitted?: (receipt: HeadlessQuestionReceipt, signal?: AbortSignal) => Promise<void>;
   provider?: LLMProvider;
   model?: string;
   prompt?: string;
@@ -58,6 +76,8 @@ export interface HeadlessOptions {
   maxCost?: number;
   /** Hard wall-clock cap in seconds for this run (--max-time / CALLIOPE_MAX_TIME). */
   maxTime?: number;
+  /** Explicit effort, subject to the provider's live capability checks. */
+  reasoningEffort?: ReasoningEffort;
   cwd?: string;
   /** Run as a delegated child admitted through a parent's served ledger (#415). */
   ledger?: DelegatedExecutionOptions;
@@ -123,13 +143,44 @@ export function parseHeadlessCaps(args: readonly string[], env: NodeJS.ProcessEn
   return { ...(maxCost !== undefined ? { maxCost } : {}), ...(maxTime !== undefined ? { maxTime } : {}) };
 }
 
+/** A requested effort is never silently dropped; the flag wins over its environment default. */
+export function parseHeadlessEffort(args: readonly string[], env: NodeJS.ProcessEnv = process.env): ReasoningEffort | undefined {
+  const flag = '--reasoning-effort';
+  const found = args.map((value, index) => ({ value, index })).filter(({ value }) => value === flag || value.startsWith(flag + '='));
+  if (found.length > 1) throw new Error(`${flag} may be specified only once`);
+  const item = found[0];
+  const raw = item ? (item.value === flag ? args[item.index + 1] : item.value.slice(flag.length + 1))?.trim() : env.CALLIOPE_REASONING_EFFORT?.trim();
+  if (!item && !raw) return undefined;
+  if (!isReasoningEffort(raw)) throw new Error(`${item ? flag : 'CALLIOPE_REASONING_EFFORT'} must be one of ${REASONING_EFFORTS.join(', ')}`);
+  return raw;
+}
+
 // ============================================================================
 // Headless Runner
 // ============================================================================
 
 interface RunClock { started: number; timedOut: boolean }
+const headlessControls = new WeakSet<RuntimeControl>();
 
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
+  const control = options.control;
+  if (control) {
+    if (headlessControls.has(control) || control.state.sessionId || control.state.phase === 'stopped') {
+      emit({ type: 'error', timestamp: now(), data: { message: 'Execution controller already belongs to a headless invocation or turn.' } }, options.outputMode || 'json');
+      return 2;
+    }
+    // Reserve before asynchronous preflight. A rejected second invocation must
+    // not end another invocation's pending pause or stop its original turn.
+    headlessControls.add(control);
+  }
+  try { return await runHeadlessWithClock({ ...options }); }
+  finally {
+    if (control && !control.state.sessionId)
+      control.stop(new Error('Headless run ended before runtime admission.'));
+  }
+}
+
+async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
   const clock: RunClock = { started: Date.now(), timedOut: false };
   if (options.maxTime === undefined) return run(options, options.signal, clock);
   // The time cap aborts like cancellation; `clock.timedOut` tells the two apart.
@@ -141,6 +192,14 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  if (options.onControlCommitted && !options.control) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Control acknowledgment requires an execution controller.' } }, outputMode);
+    return 2;
+  }
+  if (options.reasoningEffort !== undefined && !isReasoningEffort(options.reasoningEffort)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Invalid headless reasoning effort' } }, outputMode);
+    return 2;
+  }
   const summary = (totals: TurnTotals | undefined, stoppedBy: HeadlessCapKind | null) => ({
     costUsd: totals?.cost ?? 0, inputTokens: totals?.inputTokens ?? 0, outputTokens: totals?.outputTokens ?? 0,
     elapsedMs: Date.now() - clock.started, stoppedBy, limits: { maxCost: options.maxCost, maxTime: options.maxTime },
@@ -272,6 +331,8 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   try { sessionId = createSession(cwd, { activate: false, ...(execution ? { executionBinding: executionBinding(execution) } : {}) }).id; }
   catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
   let revision: string | null = null;
+  let savedQuestion: ReturnType<typeof saveSessionConversation> | undefined;
+  let savedControl: ControlCheckpoint | undefined;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
@@ -287,11 +348,46 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       onCheckpoint: (history, status) => {
         const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
         revision = saved.revision;
+        if (options.onQuestionCommitted) savedQuestion = saved;
+        if (options.control) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
+      continueOnLength: true,
+      onContinue: ({ reason, attempt, max }) => {
+        const message = `[continue ${attempt}/${max}] ${reason === 'length' ? 'output length limit reached' : 'empty model reply'}; asking the model to continue`;
+        emit({ type: 'status', timestamp: now(), data: { message, continuing: true, reason, attempt, max } }, outputMode);
+        process.stderr.write(message + '\n');
+      },
       sessionId, cwd, provider, model, prompt, execution,
+      ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
+      control: options.control,
+      controlSnapshot: options.control ? () => {
+        if (!savedControl) throw new Error('Execution control checkpoint is unavailable.');
+        return savedControl;
+      } : undefined,
+      onControlCommitted: options.control ? async (receipt, controlSignal) => {
+        await options.onControlCommitted?.(receipt, controlSignal);
+        const current = readSessionConversation(sessionId);
+        if (current.revision !== receipt.revision)
+          throw new Error('Conversation changed during execution control; reload before continuing.');
+        emit({ type: 'status', timestamp: now(), data: { control: receipt } }, outputMode);
+      } : undefined,
+      answerQuestion: options.answerQuestion,
+      onQuestionCommitted: options.onQuestionCommitted ? async (call, toolResult, questionSignal) => {
+        const message = savedQuestion?.messages.at(-1);
+        if (toolResult.isError || !savedQuestion || message?.role !== 'tool' || message.toolCallId !== call.id || message.content !== toolResult.result) {
+          throw new Error('Question answer was not saved in the original conversation; delivery was not acknowledged.');
+        }
+        const receipt: HeadlessQuestionReceipt = Object.freeze({ sessionId, toolCallId: call.id,
+          revision: savedQuestion.revision, checksum: savedQuestion.checksum,
+          answerSha256: createHash('sha256').update(toolResult.result).digest('hex') });
+        await options.onQuestionCommitted!(receipt, questionSignal);
+        if (readSessionConversation(sessionId).revision !== receipt.revision) {
+          throw new Error('Conversation changed while question delivery was being acknowledged; reload before continuing.');
+        }
+      } : undefined,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {
@@ -310,6 +406,11 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
     else if (result.budget?.exceeded) {
       const message = formatBudgetHalt(result.budget);
       emit({ type: 'status', timestamp: now(), data: { message } }, outputMode);
+      process.stderr.write(message + '\n');
+    }
+    if (!stoppedBy && (result.reason === 'length' || result.reason === 'empty_response')) {
+      const message = `Run gave up: ${result.reason === 'length' ? 'output length limit reached' : 'empty model replies'} (${result.reason}) after ${MAX_CONSECUTIVE_CONTINUATIONS} consecutive continuations.`;
+      emit({ type: 'error', timestamp: now(), data: { message, reason: result.reason } }, outputMode);
       process.stderr.write(message + '\n');
     }
     emit({ type: 'done', timestamp: now(), data: { iterations: result.iterations, reason: stoppedBy ? 'budget' : result.reason, ...summary(result.totals, stoppedBy) } }, outputMode);

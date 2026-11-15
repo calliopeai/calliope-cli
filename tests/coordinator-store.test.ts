@@ -169,3 +169,33 @@ it.each(['in-place','malformed-replacement'])('still rejects %s history changes 
   }) as typeof fs.readSync);
   expect(()=>store.read()).toThrow(/unavailable/);expect(writes).toBe(1);
 });
+
+it.each(['approved','revoked'])('reads the current %s approval after atomic head publication',async kind=>{
+  const {store,project,runs,view}=await coordinatorRun(root),header=store.read().header,file=join(runs.root,view.run.id,'head.json'),old=fs.readFileSync(file);
+  if(kind==='revoked')await changePreparedRun(project,view.run.id,'cancelled',{store:runs});
+  const next=fs.readFileSync(file);fs.writeFileSync(file,old);const inode=fs.statSync(file).ino,read=fs.readSync;let replacements=0;
+  vi.spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{
+    const count=Reflect.apply(read,fs,args);
+    if(!replacements&&fs.fstatSync(args[0]).ino===inode){replacements++;const temp=join(runs.root,view.run.id,'published-head.json');fs.writeFileSync(temp,next,{mode:0o600});fs.renameSync(temp,file);}
+    return count;
+  }) as typeof fs.readSync);
+  if(kind==='revoked')expect(()=>store.assertApproval(header)).toThrow(/approval was revoked/);
+  else expect(()=>store.assertApproval(header)).not.toThrow();
+  expect(replacements).toBe(1);
+});
+
+it.each(['repeated','malformed','symlink','in-place','public'])('refuses unsafe %s approval publication',async kind=>{
+  if(kind==='public'&&process.platform==='win32')return;
+  const {store,runs,view}=await coordinatorRun(root),header=store.read().header,file=join(runs.root,view.run.id,'head.json'),bytes=fs.readFileSync(file),read=fs.readSync;let writes=0;
+  vi.spyOn(fs,'readSync').mockImplementation(((...args:Parameters<typeof fs.readSync>)=>{
+    const current=fs.statSync(file),opened=fs.fstatSync(args[0]),count=Reflect.apply(read,fs,args);
+    if(current.ino===opened.ino&&current.dev===opened.dev&&(!writes||kind==='repeated')){
+      writes++;const temp=join(runs.root,view.run.id,'published-head.json');
+      if(kind==='in-place')fs.writeFileSync(file,'{');
+      else if(kind==='symlink'){fs.writeFileSync(temp,bytes,{mode:0o600});fs.unlinkSync(file);fs.symlinkSync(temp,file);}
+      else{fs.writeFileSync(temp,kind==='malformed'?'{':bytes,{mode:kind==='public'?0o644:0o600});fs.renameSync(temp,file);}
+    }
+    return count;
+  }) as typeof fs.readSync);
+  expect(()=>store.assertApproval(header)).toThrow();expect(writes).toBe(kind==='repeated'?3:1);
+});

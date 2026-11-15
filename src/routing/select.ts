@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import * as config from '../config.js';
 import { getAvailableModels, getDiscoveredModels, getPreviousDiscoveredModels, resolveModelAlias } from '../model-detection.js';
-import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
+import { HealthStore, providerTarget, isDeclaredPrivate, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { capability, isReasoningEffort, ModelDiscoveryError, type ModelInfo, type ModelCapabilities } from '../models/index.js';
 import type { Message } from '../types.js';
 import type { RouteCandidate, RoutingDecision, RoutingRequest, RoutingRequirements, RoutingPreferences } from './types.js';
@@ -104,6 +104,16 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
   const pinnedModel=!!(request.origin?request.origin.model:request.model);
   const pool=smart?smartPool(smart):undefined;
   if(pool&&!explicit)providers=providers.filter(provider=>pool.some(target=>target.provider===provider));
+  // The data policy comes from user config only: a request can never loosen it. It
+  // filters the final list in every mode, before any discovery or alias lookup.
+  const privatePolicy = config.get('routing')?.dataPolicy === 'private';
+  if (privatePolicy) {
+    providers = providers.filter(provider => {
+      if (isDeclaredPrivate(provider)) return true;
+      exclude(provider, 'outside-private-policy'); return false;
+    });
+    if (!providers.length) { decision.reason = 'Private data policy: no eligible target is declared in routing.privateTargets (outside-private-policy); no request was sent.'; return decision; }
+  }
   // Preference defines a deterministic scan/tie order; health/cost/latency can
   // select another eligible provider only when provider selection is automatic.
   const preferredProviders = preferences.preferredProviders ?? [];
@@ -158,6 +168,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
       catch { exclude(provider, 'alias-discovery-failed', preferredModel); }
       if (signal.aborted && (request.signal?.aborted || overall.aborted)) break;
     }
+    if (privatePolicy && !isDeclaredPrivate(provider)) { exclude(provider, 'outside-private-policy'); continue; }
     if (target.key !== providerTarget(provider).key || (evidence === 'live' && !getDiscoveredModels(provider))) {
       exclude(provider, 'configuration-changed-during-discovery'); continue;
     }
