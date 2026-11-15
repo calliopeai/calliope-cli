@@ -77,7 +77,7 @@ it('cancels a running coordinator across processes, closes live HTTP requests an
   const running=child(`process.exitCode=await api.runOrchestrationCommand('run',['resume',p.runId,'--allow-mutations','--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,{runId:view.run.id,project,runs:runs.root});
   await vi.waitFor(()=>expect(calls).toBe(2),{timeout:8000});expect(()=>new ExecutionStore(join(runs.root,view.run.id),view.manifest).acquire()).toThrow(/owns/);
   const cancellation=child(`process.exitCode=await api.runOrchestrationCommand('run',['cancel',p.runId,'--json'],{cwd:p.project,store:new api.RunStore(p.runs)});`,{runId:view.run.id,project,runs:runs.root});
-  expect(await cancellation.closed).toBe(0);expect(JSON.parse(cancellation.output()).data.status).toBe('cancellation-requested');expect(await running.closed).toBe(130);
+  expect(await cancellation.closed).toBe(0);expect(JSON.parse(cancellation.output()).data.status).toBe('cancellation-requested');expect(await running.closed,running.output()+running.error()).toBe(130);
   await vi.waitFor(()=>expect(closed).toBe(2));expect(calls).toBe(2);const record=JSON.parse(running.output().trim().split('\n').at(-1)!);expect(record.data.status).toBe('cancelled');
   const store=new ExecutionStore(join(runs.root,view.run.id),view.manifest);expect(store.owner()).toBeNull();expect(store.read()).toEqual(record.data.execution);
 },20000);
