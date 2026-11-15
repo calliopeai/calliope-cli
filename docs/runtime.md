@@ -75,6 +75,43 @@ a local conversation receipt grants no tools, scope or account access. These
 callbacks do not implement hosted Factory routing, steering, execution pause or
 process recovery by themselves.
 
+Embedded clients can pass a `RuntimeControl` to `runHeadless` for cooperative
+execution pause and ordered steering within the original live turn:
+
+```ts
+const control = new RuntimeControl();
+const running = runHeadless({ ...originalOptions, control });
+const paused = await control.pause('operator-pause-1');
+const steered = control.steer({ requestId: 'operator-note-1',
+  sessionId: paused.sessionId, revision: paused.revision,
+  text: 'Include the verification commands and keep the original criteria.' });
+await control.resume(paused);
+await steered;
+await running;
+```
+
+Pause is first `pausing`, then `paused` after a saved, quiescent boundary and
+the optional `onControlCommitted` acknowledgment. Started parallel work and
+post-tool hooks settle before acknowledgment. An unanswered host question can
+be parked; an answer received while paused waits before changing the snapshot.
+An already-saved answer's host acknowledgment settles before a requested pause,
+preserving the revision that acknowledgment names.
+
+Resume requires the exact frozen pause receipt. Control receipts carry the
+session, request ID, kind, revision and checksum. Steering binds its origin
+session/revision and exact text, is idempotent by request ID, and is saved at a
+complete conversation boundary before another model request. Steering received
+with a final response requires another iteration or an explicit limit outcome.
+The original budget, iteration allowance, deadline and permission checks remain
+in force; cancellation and deadlines settle control waits. A failed writer or
+refused acknowledgment stops admission and cannot be retried through `onError`.
+
+Direct `runTurn` callers supply their existing `onCheckpoint` writer plus a
+`controlSnapshot` reader for that writer's saved revision/checksum. Hosts authorize
+incoming operator intents before calling the controller. Its bounded request
+history belongs to one live turn; authoritative host intent retention, durable
+CLI homes and fenced process recovery require the host recovery implementation.
+
 Any unexecuted calls receive explicit placeholder results. With
 `continueOnLength` (terminal and headless), a reply cut off by the output limit,
 or an empty reply, is not completion: any tool calls in the truncated reply are

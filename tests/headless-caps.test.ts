@@ -549,3 +549,100 @@ describe('headless --max-time', () => {
     expect(lines.some(line => line.startsWith('BUDGET: Time cap reached'))).toBe(true);
   });
 });
+
+describe('headless execution control', () => {
+  it('settles a requested pause when preflight refuses the run before creating a session', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl(), pause = control.pause('invalid-preflight');
+    expect(await runHeadless({ prompt: 'Original goal', control, outputMode: 'json',
+      reasoningEffort: 'invalid' as never })).toBe(2);
+    expect(control.state.phase).toBe('stopped');
+    await expect(pause).rejects.toThrow('before runtime admission');
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('refuses another headless invocation without stopping the controller owner', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl(), pause = control.pause('owner');
+    mockChat.mockResolvedValue({ content: 'verified', usage: { inputTokens: 1, outputTokens: 1 } });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, outputMode: 'json' });
+    const receipt = await pause;
+    expect(await runHeadless({ prompt: 'Another goal', control, outputMode: 'json' })).toBe(2);
+    expect(control.state.phase).toBe('paused');
+    await control.resume(receipt);
+    expect(await running).toBe(0);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(await runHeadless({ prompt: 'Reuse ended control', control, outputMode: 'json' })).toBe(2);
+  });
+
+  it('uses the existing session writer for pause, resume and steering receipts', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const { readSessionConversation } = await import('../src/storage.js');
+    const control = new RuntimeControl(), pause = control.pause('headless');
+    const committed = vi.fn(async (receipt: import('../src/runtime/control.js').ControlReceipt) => {
+      expect(Object.isFrozen(receipt)).toBe(true);
+      expect(readSessionConversation(receipt.sessionId).revision).toBe(receipt.revision);
+    });
+    mockChat.mockResolvedValue({ content: 'done', usage: { inputTokens: 800, outputTokens: 200 } });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control,
+      onControlCommitted: committed, outputMode: 'json' });
+    const receipt = await pause;
+    expect(mockChat).not.toHaveBeenCalled();
+    const steering = control.steer({ requestId: 'note', sessionId: receipt.sessionId,
+      revision: receipt.revision, text: '  Preserve María and 東京.\n' });
+    await control.resume(receipt); await steering;
+    expect(await running).toBe(0);
+    expect(committed.mock.calls.map(([r]) => r.kind)).toEqual(['paused', 'resumed', 'steered']);
+    expect(new Set(committed.mock.calls.map(([r]) => r.sessionId)).size).toBe(1);
+    expect(events().filter(row => row.type === 'status' && row.data.control)).toHaveLength(3);
+  });
+
+  it('keeps the original wall-clock deadline active while paused', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const control = new RuntimeControl(), pause = control.pause('deadline');
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, maxTime: 1, outputMode: 'json' });
+    await pause; await vi.advanceTimersByTimeAsync(1001);
+    expect(await running).toBe(CAP_EXIT_CODE);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(eventOf('budget_exceeded')).toMatchObject({ kind: 'time' });
+    expect(control.state.phase).toBe('stopped');
+  });
+
+  it('does not reset cumulative spend or iterations across pause and resume', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl();
+    let began!: () => void, release!: () => void;
+    const started = new Promise<void>(yes => { began = yes; });
+    const held = new Promise<void>(yes => { release = yes; });
+    mockChat.mockResolvedValueOnce(toolCallWithUsage('first')).mockResolvedValueOnce(toolCallWithUsage('second'));
+    mockExecuteTool.mockImplementation(async () => { began(); await held; return { result: 'read evidence' }; });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, maxCost: .15, outputMode: 'json' });
+    await started; const pause = control.pause('cost'); release(); const receipt = await pause;
+    expect(mockChat).toHaveBeenCalledOnce();
+    await control.resume(receipt);
+    expect(await running).toBe(CAP_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledTimes(2); expect(mockExecuteTool).toHaveBeenCalledOnce();
+    expect(eventOf('budget_exceeded')).toMatchObject({ kind: 'cost', data: { costUsd: .2 } });
+  });
+
+  it('refuses an external conversation revision changed during control acknowledgment', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    const control = new RuntimeControl(), pause = control.pause('stale-control');
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, outputMode: 'json',
+      onControlCommitted: async receipt => {
+        const saved = readSessionConversation(receipt.sessionId);
+        saveSessionConversation(receipt.sessionId, saved.messages, { expectedRevision: saved.revision, status: 'active' });
+      } });
+    expect(await running).toBe(1); await expect(pause).rejects.toThrow('Turn ended');
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(events().at(-1)).toMatchObject({ type: 'error', data: { message: expect.stringMatching(/Conversation changed|another terminal saved/) } });
+  });
+
+  it('refuses control acknowledgment without a controller before provider admission', async () => {
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', outputMode: 'json',
+      onControlCommitted: async () => {} })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});

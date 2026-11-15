@@ -14,6 +14,14 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {qualifyHeadlessEffort} from '../release/headless-effort-smoke.mjs';
 import {qualifyHeadlessQuestions} from './headless-questions.mjs';
+import {qualifyHeadlessControl} from './headless-control.mjs';
+
+test('headless SDK execution control preserves checkpointed pause, steering and the original deadline', async () => {
+  const results = await qualifyHeadlessControl();
+  assert.deepEqual(results.map(result => [result.mode, result.exit, result.providerRequests]),
+    [['pause-steer', 0, 2], ['tool-pause', 0, 2], ['policy-revoked', 0, 2], ['question-pause', 0, 3], ['cancel', 130, 0], ['deadline', 6, 0],
+      ['host-refuse', 1, 0], ['stale', 1, 0], ['preflight-invalid', 2, 0], ['preflight-cancel', 130, 0]]);
+});
 
 test('headless SDK questions preserve saved receipts, acknowledgement, cancellation and the original deadline', async () => {
   const results = await qualifyHeadlessQuestions();

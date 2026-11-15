@@ -11,7 +11,7 @@ const { chatMock, executeMock } = vi.hoisted(() => ({ chatMock: vi.fn(), execute
 vi.mock('../src/providers/index.js', () => ({ chat: chatMock }));
 vi.mock('../src/tools.js', async importActual => ({ ...await importActual<typeof import('../src/tools.js')>(), executeTool: executeMock }));
 vi.mock('../src/local-model.js', async importActual => ({ ...await importActual<typeof import('../src/local-model.js')>(), getLocalModelProfile: vi.fn(async () => ({ supportsJsonSchemaFormat: true })) }));
-import { runTurn, completePendingTools, shouldRetryTool } from '../src/runtime/index.js';
+import { runTurn, completePendingTools, shouldRetryTool, RuntimeControl } from '../src/runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS } from '../src/runtime/turn.js';
 import { scopeManager, withScope, validatePath } from '../src/scope.js';
 import * as budget from '../src/budget.js';
@@ -511,4 +511,232 @@ it('captures only explicitly submitted thinking-tool text, with known credential
   const output = readToolOutputs(storage.getSessionDirById(session.id)!).records[0]!;
   expect(output.channel).toBe('thinking'); expect(output.content).toContain('Inspect the failing test.');
   expect(output.content).not.toContain('synthetic-secret'); expect(output.content).not.toContain('Thought recorded.');
+});
+
+function deferredValue<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(yes => { resolve = yes; });
+  return { promise, resolve };
+}
+function controlledOptions(control: RuntimeControl, extra: Partial<TurnOptions> = {}) {
+  const session = storage.createSession(root, { activate: false });
+  let saved: ReturnType<typeof storage.saveSessionConversation> | undefined;
+  return options({ ...extra, sessionId: session.id, control,
+    onCheckpoint: (history, status) => {
+      saved = storage.saveSessionConversation(session.id, history, { expectedRevision: saved?.revision ?? null, status });
+    },
+    controlSnapshot: () => {
+      if (!saved) throw new Error('No saved control snapshot');
+      return saved;
+    },
+  });
+}
+
+describe('checkpointed execution control', () => {
+  it('pauses before provider admission and resumes only the exact saved receipt', async () => {
+    const control = new RuntimeControl(), paused = control.pause('pause-before-provider');
+    const opts = controlledOptions(control);
+    chatMock.mockResolvedValue(text());
+    const run = runTurn(opts);
+    const receipt = await paused;
+    expect(Object.isFrozen(receipt)).toBe(true);
+    expect(control.state.phase).toBe('paused');
+    expect(storage.readSessionConversation(opts.sessionId).revision).toBe(receipt.revision);
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(() => control.resume({ ...receipt, revision: 'stale' })).toThrow('exact paused');
+    const resumed = await control.resume(receipt);
+    expect(resumed.kind).toBe('resumed');
+    expect(resumed.sessionId).toBe(opts.sessionId);
+    expect((await run).reason).toBe('completed');
+    expect(chatMock).toHaveBeenCalledOnce();
+    expect(control.state.phase).toBe('stopped');
+    expect(await control.pause('pause-before-provider')).toEqual(receipt);
+  });
+
+  it('waits for every active parallel tool before acknowledging pause and retains totals', async () => {
+    const control = new RuntimeControl(), started = deferredValue<void>();
+    const a = deferredValue<{ toolCallId: string; result: string }>();
+    const b = deferredValue<{ toolCallId: string; result: string }>();
+    let count = 0;
+    executeMock.mockImplementation((call: ToolCall) => {
+      if (++count === 2) started.resolve();
+      return call.id === 'a' ? a.promise : b.promise;
+    });
+    writeFileSync(join(root, 'other.txt'), 'B');
+    chatMock.mockResolvedValueOnce(response(tool('read_file', 'a'), tool('read_file', 'b', { path: 'other.txt' })))
+      .mockResolvedValueOnce(text());
+    const opts = controlledOptions(control, { parallel: true });
+    const run = runTurn(opts);
+    await started.promise;
+    let acknowledged = false;
+    const pause = control.pause('parallel'); void pause.then(() => { acknowledged = true; });
+    a.resolve({ toolCallId: 'a', result: 'A' });
+    await Promise.resolve();
+    expect(acknowledged).toBe(false);
+    expect(control.state.phase).toBe('pausing');
+    b.resolve({ toolCallId: 'b', result: 'B' });
+    const receipt = await pause;
+    expect(chatMock).toHaveBeenCalledOnce();
+    expect(storage.readSessionConversation(opts.sessionId).messages.filter(row => row.role === 'tool')).toHaveLength(2);
+    await control.resume(receipt);
+    const result = await run;
+    expect(result.iterations).toBe(2);
+    expect(result.totals.toolCalls).toBe(2);
+    expect(result.totals.inputTokens).toBe(6);
+  });
+
+  it('parks a pending question and holds its returned answer until resume', async () => {
+    const control = new RuntimeControl(), asked = deferredValue<void>(), answer = deferredValue<string>();
+    const committed = vi.fn();
+    const opts = controlledOptions(control, {
+      answerQuestion: async () => { asked.resolve(); return answer.promise; }, onQuestionCommitted: committed,
+    });
+    chatMock.mockResolvedValueOnce(response(tool('ask_question', 'audience', { question: 'Who is this for?' })))
+      .mockResolvedValueOnce(text());
+    const run = runTurn(opts); await asked.promise;
+    const receipt = await control.pause('question-wait');
+    answer.resolve('  María 東京  '); await Promise.resolve();
+    expect(chatMock).toHaveBeenCalledOnce();
+    expect(committed).not.toHaveBeenCalled();
+    expect(storage.readSessionConversation(opts.sessionId).revision).toBe(receipt.revision);
+    await control.resume(receipt); await run;
+    expect(committed).toHaveBeenCalledOnce();
+    expect(opts.messages.current.find(row => row.toolCallId === 'audience')?.content).toBe('  María 東京  ');
+  });
+
+  it('applies exact idempotent steering through the existing writer before the next provider call', async () => {
+    const control = new RuntimeControl(), pause = control.pause('steering-pause');
+    const opts = controlledOptions(control); chatMock.mockResolvedValue(text());
+    const run = runTurn(opts), receipt = await pause;
+    const intent = { requestId: 'steer-1', sessionId: opts.sessionId, revision: receipt.revision,
+      text: '  Keep the original criteria; include María and 東京.\n' };
+    const accepted = control.steer(intent);
+    expect(control.steer(intent)).toBe(accepted);
+    expect(() => control.steer({ ...intent, text: 'Changed' })).toThrow('different intent');
+    expect(() => control.steer({ ...intent, requestId: 'stale', revision: 'old' })).toThrow('current session');
+    chatMock.mockImplementation(async (_provider, history: Message[]) => {
+      expect(history.at(-1)?.content).toBe(intent.text);
+      expect(storage.readSessionConversation(opts.sessionId).messages.at(-1)?.content).toBe(intent.text);
+      return text();
+    });
+    await control.resume(receipt);
+    expect((await accepted).kind).toBe('steered');
+    await run;
+    expect(opts.messages.current[0]?.content).toBe('work');
+    expect(opts.messages.current.filter(row => row.content === intent.text)).toHaveLength(1);
+  });
+
+  it('cancels a paused wait without admitting a provider request', async () => {
+    const controller = new AbortController(), control = new RuntimeControl();
+    const pause = control.pause('cancel'), opts = controlledOptions(control, { signal: controller.signal });
+    const run = runTurn(opts); const receipt = await pause;
+    controller.abort();
+    expect((await run).reason).toBe('cancelled');
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(() => control.resume(receipt)).toThrow('no longer resumable');
+    expect(storage.readSessionConversation(opts.sessionId).status).toBe('cancelled');
+  });
+
+  it('cannot retry a refused control acknowledgment through onError', async () => {
+    const control = new RuntimeControl(), pause = control.pause('refused');
+    const retry = vi.fn(() => 'retry' as const);
+    const opts = controlledOptions(control, { onError: retry,
+      onControlCommitted: () => { throw new Error('host refused control receipt'); } });
+    await expect(runTurn(opts)).rejects.toThrow('host refused');
+    await expect(pause).rejects.toThrow('Turn ended');
+    expect(retry).not.toHaveBeenCalled(); expect(chatMock).not.toHaveBeenCalled();
+  });
+});
+
+it('does not invalidate a saved question receipt while its host acknowledgment is pending', async () => {
+  const control = new RuntimeControl(), acknowledging = deferredValue<void>(), ack = deferredValue<void>();
+  const opts = controlledOptions(control, { answerQuestion: async () => 'Operators',
+    onQuestionCommitted: async () => { acknowledging.resolve(); await ack.promise; } });
+  chatMock.mockResolvedValueOnce(response(tool('ask_question', 'audience', { question: 'Who?' })))
+    .mockResolvedValueOnce(text());
+  const run = runTurn(opts); await acknowledging.promise;
+  const original = storage.readSessionConversation(opts.sessionId).revision;
+  const paused = control.pause('receipt-in-flight');
+  await Promise.resolve();
+  expect(control.state.phase).toBe('pausing');
+  expect(storage.readSessionConversation(opts.sessionId).revision).toBe(original);
+  ack.resolve(); const receipt = await paused;
+  expect(receipt.revision).not.toBe(original);
+  await control.resume(receipt); expect((await run).reason).toBe('completed');
+});
+
+it('does not report completion before consuming steering received with the final response', async () => {
+  const control = new RuntimeControl();
+  let steering: Promise<unknown> | undefined, count = 0;
+  const opts = controlledOptions(control, { onResponse: () => {
+    if (++count === 1) steering = control.steer({ requestId: 'late-steering', sessionId: control.state.sessionId!,
+      revision: control.state.checkpoint!.revision, text: 'Include the verification commands.' });
+  } });
+  chatMock.mockResolvedValueOnce(text('First draft')).mockResolvedValueOnce(text('Verified revision'));
+  const result = await runTurn(opts); await steering;
+  expect(result.reason).toBe('completed');
+  expect(result.iterations).toBe(2);
+  expect(chatMock).toHaveBeenCalledTimes(2);
+  expect(opts.messages.current.at(-1)?.content).toBe('Verified revision');
+});
+
+it('a rejected question wait terminates a pause without admitting another model request', async () => {
+  const control = new RuntimeControl(), asked = deferredValue<void>();
+  let refuse!: (error: Error) => void;
+  const answer = new Promise<string>((_resolve, reject) => { refuse = reject; });
+  const opts = controlledOptions(control, { answerQuestion: async () => { asked.resolve(); return answer; } });
+  chatMock.mockResolvedValue(response(tool('ask_question', 'audience', { question: 'Who?' })));
+  const run = runTurn(opts); const rejected = expect(run).rejects.toThrow('host refused answer');
+  await asked.promise; await control.pause('refuse-parked');
+  refuse(new Error('host refused answer'));
+  await rejected;
+  expect(control.state.phase).toBe('stopped');
+  expect(chatMock).toHaveBeenCalledOnce();
+});
+
+it('refuses invalid control identities, a second pause, or reuse by another active turn', async () => {
+  const control = new RuntimeControl();
+  expect(() => control.pause('bad identity')).toThrow('ID is invalid');
+  expect(() => control.steer({ requestId: 'early', sessionId: 'other', revision: 'old', text: 'note' }))
+    .toThrow('current session');
+  const pause = control.pause('owner');
+  expect(() => control.pause('another')).toThrow('another pause');
+  const opts = controlledOptions(control); chatMock.mockResolvedValue(text());
+  const run = runTurn(opts), receipt = await pause;
+  await expect(runTurn(controlledOptions(control))).rejects.toThrow('already bound');
+  expect(control.state.phase).toBe('paused');
+  const writer = vi.fn(async () => ({ revision: 'wrong', checksum: 'a'.repeat(64) }));
+  await expect(control.boundary({ sessionId: 'foreign', checkpoint: writer, validate: () => {}, steer: () => {} }, false))
+    .rejects.toThrow('does not belong');
+  expect(writer).not.toHaveBeenCalled();
+  await control.resume(receipt); await run;
+  expect(() => control.pause('after-completion')).toThrow('another pause');
+  expect((await control.resume(receipt)).kind).toBe('resumed');
+});
+
+it.each(['', 'not-a-checksum'])('refuses missing checkpoint proof before provider admission: %j', async checksum => {
+  const control = new RuntimeControl(), opts = controlledOptions(control);
+  opts.controlSnapshot = () => ({ revision: 'revision', checksum });
+  await expect(runTurn(opts)).rejects.toThrow('saved conversation checkpoint');
+  expect(chatMock).not.toHaveBeenCalled();
+});
+
+it('requires the existing writer and stops a missing-writer pause instead of leaving it pending', async () => {
+  const control = new RuntimeControl(), pause = control.pause('missing-writer');
+  await expect(runTurn(options({ control }))).rejects.toThrow('conversation writer');
+  await expect(pause).rejects.toThrow('conversation writer');
+  expect(chatMock).not.toHaveBeenCalled();
+});
+
+it('cancels a parked question pause and discards the late answer', async () => {
+  const controller = new AbortController(), control = new RuntimeControl();
+  const asked = deferredValue<void>(), answer = deferredValue<string>();
+  const opts = controlledOptions(control, { signal: controller.signal,
+    answerQuestion: async () => { asked.resolve(); return answer.promise; } });
+  chatMock.mockResolvedValue(response(tool('ask_question', 'audience', { question: 'Who?' })));
+  const run = runTurn(opts); await asked.promise; await control.pause('cancel-parked');
+  controller.abort(); expect((await run).reason).toBe('cancelled');
+  answer.resolve('Too late'); await Promise.resolve();
+  expect(chatMock).toHaveBeenCalledOnce();
+  expect(opts.messages.current.some(row => row.content === 'Too late')).toBe(false);
 });

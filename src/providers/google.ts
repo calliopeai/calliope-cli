@@ -241,7 +241,8 @@ async function chatGoogleGenAI(
   if (messages.length === 0) throw new Error('No messages provided');
 
   const baseUrl = config.getBaseUrl('google')?.replace(/\/v1beta\/?$/, '');
-  const ai = new GoogleGenAI({ apiKey, httpOptions: { ...(baseUrl ? { baseUrl } : {}), ...(limits?.bounded ? { retryOptions: { attempts: 1 } } : {}) } });
+  // SDK 3 defaults to v1; discovery and the qualified endpoint contract use v1beta.
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta', ...(baseUrl ? { baseUrl } : {}), ...(limits?.bounded ? { retryOptions: { attempts: 1 } } : {}) } });
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => {
     if (m.role === 'tool') {
