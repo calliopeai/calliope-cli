@@ -15,6 +15,9 @@ import {
   summarizeConversation,
   ConversationSummarizer,
   validateMessageHistory,
+  compactionTargetTokens,
+  COMPACTION_TARGET_RATIO,
+  COMPACTION_FALLBACK_TOKENS,
 } from '../src/summarization.js';
 import type { Message as LLMMessage } from '../src/types.js';
 
@@ -747,5 +750,67 @@ describe('validateMessageHistory', () => {
     // The late tool result should be dropped since pending IDs were cleared by user msg
     const toolResults = result.filter(m => m.role === 'tool');
     expect(toolResults.length).toBe(1);
+  });
+});
+
+describe('compactionTargetTokens', () => {
+  it('scales with the context limit', () => {
+    const limits = [8_000, 128_000, 1_000_000];
+    const targets = limits.map(compactionTargetTokens);
+    limits.forEach((l, i) => expect(targets[i]).toBe(Math.floor(l * COMPACTION_TARGET_RATIO)));
+    expect(targets[0]).toBeLessThan(targets[1]);
+    expect(targets[1]).toBeLessThan(targets[2]);
+  });
+
+  it('uses the labelled fallback for unknown or invalid limits, never 0', () => {
+    for (const bad of [undefined, 0, -1, NaN, Infinity]) {
+      expect(compactionTargetTokens(bad)).toBe(COMPACTION_FALLBACK_TOKENS);
+    }
+    expect(compactionTargetTokens(1)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('summarizeConversation with a discovered limit', () => {
+  const history = (): LLMMessage[] =>
+    Array.from({ length: 40 }, (_, i) =>
+      i % 2 === 0 ? userMsg(`Q${i}: ${'x'.repeat(1900)}`) : assistantMsg(`A${i}: ${'y'.repeat(1900)}`)
+    );
+
+  it('compacts a history a fixed 50k target would leave alone', () => {
+    const msgs = history();
+    const total = estimateTotalTokens(msgs);
+    expect(total).toBeGreaterThan(compactionTargetTokens(8000));
+    expect(total).toBeLessThan(50000);
+    expect(summarizeConversation(msgs, { maxTokens: compactionTargetTokens(8000) }).summarizedCount).toBeGreaterThan(0);
+    expect(summarizeConversation(msgs, { maxTokens: 50000 }).summarizedCount).toBe(0);
+  });
+
+  for (const [name, at] of [['before', 3], ['after', 38]] as const) {
+    it(`keeps every system message exactly once (mid-history ${name} the split)`, () => {
+      const msgs = history();
+      msgs[0] = userMsg('# FIRST-TOPIC\n' + 'x'.repeat(1900));
+      msgs.unshift(systemMsg('LEADING'));
+      msgs.splice(at, 0, systemMsg('# LOADED-TOPIC\nLOADED INSTRUCTIONS'));
+      const result = summarizeConversation(msgs, { maxTokens: 100, preserveRecent: 5 });
+      const count = (t: string) => result.messages.filter(m => m.role === 'system' && m.content === t).length;
+      expect(count('LEADING')).toBe(1);
+      expect(count('# LOADED-TOPIC\nLOADED INSTRUCTIONS')).toBe(1);
+      expect(result.summary).toContain('FIRST-TOPIC');
+      expect(result.summary).not.toContain('LOADED-TOPIC');
+      const nonSystemIn = msgs.filter(m => m.role !== 'system').length;
+      const keptNonSystem = result.messages.filter(m => m.role !== 'system').length;
+      expect(result.summarizedCount + keptNonSystem).toBe(nonSystemIn);
+    });
+  }
+
+  it('does not duplicate earlier summaries on a second compaction', () => {
+    const msgs = [systemMsg('LEADING'), ...history()];
+    const first = summarizeConversation(msgs, { maxTokens: 100, preserveRecent: 5 });
+    const second = summarizeConversation(
+      [...first.messages, ...history()],
+      { maxTokens: 100, preserveRecent: 5 }
+    );
+    const firstSummary = first.messages.find(m => String(m.content).startsWith('Previous conversation summary'))!;
+    expect(second.messages.filter(m => m.content === firstSummary.content).length).toBe(1);
   });
 });
