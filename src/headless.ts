@@ -160,8 +160,27 @@ export function parseHeadlessEffort(args: readonly string[], env: NodeJS.Process
 // ============================================================================
 
 interface RunClock { started: number; timedOut: boolean }
+const headlessControls = new WeakSet<RuntimeControl>();
 
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
+  const control = options.control;
+  if (control) {
+    if (headlessControls.has(control) || control.state.sessionId || control.state.phase === 'stopped') {
+      emit({ type: 'error', timestamp: now(), data: { message: 'Execution controller already belongs to a headless invocation or turn.' } }, options.outputMode || 'json');
+      return 2;
+    }
+    // Reserve before asynchronous preflight. A rejected second invocation must
+    // not end another invocation's pending pause or stop its original turn.
+    headlessControls.add(control);
+  }
+  try { return await runHeadlessWithClock({ ...options }); }
+  finally {
+    if (control && !control.state.sessionId)
+      control.stop(new Error('Headless run ended before runtime admission.'));
+  }
+}
+
+async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
   const clock: RunClock = { started: Date.now(), timedOut: false };
   if (options.maxTime === undefined) return run(options, options.signal, clock);
   // The time cap aborts like cancellation; `clock.timedOut` tells the two apart.

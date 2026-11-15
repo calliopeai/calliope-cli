@@ -551,6 +551,30 @@ describe('headless --max-time', () => {
 });
 
 describe('headless execution control', () => {
+  it('settles a requested pause when preflight refuses the run before creating a session', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl(), pause = control.pause('invalid-preflight');
+    expect(await runHeadless({ prompt: 'Original goal', control, outputMode: 'json',
+      reasoningEffort: 'invalid' as never })).toBe(2);
+    expect(control.state.phase).toBe('stopped');
+    await expect(pause).rejects.toThrow('before runtime admission');
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('refuses another headless invocation without stopping the controller owner', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl(), pause = control.pause('owner');
+    mockChat.mockResolvedValue({ content: 'verified', usage: { inputTokens: 1, outputTokens: 1 } });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, outputMode: 'json' });
+    const receipt = await pause;
+    expect(await runHeadless({ prompt: 'Another goal', control, outputMode: 'json' })).toBe(2);
+    expect(control.state.phase).toBe('paused');
+    await control.resume(receipt);
+    expect(await running).toBe(0);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(await runHeadless({ prompt: 'Reuse ended control', control, outputMode: 'json' })).toBe(2);
+  });
+
   it('uses the existing session writer for pause, resume and steering receipts', async () => {
     const { RuntimeControl } = await import('../src/runtime/index.js');
     const { readSessionConversation } = await import('../src/storage.js');
