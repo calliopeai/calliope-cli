@@ -368,6 +368,10 @@ export async function chatOpenAICompatible(
       const toolCalls: ToolCall[] = [];
       for (const tc of Object.values(toolCallDeltas)) {
         if (!tc.id || !tc.name) continue;
+        if (finishReason === 'length' && !tc.arguments.trim()) {
+          truncatedToolCalls = true;
+          continue;
+        }
         let parsedArgs: Record<string, unknown> = {};
         try {
           parsedArgs = JSON.parse(tc.arguments || '{}');
