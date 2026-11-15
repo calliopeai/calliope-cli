@@ -59,6 +59,22 @@ waiting outcome (exit 4); the CLI does not read an answer from stdin implicitly.
 The existing `maxTime` includes time spent waiting for the host, and `maxCost`
 remains cumulative across the answer. This callback alone does not resume a
 terminated process or supply factory steering, execution pause or recovery.
+
+Hosts can also supply `HeadlessOptions.onQuestionCommitted`. It receives a frozen
+`HeadlessQuestionReceipt` containing the original session/tool-call IDs, saved
+conversation revision/checksum and answer SHA-256. The existing conversation
+writer must have saved the exact answer before the callback runs. The shared
+runtime waits for host acknowledgement before admitting further execution, within
+the same cancellation signal, deadline and cumulative budget. Direct `runTurn`
+callers using this hook must supply their checkpoint writer.
+
+Host refusal stops the turn and retains the already-saved answer for recovery.
+A conversation changed while acknowledgement was pending cannot continue from
+the stale revision. The host still authorizes the exact question/request revision;
+a local conversation receipt grants no tools, scope or account access. These
+callbacks do not implement hosted Factory routing, steering, execution pause or
+process recovery by themselves.
+
 Any unexecuted calls receive explicit placeholder results. With
 `continueOnLength` (terminal and headless), a reply cut off by the output limit,
 or an empty reply, is not completion: any tool calls in the truncated reply are
