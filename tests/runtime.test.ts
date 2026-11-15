@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Message, LLMResponse, ToolCall } from '../src/types.js';
 import type { TurnOptions } from '../src/runtime/turn.js';
+import type { HostToolRuntime } from '../src/runtime/host-tools.js';
 
 const { chatMock, executeMock } = vi.hoisted(() => ({ chatMock: vi.fn(), executeMock: vi.fn() }));
 vi.mock('../src/providers/index.js', () => ({ chat: chatMock }));
@@ -23,6 +24,7 @@ import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } fro
 import { readToolOutputs } from '../src/sessions/index.js';
 import { clearModelCache } from '../src/model-detection.js';
 import * as storage from '../src/storage.js';
+import * as hooks from '../src/hooks.js';
 import { branchSession } from '../src/session-management/index.js';
 
 let root: string;
@@ -908,4 +910,91 @@ it('refuses changed checkpoint checksum even when its revision is unchanged duri
   opts.onControlReady = async () => { Object.assign(opts.controlSnapshot!(), { checksum: 'b'.repeat(64) }); };
   await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
   expect(chatMock).not.toHaveBeenCalled();
+});
+
+describe('trusted host tool runtime', () => {
+  const definitions = [{ name: 'write_file', description: 'Write the host workspace file',
+    parameters: { type: 'object' as const, properties: { path: { type: 'string', description: 'Path' } } } }];
+  it('streams hosted output and retains the original post-tool hook and checkpoint boundary', async () => {
+    const output = vi.fn(), warning = vi.fn();
+    vi.spyOn(hooks, 'executeHooks').mockRejectedValueOnce(new Error('post hook offline'));
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'streamed', { path: 'ok.txt' }))).mockImplementationOnce(async (_provider, history) => {
+      expect(history.some((message: Message) => message.role === 'tool' && message.content === 'confirmed host write')).toBe(true);
+      expect(warning).toHaveBeenCalledWith('Post-tool hook failed: Error: post hook offline');
+      return text();
+    });
+    const opts = controlledOptions(new RuntimeControl(), { onToolOutput: output, onWarning: warning,
+      toolRuntime: { version: 1, tools: definitions, execute: async (call, context) => {
+        context.onOutput('host progress\n');
+        return { toolCallId: call.id, result: 'confirmed host write' };
+      } } });
+    expect((await runTurn(opts)).reason).toBe('completed');
+    expect(output).toHaveBeenCalledWith(expect.objectContaining({ id: 'streamed' }), 'host progress\n');
+    expect(storage.readSessionConversation(opts.sessionId).messages.some(message => message.toolCallId === 'streamed' && message.content === 'confirmed host write')).toBe(true);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+  it('advertises only the frozen host tools and writes the host workspace without local dispatch', async () => {
+    const remote = join(root, 'remote'); mkdirSync(remote);
+    const runtime: HostToolRuntime = { version: 1, tools: structuredClone(definitions), execute: vi.fn(async call => {
+      writeFileSync(join(remote, String(call.arguments.path)), 'host output');
+      return { toolCallId: call.id, result: 'written' };
+    }) };
+    chatMock.mockImplementationOnce(async (_provider, _messages, tools) => {
+      expect(tools.map((t: { name: string }) => t.name)).toEqual(['write_file']);
+      (runtime.tools as typeof definitions).push({ ...definitions[0]!, name: 'shell' });
+      return response(tool('write_file', 'host-write', { path: 'ok.txt' }));
+    }).mockImplementationOnce(async (_provider, _messages, tools) => {
+      expect(tools.map((t: { name: string }) => t.name)).toEqual(['write_file']);
+      return text();
+    });
+    expect((await runTurn(options({ toolRuntime: runtime }))).reason).toBe('completed');
+    expect(readFileSync(join(root, 'ok.txt'), 'utf8')).toBe('hello');
+    expect(readFileSync(join(remote, 'ok.txt'), 'utf8')).toBe('host output');
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a builtin that was not advertised without falling back locally', async () => {
+    const execute = vi.fn();
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'foreign', { path: 'ok.txt', content: 'overwrite' }))).mockResolvedValue(text());
+    const opts = options({ toolRuntime: { version: 1, tools: [], execute } });
+    expect((await runTurn(opts)).reason).toBe('completed');
+    expect(opts.messages.current.some(m => m.role === 'tool' && m.content.includes('outside the declared host runtime'))).toBe(true);
+    expect(execute).not.toHaveBeenCalled(); expect(executeMock).not.toHaveBeenCalled();
+    expect(readFileSync(join(root, 'ok.txt'), 'utf8')).toBe('hello');
+  });
+
+  it.each(['throw', 'wrong-id', 'malformed'] as const)('stops an uncertain %s response without retrying the host or provider', async kind => {
+    const execute = vi.fn(async (call: ToolCall) => {
+      if (kind === 'throw') throw new Error('synthetic private transport detail');
+      return kind === 'wrong-id' ? { toolCallId: 'another-call', result: 'written' } : { toolCallId: call.id, result: null } as never;
+    });
+    const retry = vi.fn(() => 'retry' as const);
+    chatMock.mockResolvedValue(response(tool('write_file', 'uncertain', { path: 'ok.txt' })));
+    await expect(runTurn(options({ toolRuntime: { version: 1, tools: definitions, execute }, maxRetries: 3, onError: retry }))).rejects.toThrow('unavailable or uncertain');
+    expect(execute).toHaveBeenCalledTimes(1); expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled(); expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it('returns a confirmed tool failure for model repair without automatic command retries', async () => {
+    const execute = vi.fn(async (call: ToolCall) => ({ toolCallId: call.id, isError: true, result: 'Error: connection reset' }));
+    chatMock.mockResolvedValueOnce(response(tool('write_file', 'failed', { path: 'ok.txt' }))).mockResolvedValue(text());
+    expect((await runTurn(options({ toolRuntime: { version: 1, tools: definitions, execute }, maxRetries: 3 }))).reason).toBe('completed');
+    expect(execute).toHaveBeenCalledTimes(1); expect(chatMock).toHaveBeenCalledTimes(2);
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels the original host command and waits for its transport to settle', async () => {
+    const controller = new AbortController(); let settled = false;
+    const execute = vi.fn(async (_call: ToolCall, { signal }: Parameters<HostToolRuntime['execute']>[1]) => {
+      await new Promise<void>(resolve => {
+        signal!.addEventListener('abort', () => { settled = true; resolve(); }, { once: true });
+        controller.abort();
+      });
+      return { toolCallId: 'cancel', result: 'settled' };
+    });
+    chatMock.mockResolvedValue(response(tool('write_file', 'cancel', { path: 'ok.txt' })));
+    const result = await runTurn(options({ signal: controller.signal, toolRuntime: { version: 1, tools: definitions, execute } }));
+    expect(result.reason).toBe('cancelled'); expect(settled).toBe(true);
+    expect(chatMock).toHaveBeenCalledTimes(1); expect(executeMock).not.toHaveBeenCalled();
+  });
 });

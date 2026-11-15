@@ -1,4 +1,6 @@
 export * from './types.js';
+export { HOST_TOOL_RUNTIME_PROTOCOL_VERSION } from './host-tools.js';
+export type { HostToolRuntime } from './host-tools.js';
 export * from './permissions.js';
 export * from './turn.js';
 export * from './repair.js';
