@@ -15,10 +15,11 @@ import { test } from 'node:test';
 import {qualifyHeadlessEffort} from '../release/headless-effort-smoke.mjs';
 import {qualifyHeadlessQuestions} from './headless-questions.mjs';
 
-test('headless SDK questions preserve answers, cancellation and the original deadline', async () => {
+test('headless SDK questions preserve saved receipts, acknowledgement, cancellation and the original deadline', async () => {
   const results = await qualifyHeadlessQuestions();
   assert.deepEqual(results.map(result => [result.mode, result.exit, result.providerRequests]),
-    [['answer', 0, 2], ['cancel', 130, 1], ['deadline', 6, 1]]);
+    [['answer', 0, 2], ['cancel', 130, 1], ['deadline', 6, 1],
+      ['receipt', 0, 2], ['receipt-reject', 1, 1], ['receipt-cancel', 130, 1], ['receipt-deadline', 6, 1]]);
 });
 
 const binary = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));

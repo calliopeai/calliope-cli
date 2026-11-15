@@ -11,8 +11,9 @@ import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
-import { createSession, saveSessionConversation } from './storage.js';
+import { createSession, readSessionConversation, saveSessionConversation } from './storage.js';
 import { cancellationError, isCancellation, throwIfCancelled } from './cancellation.js';
+import { createHash } from 'node:crypto';
 import * as config from './config.js';
 import { selectProvider, ProviderUnavailableError } from './providers/index.js';
 import { getTools } from './tools.js';
@@ -47,10 +48,20 @@ export const CAP_EXIT_CODE = 6;
 
 export type HeadlessOutputMode = 'json' | 'text';
 
+export interface HeadlessQuestionReceipt {
+  readonly sessionId: string;
+  readonly toolCallId: string;
+  readonly revision: string;
+  readonly checksum: string;
+  readonly answerSha256: string;
+}
+
 export interface HeadlessOptions {
   signal?: AbortSignal;
   /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
   answerQuestion?: TurnOptions['answerQuestion'];
+  /** Acknowledge the original conversation's saved answer before further execution. */
+  onQuestionCommitted?: (receipt: HeadlessQuestionReceipt, signal?: AbortSignal) => Promise<void>;
   provider?: LLMProvider;
   model?: string;
   prompt?: string;
@@ -293,6 +304,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   try { sessionId = createSession(cwd, { activate: false, ...(execution ? { executionBinding: executionBinding(execution) } : {}) }).id; }
   catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
   let revision: string | null = null;
+  let savedQuestion: ReturnType<typeof saveSessionConversation> | undefined;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
@@ -308,6 +320,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       onCheckpoint: (history, status) => {
         const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
         revision = saved.revision;
+        if (options.onQuestionCommitted) savedQuestion = saved;
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
       continueOnLength: true,
@@ -321,6 +334,19 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       answerQuestion: options.answerQuestion,
+      onQuestionCommitted: options.onQuestionCommitted ? async (call, toolResult, questionSignal) => {
+        const message = savedQuestion?.messages.at(-1);
+        if (toolResult.isError || !savedQuestion || message?.role !== 'tool' || message.toolCallId !== call.id || message.content !== toolResult.result) {
+          throw new Error('Question answer was not saved in the original conversation; delivery was not acknowledged.');
+        }
+        const receipt: HeadlessQuestionReceipt = Object.freeze({ sessionId, toolCallId: call.id,
+          revision: savedQuestion.revision, checksum: savedQuestion.checksum,
+          answerSha256: createHash('sha256').update(toolResult.result).digest('hex') });
+        await options.onQuestionCommitted!(receipt, questionSignal);
+        if (readSessionConversation(sessionId).revision !== receipt.revision) {
+          throw new Error('Conversation changed while question delivery was being acknowledged; reload before continuing.');
+        }
+      } : undefined,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {

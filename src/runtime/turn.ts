@@ -75,6 +75,8 @@ export interface TurnOptions {
   onToolResult?: (call: ToolCall, result: ToolResult, iteration: number, output?: CapturedToolOutput) => void | Promise<void>;
   /** Wait within this same turn, attempt and budget; abort must settle the wait. */
   answerQuestion?: (call: ToolCall, signal?: AbortSignal) => Promise<string>;
+  /** Acknowledge an answered question after its checkpoint, before continuing execution. */
+  onQuestionCommitted?: (call: ToolCall, result: ToolResult, signal?: AbortSignal) => Promise<void>;
   onToolRetry?: (call: ToolCall, attempt: number, result: ToolResult) => void;
   onIterationEnd?: (iteration: number) => void;
   onError?: (error: unknown, iteration: number) => 'retry' | 'stop' | void | Promise<'retry' | 'stop' | void>;
@@ -142,6 +144,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let checkpointFailed = false;
+  let questionCommitFailed = false;
   let safetyFailed = false;
   let safetyBranch: Promise<void> | undefined;
   // Parallel tools can finish together: serialize snapshots and copy each boundary now.
@@ -313,6 +316,12 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model), answeredQuestion) });
     await checkpoint('active');
+    if (answeredQuestion && options.onQuestionCommitted) {
+      try {
+        await cancellable(options.onQuestionCommitted(structuredClone(call), structuredClone(result), signal), signal);
+      } catch (error) { questionCommitFailed = true; throw error; }
+      throwIfCancelled(signal); checkBudget();
+    }
     await options.onToolResult?.(structuredClone(call), result, iterations, output);
   };
   const execute = async (pendingCall: ToolCall): Promise<boolean> => {
@@ -402,6 +411,9 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const availableTools=()=>guard?guard.tools((options.tools??getTools)()):(options.tools??getTools)();
   try {
     throwIfCancelled(signal);
+    if (options.onQuestionCommitted && !options.onCheckpoint) {
+      throw new Error('Question delivery acknowledgement requires a conversation checkpoint writer.');
+    }
     await checkpoint('active');
     checkBudget();
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
@@ -483,7 +495,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || questionCommitFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }
