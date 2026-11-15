@@ -162,3 +162,17 @@ it('waits for asynchronous post-tool hooks and cancels their process when an age
   }finally{controller.abort();if(running)await running.catch(()=>{});vi.useRealTimers();}
 // Its own waits allow 5 s for the hook to start and 5 s to be reaped; the 5 s default cut it short under load.
 },15000);
+
+
+it.each([false,true])('rechecks inherited authority after initial host admission before spending (revoked=%s)',async revoke=>{
+  const {RuntimeControl}=await import('../src/runtime/index.js');
+  ledger.create(manifest);let revoked=false,saved:ReturnType<typeof saveSessionConversation>|undefined;
+  const session=createSession(project,{activate:false});
+  const opts=options({sessionId:session.id,control:new RuntimeControl(),
+    onCheckpoint:(messages,status)=>{saved=saveSessionConversation(session.id,messages,{expectedRevision:saved?.revision??null,status});},
+    controlSnapshot:()=>saved!,onControlReady:async()=>{revoked=revoke;},
+  });
+  opts.execution!.assertAuthority=()=>{if(revoked)throw new ExecutionLimitError('authority','Original authority revoked before inference');};
+  if(revoke){await expect(runTurn(opts)).rejects.toThrow('Original authority revoked before inference');expect(requests).toHaveLength(0);expect(ledger.read(project).events).toHaveLength(0);}
+  else{expect((await runTurn(opts)).reason).toBe('completed');expect(requests).toHaveLength(1);expect(ledger.read(project).events.map(event=>event.change.type)).toEqual(['reserve','settle']);}
+});

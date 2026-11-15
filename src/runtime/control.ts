@@ -1,6 +1,9 @@
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 
+export const CONTROL_CHECKPOINT_PROTOCOL_VERSION = 1;
+
 export interface ControlCheckpoint { readonly revision: string; readonly checksum: string }
+export interface ControlReadyCheckpoint extends ControlCheckpoint { readonly sessionId: string }
 export interface ControlReceipt extends ControlCheckpoint {
   readonly sessionId: string;
   readonly requestId: string;

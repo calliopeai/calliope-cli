@@ -875,3 +875,37 @@ it('cancels a parked question pause and discards the late answer', async () => {
   expect(chatMock).toHaveBeenCalledOnce();
   expect(opts.messages.current.some(row => row.content === 'Too late')).toBe(false);
 });
+
+
+it.each([undefined, { revision: '', checksum: 'a'.repeat(64) }, { revision: 'saved', checksum: 'invalid' }])(
+  'refuses initial control proof lost between its saved write and host admission: %j', async proof => {
+    const ready = vi.fn(async () => {}), opts = controlledOptions(new RuntimeControl(), { onControlReady: ready });
+    const snapshot = opts.controlSnapshot!;
+    opts.controlSnapshot = vi.fn().mockImplementationOnce(snapshot).mockImplementationOnce(() => proof).mockImplementation(snapshot);
+    await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+    expect(ready).not.toHaveBeenCalled(); expect(chatMock).not.toHaveBeenCalled();
+  });
+
+it('refuses an initial acknowledgment for a checkpoint advanced by the conversation writer', async () => {
+  const opts = controlledOptions(new RuntimeControl());
+  opts.onControlReady = async () => {
+    opts.messages.current.push({ role: 'user', content: 'New steering is not covered by the old acknowledgment.' });
+    await opts.onCheckpoint!(opts.messages.current, 'active');
+  };
+  await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+  expect(chatMock).not.toHaveBeenCalled();
+  expect(storage.readSessionConversation(opts.sessionId).messages.at(-1)?.content).toContain('New steering');
+});
+
+it('rejects malformed initial admission hooks at the shared runtime boundary', async () => {
+  await expect(runTurn(options({ onControlReady: async () => {} }))).rejects.toThrow('controller and host callback');
+  await expect(runTurn(controlledOptions(new RuntimeControl(), { onControlReady: false as never }))).rejects.toThrow('controller and host callback');
+  expect(chatMock).not.toHaveBeenCalled();
+});
+
+it('refuses changed checkpoint checksum even when its revision is unchanged during initial acknowledgment', async () => {
+  const opts = controlledOptions(new RuntimeControl());
+  opts.onControlReady = async () => { Object.assign(opts.controlSnapshot!(), { checksum: 'b'.repeat(64) }); };
+  await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+  expect(chatMock).not.toHaveBeenCalled();
+});

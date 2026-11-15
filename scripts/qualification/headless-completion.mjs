@@ -9,17 +9,25 @@ import { join } from 'node:path';
 
 export async function qualifyHeadlessCompletion() {
   const results = [];
-  for (const mode of ['repair', 'host-refuse', 'deadline']) {
+  for (const mode of ['repair', 'host-refuse', 'deadline', 'admission-refuse']) {
     const root = await mkdtemp(join(tmpdir(), 'calliope520-sdk-'));
     const home = join(root, 'home'), config = join(root, 'config'), project = join(root, 'project');
     await Promise.all([home, config, project].map(path => mkdir(path)));
-    let calls = 0, failure, child, timer, stdout = '', stderr = '';
+    let calls = 0, admissions = 0, admitted = false, failure, child, timer, stdout = '', stderr = '';
     const server = createServer(async (request, response) => {
       try {
         if (request.method === 'GET') {
           response.end(JSON.stringify({ object: 'list', data: [{ id: 'fixture-model', object: 'model',
             context_length: 32768, max_output_tokens: 1024 }] })); return;
         }
+        if (request.url === '/admit') {
+          let raw = ''; for await (const chunk of request) raw += chunk;
+          const proof = JSON.parse(raw); assert.equal(Object.keys(proof).sort().join(','), 'checksum,revision,sessionId');
+          assert.match(proof.checksum, /^[a-f0-9]{64}$/); admissions++;
+          assert.equal(calls, 0); admitted = mode !== 'admission-refuse';
+          response.statusCode = admitted ? 200 : 409; response.end('{}'); return;
+        }
+        assert.equal(admitted, true, 'Inference began before host admission');
         assert.equal(request.url, '/v1/chat/completions');
         assert.equal(request.headers.authorization, 'Bearer local-fixture-only');
         let raw = ''; for await (const chunk of request) raw += chunk;
@@ -58,8 +66,8 @@ export async function qualifyHeadlessCompletion() {
 import {readFileSync,readdirSync} from 'node:fs';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
-import {runHeadless,COMPLETION_CHECK_PROTOCOL_VERSION} from ${JSON.stringify(sdk)};
-assert.equal(COMPLETION_CHECK_PROTOCOL_VERSION,1);
+import {runHeadless,RuntimeControl,CONTROL_CHECKPOINT_PROTOCOL_VERSION,COMPLETION_CHECK_PROTOCOL_VERSION} from ${JSON.stringify(sdk)};
+assert.equal(COMPLETION_CHECK_PROTOCOL_VERSION,1);assert.equal(CONTROL_CHECKPOINT_PROTOCOL_VERSION,1);
 const mode=${JSON.stringify(mode)},sessions=new Set();let checks=0;
 const snapshot=(dir,id)=>{for(const entry of readdirSync(dir,{withFileTypes:true})){
  const file=join(dir,entry.name);if(entry.isDirectory()){const found=snapshot(file,id);if(found)return found;}
@@ -67,7 +75,13 @@ const snapshot=(dir,id)=>{for(const entry of readdirSync(dir,{withFileTypes:true
 }};
 const code=await runHeadless({prompt:'Original acceptance goal: effect.txt must contain María and 東京, exactly.',
  provider:'openai-compat',model:'fixture-model',cwd:${JSON.stringify(project)},outputMode:'json',maxCost:.1,
- maxTime:mode==='deadline'?2:15,maxCompletionChecks:2,
+ maxTime:mode==='deadline'?2:15,maxCompletionChecks:2,control:new RuntimeControl(),
+ onControlReady:async(proof)=>{
+  assert.ok(Object.isFrozen(proof));const saved=snapshot(process.env.HOME,proof.sessionId);
+  assert.equal(saved.revision,proof.revision);assert.equal(saved.checksum,proof.checksum);
+  const response=await fetch(${JSON.stringify(`http://127.0.0.1:${server.address().port}/admit`)},{method:'POST',body:JSON.stringify(proof)});
+  if(response.status!==200)throw Error('private initial authority diagnostic');
+ },
  completionCheck:async(proposal,signal)=>{
   checks++;sessions.add(proposal.sessionId);assert.equal(sessions.size,1);
   const saved=snapshot(process.env.HOME,proposal.sessionId);
@@ -79,7 +93,7 @@ const code=await runHeadless({prompt:'Original acceptance goal: effect.txt must 
   if(actual!=='María and 東京\\n')return {accepted:false,feedback:'The original criterion still fails: effect.txt must contain María and 東京, exactly.'};
   return {accepted:true,evidenceSha256:createHash('sha256').update(actual).digest('hex')};
  }});
-assert.equal(checks,mode==='repair'?2:1);assert.equal(code,mode==='repair'?0:mode==='deadline'?6:1);
+assert.equal(checks,mode==='repair'?2:mode==='admission-refuse'?0:1);assert.equal(code,mode==='repair'?0:mode==='deadline'?6:1);
 process.exitCode=code;
 `;
       child = spawn(process.execPath, ['--input-type=module', '-e', source], { cwd: project,
@@ -92,7 +106,9 @@ process.exitCode=code;
       assert.equal(signal, null, stderr);
       assert.equal(exit, mode === 'repair' ? 0 : mode === 'deadline' ? 6 : 1, stderr + stdout);
       if (failure) throw failure;
-      assert.equal(calls, mode === 'repair' ? 4 : 2);
+      assert.equal(calls, mode === 'repair' ? 4 : mode === 'admission-refuse' ? 0 : 2);
+      assert.equal(admissions, 1);
+      assert.equal((stdout + stderr).includes('private initial authority diagnostic'), false);
       assert.equal((stdout + stderr).includes('private verifier output must not be logged'), false);
       const events = stdout.split('\n').filter(Boolean).map(line => JSON.parse(line));
       const done = events.find(event => event.type === 'done');
@@ -101,7 +117,7 @@ process.exitCode=code;
         assert.equal(done.data.verification.checks, 2);
         assert.equal(done.data.inputTokens, 12); assert.equal(done.data.outputTokens, 8);
       } else assert.equal(done?.data.verification, undefined);
-      results.push({ mode, exit, providerRequests: calls, paidRequests: 0 });
+      results.push({ mode, exit, initialAdmissions: admissions, providerRequests: calls, paidRequests: 0 });
     } finally {
       clearTimeout(timer);
       if (child && child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await once(child, 'exit'); }

@@ -31,7 +31,7 @@ import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } fro
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
 import { assertExecutionBinding } from '../execution/delegated.js';
-import type { RuntimeControl, ControlBoundary, ControlCheckpoint } from './control.js';
+import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCheckpoint } from './control.js';
 import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
@@ -96,6 +96,7 @@ export interface TurnOptions {
   control?: RuntimeControl;
   /** Proof from the existing checkpoint writer; this callback does not write another journal. */
   controlSnapshot?: () => ControlCheckpoint;
+  onControlReady?: (checkpoint: ControlReadyCheckpoint, signal?: AbortSignal) => Promise<void>;
   onControlCommitted?: ControlBoundary['committed'];
   /** Called once before the first allowed medium-or-higher-risk action in a turn. */
   onSafetyBranch?: (call: ToolCall) => Promise<void>;
@@ -163,6 +164,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const completionLimit = completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
   if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
     throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
+  if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
+    throw new Error('Initial control acknowledgment requires a controller and host callback.');
   if (options.control) {
     options.control.bind(options.sessionId);
     if (!options.onCheckpoint || !options.controlSnapshot) {
@@ -464,6 +467,25 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throw new Error('Question delivery acknowledgement requires a conversation checkpoint writer.');
     }
     await checkpoint('active');
+    if (options.onControlReady) {
+      try {
+        const saved = options.controlSnapshot!();
+        if (!saved || typeof saved.revision !== 'string' || !saved.revision ||
+            typeof saved.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(saved.checksum))
+          throw new Error('Initial control checkpoint is unavailable.');
+        const proof = Object.freeze({ sessionId: options.sessionId, revision: saved.revision, checksum: saved.checksum });
+        const acknowledgment: unknown = await cancellable(Promise.resolve(options.onControlReady(proof, signal)), signal);
+        if (acknowledgment !== undefined) throw new Error('Invalid control acknowledgment.');
+        throwIfCancelled(signal);
+        const current = options.controlSnapshot!();
+        if (current.revision !== proof.revision || current.checksum !== proof.checksum)
+          throw new Error('Initial control checkpoint changed.');
+      } catch {
+        throwIfCancelled(signal);
+        throw new Error('Initial control checkpoint was not acknowledged.');
+      }
+      await guard?.refreshAuthority(signal);
+    }
     await boundary(true);
     checkBudget();
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();

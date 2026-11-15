@@ -1149,3 +1149,37 @@ describe('truncated tool calls at the output limit (#487)', () => {
     expect(r.toolCalls).toHaveLength(1);
   });
 });
+
+
+describe('header-only streaming calls at the output limit (#487)', () => {
+  it.each([['', 'read_file'], ['header-call', '']])('does not invent a tool from incomplete header %j / %j', async (id, name) => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: '' } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] },
+    ];
+    const result = await chatOpenAICompatible('groq', [{ role: 'user', content: 'go' }], makeTools(), 'model', vi.fn());
+    expect(result.finishReason).toBe('length');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+  });
+
+  it.each([
+    ['', 'length', true],
+    ['', 'tool_calls', false],
+    ['{}', 'length', false],
+  ] as const)('arguments %j with finish %s has truncation %s', async (argumentsText, finish, truncated) => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'header-call', function: { name: 'read_file', arguments: argumentsText } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: finish }] },
+    ];
+    const result = await chatOpenAICompatible('groq', [{ role: 'user', content: 'go' }], makeTools(), 'model', vi.fn());
+    expect(result.finishReason).toBe(finish === 'length' ? 'length' : 'tool_use');
+    if (truncated) {
+      expect(result.truncatedToolCalls).toBe(true);
+      expect(result.toolCalls).toBeUndefined();
+    } else {
+      expect(result).not.toHaveProperty('truncatedToolCalls');
+      expect(result.toolCalls).toEqual([{ id: 'header-call', name: 'read_file', arguments: {} }]);
+    }
+  });
+});

@@ -8,7 +8,7 @@
 
 import { runTurn } from './runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
-import type { RuntimeControl, ControlCheckpoint, ControlReceipt } from './runtime/control.js';
+import type { RuntimeControl, ControlCheckpoint, ControlReadyCheckpoint, ControlReceipt } from './runtime/control.js';
 import { completionCheckLimit, type CompletionCheck } from './runtime/completion.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
@@ -66,6 +66,8 @@ export interface HeadlessOptions {
   /** Control this original live turn; state and receipts do not recover a terminated process. */
   control?: RuntimeControl;
   onControlCommitted?: (receipt: ControlReceipt, signal?: AbortSignal) => Promise<void>;
+  /** Acknowledge the first saved control checkpoint before any provider inference. */
+  onControlReady?: (checkpoint: ControlReadyCheckpoint, signal?: AbortSignal) => Promise<void>;
   /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
   answerQuestion?: TurnOptions['answerQuestion'];
   /** Acknowledge the original conversation's saved answer before further execution. */
@@ -201,7 +203,11 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
     emit({ type: 'error', timestamp: now(), data: { message: 'Completion verification requires a host callback and 1 to 8 checks.' } }, outputMode);
     return 2;
   }
-  if (options.onControlCommitted && !options.control) {
+  if (options.onControlReady !== undefined && typeof options.onControlReady !== 'function') {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Initial control acknowledgment requires a host callback.' } }, outputMode);
+    return 2;
+  }
+  if ((options.onControlCommitted || options.onControlReady) && !options.control) {
     emit({ type: 'error', timestamp: now(), data: { message: 'Control acknowledgment requires an execution controller.' } }, outputMode);
     return 2;
   }
@@ -360,6 +366,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         if (options.onQuestionCommitted) savedQuestion = saved;
         if (options.control || options.completionCheck) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
+
       },
       continueOnLength: true,
       onContinue: ({ reason, attempt, max }) => {
@@ -383,6 +390,13 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         if (saved.revision !== proposal.revision || !('checksum' in saved) || saved.checksum !== proposal.checksum)
           throw new Error('Conversation changed during completion verification.');
         return verdict;
+      } : undefined,
+      onControlReady: options.onControlReady ? async (proof, readySignal) => {
+        const acknowledgment = await options.onControlReady!(proof, readySignal);
+        const saved = readSessionConversation(sessionId);
+        if (saved.revision !== proof.revision || !('checksum' in saved) || saved.checksum !== proof.checksum)
+          throw new Error('Initial conversation changed during acknowledgment.');
+        return acknowledgment;
       } : undefined,
       onControlCommitted: options.control ? async (receipt, controlSignal) => {
         await options.onControlCommitted?.(receipt, controlSignal);

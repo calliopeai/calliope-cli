@@ -215,3 +215,8 @@ retention and stderr retains at most 65,536 characters. General pre-tool hooks
 retain their own subprocess cleanup contract. POSIX groups do not contain escaped
 processes: sandbox containment, other tool paths, remote oversight leases and
 Windows process supervision require separate qualification.
+
+
+Headless hosts that register live control ownership can opt into `onControlReady(checkpoint, signal)`. The SDK saves the original session/revision/checksum, freezes that proof and awaits the host's acknowledgment before the first inference request. The callback returns no value on success and throws on refusal; malformed hooks/acknowledgments, changed saved state and host failures stop before inference. The original cancellation signal and wall-clock deadline remain active while waiting. Acknowledgment runs once per invocation, including when later completion checks request repair. `CONTROL_CHECKPOINT_PROTOCOL_VERSION === 1` is the admission capability handshake; older SDKs may ignore unknown options and must not be treated as qualified.
+
+This acknowledgment does not restore a terminated process. A Native-backed host uses the checkpoint to claim its original invocation/session through the existing task authority; a different owner is held before spending. Saved-session takeover, consumed allowances and uncertain provider charges still require the recovery contract.
