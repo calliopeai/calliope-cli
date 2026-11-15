@@ -17,7 +17,7 @@ import { scopeManager, withScope, validatePath } from '../src/scope.js';
 import * as budget from '../src/budget.js';
 import * as compressor from '../src/auto-compressor.js';
 import * as config from '../src/config.js';
-import { RunLog } from '../src/runlog.js';
+import { RunLog, readRunLog, runLogPath, verifyChain } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../src/errors.js';
 import { readToolOutputs } from '../src/sessions/index.js';
@@ -51,10 +51,26 @@ beforeEach(async () => {
 afterEach(() => { rmSync(root, { recursive: true, force: true }); vi.useRealTimers(); });
 
 describe('shared turn runtime', () => {
+  it.each([undefined, { inputTokens: 0, outputTokens: 0 }, { inputTokens: 12, outputTokens: 3 }])('persists whether provider usage was reported: %j', async usage => {
+    const dir = join(root, 'usage-log'), id = 'usage-presence';
+    const runlog = RunLog.open(id, { enabled: true, dir });
+    chatMock.mockResolvedValue({ content: 'done', finishReason: 'stop', usage });
+    await runTurn(options({ sessionId: id, runlog }));
+    await runlog.flush();
+    const events = readRunLog(runLogPath(id, dir));
+    expect(verifyChain(events).ok).toBe(true);
+    const message = events.find(e => e.type === 'assistant_message');
+    expect(message?.usageReported).toBe(usage !== undefined);
+    expect(message?.tokens).toEqual({ input: usage?.inputTokens ?? 0, output: usage?.outputTokens ?? 0 });
+  });
   it('records subscription tokens without inventing API dollar charges', async () => {
     chatMock.mockResolvedValue({ ...text('done', 1000), billing: 'subscription', warnings: ['USD totals exclude subscription usage.'] });
     const onUsage = vi.fn(), onWarning = vi.fn();
-    const result = await runTurn(options({ onUsage, onWarning }));
+    const dir = join(root, 'subscription-log'), id = 'subscription-usage';
+    const runlog = RunLog.open(id, { enabled: true, dir });
+    const result = await runTurn(options({ sessionId: id, runlog, onUsage, onWarning }));
+    await runlog.flush();
+    expect(readRunLog(runLogPath(id, dir)).find(e => e.type === 'assistant_message')).toMatchObject({ usageReported: true, costSource: 'subscription', cost: 0 });
     expect(result.totals.inputTokens).toBe(1000);
     expect(result.totals.cost).toBe(0);
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ billing: 'subscription' }), expect.anything(), 0);
