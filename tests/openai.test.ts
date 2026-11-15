@@ -1675,6 +1675,17 @@ describe('truncated tool calls at the output limit (#487)', () => {
 
 
 describe('header-only streaming calls at the output limit (#487)', () => {
+  it.each([['', 'test_tool'], ['header-call', '']])('does not invent a tool from incomplete header %j / %j', async (id, name) => {
+    mockStreamChunks = [
+      { choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: '' } }] }, finish_reason: null }] },
+      { choices: [{ delta: {}, finish_reason: 'length' }] },
+    ];
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'gpt-4o', vi.fn());
+    expect(result.finishReason).toBe('length');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result).not.toHaveProperty('truncatedToolCalls');
+  });
+
   it.each([
     ['', 'length', true],
     ['', 'tool_calls', false],
