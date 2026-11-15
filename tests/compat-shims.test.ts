@@ -199,6 +199,12 @@ describe('lmstudio — transformRequest', () => {
     restoreShimEnv(savedEnv);
   });
 
+  it('does not add max_tokens when max_completion_tokens is set', () => {
+    const result = shim.transformRequest(baseParams({ max_completion_tokens: 1000 }));
+    expect(result.max_completion_tokens).toBe(1000);
+    expect(result).not.toHaveProperty('max_tokens');
+  });
+
   it('adds max_tokens 8192 when not set', () => {
     const result = shim.transformRequest(baseParams());
     expect(result.max_tokens).toBe(8192);
@@ -243,6 +249,12 @@ describe('vllm — transformRequest', () => {
 
   afterEach(() => {
     restoreShimEnv(savedEnv);
+  });
+
+  it('does not add max_tokens when max_completion_tokens is set', () => {
+    const result = shim.transformRequest(baseParams({ max_completion_tokens: 1000 }));
+    expect(result.max_completion_tokens).toBe(1000);
+    expect(result).not.toHaveProperty('max_tokens');
   });
 
   it('adds max_tokens 4096 when not set', () => {

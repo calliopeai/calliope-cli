@@ -71,7 +71,6 @@ vi.mock('../src/router.js', () => ({
   getDefaultSmartRoutingConfig: vi.fn(() => ({})),
   detectTaskType: vi.fn(() => 'general'),
 }));
-vi.mock('../src/summarization.js', () => ({ summarize: vi.fn() }));
 vi.mock('../src/scope.js', () => ({
   addToScope: vi.fn(),
   removeFromScope: vi.fn(),
@@ -114,6 +113,7 @@ vi.mock('react', () => ({
 
 import { handleCommand } from '../src/ui/commands.js';
 import * as config from '../src/config.js';
+import { getModelContextLimit } from '../src/model-detection.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -208,6 +208,48 @@ function getMessages(ctx: ReturnType<typeof makeCtx>) {
 
 beforeEach(() => {
   mockGetAvailableModels.mockReset();
+  vi.mocked(getModelContextLimit).mockReset().mockReturnValue(128000);
+});
+
+describe('/compact with the active model', () => {
+  it.each([[8000, true], [128000, false]] as const)(
+    'uses the active %i-token window when the requested model is unset', async (limit, compacts) => {
+      const ctx = makeCtx('auto');
+      ctx.actualProvider = 'openai-compat';
+      ctx.actualModel = 'discovered-active-model';
+      ctx.model = undefined;
+      vi.mocked(getModelContextLimit).mockReturnValue(limit);
+      const history: import('../src/types.js').Message[] = Array.from({ length: 40 }, (_, i) => ({
+        role: i % 2 ? 'assistant' : 'user', content: `Topic ${i}: ${'x'.repeat(1900)}`,
+      }));
+      history.unshift({ role: 'system', content: 'Keep the original acceptance criteria.' });
+      history.splice(20, 0, { role: 'system', content: 'Loaded instructions remain in force.' });
+      ctx.llmMessages.current = history;
+
+      await handleCommand('/compact', ctx);
+
+      expect(getModelContextLimit).toHaveBeenCalledWith('openai-compat', 'discovered-active-model');
+      expect(ctx.llmMessages.current.length < history.length).toBe(compacts);
+      for (const text of ['Keep the original acceptance criteria.', 'Loaded instructions remain in force.']) {
+        expect(ctx.llmMessages.current.filter(message => message.role === 'system' && message.content === text)).toHaveLength(1);
+      }
+      expect(getMessages(ctx).at(-1)?.content).toMatch(compacts ? /Compacted/ : /already within limits/);
+      expect(ctx.setContextTokens).toHaveBeenCalledTimes(compacts ? 1 : 0);
+    },
+  );
+
+  it('keeps the labelled fallback when no active model is available', async () => {
+    const ctx = makeCtx();
+    ctx.actualModel = '';
+    const history: import('../src/types.js').Message[] = Array.from({ length: 40 }, () => ({
+      role: 'user', content: 'x'.repeat(1900),
+    }));
+    ctx.llmMessages.current = history;
+    await handleCommand('/compact', ctx);
+    expect(getModelContextLimit).not.toHaveBeenCalled();
+    expect(ctx.llmMessages.current).toBe(history);
+    expect(getMessages(ctx).at(-1)?.content).toMatch(/already within limits/);
+  });
 });
 
 describe('/model command — loading state and error handling', () => {

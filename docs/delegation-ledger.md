@@ -220,10 +220,60 @@ Reservation errors optionally report `admission: refused` when the server has
 verified non-admission after the local operation ends, or `unknown` otherwise.
 Clients retain capacity when talking to older v1 servers that omit this evidence.
 
+## Portable project identity
+
+A manifest creator may add `project.portable = {version: 1, roots, origin}` to a
+version 1 manifest. `roots` are the sorted root commits of `HEAD`'s history (1 to
+16), and `origin` is a digest of the normalized `remote.origin.url` (`host/path`,
+without scheme, credentials, port or trailing `.git`; the raw URL is never stored).
+The field is optional and only the creator can set it: it is part of the manifest
+hash, and `ReservationLedger.create` still checks the creator's own mount exactly
+and rejects a declaration that mount does not derive. Library callers opt in with
+`portableProjectIdentity(dir)` from `src/execution/portable-identity.ts`; the CLI
+has no flag because it builds no execution manifests.
+
+**The portable identity identifies a repository and authenticates nothing.** Any
+checkout with the same root commits and origin matches, including a fresh clone at
+the creator's path, and anyone who can edit `.git/config` controls the origin it
+reports. Authority still comes from the ledger token and owner, never from this
+value. It is not a replacement for the owner-bound workspace grant, which stays
+exact and cannot carry `portable`.
+
+Where it applies:
+
+- Local ledger reads, reservations, settlements and `ExecutionGuard` accept a
+  matching checkout. Every path grant resolves against the realpath of the local
+  `cwd`, never the manifest's recorded root, so a `src/**` grant cannot reach the
+  creator's checkout or anything outside the local one.
+- While the portable identity is in use, writes under `.git` are denied, so an
+  agent cannot rewrite the origin it is matched on. The guard derives the identity
+  once, at construction.
+- A manifest without the field behaves exactly as before. Its hash is unchanged.
+
+The identity is unavailable, so the check fails closed with "Execution belongs to a
+different or replaced project.", when any of these hold: not a git project, `cwd`
+is not the repository top level, `.git` is a file (linked worktree or submodule),
+shallow clone, no commits, no `origin`, an `origin` that is a local path or
+`file://` URL, more than 16 root commits, a missing git binary or a git error.
+A project without git keeps the path-and-inode binding.
+
+Limits in this release:
+
+- Manifests with a `parent` and the remote ledger protocol still compare the exact
+  `{root, key}`; a remote parent refuses a second mount until the ledger checks
+  accept the portable identity.
+- The `goals/*`, `improvement/*` and `orchestration/*` call sites that read
+  `manifest.project.root` literally are not supported from a second mount.
+- Brain locators keyed to the creator's project key are denied on the second mount.
+- Approvals (`describeApproval`) keep their local path-and-inode binding.
+
 ## Owner-bound remote workspaces
 
-A copied checkout has a different path and filesystem identity. It cannot use a
-parent grant just because its files look the same. The ledger owner may issue a
+By default a copied checkout has a different path and filesystem identity, and
+it cannot use a parent grant just because its files look the same. A manifest
+whose creator opts in to a portable project identity (see the next section) also
+accepts another checkout of the same repository on the local ledger. Without that
+field, the exact path-and-inode check applies. The ledger owner may issue a
 version 2 child grant with `project: {root, key}`, captured using the CLI's
 `projectIdentity()` on the intended child host. The existing proposal hash,
 review revision and native run manifest references remain part of that immutable

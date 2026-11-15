@@ -372,10 +372,16 @@ export async function chatBedrock(
   // Map stop reasons
   const finishReason = normalizeFinishReason(data.stopReason, toolCalls.length > 0);
 
+  // Output limit inside a tool block: the cut-off call must not run (#487).
+  const blocks = data.output?.message?.content;
+  const truncatedToolCalls = finishReason === 'length' && Boolean(blocks?.[blocks.length - 1]?.toolUse);
+  if (truncatedToolCalls) toolCalls.pop();
+
   return {
     content,
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: data.usage ? {
       inputTokens: data.usage.inputTokens,
@@ -428,6 +434,7 @@ async function chatBedrockStreaming(
   let usageSeen = false;
   let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
   let currentToolId = '';
+  const unparsedToolIds = new Set<string>();
   let currentToolName = '';
   let currentToolInput = '';
 
@@ -577,6 +584,7 @@ async function chatBedrockStreaming(
                   arguments: JSON.parse(currentToolInput || '{}'),
                 });
               } catch {
+                unparsedToolIds.add(currentToolId);
                 toolCalls.push({
                   id: currentToolId,
                   name: currentToolName,
@@ -614,10 +622,17 @@ async function chatBedrockStreaming(
   }
 
   throwIfCancelled(signal);
+  let truncatedToolCalls = false;
+  let keptToolCalls = toolCalls;
+  if (finishReason === 'length') {
+    truncatedToolCalls = unparsedToolIds.size > 0 || Boolean(currentToolId);
+    keptToolCalls = toolCalls.filter((tc) => !unparsedToolIds.has(tc.id));
+  }
   return {
     content,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+    toolCalls: keptToolCalls.length > 0 ? keptToolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
     usage: bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
   };

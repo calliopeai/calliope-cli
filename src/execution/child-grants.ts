@@ -6,7 +6,7 @@ export const MAX_CHILD_GRANT_BYTES=32768;
 export function validateChildGrant(value:unknown):ChildGrant {
   shape(value,['version','id','proposalHash','previousGraphHash','planHash','runManifestHash','approvalRevision','parentId','accounts'],['project']);
   if(value.version!==1&&value.version!==2||!uuid(value.id)||!uuid(value.approvalRevision)||![value.proposalHash,value.previousGraphHash,value.planHash,value.runManifestHash].every(hex)||!Array.isArray(value.accounts)||!value.accounts.length||value.accounts.length>16)invalid();identifier(value.parentId);
-  if(value.version===2)validateExecutionProject(value.project);else if(value.project!==undefined)invalid();
+  if(value.version===2){if(value.project&&typeof value.project==='object'&&Object.hasOwn(value.project,'portable'))invalid();validateExecutionProject(value.project);}else if(value.project!==undefined)invalid();
   for(const account of value.accounts)shape(account,['id','parentId','tokenBudget','costBudgetNanos','deadline','allowedTools','allowedPaths']);
   if(Buffer.byteLength(canonicalJson(value))>MAX_CHILD_GRANT_BYTES)throw new ExecutionLimitError('limit','Child grant exceeds its 32 KiB limit.');return value as unknown as ChildGrant;
 }

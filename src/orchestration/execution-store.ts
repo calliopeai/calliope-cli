@@ -37,8 +37,8 @@ export function readArtifactBytes(file:string,max=1024*1024,privateFile=false):B
     if(parent.dev!==after.dev||parent.ino!==after.ino||canonicalPath(file)!==file||current.dev!==stat.dev)throw unavailable();
     if(current.ino!==stat.ino){
       if(!current.isFile()||current.isSymbolicLink()||current.size>max||privateFile&&process.platform!=='win32'&&current.mode&0o077)throw unavailable();
-      // Discard this descriptor's bytes. Only the execution journal reader may
-      // retry a normal atomic publication, with every boundary checked afresh.
+      // Discard this descriptor's bytes. Journal and approval readers may retry
+      // a normal atomic publication, with every boundary checked afresh.
       throw new ReplacedArtifact();
     }
     if(count!==stat.size||final.size!==stat.size||final.mtimeMs!==stat.mtimeMs||final.ctimeMs!==stat.ctimeMs)throw unavailable();return bytes.subarray(0,count);
@@ -79,7 +79,15 @@ export class ExecutionStore {
   }
   /** Approval also fences prepared budget handles before the coordinator journal exists. */
   assertApproval(header:Pick<ExecutionHeader,'approvalRevision'>):void {
-    const head=parsed(join(dirname(this.root),'head.json'),4096);shape(head,['version','runId','manifestHash','event','hash']);shape(head.event,['id','hash']);const {hash,...body}=head;
+    let bytes:Buffer;
+    for(let attempt=0;;attempt++){
+      if(projectIdentity(this.manifest.project.root).projectKey!==this.manifest.project.key)throw new ExecutionLimitError('authority','Project identity changed during coordinator execution.');
+      privateDirectory(dirname(this.root));
+      try{bytes=readArtifactBytes(join(dirname(this.root),'head.json'),4096,true);break;}
+      catch(error){if(!(error instanceof ReplacedArtifact)||attempt===2)throw unavailable();}
+    }
+    let head:unknown;try{head=JSON.parse(bytes.toString());}catch{throw unavailable();}
+    shape(head,['version','runId','manifestHash','event','hash']);shape(head.event,['id','hash']);const {hash,...body}=head;
     if(hash!==digest(canonicalJson(body))||head.runId!==this.manifest.id||head.manifestHash!==this.manifest.hash||head.event.id!==header.approvalRevision)
       throw new ExecutionLimitError('authority','Run approval was revoked or changed; coordinator execution stopped.');
   }

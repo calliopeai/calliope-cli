@@ -737,6 +737,77 @@ describe('chatBedrock - streaming', () => {
     // Should fall back to empty arguments
     expect(result.toolCalls![0].arguments).toEqual({});
   });
+
+  describe('chatBedrock - truncated tool calls at the output limit (#487)', () => {
+    const useCreds = () => {
+      process.env.AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE';
+      process.env.AWS_SECRET_ACCESS_KEY = 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY';
+      process.env.AWS_REGION = 'us-east-1';
+    };
+    const start = (id: string) => ({ type: 'contentBlockStart', payload: JSON.stringify({ start: { toolUse: { toolUseId: id, name: 'shell' } } }) });
+    const delta = (input: string) => ({ type: 'contentBlockDelta', payload: JSON.stringify({ delta: { toolUse: { input } } }) });
+    const blockStop = { type: 'contentBlockStop', payload: '{}' };
+    const stop = (stopReason: string) => ({ type: 'messageStop', payload: JSON.stringify({ stopReason }) });
+    const full = [start('ok1'), delta('{"command":"ls"}'), blockStop];
+    const stream = async (events: Array<{ type: string; payload: string }>) => {
+      useCreds();
+      mockFetch.mockResolvedValue(makeStreamResponse(events));
+      return chatBedrock([makeTextMessage('user', 'go')], [], 'model-id', () => {});
+    };
+
+    it('streaming: invalid JSON at block stop is dropped and flagged; complete call kept', async () => {
+      const r = await stream([...full, start('cut'), delta('{"command":"l'), blockStop, stop('max_tokens')]);
+      expect(r.finishReason).toBe('length');
+      expect(r.truncatedToolCalls).toBe(true);
+      expect(r.toolCalls).toEqual([{ id: 'ok1', name: 'shell', arguments: { command: 'ls' } }]);
+    });
+    it('streaming: block still open when the stream ends is flagged', async () => {
+      const r = await stream([start('cut'), delta('{"command":"l'), stop('max_tokens')]);
+      expect(r.finishReason).toBe('length');
+      expect(r.truncatedToolCalls).toBe(true);
+      expect(r.toolCalls).toBeUndefined();
+    });
+    it('streaming: a complete call followed by length is not flagged', async () => {
+      const r = await stream([...full, stop('max_tokens')]);
+      expect(r).not.toHaveProperty('truncatedToolCalls');
+      expect(r.toolCalls).toHaveLength(1);
+    });
+    it('streaming: unchanged off the length path', async () => {
+      const r = await stream([start('cut'), delta('{"command":"l'), blockStop, stop('tool_use')]);
+      expect(r).not.toHaveProperty('truncatedToolCalls');
+      expect(r.toolCalls).toEqual([{ id: 'cut', name: 'shell', arguments: {} }]);
+      const open = await stream([start('open'), delta('{"co'), stop('tool_use')]);
+      expect(open).not.toHaveProperty('truncatedToolCalls');
+      expect(open.toolCalls).toBeUndefined();
+    });
+    it('non-streaming: trailing toolUse under max_tokens is dropped and flagged', async () => {
+      useCreds();
+      mockFetch.mockResolvedValue(makeBedrockResponse({
+        output: { message: { role: 'assistant', content: [
+          { toolUse: { toolUseId: 'ok1', name: 'shell', input: { command: 'ls' } } },
+          { toolUse: { toolUseId: 'cut', name: 'shell', input: {} } },
+        ] } },
+        stopReason: 'max_tokens',
+      }));
+      const r = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+      expect(r.finishReason).toBe('length');
+      expect(r.truncatedToolCalls).toBe(true);
+      expect(r.toolCalls!.map(t => t.id)).toEqual(['ok1']);
+    });
+    it('non-streaming: text last under max_tokens is not flagged', async () => {
+      useCreds();
+      mockFetch.mockResolvedValue(makeBedrockResponse({
+        output: { message: { role: 'assistant', content: [
+          { toolUse: { toolUseId: 'ok1', name: 'shell', input: { command: 'ls' } } },
+          { text: 'more' },
+        ] } },
+        stopReason: 'max_tokens',
+      }));
+      const r = await chatBedrock([makeTextMessage('user', 'go')], [], 'model-id');
+      expect(r).not.toHaveProperty('truncatedToolCalls');
+      expect(r.toolCalls).toHaveLength(1);
+    });
+  });
 });
 
 // ===========================================================================

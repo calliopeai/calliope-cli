@@ -100,7 +100,11 @@ export function toOpenAITools(tools: Tool[]) {
 /**
  * Parse tool calls from OpenAI response
  */
-export function parseOpenAIToolCalls(toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined): ToolCall[] {
+export function parseOpenAIToolCalls(
+  toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined,
+  finishReason?: LLMResponse['finishReason'],
+  onTruncated?: () => void,
+): ToolCall[] {
   if (!toolCalls) return [];
 
   const result: ToolCall[] = [];
@@ -113,6 +117,11 @@ export function parseOpenAIToolCalls(toolCalls: OpenAI.Chat.Completions.ChatComp
     try {
       parsedArgs = JSON.parse(tc.function.arguments);
     } catch (error) {
+      // Output limit cut the arguments short: skip the call and report it (#487).
+      if (finishReason === 'length') {
+        onTruncated?.();
+        continue;
+      }
       const parseError = error instanceof SyntaxError ? error.message : 'Unknown parse error';
       throw new Error(`Invalid tool arguments from LLM: ${parseError}. Raw: ${tc.function.arguments.substring(0, 200)}`);
     }
@@ -551,21 +560,23 @@ export async function chatOpenAI(
       // The SDK's async iterator can end normally after an abort.
       throwIfCancelled(signal);
       // Convert tool call deltas to tool calls
-      const toolCalls = Object.values(toolCallDeltas)
-        .filter(tc => tc.id && tc.name)
-        .map(tc => {
-          let parsedArgs: Record<string, unknown> = {};
-          try {
-            parsedArgs = JSON.parse(tc.arguments || '{}');
-          } catch {
-            debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+      let truncatedToolCalls = false;
+      const toolCalls: ToolCall[] = [];
+      for (const tc of Object.values(toolCallDeltas)) {
+        if (!tc.id || !tc.name) continue;
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = JSON.parse(tc.arguments || '{}');
+        } catch {
+          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          // Output limit cut the arguments short: drop the call and flag it (#487).
+          if (finishReason === 'length') {
+            truncatedToolCalls = true;
+            continue;
           }
-          return {
-            id: tc.id,
-            name: tc.name,
-            arguments: parsedArgs,
-          };
-        });
+        }
+        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
+      }
 
       finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
 
@@ -573,6 +584,7 @@ export async function chatOpenAI(
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
+        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
         usage,
         warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
       };
@@ -600,7 +612,10 @@ export async function chatOpenAI(
 
   const choice = response.choices[0]!;
   const message = choice.message;
-  const toolCalls = parseOpenAIToolCalls(message.tool_calls);
+  let truncatedToolCalls = false;
+  const toolCalls = parseOpenAIToolCalls(message.tool_calls, normalizeFinishReason(choice.finish_reason), () => {
+    truncatedToolCalls = true;
+  });
 
   // Map OpenAI finish reasons
   const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);
@@ -609,6 +624,7 @@ export async function chatOpenAI(
     content: message.content || '',
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     usage: response.usage ? {
       inputTokens: response.usage.prompt_tokens,
       outputTokens: response.usage.completion_tokens,

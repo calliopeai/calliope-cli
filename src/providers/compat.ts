@@ -9,7 +9,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
-import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
+import type { Message, Tool, LLMResponse, LLMProvider, ToolCall } from '../types.js';
 import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
@@ -75,7 +75,7 @@ const lmstudioShim: CompatShim = {
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if (result.max_tokens == null) {
+    if (result.max_tokens == null && result.max_completion_tokens == null) {
       result.max_tokens = 8192;
     }
     return result;
@@ -116,7 +116,7 @@ const vllmShim: CompatShim = {
   },
   transformRequest(params: ChatCompletionCreateParamsBase): ChatCompletionCreateParamsBase {
     const result = { ...params };
-    if (result.max_tokens == null) {
+    if (result.max_tokens == null && result.max_completion_tokens == null) {
       result.max_tokens = 4096;
     }
     return result;
@@ -298,7 +298,15 @@ export async function chatOpenAICompatible(
 
   // Calculate dynamic max_tokens based on available context space
   const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens(provider, model, messages, tools), limits?.maxOutputTokens);
-  debugLog(`${provider} request: model=${model}, max_tokens=${dynamicMaxTokens}`);
+  // OpenAI's own API rejects max_tokens on newer models; other servers only accept it.
+  let targetsOpenAI = false;
+  try {
+    targetsOpenAI = new URL(baseURL).hostname === 'api.openai.com';
+  } catch {
+    targetsOpenAI = false;
+  }
+  const tokenField = targetsOpenAI ? { max_completion_tokens: dynamicMaxTokens } : { max_tokens: dynamicMaxTokens };
+  debugLog(`${provider} request: model=${model}, ${targetsOpenAI ? 'max_completion_tokens' : 'max_tokens'}=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
   // Stream text content while collecting tool calls
@@ -314,7 +322,7 @@ export async function chatOpenAICompatible(
         model,
         messages: openaiMessages,
         tools: openaiTools.length > 0 ? openaiTools : undefined,
-        max_tokens: dynamicMaxTokens,
+        ...tokenField,
         stream: true,
         ...(limits?.bounded ? { stream_options: { include_usage: true } } : {}),
         ...routingBounds,
@@ -356,21 +364,23 @@ export async function chatOpenAICompatible(
       // The SDK's async iterator can end normally after an abort.
       throwIfCancelled(signal);
       // Convert tool call deltas to tool calls
-      const toolCalls = Object.values(toolCallDeltas)
-        .filter(tc => tc.id && tc.name)
-        .map(tc => {
-          let parsedArgs: Record<string, unknown> = {};
-          try {
-            parsedArgs = JSON.parse(tc.arguments || '{}');
-          } catch {
-            debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+      let truncatedToolCalls = false;
+      const toolCalls: ToolCall[] = [];
+      for (const tc of Object.values(toolCallDeltas)) {
+        if (!tc.id || !tc.name) continue;
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          parsedArgs = JSON.parse(tc.arguments || '{}');
+        } catch {
+          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          // Output limit cut the arguments short: drop the call and flag it (#487).
+          if (finishReason === 'length') {
+            truncatedToolCalls = true;
+            continue;
           }
-          return {
-            id: tc.id,
-            name: tc.name,
-            arguments: parsedArgs,
-          };
-        });
+        }
+        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
+      }
 
       finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
 
@@ -378,6 +388,7 @@ export async function chatOpenAICompatible(
         content,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         finishReason,
+        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
         usage,
         ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
         warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
@@ -400,7 +411,7 @@ export async function chatOpenAICompatible(
       model: actualModel,
       messages: openaiMessages,
       tools: openaiTools.length > 0 ? openaiTools : undefined,
-      max_tokens: dynamicMaxTokens,
+      ...tokenField,
       ...routingBounds,
     };
     if (activeShim) reqParams = activeShim.transformRequest(reqParams) as ChatCompletionCreateParamsNonStreaming;
@@ -417,7 +428,7 @@ export async function chatOpenAICompatible(
           model: actualModel,
           messages: openaiMessages,
           tools: openaiTools.length > 0 ? openaiTools : undefined,
-          max_tokens: dynamicMaxTokens,
+          ...tokenField,
         };
         if (activeShim) fallbackParams = activeShim.transformRequest(fallbackParams) as ChatCompletionCreateParamsNonStreaming;
         response = await client.chat.completions.create(fallbackParams, signal ? { signal } : undefined);
@@ -436,7 +447,10 @@ export async function chatOpenAICompatible(
   const choice = response.choices[0]!;
   const message = choice.message;
   const reasoningContent=provider==='deepseek'?deepSeekReasoning((message as {reasoning_content?:unknown}).reasoning_content):undefined;
-  const toolCalls = parseOpenAIToolCalls(message.tool_calls);
+  let truncatedToolCalls = false;
+  const toolCalls = parseOpenAIToolCalls(message.tool_calls, normalizeFinishReason(choice.finish_reason), () => {
+    truncatedToolCalls = true;
+  });
 
   // Map finish reasons
   const finishReason = normalizeFinishReason(choice.finish_reason, toolCalls.length > 0);
@@ -445,6 +459,7 @@ export async function chatOpenAICompatible(
     content: message.content || '',
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
     usage: response.usage ? {
       inputTokens: response.usage.prompt_tokens,

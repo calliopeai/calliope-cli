@@ -45,7 +45,7 @@ export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfi
 export { evaluate as judge, validateRequest as validateJudgmentRequest, JudgmentError } from './judgment/index.js';
 export type { JudgmentRequest, JudgmentResponse, JudgmentEngine, Question, Answer } from './judgment/index.js';
 export { runHeadless } from './headless.js';
-export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode } from './headless.js';
+export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode, HeadlessQuestionReceipt } from './headless.js';
 
 
 // Shared runtime for terminal, editor and programmatic clients.

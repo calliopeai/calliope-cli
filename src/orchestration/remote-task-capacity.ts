@@ -47,7 +47,8 @@ export async function admitRemoteTask(store:ExecutionStore,input:unknown,assertA
     assertActive();const existing=prior.state.remoteTasks?.[admission.id];
     if(existing){if(canonicalJson(existing.admission)!==canonicalJson(admission)||existing.status!=='active')throw new ExecutionLimitError('authority','Remote task admission is no longer active.');await parentTaskCapacity(new ReservationLedger(join(dirname(store.root),'budget')).read(store.manifest.project.root).manifest,store.manifest.project.root,admission,false,signal);return [];}
     const context=store.context(prior),agent=context.plan.agents.find(item=>item.id===admission.agentId);
-    if(!agent||admission.runId===context.id||prior.state.status==='completed'||admission.deadline>Math.min(prior.header.deadline,Date.parse(prior.header.createdAt)+agent.timeBudgetMs)||Date.now()>=admission.deadline)throw new ExecutionLimitError('authority','Remote task has no current parent execution authority.');
+    if(!agent||admission.runId===context.id||prior.state.status==='completed'||admission.deadline>Math.min(prior.header.deadline,Date.parse(prior.header.createdAt)+agent.timeBudgetMs))throw new ExecutionLimitError('authority','Remote task has no current parent execution authority.');
+    if(Date.now()>=admission.deadline)throw new ExecutionLimitError('deadline','Remote task admission deadline expired.');
     if(occupiedExecutionSlots(prior.state)>=context.plan.limits.maxConcurrent)throw new ExecutionLimitError('limit','Parent execution concurrency is full.');
     if(remoteScopesConflict(prior.state,context,admission.agentId))throw new ExecutionLimitError('limit','Parent execution scopes are busy.');
     await parentTaskCapacity(new ReservationLedger(join(dirname(store.root),'budget')).read(store.manifest.project.root).manifest,store.manifest.project.root,admission,false,signal);

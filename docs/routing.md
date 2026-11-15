@@ -34,6 +34,46 @@ client preference in every continuation decision and adds a `calliopeRouting`
 origin to assistant metadata. Start a new session or normalize history explicitly
 before moving opaque protocol state to another provider.
 
+## Private data policy
+
+`routing.dataPolicy: "private"` restricts routing to targets the user declares in
+`routing.privateTargets`. The policy is off by default and with it off nothing
+changes. Private is never inferred: localhost, private IP ranges and local model
+servers are not treated as private, because a local address can proxy to a public
+service.
+
+```json
+{ "routing": { "dataPolicy": "private",
+  "privateTargets": [{ "provider": "openai-compat", "endpoint": "http://10.0.0.5:8000/v1" }] } }
+```
+
+- A declaration is a provider plus its exact endpoint, compared as
+  `origin + pathname` with no trailing-slash folding. If the provider's endpoint
+  changes, the target is no longer declared. Endpoints with a query string or
+  userinfo never match. At most 32 entries.
+- The policy is read from user config only. A request's `preferences` cannot loosen it.
+- Undeclared targets are dropped in every mode (automatic, explicit, protocol-pinned,
+  Smart and escalation pools) before discovery, so an explicit undeclared selection
+  returns no route with the exclusion reason `outside-private-policy` and sends no
+  request. With nothing declared, nothing can be selected.
+- The ChatGPT subscription and the OpenAI API-key path both resolve to
+  `https://api.openai.com/v1` unless the API key has a custom `baseUrl`. Declaring
+  `{ "provider": "openai", "endpoint": "https://api.openai.com/v1" }` therefore covers
+  both and permits the quota fallback. With a custom `baseUrl`, declare that `baseUrl`.
+- The ChatGPT quota fallback activates only when the OpenAI API-key target it would
+  switch to is declared. Otherwise it is refused before history conversion or
+  checkpointing, with `outside-private-policy`.
+- Known gap: callers that invoke a provider's `chat()` directly without routing are
+  not covered by the policy. In particular, the policy judge (`policy.judgment`) with
+  provider `auto`, or with an undeclared `policy.judgmentProvider`, can still send a
+  tool call's name and arguments to an undeclared provider
+  (`src/judgment/evaluate.ts`). The owner left this out of #489 and it is tracked
+  as a follow-up under #254 (enforce the policy at the provider `chat()` boundary).
+  Until then, keep `policy.judgment` off while `routing.dataPolicy` is `private`, or
+  set `policy.judgmentProvider` to a provider whose endpoint you have declared.
+  "No silent public fallback" covers routing, the quota fallback and escalation, not
+  direct `chat()` callers.
+
 ## Configuration and score
 
 ```json

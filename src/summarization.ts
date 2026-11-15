@@ -197,8 +197,7 @@ function findSafeSplitPoint(messages: LLMMessage[], targetIndex: number): number
 }
 
 /**
- * Fraction of the context window to compact down to. Matches the target the
- * shared turn engine uses for auto-compaction in ui/agent.ts.
+ * Fraction of the active context window to target for manual compaction.
  */
 export const COMPACTION_TARGET_RATIO = 0.6;
 

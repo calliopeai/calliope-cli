@@ -51,9 +51,78 @@ validates bounded nonempty answer text, records one tool result, and continues
 with the original iteration and budget accounting. Cancellation discards a late
 answer and completes the pending tool pair without claiming success. This callback
 does not approve tools or alter the behavior of `create_plan`.
-Any unexecuted calls receive explicit placeholder results. Terminal length
-continuation remains bounded by the iteration limit; ACP and headless expose an
-incomplete outcome instead of claiming success.
+Embedded headless callers can provide this callback as `HeadlessOptions.answerQuestion`
+to `runHeadless`. The trusted host must authorize the answer against its exact
+question and revision and preserve durable delivery evidence. A rejected callback
+or invalid answer fails the headless run. An absent callback retains the existing
+waiting outcome (exit 4); the CLI does not read an answer from stdin implicitly.
+The existing `maxTime` includes time spent waiting for the host, and `maxCost`
+remains cumulative across the answer. This callback alone does not resume a
+terminated process or supply factory steering, execution pause or recovery.
+
+Hosts can also supply `HeadlessOptions.onQuestionCommitted`. It receives a frozen
+`HeadlessQuestionReceipt` containing the original session/tool-call IDs, saved
+conversation revision/checksum and answer SHA-256. The existing conversation
+writer must have saved the exact answer before the callback runs. The shared
+runtime waits for host acknowledgement before admitting further execution, within
+the same cancellation signal, deadline and cumulative budget. Direct `runTurn`
+callers using this hook must supply their checkpoint writer.
+
+Host refusal stops the turn and retains the already-saved answer for recovery.
+A conversation changed while acknowledgement was pending cannot continue from
+the stale revision. The host still authorizes the exact question/request revision;
+a local conversation receipt grants no tools, scope or account access. These
+callbacks do not implement hosted Factory routing, steering, execution pause or
+process recovery by themselves.
+
+Embedded clients can pass a `RuntimeControl` to `runHeadless` for cooperative
+execution pause and ordered steering within the original live turn:
+
+```ts
+const control = new RuntimeControl();
+const running = runHeadless({ ...originalOptions, control });
+const paused = await control.pause('operator-pause-1');
+const steered = control.steer({ requestId: 'operator-note-1',
+  sessionId: paused.sessionId, revision: paused.revision,
+  text: 'Include the verification commands and keep the original criteria.' });
+await control.resume(paused);
+await steered;
+await running;
+```
+
+Pause is first `pausing`, then `paused` after a saved, quiescent boundary and
+the optional `onControlCommitted` acknowledgment. Started parallel work and
+post-tool hooks settle before acknowledgment. An unanswered host question can
+be parked; an answer received while paused waits before changing the snapshot.
+An already-saved answer's host acknowledgment settles before a requested pause,
+preserving the revision that acknowledgment names.
+
+Resume requires the exact frozen pause receipt. Control receipts carry the
+session, request ID, kind, revision and checksum. Steering binds its origin
+session/revision and exact text, is idempotent by request ID, and is saved at a
+complete conversation boundary before another model request. Steering received
+with a final response requires another iteration or an explicit limit outcome.
+The original budget, iteration allowance, deadline and permission checks remain
+in force; cancellation and deadlines settle control waits. A failed writer or
+refused acknowledgment stops admission and cannot be retried through `onError`.
+
+Direct `runTurn` callers supply their existing `onCheckpoint` writer plus a
+`controlSnapshot` reader for that writer's saved revision/checksum. Hosts authorize
+incoming operator intents before calling the controller. Its bounded request
+history belongs to one live turn; authoritative host intent retention, durable
+CLI homes and fenced process recovery require the host recovery implementation.
+
+Any unexecuted calls receive explicit placeholder results. With
+`continueOnLength` (terminal and headless), a reply cut off by the output limit,
+or an empty reply, is not completion: any tool calls in the truncated reply are
+discarded unrun and the model is asked to continue, up to
+`MAX_CONSECUTIVE_CONTINUATIONS` (3) times in a row; any other reply resets the
+count. Headless emits a `status` event with `continuing: true`, `reason`,
+`attempt` and `max` for each continuation. If the bound is exceeded the turn
+ends as `length` or `empty_response`, headless emits an `error` then `done`, and
+exits 4. The iteration limit, budget, time caps and abort still apply. ACP and
+library callers that do not opt in expose an incomplete outcome instead of
+claiming success.
 
 | Outcome | Headless exit | ACP stop reason |
 |---|---:|---|
@@ -63,6 +132,7 @@ incomplete outcome instead of claiming success.
 | Budget reached | 3 | `refusal` |
 | Iteration limit | 4 | `max_turn_requests` |
 | Output length limit | 4 | `max_tokens` |
+| Repeated empty replies | 4 | `refusal` |
 | Waiting for user/plan approval | 4 | `end_turn` |
 | Cancelled | 130 | `cancelled` |
 

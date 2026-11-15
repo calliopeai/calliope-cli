@@ -1041,7 +1041,7 @@ Stop a running loop with /loop stop`);
         // Default: summarize and compact the conversation
         const result = summarization.summarizeConversation(ctx.llmMessages.current, {
           maxTokens: summarization.compactionTargetTokens(
-            ctx.provider && ctx.model ? getModelContextLimit(ctx.provider, ctx.model) : undefined
+            ctx.actualProvider && ctx.actualModel ? getModelContextLimit(ctx.actualProvider, ctx.actualModel) : undefined
           ),
         });
         if (result.summarizedCount > 0) {

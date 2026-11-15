@@ -410,6 +410,9 @@ export async function runAgentImpl(ctx: AgentContext, content: MessageContent): 
     } else if (result.reason === 'budget' && result.budget) {
       runErrorSummary = formatBudgetHalt(result.budget);
       ctx.addMessage('system', `‖ ${runErrorSummary}`);
+    } else if (result.reason === 'length' || result.reason === 'empty_response') {
+      runErrorSummary = result.reason === 'length' ? 'Output length limit reached repeatedly' : 'The model returned empty replies repeatedly';
+      ctx.addMessage('system', `⚠️ ${runErrorSummary}. Task may be incomplete.`);
     }
     if (runId) ctx.ledger?.finishRun(runId, runStatus, { errorSummary: runErrorSummary });
     ctx.setContextTokens(ctx.estimateContextTokens());
