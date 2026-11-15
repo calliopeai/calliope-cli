@@ -685,6 +685,11 @@ export function spawnStdioProcess(server: MCPServer, options: SpawnStdioOptions 
       if (!line) continue;
       try {
         const msg = JSON.parse(line);
+        // A matching id also appears on server requests (and echoed input).
+        // Only a response with exactly one result/error can settle our call.
+        if (!msg || typeof msg !== 'object' || Array.isArray(msg) || Object.hasOwn(msg, 'method')) continue;
+        const hasResult = Object.hasOwn(msg, 'result'), hasError = Object.hasOwn(msg, 'error');
+        if (hasResult === hasError || (hasError && (!msg.error || typeof msg.error !== 'object' || Array.isArray(msg.error)))) continue;
         if (msg.id != null && entry.pending.has(msg.id)) {
           const { resolve, reject } = entry.pending.get(msg.id)!;
           entry.pending.delete(msg.id);
