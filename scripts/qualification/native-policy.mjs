@@ -13,6 +13,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import {qualifyHeadlessEffort} from '../release/headless-effort-smoke.mjs';
+import {qualifyHeadlessQuestions} from './headless-questions.mjs';
+
+test('headless SDK questions preserve answers, cancellation and the original deadline', async () => {
+  const results = await qualifyHeadlessQuestions();
+  assert.deepEqual(results.map(result => [result.mode, result.exit, result.providerRequests]),
+    [['answer', 0, 2], ['cancel', 130, 1], ['deadline', 6, 1]]);
+});
 
 const binary = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));
 const terminalBridge = fileURLToPath(new URL('./terminal-pty.py', import.meta.url));

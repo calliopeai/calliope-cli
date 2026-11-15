@@ -51,6 +51,14 @@ validates bounded nonempty answer text, records one tool result, and continues
 with the original iteration and budget accounting. Cancellation discards a late
 answer and completes the pending tool pair without claiming success. This callback
 does not approve tools or alter the behavior of `create_plan`.
+Embedded headless callers can provide this callback as `HeadlessOptions.answerQuestion`
+to `runHeadless`. The trusted host must authorize the answer against its exact
+question and revision and preserve durable delivery evidence. A rejected callback
+or invalid answer fails the headless run. An absent callback retains the existing
+waiting outcome (exit 4); the CLI does not read an answer from stdin implicitly.
+The existing `maxTime` includes time spent waiting for the host, and `maxCost`
+remains cumulative across the answer. This callback alone does not resume a
+terminated process or supply factory steering, execution pause or recovery.
 Any unexecuted calls receive explicit placeholder results. With
 `continueOnLength` (terminal and headless), a reply cut off by the output limit,
 or an empty reply, is not completion: any tool calls in the truncated reply are

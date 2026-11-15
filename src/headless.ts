@@ -7,7 +7,7 @@
  */
 
 import { runTurn } from './runtime/index.js';
-import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnTotals } from './runtime/turn.js';
+import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
 import type { AgentExecution } from './execution/guard.js';
@@ -49,6 +49,8 @@ export type HeadlessOutputMode = 'json' | 'text';
 
 export interface HeadlessOptions {
   signal?: AbortSignal;
+  /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
+  answerQuestion?: TurnOptions['answerQuestion'];
   provider?: LLMProvider;
   model?: string;
   prompt?: string;
@@ -318,6 +320,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
+      answerQuestion: options.answerQuestion,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
       runlog, confirmation: 'none', tools: getTools,
       onResponse: response => {
