@@ -59,6 +59,8 @@ export interface HeadlessQuestionReceipt {
 }
 
 export interface HeadlessOptions {
+  /** Trusted workspace transport; task text cannot configure this capability. */
+  toolRuntime?: TurnOptions['toolRuntime'];
   signal?: AbortSignal;
   /** Check external acceptance evidence and keep failed criteria in this same turn. */
   completionCheck?: CompletionCheck;
@@ -420,7 +422,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         }
       } : undefined,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
-      runlog, confirmation: 'none', tools: getTools,
+      runlog, confirmation: 'none', tools: getTools, toolRuntime: options.toolRuntime,
       onResponse: response => {
         if (!response.toolCalls?.length) emit({ type: 'message', timestamp: now(), data: { role: 'assistant', content: response.content } }, outputMode);
       },

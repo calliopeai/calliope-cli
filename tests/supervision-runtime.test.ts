@@ -276,6 +276,22 @@ it('retains real failed verification and never promotes recovered files to accep
   await expect(controlExecution(project,view.run.id,'accept','inspect-a',{store:runs})).rejects.toThrow('not awaiting acceptance');expect(ledger.read(project)).toEqual(before);
 });
 
+it('fences an agent stopped during retained verification without caller cancellation or new inference',async()=>{
+  const {view,store,ledger}=await legacyCutoff(),before=ledger.read(project),deadline=store.read().header.deadline,count=requests.length;
+  let ready!:()=>void;const started=new Promise<void>(resolve=>{ready=resolve;});
+  vi.mocked(commands.runIsolatedCommand).mockImplementationOnce(async(image,command,_mounts,signal)=>{
+    ready();await new Promise<void>(resolve=>{if(signal!.aborted)resolve();else signal!.addEventListener('abort',()=>resolve(),{once:true});});
+    return{version:1,kind:'isolated-command',argv:command.argv,image,exitCode:130,outcome:'cancelled',stdout:'',stderr:'',truncated:false,durationMs:1,container:'calliope-check-'+randomUUID(),cleanupConfirmed:true};
+  });
+  const pending=recoverTaskEvidence(project,view.run.id,'inspect-a',{store:runs,approve:async()=> 'allow'});
+  await started;await controlExecution(project,view.run.id,'agent-stop','a',{store:runs});
+  await expect(pending).rejects.toThrow();
+  const result=store.read();expect(result.state).toMatchObject({status:'denied',ownerId:null});
+  expect(result.state.tasks['inspect-a']!.status).toBe('denied');expect(result.header.deadline).toBe(deadline);
+  expect(ledger.read(project)).toEqual(before);expect(requests).toHaveLength(count);
+  expect(commands.runIsolatedCommand).toHaveBeenCalledTimes(1);
+});
+
 it('cancels recovery verification promptly and keeps its process receipt without claiming success',async()=>{
   const {view,store,ledger}=await legacyCutoff(),before=ledger.read(project),controller=new AbortController();let ready!:()=>void;const started=new Promise<void>(resolve=>{ready=resolve;});
   vi.mocked(commands.runIsolatedCommand).mockImplementationOnce(async(image,command,_mounts,signal)=>{

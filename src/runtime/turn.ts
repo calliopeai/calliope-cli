@@ -20,6 +20,7 @@ import * as config from '../config.js';
 import { isDeclaredPrivate } from '../health/target.js';
 import { executeHooks } from '../hooks.js';
 import { resolvePermission, type PermissionContext } from './permissions.js';
+import { bindHostToolRuntime, HostToolRuntimeError, type HostToolRuntime } from './host-tools.js';
 import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
 import { shouldRetryTool } from './tool-retry.js';
@@ -41,6 +42,8 @@ export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict; verification?: CompletionVerification }
 export interface TurnOptions {
+  /** Every tool is dispatched exclusively through this trusted host transport. */
+  toolRuntime?: HostToolRuntime;
   /** Planning calls reserve measured prompt size while retaining the reviewed context ceiling. */
   measuredInputReservation?: boolean;
   /** Proposal turns retain their structured contract instead of summarizing it away. */
@@ -140,6 +143,7 @@ export async function runTurn(options: TurnOptions): Promise<TurnResult> {
 
 async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
   const { signal, messages } = options;
+  const toolRuntime = bindHostToolRuntime(options.toolRuntime);
   const started = Date.now();
   const totals: TurnTotals = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
   const runlog = options.runlog ?? RunLog.open(options.sessionId);
@@ -389,7 +393,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       const decision = await resolvePermission(call, {
         get cwd() { return options.cwd; }, get mode() { return options.mode; },
         get confirmation() { return guard && options.confirmation === 'none' ? 'mutating' : options.confirmation; },
-        signal, get sessionId() { return options.sessionId; }, get approvals() { return options.approvals; }, authority: guard?.check,
+        signal, get sessionId() { return options.sessionId; }, get approvals() { return options.approvals; },
+        authority: toolRuntime ? (call, cwd) => toolRuntime.denial(call) ?? guard?.check(call, cwd) : guard?.check,
         approve: options.approve ? pending => options.approve!(structuredClone(call), structuredClone(pending)) : undefined,
         audit: event => runlog.policyEvent(event), onAdmission: validate => { validateAdmission = validate; } });
       await options.onPermission?.(structuredClone(call), structuredClone(decision));
@@ -418,17 +423,22 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       const invalid = validateAdmission?.();
       if (invalid || !validateAdmission) return { toolCallId: call.id,
         result: invalid?.reason ?? 'Execution admission is missing; tool refused.', isError: true };
-      try { return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(outputCall, chunk), {
+      try {
+        if (toolRuntime) return await toolRuntime.execute(call, {
+          signal, timeoutMs: Math.min(60000, guard ? Math.max(1, guard.deadline - Date.now()) : 60000),
+          onOutput: chunk => options.onToolOutput?.(outputCall, chunk),
+        });
+        return await executeTool(call, options.cwd, Math.min(60000,guard?Math.max(1,guard.deadline-Date.now()):60000), chunk => options.onToolOutput?.(outputCall, chunk), {
       ...options.toolOptions, ...(guard?{authority:guard.check,brain:{...guard.brainContext(),runlog,mode:options.mode},fs:agentFiles(guard,options.execution!.agentId,call,signal)}:{}), signal, appendAnchorHash: isLocalBackend(currentRequest.provider), auditPermission: event => runlog.policyEvent(event),
     }); } catch (error) {
         throwIfCancelled(signal);
-        if (isCancellation(error)) throw error;
+        if (isCancellation(error) || error instanceof HostToolRuntimeError) throw error;
         return { toolCallId: call.id, result: `Error: ${error instanceof Error ? error.message : String(error)}`, isError: true };
       }
     };
     let result = await runTool();
     throwIfCancelled(signal);
-    for (let attempt = 1; result.isError && attempt <= (options.maxRetries ?? 0) && shouldRetryTool(call.name, result.result); attempt++) {
+    for (let attempt = 1; !toolRuntime && result.isError && attempt <= (options.maxRetries ?? 0) && shouldRetryTool(call.name, result.result); attempt++) {
       await cancellableDelay(Math.min(250 * 2 ** (attempt - 1), 4000), signal);
       options.onToolRetry?.(structuredClone(call), attempt, result);
       const retryDecision = await authorize();
@@ -460,7 +470,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
 
   runlog.runStart({ mode: options.client ?? 'library', session: options.sessionId, cwd: options.cwd, provider: options.provider, model: currentRequest.model, config: config.getConfig() as unknown as Record<string, unknown> });
   runlog.userPrompt(options.prompt);
-  const availableTools=()=>guard?guard.tools((options.tools??getTools)()):(options.tools??getTools)();
+  const availableTools = () => {
+    const tools = toolRuntime ? toolRuntime.tools() : (options.tools ?? getTools)();
+    return guard ? guard.tools(tools) : tools;
+  };
   try {
     throwIfCancelled(signal);
     if (options.onQuestionCommitted && !options.onCheckpoint) {
@@ -613,7 +626,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof HostToolRuntimeError || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }

@@ -104,6 +104,23 @@ afterEach(() => {
 afterAll(() => fs.rmSync(runsDir, { recursive: true, force: true }));
 
 describe('headless completion verification', () => {
+  it('keeps hosted tools, admission and repair in the original session and allowance', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const ready = vi.fn(async () => {}), execute = vi.fn(async (call: ToolCall) => ({ toolCallId: call.id, result: 'host workspace updated' }));
+    mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } })
+      .mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'repair', name: 'write_file', arguments: { path: 'fixed.txt', content: 'fixed' } }], usage: { inputTokens: 1, outputTokens: 1 } })
+      .mockResolvedValueOnce({ content: 'fixed proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: 'Repair the workspace.' })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    expect(await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxCost: 1, maxTime: 30,
+      control: new RuntimeControl(), onControlReady: ready, completionCheck: check,
+      toolRuntime: { version: 1, tools: [{ name: 'write_file', description: 'Write host workspace', parameters: { type: 'object', properties: {} } }], execute } })).toBe(0);
+    expect(ready).toHaveBeenCalledTimes(1); expect(execute).toHaveBeenCalledTimes(1);
+    expect(mockExecuteTool).not.toHaveBeenCalled(); expect(mockChat).toHaveBeenCalledTimes(3);
+    expect(check.mock.calls[0][0].sessionId).toBe(check.mock.calls[1][0].sessionId);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'completed',
+      verification: { checks: 2 }, limits: { maxCost: 1, maxTime: 30 } } });
+  });
   it('reports accepted host evidence only after repairing the original goal in one session', async () => {
     mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 50 } });
     const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: 'The original acceptance test still fails.' })

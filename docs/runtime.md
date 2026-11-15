@@ -220,3 +220,26 @@ Windows process supervision require separate qualification.
 Headless hosts that register live control ownership can opt into `onControlReady(checkpoint, signal)`. The SDK saves the original session/revision/checksum, freezes that proof and awaits the host's acknowledgment before the first inference request. The callback returns no value on success and throws on refusal; malformed hooks/acknowledgments, changed saved state and host failures stop before inference. The original cancellation signal and wall-clock deadline remain active while waiting. Acknowledgment runs once per invocation, including when later completion checks request repair. `CONTROL_CHECKPOINT_PROTOCOL_VERSION === 1` is the admission capability handshake; older SDKs may ignore unknown options and must not be treated as qualified.
 
 This acknowledgment does not restore a terminated process. A Native-backed host uses the checkpoint to claim its original invocation/session through the existing task authority; a different owner is held before spending. Saved-session takeover, consumed allowances and uncertain provider charges still require the recovery contract.
+
+Trusted SDK hosts may supply `toolRuntime` to `runHeadless` or `runTurn` when
+`HOST_TOOL_RUNTIME_PROTOCOL_VERSION === 1`. Its `{version: 1, tools, execute}`
+contract snapshots the advertised tool definitions before inference. Every
+admitted tool goes through `execute(call, {signal, timeoutMs, onOutput})`; an
+unadvertised tool is denied and never falls back to local built-in execution.
+The existing permission, scope and policy gates still apply. A delegated
+execution guard can narrow host tools further; supplying a transport does not
+relax its command-containment requirements.
+
+The host returns the exact original `toolCallId`, textual `result`, and optional
+boolean `isError` and textual `displayResult`. A confirmed error is available to
+the same agent for repair. A thrown exception or malformed/mismatched reply stops
+the turn without exposing private transport errors or automatically retrying a
+possibly executed command. Hosted commands also skip ordinary automatic tool
+retries. Original session checkpoints, inference accounting, questions, control
+receipts, completion checks and cost/time limits remain in the original turn.
+
+This capability is configured by trusted host code, never by project files or
+task text. The host must enforce workspace and network scope, keep inference and
+control credentials out of project processes, and settle its command on signal
+cancellation before returning. The SDK does not create or qualify a sandbox,
+authorize a replacement process, or allocate another inference allowance.
