@@ -152,6 +152,23 @@ it('propagates nested remote admissions to the original parent and retains them 
  await first.client.releaseTask(accepted);expect(activeRemoteTasks(restarted.read().state)).toEqual([]);
 },15000);
 
+it('returns a deadline refusal without allocating capacity when admission expires in transport',async()=>{
+ const original=globalThis.fetch;
+ const admission=remoteTaskAdmission({version:1,runId:randomUUID(),manifestHash:'c'.repeat(64),taskId:'expired-in-transit',attempt:1,startEventId:randomUUID(),startEventHash:'d'.repeat(64),sessionId:randomUUID(),agentId:'placed',deadline:Date.now()+5000});
+ let crossed=false;
+ const transport:typeof fetch=async(input,init)=>{
+  if(String(input).endsWith('/task-admit')){crossed=true;vi.spyOn(Date,'now').mockReturnValue(admission.deadline);}
+  return original(input,init);
+ };
+ const client=await RemoteReservationLedger.connect({url:link.url,token:fs.readFileSync(link.tokenFile,'utf8'),root:join(root,'in-transit-cache'),reviewed:link.reviewed,execution:{cwd:project,agentId:'placed'},fetch:transport});
+ const execution=r.store.read(),budget=r.authority.ledger.read(r.project);
+ await expect(client.admitTask(admission,project)).rejects.toMatchObject({code:'deadline'});
+ expect(crossed).toBe(true);
+ expect(r.store.read()).toEqual(execution);
+ expect(r.authority.ledger.read(r.project)).toEqual(budget);
+ expect(activeRemoteTasks(r.store.read().state)).toEqual([]);
+});
+
 
 it('rejects a parent without native capacity negotiation before creating a child budget',async()=>{
  const original=globalThis.fetch;
