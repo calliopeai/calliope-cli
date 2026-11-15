@@ -60,7 +60,7 @@ vi.mock('../src/routing/index.js', async importActual => ({
   selectRoute: (await import('./helpers/route-fixture.js')).fixtureRoute,
 }));
 
-import { runHeadless, parseHeadlessCaps, BUDGET_EXIT_CODE, CAP_EXIT_CODE } from '../src/headless.js';
+import { runHeadless, parseHeadlessCaps, parseHeadlessEffort, BUDGET_EXIT_CODE, CAP_EXIT_CODE } from '../src/headless.js';
 import { summarizeDir } from '../src/cost.js';
 
 // ---------------------------------------------------------------------------
@@ -135,6 +135,25 @@ describe('parseHeadlessCaps', () => {
     [[], { CALLIOPE_MAX_COST: 'Infinity' }, /CALLIOPE_MAX_COST must be a positive number/],
   ])('rejects invalid caps instead of silently running uncapped: %j %j', (args, env, error) => {
     expect(() => parseHeadlessCaps(args, env)).toThrow(error);
+  });
+});
+
+describe('headless reasoning effort', () => {
+  it('keeps the default absent, trims environment input and lets either flag form override it', () => {
+    expect(parseHeadlessEffort([], {})).toBeUndefined();
+    expect(parseHeadlessEffort([], { CALLIOPE_REASONING_EFFORT: ' ' })).toBeUndefined();
+    expect(parseHeadlessEffort([], { CALLIOPE_REASONING_EFFORT: ' medium ' })).toBe('medium');
+    for (const args of [['--reasoning-effort', 'medium'], ['--reasoning-effort=medium']])
+      expect(parseHeadlessEffort(args, { CALLIOPE_REASONING_EFFORT: 'invalid' })).toBe('medium');
+  });
+  it.each([['--reasoning-effort'], ['--reasoning-effort', '--json'], ['--reasoning-effort='], ['--reasoning-effort', 'invented'], ['--reasoning-effort', 'low', '--reasoning-effort=high']])('rejects malformed or ambiguous effort: %j', (...args) => {
+    expect(() => parseHeadlessEffort(args as string[], {})).toThrow(/reasoning-effort/);
+  });
+  it('rejects an unsupported environment value rather than reverting to provider defaults', () => {
+    expect(() => parseHeadlessEffort([], { CALLIOPE_REASONING_EFFORT: 'invented' })).toThrow(/CALLIOPE_REASONING_EFFORT/);
+  });
+  it('rejects malformed programmatic options before inference', async () => {
+    expect(await runHeadless({ prompt: 'work', outputMode: 'json', reasoningEffort: 'invented' as any })).toBe(2);
   });
 });
 

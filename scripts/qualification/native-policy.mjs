@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
+import {qualifyHeadlessEffort} from '../release/headless-effort-smoke.mjs';
 
 const binary = fileURLToPath(new URL('../../dist/bin.js', import.meta.url));
 const terminalBridge = fileURLToPath(new URL('./terminal-pty.py', import.meta.url));
@@ -240,6 +241,12 @@ async function exercise(client, decision) {
     await rm(root, { recursive: true, force: true });
   }
 }
+
+test('built headless: explicit effort survives a real tool turn and unsupported effort sends no paid request', { timeout: 30000 }, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'calliope-native-effort-'));
+  try { await qualifyHeadlessEffort(process.execPath, [binary], root); }
+  finally { await rm(root, { recursive: true, force: true }); }
+});
 
 for (const client of ['headless', 'acp', 'terminal'])
   for (const decision of ['allow', 'deny', 'timeout', 'offline', 'allow-child', 'deny-child', 'timeout-child', 'cancel', 'cancel-shell', ...(client === 'terminal' ? ['cancel-ctrl-c', 'cancel-shell-ctrl-c'] : [])])

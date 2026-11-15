@@ -24,6 +24,7 @@ import { RunLog } from './runlog.js';
 import { formatBudgetHalt } from './budget.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
 import type { Message, LLMProvider } from './types.js';
+import { isReasoningEffort, REASONING_EFFORTS, type ReasoningEffort } from './models/index.js';
 
 // ============================================================================
 // Types
@@ -58,6 +59,8 @@ export interface HeadlessOptions {
   maxCost?: number;
   /** Hard wall-clock cap in seconds for this run (--max-time / CALLIOPE_MAX_TIME). */
   maxTime?: number;
+  /** Explicit effort, subject to the provider's live capability checks. */
+  reasoningEffort?: ReasoningEffort;
   cwd?: string;
   /** Run as a delegated child admitted through a parent's served ledger (#415). */
   ledger?: DelegatedExecutionOptions;
@@ -123,6 +126,18 @@ export function parseHeadlessCaps(args: readonly string[], env: NodeJS.ProcessEn
   return { ...(maxCost !== undefined ? { maxCost } : {}), ...(maxTime !== undefined ? { maxTime } : {}) };
 }
 
+/** A requested effort is never silently dropped; the flag wins over its environment default. */
+export function parseHeadlessEffort(args: readonly string[], env: NodeJS.ProcessEnv = process.env): ReasoningEffort | undefined {
+  const flag = '--reasoning-effort';
+  const found = args.map((value, index) => ({ value, index })).filter(({ value }) => value === flag || value.startsWith(flag + '='));
+  if (found.length > 1) throw new Error(`${flag} may be specified only once`);
+  const item = found[0];
+  const raw = item ? (item.value === flag ? args[item.index + 1] : item.value.slice(flag.length + 1))?.trim() : env.CALLIOPE_REASONING_EFFORT?.trim();
+  if (!item && !raw) return undefined;
+  if (!isReasoningEffort(raw)) throw new Error(`${item ? flag : 'CALLIOPE_REASONING_EFFORT'} must be one of ${REASONING_EFFORTS.join(', ')}`);
+  return raw;
+}
+
 // ============================================================================
 // Headless Runner
 // ============================================================================
@@ -141,6 +156,10 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  if (options.reasoningEffort !== undefined && !isReasoningEffort(options.reasoningEffort)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Invalid headless reasoning effort' } }, outputMode);
+    return 2;
+  }
   const summary = (totals: TurnTotals | undefined, stoppedBy: HeadlessCapKind | null) => ({
     costUsd: totals?.cost ?? 0, inputTokens: totals?.inputTokens ?? 0, outputTokens: totals?.outputTokens ?? 0,
     elapsedMs: Date.now() - clock.started, stoppedBy, limits: { maxCost: options.maxCost, maxTime: options.maxTime },
@@ -296,6 +315,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         process.stderr.write(message + '\n');
       },
       sessionId, cwd, provider, model, prompt, execution,
+      ...(options.reasoningEffort !== undefined ? { reasoningEffort: options.reasoningEffort } : {}),
       preferenceSources: preference.sources,
       messages: { current: messages }, signal, maxIterations, maxRetries,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
