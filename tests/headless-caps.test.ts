@@ -96,11 +96,65 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   stdout.mockRestore();
   stderr.mockRestore();
 });
 
 afterAll(() => fs.rmSync(runsDir, { recursive: true, force: true }));
+
+describe('headless completion verification', () => {
+  it('reports accepted host evidence only after repairing the original goal in one session', async () => {
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 100, outputTokens: 50 } });
+    const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: 'The original acceptance test still fails.' })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxCost: 1, completionCheck: check });
+    expect(code).toBe(0);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(mockChat.mock.calls[1][1].some((message: { content: string }) => message.content.includes('acceptance test still fails'))).toBe(true);
+    const sessions = events().filter(event => event.type === 'status' && event.data.message?.startsWith('Session: '));
+    expect(sessions).toHaveLength(1);
+    expect(check.mock.calls[0][0].sessionId).toBe(check.mock.calls[1][0].sessionId);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { reason: 'completed', inputTokens: 200, outputTokens: 100,
+      verification: { checks: 2, evidenceSha256: 'a'.repeat(64) }, limits: { maxCost: 1 } } });
+  });
+
+  it('keeps the original time cap when host verification stalls', async () => {
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxTime: .1,
+      completionCheck: async (_proposal, signal) => untilAborted(signal) });
+    expect(code).toBe(CAP_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { stoppedBy: 'time' } });
+    expect(events().at(-1)?.data).not.toHaveProperty('verification');
+  });
+
+  it('refuses changed saved conversation proof before reporting acceptance', async () => {
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    mockChat.mockResolvedValue({ content: 'A proposed result.', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const code = await runHeadless({ prompt: 'Original task', provider: 'anthropic', completionCheck: async proposal => {
+      const saved = readSessionConversation(proposal.sessionId);
+      saveSessionConversation(proposal.sessionId, [...saved.messages, { role: 'user', content: 'Concurrent writer' }],
+        { expectedRevision: saved.revision, status: 'active' });
+      return { accepted: true, evidenceSha256: 'a'.repeat(64) };
+    } });
+    expect(code).toBe(1);
+    expect(mockChat).toHaveBeenCalledTimes(1);
+    expect(events().some(event => event.type === 'done' && event.data.verification)).toBe(false);
+  });
+
+  it.each([0, 9, NaN, 1.5])('refuses invalid verification limit %s before inference', async maxCompletionChecks => {
+    const check = vi.fn();
+    expect(await runHeadless({ prompt: 'Original task', provider: 'anthropic', completionCheck: check, maxCompletionChecks })).toBe(2);
+    expect(check).not.toHaveBeenCalled();
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('does not silently ignore a check allowance without a host verifier', async () => {
+    expect(await runHeadless({ prompt: 'Original task', provider: 'anthropic', maxCompletionChecks: 1 })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
 
 describe('headless host question answers', () => {
   const question = () => ({ ...toolCallWithUsage('audience'), toolCalls: [{ id: 'audience', name: 'ask_question', arguments: { question: 'Which audience?' } }] });
@@ -643,6 +697,80 @@ describe('headless execution control', () => {
   it('refuses control acknowledgment without a controller before provider admission', async () => {
     expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', outputMode: 'json',
       onControlCommitted: async () => {} })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
+
+describe('headless initial control admission', () => {
+  it('acknowledges one immutable saved checkpoint before requests and retains it through repair', async () => {
+    const { RuntimeControl, CONTROL_CHECKPOINT_PROTOCOL_VERSION } = await import('../src/runtime/index.js');
+    const { readSessionConversation } = await import('../src/storage.js');
+    expect(CONTROL_CHECKPOINT_PROTOCOL_VERSION).toBe(1);
+    const controller = new AbortController();
+    const ready = vi.fn(async (proof: import('../src/runtime/control.js').ControlReadyCheckpoint, signal?: AbortSignal) => {
+      expect(Object.isFrozen(proof)).toBe(true); expect(signal).toBe(controller.signal);
+      expect(mockChat).not.toHaveBeenCalled();
+      const saved = readSessionConversation(proof.sessionId);
+      expect(saved).toMatchObject({ revision: proof.revision, checksum: proof.checksum });
+    });
+    mockChat.mockResolvedValue({ content: 'Proposed result', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: 'Repair the existing criterion.' })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl(),
+      signal: controller.signal, onControlReady: ready, completionCheck: check })).toBe(0);
+    expect(ready).toHaveBeenCalledOnce(); expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { verification: { sessionId: ready.mock.calls[0][0].sessionId, checks: 2 } } });
+  });
+
+  it('holds rejected initial ownership without a model call or raw host exception', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const control = new RuntimeControl();
+    const ready = vi.fn(async () => { throw new Error('private initial authority diagnostic'); });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, onControlReady: ready })).toBe(1);
+    expect(mockChat).not.toHaveBeenCalled(); expect(ready).toHaveBeenCalledOnce();
+    expect(JSON.stringify(events()) + JSON.stringify(stderr.mock.calls)).not.toContain('private initial authority diagnostic');
+    expect(eventOf('error').data.message).toBe('Initial control checkpoint was not acknowledged.');
+    expect(control.state.phase).toBe('stopped');
+  });
+
+  it('refuses a saved revision changed during initial acknowledgment before inference', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl(),
+      onControlReady: async proof => {
+        const saved = readSessionConversation(proof.sessionId);
+        saveSessionConversation(proof.sessionId, saved.messages, { expectedRevision: saved.revision, status: 'active' });
+      } })).toBe(1);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('keeps the original deadline when the initial host acknowledgment never settles', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    let began!: () => void; const started = new Promise<void>(yes => { began = yes; });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl(), maxTime: 1,
+      onControlReady: async () => { began(); await new Promise<void>(() => {}); } });
+    await started; await vi.advanceTimersByTimeAsync(1001);
+    expect(await running).toBe(CAP_EXIT_CODE); expect(mockChat).not.toHaveBeenCalled();
+    expect(events().at(-1)).toMatchObject({ type: 'done', data: { stoppedBy: 'time' } });
+  });
+
+  it('honors caller cancellation while awaiting initial ownership', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const controller = new AbortController();
+    let began!: () => void; const started = new Promise<void>(yes => { began = yes; });
+    const running = runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl(), signal: controller.signal,
+      onControlReady: async () => { began(); await new Promise<void>(() => {}); } });
+    await started; controller.abort();
+    expect(await running).toBe(130); expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('refuses a missing controller, malformed hook and explicit non-void acknowledgment', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    expect(await runHeadless({ prompt: 'Original goal', onControlReady: async () => {} })).toBe(2);
+    expect(await runHeadless({ prompt: 'Original goal', control: new RuntimeControl(), onControlReady: false as never })).toBe(2);
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl(),
+      onControlReady: async () => false as never })).toBe(1);
     expect(mockChat).not.toHaveBeenCalled();
   });
 });

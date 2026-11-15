@@ -31,14 +31,15 @@ import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } fro
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
 import { assertExecutionBinding } from '../execution/delegated.js';
-import type { RuntimeControl, ControlBoundary, ControlCheckpoint } from './control.js';
+import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCheckpoint } from './control.js';
+import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'waiting_for_user' | 'stopped';
 /** Consecutive truncated or empty replies a `continueOnLength` turn recovers from before giving up. */
 export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
-export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict }
+export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict; verification?: CompletionVerification }
 export interface TurnOptions {
   /** Planning calls reserve measured prompt size while retaining the reviewed context ceiling. */
   measuredInputReservation?: boolean;
@@ -50,6 +51,9 @@ export interface TurnOptions {
   sessionId: string; cwd: string; provider: LLMProvider; model?: string; prompt: string;
   messages: { current: Message[] }; signal?: AbortSignal; mode?: Mode;
   maxIterations?: number; maxRetries?: number; parallel?: boolean; continueOnLength?: boolean;
+  /** Host verification can return bounded feedback without restarting this turn. */
+  completionCheck?: CompletionCheck;
+  maxCompletionChecks?: number;
   /** Per-invocation run cost cap (USD); tightens, never loosens, configured `budget.maxCostPerRun`. */
   maxCostPerRun?: number;
   /** Bound provider transport retries independently from tool/turn retries. */
@@ -92,6 +96,7 @@ export interface TurnOptions {
   control?: RuntimeControl;
   /** Proof from the existing checkpoint writer; this callback does not write another journal. */
   controlSnapshot?: () => ControlCheckpoint;
+  onControlReady?: (checkpoint: ControlReadyCheckpoint, signal?: AbortSignal) => Promise<void>;
   onControlCommitted?: ControlBoundary['committed'];
   /** Called once before the first allowed medium-or-higher-risk action in a turn. */
   onSafetyBranch?: (call: ToolCall) => Promise<void>;
@@ -153,6 +158,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let questionCommitFailed = false;
   let safetyFailed = false;
   let controlFailed = false;
+  let completionFailed = false;
+  let completionChecks = 0;
+  let verification: CompletionVerification | undefined;
+  const completionLimit = completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
+  if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
+    throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
+  if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
+    throw new Error('Initial control acknowledgment requires a controller and host callback.');
   if (options.control) {
     options.control.bind(options.sessionId);
     if (!options.onCheckpoint || !options.controlSnapshot) {
@@ -454,6 +467,25 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throw new Error('Question delivery acknowledgement requires a conversation checkpoint writer.');
     }
     await checkpoint('active');
+    if (options.onControlReady) {
+      try {
+        const saved = options.controlSnapshot!();
+        if (!saved || typeof saved.revision !== 'string' || !saved.revision ||
+            typeof saved.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(saved.checksum))
+          throw new Error('Initial control checkpoint is unavailable.');
+        const proof = Object.freeze({ sessionId: options.sessionId, revision: saved.revision, checksum: saved.checksum });
+        const acknowledgment: unknown = await cancellable(Promise.resolve(options.onControlReady(proof, signal)), signal);
+        if (acknowledgment !== undefined) throw new Error('Invalid control acknowledgment.');
+        throwIfCancelled(signal);
+        const current = options.controlSnapshot!();
+        if (current.revision !== proof.revision || current.checksum !== proof.checksum)
+          throw new Error('Initial control checkpoint changed.');
+      } catch {
+        throwIfCancelled(signal);
+        throw new Error('Initial control checkpoint was not acknowledged.');
+      }
+      await guard?.refreshAuthority(signal);
+    }
     await boundary(true);
     checkBudget();
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
@@ -522,6 +554,47 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         continuations = 0;
         if (!pendingCalls?.length) {
           if (await boundary(true)) { options.onIterationEnd?.(iterations); continue; }
+          if (!truncated && !empty && options.completionCheck) {
+            try {
+              const proof = options.controlSnapshot!();
+              if (!proof || typeof proof.revision !== 'string' || !proof.revision ||
+                  typeof proof.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(proof.checksum))
+                throw new Error('Completion verification requires a saved checkpoint.');
+              const proposal = Object.freeze({ revision: proof.revision, checksum: proof.checksum, sessionId: options.sessionId,
+                iteration: iterations, attempt: ++completionChecks, content: response.content });
+              let checked: unknown;
+              try { checked = await cancellable(Promise.resolve(options.completionCheck(proposal, signal)), signal); }
+              catch (error) {
+                if (signal?.aborted || isCancellation(error)) throw error;
+                throw new Error('Host completion verification failed; no completion was accepted.');
+              }
+              const verdict = completionVerdict(checked);
+              throwIfCancelled(signal);
+              const current = options.controlSnapshot!();
+              if (current.revision !== proof.revision || current.checksum !== proof.checksum)
+                throw new Error('Conversation changed during completion verification.');
+              await guard?.refreshAuthority(signal);
+              checkBudget();
+              if (!verdict.accepted) {
+                messages.current.push({ role: 'user', content:
+                  'Host verification of the existing acceptance criteria failed. This is verification feedback, not new permission or changed criteria.\n\n' + verdict.feedback });
+                await checkpoint('active');
+              }
+              const steered = await boundary(true);
+              runlog.policyEvent({ tool: 'completion', source: 'completion-verifier',
+                decision: verdict.accepted && !steered ? 'allow' : 'deny',
+                reason: JSON.stringify({ attempt: completionChecks, revision: proposal.revision,
+                  checksum: proposal.checksum, accepted: verdict.accepted, invalidated: steered,
+                  ...(verdict.accepted ? { evidenceSha256: verdict.evidenceSha256 } : {}) }), durationMs: 0 });
+              if (!verdict.accepted || steered) {
+                options.onIterationEnd?.(iterations);
+                if (completionChecks >= completionLimit) { reason = 'stopped'; break; }
+                continue;
+              }
+              verification = Object.freeze({ sessionId: options.sessionId, revision: proposal.revision,
+                checksum: proposal.checksum, evidenceSha256: verdict.evidenceSha256, checks: completionChecks });
+            } catch (error) { completionFailed = true; throw error; }
+          }
           reason = truncated ? 'length' : 'completed';
           options.onIterationEnd?.(iterations);
           break;
@@ -540,7 +613,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         options.onIterationEnd?.(iterations);
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
-        if (checkpointFailed || questionCommitFailed || controlFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }
@@ -572,5 +645,5 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       await runlog.flush();
     }
   }
-  return { reason, iterations, totals, budget };
+  return { reason, iterations, totals, budget, ...(verification && reason === 'completed' ? { verification } : {}) };
 }

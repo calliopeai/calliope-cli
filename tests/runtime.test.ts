@@ -532,6 +532,141 @@ function controlledOptions(control: RuntimeControl, extra: Partial<TurnOptions> 
   });
 }
 
+describe('host completion verification', () => {
+  it('repairs failed acceptance criteria in the original saved conversation and totals', async () => {
+    const control = new RuntimeControl();
+    const check = vi.fn().mockResolvedValueOnce({ accepted: false, feedback: '  Preserve María and 東京.\n' })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    const opts = controlledOptions(control, { completionCheck: check });
+    chatMock.mockResolvedValueOnce(text('First proposal')).mockImplementationOnce(async (_provider, history) => {
+      expect(history[0]).toEqual({ role: 'user', content: 'work' });
+      expect(history.at(-1).content).toContain('  Preserve María and 東京.\n');
+      expect(storage.readSessionConversation(opts.sessionId).messages.at(-1)?.content).toContain('verification feedback');
+      return text('Repaired proposal');
+    });
+    const result = await runTurn(opts);
+    expect(result.reason).toBe('completed');
+    expect(result.iterations).toBe(2);
+    expect(result.totals.inputTokens).toBe(6);
+    expect(result.verification).toMatchObject({ sessionId: opts.sessionId, checks: 2, evidenceSha256: 'a'.repeat(64) });
+    expect(check.mock.calls.map(([proposal]) => proposal.sessionId)).toEqual([opts.sessionId, opts.sessionId]);
+    expect(check.mock.calls.map(([proposal]) => proposal.attempt)).toEqual([1, 2]);
+    expect(Object.isFrozen(check.mock.calls[0][0])).toBe(true);
+    expect(Object.keys(check.mock.calls[0][0]).sort()).toEqual(['attempt', 'checksum', 'content', 'iteration', 'revision', 'sessionId']);
+    expect(storage.readSessionConversation(opts.sessionId).messages.filter(message => message.role === 'assistant')).toHaveLength(2);
+  });
+
+  it('stops at the original verification allowance without another provider call', async () => {
+    const opts = controlledOptions(new RuntimeControl(), {
+      completionCheck: async () => ({ accepted: false, feedback: 'The existing criterion still fails.' }), maxCompletionChecks: 1,
+    });
+    chatMock.mockResolvedValue(text());
+    const result = await runTurn(opts);
+    expect(result.reason).toBe('stopped');
+    expect(result).not.toHaveProperty('verification');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    expect(storage.readSessionConversation(opts.sessionId).messages.at(-1)?.content).toContain('criterion still fails');
+  });
+
+  it.each([null, 'wrong', {}, { accepted: 'true' }, { accepted: true, evidenceSha256: 'bad' },
+    { accepted: true, evidenceSha256: 'a'.repeat(64), extra: true },
+    { accepted: false, feedback: '' }, { accepted: false, feedback: 'x'.repeat(16385) },
+    { accepted: false, feedback: '\0' }])('refuses malformed host verdict %j without a provider retry', async verdict => {
+    const onError = vi.fn(() => 'retry' as const);
+    const opts = controlledOptions(new RuntimeControl(), { completionCheck: vi.fn().mockResolvedValue(verdict), onError });
+    chatMock.mockResolvedValue(text());
+    await expect(runTurn(opts)).rejects.toThrow('invalid verdict');
+    expect(onError).not.toHaveBeenCalled();
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not log or retry a host exception as a provider failure', async () => {
+    const onError = vi.fn(() => 'retry' as const);
+    const opts = controlledOptions(new RuntimeControl(), { completionCheck: async () => { throw new Error('private raw check log'); }, onError });
+    chatMock.mockResolvedValue(text());
+    await expect(runTurn(opts)).rejects.toThrow('Host completion verification failed');
+    expect(onError).not.toHaveBeenCalled();
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not verify truncated or empty proposals', async () => {
+    for (const result of [{ ...text(), finishReason: 'length' as const }, text('')]) {
+      const check = vi.fn();
+      chatMock.mockResolvedValue(result);
+      const opts = controlledOptions(new RuntimeControl(), { completionCheck: check, maxIterations: 1, continueOnLength: true });
+      const outcome = await runTurn(opts);
+      expect(outcome.reason).not.toBe('completed');
+      expect(check).not.toHaveBeenCalled();
+      expect(outcome).not.toHaveProperty('verification');
+    }
+  });
+
+  it('invalidates acceptance when steering arrives while verification is in flight', async () => {
+    const control = new RuntimeControl();
+    const checked = deferredValue<void>(), release = deferredValue<{ accepted: true; evidenceSha256: string }>();
+    const check = vi.fn().mockImplementationOnce(() => { checked.resolve(); return release.promise; })
+      .mockResolvedValueOnce({ accepted: true, evidenceSha256: 'b'.repeat(64) });
+    const opts = controlledOptions(control, { completionCheck: check });
+    chatMock.mockResolvedValue(text());
+    const run = runTurn(opts);
+    await checked.promise;
+    const steered = control.steer({ requestId: 'late-verification-steer', sessionId: opts.sessionId,
+      revision: control.state.checkpoint!.revision, text: 'Include the approved locale.' });
+    release.resolve({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    await steered;
+    const result = await run;
+    expect(chatMock).toHaveBeenCalledTimes(2);
+    expect(result.verification?.evidenceSha256).toBe('b'.repeat(64));
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(opts.messages.current.some(message => message.content === 'Include the approved locale.')).toBe(true);
+  });
+
+  it('does not acknowledge a pause until the in-flight verifier has settled', async () => {
+    const control = new RuntimeControl();
+    const checked = deferredValue<void>(), release = deferredValue<{ accepted: true; evidenceSha256: string }>();
+    const opts = controlledOptions(control, { completionCheck: () => { checked.resolve(); return release.promise; } });
+    chatMock.mockResolvedValue(text());
+    const run = runTurn(opts);
+    await checked.promise;
+    const paused = control.pause('pause-verification');
+    expect(control.state.phase).toBe('pausing');
+    release.resolve({ accepted: true, evidenceSha256: 'a'.repeat(64) });
+    const receipt = await paused;
+    expect(control.state.phase).toBe('paused');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+    await control.resume(receipt);
+    expect((await run).reason).toBe('completed');
+  });
+
+  it('refuses a verifier without saved-checkpoint authority before any inference', async () => {
+    const check = vi.fn();
+    await expect(runTurn(options({ completionCheck: check }))).rejects.toThrow('conversation writer');
+    expect(chatMock).not.toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it('refuses an invalid checkpoint before consulting the host verifier', async () => {
+    const check = vi.fn();
+    chatMock.mockResolvedValue(text());
+    await expect(runTurn(options({ completionCheck: check, onCheckpoint: () => {},
+      controlSnapshot: () => ({ revision: 'saved', checksum: 'invalid' }) })))
+      .rejects.toThrow('requires a saved checkpoint');
+    expect(check).not.toHaveBeenCalled();
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an acceptance whose saved checkpoint changed while the host was checking', async () => {
+    let proof = { revision: 'first', checksum: 'a'.repeat(64) };
+    chatMock.mockResolvedValue(text());
+    await expect(runTurn(options({ onCheckpoint: () => {}, controlSnapshot: () => proof,
+      completionCheck: async () => {
+        proof = { revision: 'concurrent', checksum: 'b'.repeat(64) };
+        return { accepted: true, evidenceSha256: 'c'.repeat(64) };
+      } }))).rejects.toThrow('Conversation changed during completion verification');
+    expect(chatMock).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('checkpointed execution control', () => {
   it('pauses before provider admission and resumes only the exact saved receipt', async () => {
     const control = new RuntimeControl(), paused = control.pause('pause-before-provider');
@@ -739,4 +874,38 @@ it('cancels a parked question pause and discards the late answer', async () => {
   answer.resolve('Too late'); await Promise.resolve();
   expect(chatMock).toHaveBeenCalledOnce();
   expect(opts.messages.current.some(row => row.content === 'Too late')).toBe(false);
+});
+
+
+it.each([undefined, { revision: '', checksum: 'a'.repeat(64) }, { revision: 'saved', checksum: 'invalid' }])(
+  'refuses initial control proof lost between its saved write and host admission: %j', async proof => {
+    const ready = vi.fn(async () => {}), opts = controlledOptions(new RuntimeControl(), { onControlReady: ready });
+    const snapshot = opts.controlSnapshot!;
+    opts.controlSnapshot = vi.fn().mockImplementationOnce(snapshot).mockImplementationOnce(() => proof).mockImplementation(snapshot);
+    await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+    expect(ready).not.toHaveBeenCalled(); expect(chatMock).not.toHaveBeenCalled();
+  });
+
+it('refuses an initial acknowledgment for a checkpoint advanced by the conversation writer', async () => {
+  const opts = controlledOptions(new RuntimeControl());
+  opts.onControlReady = async () => {
+    opts.messages.current.push({ role: 'user', content: 'New steering is not covered by the old acknowledgment.' });
+    await opts.onCheckpoint!(opts.messages.current, 'active');
+  };
+  await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+  expect(chatMock).not.toHaveBeenCalled();
+  expect(storage.readSessionConversation(opts.sessionId).messages.at(-1)?.content).toContain('New steering');
+});
+
+it('rejects malformed initial admission hooks at the shared runtime boundary', async () => {
+  await expect(runTurn(options({ onControlReady: async () => {} }))).rejects.toThrow('controller and host callback');
+  await expect(runTurn(controlledOptions(new RuntimeControl(), { onControlReady: false as never }))).rejects.toThrow('controller and host callback');
+  expect(chatMock).not.toHaveBeenCalled();
+});
+
+it('refuses changed checkpoint checksum even when its revision is unchanged during initial acknowledgment', async () => {
+  const opts = controlledOptions(new RuntimeControl());
+  opts.onControlReady = async () => { Object.assign(opts.controlSnapshot!(), { checksum: 'b'.repeat(64) }); };
+  await expect(runTurn(opts)).rejects.toThrow('Initial control checkpoint was not acknowledged');
+  expect(chatMock).not.toHaveBeenCalled();
 });
