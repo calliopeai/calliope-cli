@@ -147,6 +147,15 @@ Switch with:
 The current theme is stored in `~/.calliope-cli/themes/current.txt` and applied
 on the next startup.
 
+`CALLIOPE_THEME=dark|light|no-color` overrides the stored theme for one run.
+
+`dark` and `light` are the Calliope AI Workbench brand from the design
+system's terminal token mapping (navy and mist grounds). Colour follows the
+terminal: 24-bit when `COLORTERM` is `truecolor` or `24bit`, the nearest
+xterm-256 colour when `TERM` has `256color`, the nearest of the sixteen ANSI
+colours otherwise, and none when output is piped or `NO_COLOR` is set.
+`FORCE_COLOR` (`0` to `3`) overrides the detection.
+
 ## Migration
 
 Configs from v2 are migrated automatically the first time v3 starts. The

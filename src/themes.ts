@@ -18,6 +18,7 @@ import {
 } from './hud/api.js';
 import type { SemanticColorKey, Palette } from './hud/types.js';
 import { PALETTES } from './hud/palettes.js';
+import { themeOverride } from './hud/terminal-theme.js';
 
 // ============================================================================
 // Types (kept for backward compat)
@@ -108,6 +109,8 @@ function ensureThemesDir(): void {
  * Get current theme name
  */
 export function getCurrentThemeName(): string {
+  const override = themeOverride();
+  if (override) return override;
   ensureThemesDir();
   if (fs.existsSync(THEME_FILE)) {
     const name = fs.readFileSync(THEME_FILE, 'utf-8').trim();
@@ -218,16 +221,16 @@ export function getThemeColor(key: SemanticColorKey): string {
 /**
  * Get Ink-compatible color name for a semantic color key
  */
-export function getInkColor(key: SemanticColorKey): string {
+export function getInkColor(key: SemanticColorKey): string | undefined {
   return hudGetInkColor(key);
 }
 
 /**
  * Hook-style helper for Ink components: returns all semantic colors as Ink-compatible names
  */
-export function useThemeColors(): Record<SemanticColorKey, string> {
+export function useThemeColors(): Record<SemanticColorKey, string | undefined> {
   const palette = getCurrentPalette();
-  const result = {} as Record<SemanticColorKey, string>;
+  const result = {} as Record<SemanticColorKey, string | undefined>;
   for (const key of Object.keys(palette.colors) as SemanticColorKey[]) {
     result[key] = hudGetInkColor(key);
   }

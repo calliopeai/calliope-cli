@@ -20,6 +20,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Box, Text } from 'ink';
+import { getInkColor } from '../../hud/api.js';
 import type { UIMessage, CollapseSettings, ThinkingState, ActivityState } from '../types.js';
 import type { Mode } from '../../types.js';
 import { StaticScrollback } from './static-scrollback.js';
@@ -83,11 +84,11 @@ function TranscriptRegionInner({
   // Streaming response block (reused across layouts)
   const StreamingResponseBox = streamingResponse ? (
     <Box flexDirection="column">
-      <Text color="cyan">✧ Calliope:</Text>
+      <Text color={getInkColor('assistant')}>✧ Calliope:</Text>
       {streamingResponse.split('\n').map((line, i) => (
-        <Text key={i}><Text color="blue">│</Text> {line}</Text>
+        <Text key={i}><Text color={getInkColor('border')}>│</Text> {line}</Text>
       ))}
-      <Text color="cyan">▌</Text>
+      <Text color={getInkColor('primary')}>▌</Text>
     </Box>
   ) : null;
 

@@ -8,8 +8,8 @@
 
 import * as fs from 'fs';
 import { colors as COLORS } from './styles.js';
-import { getCurrentSkin, getCurrentPalette } from './hud/api.js';
-import type { Skin } from './hud/types.js';
+import { getCurrentSkin, getCurrentPalette, getPaletteColor } from './hud/api.js';
+import type { SemanticColorKey, Skin } from './hud/types.js';
 
 // ============================================================================
 // Types
@@ -216,10 +216,11 @@ function longestCommonSubsequence(a: string[], b: string[]): Array<[number, numb
  */
 export function formatDiff(diff: FileDiff, contextLines = 3): string {
   const lines: string[] = [];
+  const dc = getDiffColors();
 
   // Header
-  lines.push(`${COLORS.cyan}${diff.lines[0]?.content ?? ''}${COLORS.reset}`);
-  lines.push(`${COLORS.cyan}${diff.lines[1]?.content ?? ''}${COLORS.reset}`);
+  lines.push(`${dc.header}${diff.lines[0]?.content ?? ''}${COLORS.reset}`);
+  lines.push(`${dc.header}${diff.lines[1]?.content ?? ''}${COLORS.reset}`);
   lines.push('');
 
   // Group consecutive changes with context
@@ -229,18 +230,18 @@ export function formatDiff(diff: FileDiff, contextLines = 3): string {
     // Chunk header
     const startOld = chunk.find(l => l.oldLineNum)?.oldLineNum || 1;
     const startNew = chunk.find(l => l.newLineNum)?.newLineNum || 1;
-    lines.push(`${COLORS.cyan}@@ -${startOld} +${startNew} @@${COLORS.reset}`);
+    lines.push(`${dc.header}@@ -${startOld} +${startNew} @@${COLORS.reset}`);
 
     for (const line of chunk) {
       switch (line.type) {
         case 'add':
-          lines.push(`${COLORS.green}+${line.content}${COLORS.reset}`);
+          lines.push(`${dc.add}+${line.content}${COLORS.reset}`);
           break;
         case 'remove':
-          lines.push(`${COLORS.red}-${line.content}${COLORS.reset}`);
+          lines.push(`${dc.remove}-${line.content}${COLORS.reset}`);
           break;
         case 'context':
-          lines.push(`${COLORS.dim} ${line.content}${COLORS.reset}`);
+          lines.push(`${dc.context} ${line.content}${COLORS.reset}`);
           break;
       }
     }
@@ -248,7 +249,7 @@ export function formatDiff(diff: FileDiff, contextLines = 3): string {
   }
 
   // Summary
-  lines.push(`${COLORS.green}+${diff.additions}${COLORS.reset} ${COLORS.red}-${diff.deletions}${COLORS.reset}`);
+  lines.push(`${dc.add}+${diff.additions}${COLORS.reset} ${dc.remove}-${diff.deletions}${COLORS.reset}`);
 
   return lines.join('\n');
 }
@@ -257,7 +258,8 @@ export function formatDiff(diff: FileDiff, contextLines = 3): string {
  * Format diff as compact summary
  */
 export function formatDiffSummary(diff: FileDiff): string {
-  return `${diff.path}: ${COLORS.green}+${diff.additions}${COLORS.reset} ${COLORS.red}-${diff.deletions}${COLORS.reset}`;
+  const dc = getDiffColors();
+  return `${diff.path}: ${dc.add}+${diff.additions}${COLORS.reset} ${dc.remove}-${diff.deletions}${COLORS.reset}`;
 }
 
 /**
@@ -530,10 +532,10 @@ function getDiffColors(): { add: string; remove: string; context: string; header
   try {
     const palette = getCurrentPalette();
     return {
-      add: palette.colors.diffAdd || COLORS.green,
-      remove: palette.colors.diffRemove || COLORS.red,
-      context: palette.colors.diffContext || COLORS.dim,
-      header: palette.colors.info || COLORS.cyan,
+      add: palette.colors.diffAdd,
+      remove: palette.colors.diffRemove,
+      context: palette.colors.diffContext,
+      header: palette.colors.info,
       reset: COLORS.reset,
     };
   } catch {
@@ -722,11 +724,11 @@ export function formatSideBySideDiff(diff: FileDiff, termWidth?: number, options
       const rightPadded = rightContent;
 
       if (pair.left?.type === 'remove') {
-        lines.push(`${dc.remove}${leftNum}${leftPadded}${dc.reset} ${COLORS.dim}│${COLORS.reset} ${pair.right ? (pair.right.type === 'add' ? dc.add : dc.context) : ''}${rightNum}${rightPadded}${dc.reset}`);
+        lines.push(`${dc.remove}${leftNum}${leftPadded}${dc.reset} ${dc.context}│${dc.reset} ${pair.right ? (pair.right.type === 'add' ? dc.add : dc.context) : ''}${rightNum}${rightPadded}${dc.reset}`);
       } else if (pair.left?.type === 'context') {
-        lines.push(`${dc.context}${leftNum}${leftPadded}${dc.reset} ${COLORS.dim}│${COLORS.reset} ${dc.context}${rightNum}${rightPadded}${dc.reset}`);
+        lines.push(`${dc.context}${leftNum}${leftPadded}${dc.reset} ${dc.context}│${dc.reset} ${dc.context}${rightNum}${rightPadded}${dc.reset}`);
       } else {
-        lines.push(`${leftNum}${leftPadded} ${COLORS.dim}│${COLORS.reset} ${pair.right?.type === 'add' ? dc.add : ''}${rightNum}${rightPadded}${dc.reset}`);
+        lines.push(`${leftNum}${leftPadded} ${dc.context}│${dc.reset} ${pair.right?.type === 'add' ? dc.add : ''}${rightNum}${rightPadded}${dc.reset}`);
       }
     }
     lines.push('');
@@ -833,48 +835,48 @@ function detectLanguage(path: string): string | null {
   return ext ? langMap[ext] || null : null;
 }
 
-/** Syntax highlighting rules per language group */
-const SYNTAX_RULES: Record<string, Array<{ pattern: RegExp; color: string }>> = {
+/** Syntax highlighting rules per language group; each colour is a palette key. */
+const SYNTAX_RULES: Record<string, Array<{ pattern: RegExp; color: SemanticColorKey }>> = {
   typescript: [
-    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },                                              // comments
-    { pattern: /(\/\*[\s\S]*?\*\/)/g, color: COLORS.dim },                                        // block comments
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)/g, color: COLORS.green }, // strings
-    { pattern: /\b(import|export|from|const|let|var|function|class|interface|type|enum|return|if|else|for|while|switch|case|break|continue|try|catch|throw|new|async|await|extends|implements)\b/g, color: COLORS.magenta }, // keywords
-    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },                                        // numbers
+    { pattern: /(\/\/[^\n]*)/g, color: 'codeComment' },                                              // comments
+    { pattern: /(\/\*[\s\S]*?\*\/)/g, color: 'codeComment' },                                        // block comments
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`)/g, color: 'codeString' }, // strings
+    { pattern: /\b(import|export|from|const|let|var|function|class|interface|type|enum|return|if|else|for|while|switch|case|break|continue|try|catch|throw|new|async|await|extends|implements)\b/g, color: 'codeKeyword' }, // keywords
+    { pattern: /\b(\d+\.?\d*)\b/g, color: 'codeNumber' },                                        // numbers
   ],
   python: [
-    { pattern: /(#[^\n]*)/g, color: COLORS.dim },
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|'''[\s\S]*?'''|"""[\s\S]*?""")/g, color: COLORS.green },
-    { pattern: /\b(import|from|def|class|return|if|elif|else|for|while|try|except|raise|with|as|yield|lambda|pass|break|continue|and|or|not|in|is|None|True|False)\b/g, color: COLORS.magenta },
-    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+    { pattern: /(#[^\n]*)/g, color: 'codeComment' },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|'''[\s\S]*?'''|"""[\s\S]*?""")/g, color: 'codeString' },
+    { pattern: /\b(import|from|def|class|return|if|elif|else|for|while|try|except|raise|with|as|yield|lambda|pass|break|continue|and|or|not|in|is|None|True|False)\b/g, color: 'codeKeyword' },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: 'codeNumber' },
   ],
   go: [
-    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`)/g, color: COLORS.green },
-    { pattern: /\b(package|import|func|type|struct|interface|return|if|else|for|range|switch|case|break|continue|go|defer|chan|select|map|var|const)\b/g, color: COLORS.magenta },
-    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+    { pattern: /(\/\/[^\n]*)/g, color: 'codeComment' },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`[^`]*`)/g, color: 'codeString' },
+    { pattern: /\b(package|import|func|type|struct|interface|return|if|else|for|range|switch|case|break|continue|go|defer|chan|select|map|var|const)\b/g, color: 'codeKeyword' },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: 'codeNumber' },
   ],
   rust: [
-    { pattern: /(\/\/[^\n]*)/g, color: COLORS.dim },
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
-    { pattern: /\b(fn|let|mut|const|struct|enum|impl|trait|pub|use|mod|match|if|else|for|while|loop|return|self|Self|where|async|await|move|unsafe)\b/g, color: COLORS.magenta },
-    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+    { pattern: /(\/\/[^\n]*)/g, color: 'codeComment' },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: 'codeString' },
+    { pattern: /\b(fn|let|mut|const|struct|enum|impl|trait|pub|use|mod|match|if|else|for|while|loop|return|self|Self|where|async|await|move|unsafe)\b/g, color: 'codeKeyword' },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: 'codeNumber' },
   ],
   shell: [
-    { pattern: /(#[^\n]*)/g, color: COLORS.dim },
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
-    { pattern: /\b(if|then|else|elif|fi|for|do|done|while|case|esac|function|return|export|local|readonly)\b/g, color: COLORS.magenta },
+    { pattern: /(#[^\n]*)/g, color: 'codeComment' },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: 'codeString' },
+    { pattern: /\b(if|then|else|elif|fi|for|do|done|while|case|esac|function|return|export|local|readonly)\b/g, color: 'codeKeyword' },
   ],
   json: [
-    { pattern: /("(?:[^"\\]|\\.)*")\s*:/g, color: COLORS.cyan },    // keys
-    { pattern: /:\s*("(?:[^"\\]|\\.)*")/g, color: COLORS.green },    // string values
-    { pattern: /:\s*(\d+\.?\d*)/g, color: COLORS.yellow },           // number values
-    { pattern: /:\s*(true|false|null)\b/g, color: COLORS.magenta },  // special values
+    { pattern: /("(?:[^"\\]|\\.)*")\s*:/g, color: 'codeFunction' },    // keys
+    { pattern: /:\s*("(?:[^"\\]|\\.)*")/g, color: 'codeString' },    // string values
+    { pattern: /:\s*(\d+\.?\d*)/g, color: 'codeNumber' },           // number values
+    { pattern: /:\s*(true|false|null)\b/g, color: 'codeKeyword' },  // special values
   ],
   default: [
-    { pattern: /(\/\/[^\n]*|#[^\n]*)/g, color: COLORS.dim },
-    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: COLORS.green },
-    { pattern: /\b(\d+\.?\d*)\b/g, color: COLORS.yellow },
+    { pattern: /(\/\/[^\n]*|#[^\n]*)/g, color: 'codeComment' },
+    { pattern: /('(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g, color: 'codeString' },
+    { pattern: /\b(\d+\.?\d*)\b/g, color: 'codeNumber' },
   ],
 };
 
@@ -907,7 +909,7 @@ export function highlightSyntax(line: string, filePath: string): string {
   // the capture). Collect {start,end,color} ranges, merge into non-overlapping
   // spans (earlier rule wins), then emit in a single left-to-right pass so a
   // regex can never run over an injected ANSI escape sequence.
-  const ranges: { start: number; end: number; color: string; priority: number }[] = [];
+  const ranges: { start: number; end: number; color: SemanticColorKey; priority: number }[] = [];
   rules.forEach(({ pattern, color }, priority) => {
     pattern.lastIndex = 0;
     let match;
@@ -927,7 +929,7 @@ export function highlightSyntax(line: string, filePath: string): string {
     a.start - b.start ||
     b.end - a.end,
   );
-  const spans: { start: number; end: number; color: string }[] = [];
+  const spans: { start: number; end: number; color: SemanticColorKey }[] = [];
   for (const r of ranges) {
     if (spans.some(s => r.start < s.end && r.end > s.start)) continue;
     spans.push({ start: r.start, end: r.end, color: r.color });
@@ -938,7 +940,7 @@ export function highlightSyntax(line: string, filePath: string): string {
   let cursor = 0;
   for (const { start, end, color } of spans) {
     if (start > cursor) result += line.slice(cursor, start);
-    result += color + line.slice(start, end) + COLORS.reset;
+    result += getPaletteColor(color) + line.slice(start, end) + COLORS.reset;
     cursor = end;
   }
   if (cursor < line.length) result += line.slice(cursor);

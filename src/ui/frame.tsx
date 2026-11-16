@@ -103,7 +103,7 @@ interface TitleBarProps {
   text: string;
   alignment: 'left' | 'center' | 'right';
   width: number;
-  borderColor: string;
+  borderColor: string | undefined;
   cornerDecor?: SkinFrame['cornerDecor'];
   frameStyle: string;
 }

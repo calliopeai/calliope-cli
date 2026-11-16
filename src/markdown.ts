@@ -5,6 +5,18 @@
  */
 
 import { colors as COLORS } from './styles.js';
+import { getPaletteColor } from './hud/api.js';
+import type { SemanticColorKey } from './hud/types.js';
+
+// The syntax patterns name a colour; the current palette paints it.
+const CODE_ROLE: Record<string, SemanticColorKey> = {
+  magenta: 'codeKeyword',
+  green: 'codeString',
+  cyan: 'codeNumber',
+  gray: 'codeComment',
+  yellow: 'codeFunction',
+  white: 'text',
+};
 
 // Language-specific syntax patterns
 const SYNTAX_PATTERNS: Record<string, Array<{ pattern: RegExp; color: string }>> = {
@@ -83,7 +95,7 @@ function highlightCode(code: string, language: string): string {
 
   if (!patterns) {
     // No highlighting for unknown languages - just dim it slightly
-    return `${COLORS.white}${code}${COLORS.reset}`;
+    return `${getPaletteColor('text')}${code}${COLORS.reset}`;
   }
 
   // Collect every match (start/end/color/priority) against the RAW code, never
@@ -121,7 +133,7 @@ function highlightCode(code: string, language: string): string {
   let cursor = 0;
   for (const { start, end, color } of spans) {
     if (start > cursor) result += code.slice(cursor, start);
-    const colorCode = COLORS[color as keyof typeof COLORS] || COLORS.white;
+    const colorCode = getPaletteColor(CODE_ROLE[color] ?? 'text');
     result += colorCode + code.slice(start, end) + COLORS.reset;
     cursor = end;
   }
@@ -147,7 +159,7 @@ export function renderMarkdown(text: string): string {
         // End of code block - render it
         const code = codeBlockContent.join('\n');
         const highlighted = highlightCode(code, codeBlockLang);
-        result.push(`${COLORS.bgGray}${COLORS.white}  ${codeBlockLang || 'code'}  ${COLORS.reset}`);
+        result.push(`${getPaletteColor('selection')}${getPaletteColor('text')}  ${codeBlockLang || 'code'}  ${COLORS.reset}`);
         for (const codeLine of highlighted.split('\n')) {
           result.push(`${COLORS.dim}│${COLORS.reset} ${codeLine}`);
         }
@@ -170,15 +182,15 @@ export function renderMarkdown(text: string): string {
 
     // Headers
     if (line.startsWith('### ')) {
-      result.push(`${COLORS.bold}${COLORS.cyan}${line.slice(4)}${COLORS.reset}`);
+      result.push(`${COLORS.bold}${getPaletteColor('primary')}${line.slice(4)}${COLORS.reset}`);
       continue;
     }
     if (line.startsWith('## ')) {
-      result.push(`${COLORS.bold}${COLORS.brightCyan}${line.slice(3)}${COLORS.reset}`);
+      result.push(`${COLORS.bold}${getPaletteColor('primary')}${line.slice(3)}${COLORS.reset}`);
       continue;
     }
     if (line.startsWith('# ')) {
-      result.push(`${COLORS.bold}${COLORS.brightCyan}${COLORS.underline}${line.slice(2)}${COLORS.reset}`);
+      result.push(`${COLORS.bold}${getPaletteColor('primary')}${COLORS.underline}${line.slice(2)}${COLORS.reset}`);
       continue;
     }
 
@@ -198,13 +210,13 @@ export function renderMarkdown(text: string): string {
     if (/^[\s]*[-*+]\s/.test(line)) {
       const indent = line.match(/^(\s*)/)?.[1] || '';
       const content = line.replace(/^[\s]*[-*+]\s/, '');
-      result.push(`${indent}${COLORS.cyan}•${COLORS.reset} ${content}`);
+      result.push(`${indent}${getPaletteColor('primary')}•${COLORS.reset} ${content}`);
       continue;
     }
     if (/^[\s]*\d+\.\s/.test(line)) {
       const match = line.match(/^(\s*)(\d+)\.\s(.*)$/);
       if (match) {
-        result.push(`${match[1]}${COLORS.cyan}${match[2]}.${COLORS.reset} ${match[3]}`);
+        result.push(`${match[1]}${getPaletteColor('primary')}${match[2]}.${COLORS.reset} ${match[3]}`);
         continue;
       }
     }
@@ -213,7 +225,7 @@ export function renderMarkdown(text: string): string {
     let formattedLine = line;
 
     // Inline code
-    formattedLine = formattedLine.replace(/`([^`]+)`/g, `${COLORS.bgGray}${COLORS.white} $1 ${COLORS.reset}`);
+    formattedLine = formattedLine.replace(/`([^`]+)`/g, `${getPaletteColor('selection')}${getPaletteColor('text')} $1 ${COLORS.reset}`);
 
     // Bold
     formattedLine = formattedLine.replace(/\*\*([^*]+)\*\*/g, `${COLORS.bold}$1${COLORS.reset}`);
@@ -224,7 +236,7 @@ export function renderMarkdown(text: string): string {
     formattedLine = formattedLine.replace(/_([^_]+)_/g, `${COLORS.italic}$1${COLORS.reset}`);
 
     // Links [text](url)
-    formattedLine = formattedLine.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `${COLORS.underline}${COLORS.blue}$1${COLORS.reset}${COLORS.dim} ($2)${COLORS.reset}`);
+    formattedLine = formattedLine.replace(/\[([^\]]+)\]\(([^)]+)\)/g, `${COLORS.underline}${getPaletteColor('primary')}$1${COLORS.reset}${COLORS.dim} ($2)${COLORS.reset}`);
 
     result.push(formattedLine);
   }
@@ -233,7 +245,7 @@ export function renderMarkdown(text: string): string {
   if (inCodeBlock && codeBlockContent.length > 0) {
     const code = codeBlockContent.join('\n');
     const highlighted = highlightCode(code, codeBlockLang);
-    result.push(`${COLORS.bgGray}${COLORS.white}  ${codeBlockLang || 'code'}  ${COLORS.reset}`);
+    result.push(`${getPaletteColor('selection')}${getPaletteColor('text')}  ${codeBlockLang || 'code'}  ${COLORS.reset}`);
     for (const codeLine of highlighted.split('\n')) {
       result.push(`${COLORS.dim}│${COLORS.reset} ${codeLine}`);
     }
