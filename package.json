@@ -82,6 +82,7 @@
     "@anthropic-ai/sdk": "1.8.0",
     "@aws-sdk/credential-provider-ini": "3.973.30",
     "@aws-sdk/credential-provider-node": "3.972.97",
+    "@calliopelabs/ui": "^0.21.0",
     "@google/genai": "^3.2.0",
     "@inquirer/prompts": "^8.5.2",
     "conf": "16.0.0",

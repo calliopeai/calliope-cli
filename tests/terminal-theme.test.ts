@@ -3,7 +3,7 @@
  * Workbench brand), at the terminal's colour depth and the chosen mode.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { brandTheme, sgr } from '../src/vendor/calliope-ui/tokens.terminal.js';
+import { brandTheme, sgr } from '@calliopelabs/ui/tokens/terminal';
 import { colorDepth, setColorDepth, themeOverride } from '../src/hud/terminal-theme.js';
 import { brandPalette, PALETTES } from '../src/hud/palettes.js';
 import { applyPalette, clearHUDCache, getInkColor } from '../src/hud/api.js';
