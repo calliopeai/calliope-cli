@@ -1,4 +1,5 @@
 import { chatGPTSelected } from '../providers/chatgpt.js';
+import type { TurnProgress } from '../sessions/turn-progress.js';
 import { ChatGPTStore, ChatGPTAuthError, ChatGPTQuotaError, fallbackPolicy, fallbackHistory, publicFallbackHistory, quotaCircuit, withAPIKeyAccess, type ChatGPTFallbackPolicy } from '../auth/chatgpt/index.js';
 /** One model/tool turn engine. Clients adapt context, presentation and approval. */
 import { chat } from '../providers/index.js';
@@ -94,7 +95,11 @@ export interface TurnOptions {
   preferenceSources?: RoutingDecision['preferenceSources'];
   onRoute?: (decision: RoutingDecision) => void | Promise<void>;
   /** Must finish before execution continues. A failed recovery write stops the turn. */
-  onCheckpoint?: (messages: Message[], status: RecoveryStatus) => void | Promise<void>;
+  onCheckpoint?: (messages: Message[], status: RecoveryStatus, progress?: TurnProgress) => void | Promise<void>;
+  /** Persist consumed iteration/check allowance before effects through the checkpoint writer. */
+  retainTurnProgress?: boolean;
+  /** Acknowledge a saved allowance admission before provider/verifier effects. */
+  onTurnProgressCommitted?: (progress: Readonly<TurnProgress>, signal?: AbortSignal) => Promise<void>;
   /** Cooperatively control this same turn at persisted, quiescent boundaries. */
   control?: RuntimeControl;
   /** Proof from the existing checkpoint writer; this callback does not write another journal. */
@@ -166,6 +171,13 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let completionChecks = 0;
   let verification: CompletionVerification | undefined;
   const completionLimit = completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
+  const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
+  if ((options.retainTurnProgress || options.onTurnProgressCommitted) && !options.onCheckpoint)
+    throw new Error('Turn allowance retention requires a conversation checkpoint writer.');
+  const progress: TurnProgress | undefined = options.retainTurnProgress || options.onTurnProgressCommitted ? {
+    version: 1, turnId: randomUUID(), iterationLimit: Number.isFinite(limit) ? Math.floor(limit) : null,
+    completionLimit, iterations: 0, completionChecks: 0,
+  } : undefined;
   if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
     throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
   if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
@@ -183,14 +195,26 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const checkpoint = (status: RecoveryStatus): Promise<void> => {
     if (!options.onCheckpoint || checkpointFailed) return checkpointTail;
     const copy = structuredClone(messages.current);
+    const allowance = progress ? structuredClone(progress) : undefined;
     checkpointTail = checkpointTail.then(async () => {
-      await options.onCheckpoint!(copy, status);
+      await options.onCheckpoint!(copy, status, allowance);
       if (options.control) options.control.observe(options.controlSnapshot!());
     }).catch(error => {
       checkpointFailed = true;
       throw error;
     });
     return checkpointTail;
+  };
+  const acknowledgeProgress = async (): Promise<void> => {
+    if (!progress || !options.onTurnProgressCommitted) return;
+    try {
+      const result: unknown = await cancellable(Promise.resolve(options.onTurnProgressCommitted(Object.freeze(structuredClone(progress)), signal)), signal);
+      if (result !== undefined) throw new Error('Invalid allowance acknowledgment.');
+    } catch {
+      throwIfCancelled(signal);
+      controlFailed = true;
+      throw new Error('Turn allowance checkpoint was not acknowledged.');
+    }
   };
   let currentRequest: RuntimeRequest = { provider: options.provider, model: options.model || DEFAULT_MODELS[options.provider], messages: messages.current, tools: [] };
   const origin = { provider: options.provider, model: options.model };
@@ -504,13 +528,13 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
-    const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
     let continuations = 0;
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
         await boundary(true);
         throwIfCancelled(signal);
         checkBudget();
+        if (progress) { progress.iterations = iterations; await checkpoint('active'); await acknowledgeProgress(); }
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
         const compressed = options.disableCompression ? {
           compressed:false, method:'none' as const, messages:messages.current,
@@ -569,6 +593,11 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           if (await boundary(true)) { options.onIterationEnd?.(iterations); continue; }
           if (!truncated && !empty && options.completionCheck) {
             try {
+              if (progress) {
+                progress.completionChecks = completionChecks + 1;
+                await checkpoint('active');
+                await acknowledgeProgress();
+              }
               const proof = options.controlSnapshot!();
               if (!proof || typeof proof.revision !== 'string' || !proof.revision ||
                   typeof proof.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(proof.checksum))
