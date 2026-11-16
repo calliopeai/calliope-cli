@@ -13,6 +13,7 @@ import * as config from './config.js';
 import { getVersion, checkForUpdates, getLatestVersion, performUpgrade } from './version-check.js';
 import * as os from 'os';
 import { colors } from './styles.js';
+import { getPaletteColor } from './hud/api.js';
 
 // Private standalone credential worker: inherit the caller's environment before
 // any project/global env loading. It is only callable through an IPC channel.
@@ -321,19 +322,19 @@ async function main(): Promise<void> {
     const hasUpdate = lMaj > cMaj || (lMaj === cMaj && lMin > cMin) || (lMaj === cMaj && lMin === cMin && lPat > cPat);
 
     if (!hasUpdate) {
-      console.log(`${colors.green}✓${colors.reset} Already on latest version (v${current})`);
+      console.log(`${getPaletteColor('success')}✓${colors.reset} Already on latest version (v${current})`);
       process.exit(0);
     }
 
-    console.log(`${colors.yellow}→${colors.reset} New version available: v${latest}`);
+    console.log(`${getPaletteColor('warning')}→${colors.reset} New version available: v${latest}`);
     console.log('Upgrading...');
 
     const success = await performUpgrade();
     if (success) {
-      console.log(`${colors.green}✓${colors.reset} Upgraded to v${latest}`);
+      console.log(`${getPaletteColor('success')}✓${colors.reset} Upgraded to v${latest}`);
       process.exit(0);
     } else {
-      console.log(`${colors.red}✗${colors.reset} Upgrade failed. Try: npm install -g @calliopelabs/cli@latest`);
+      console.log(`${getPaletteColor('error')}✗${colors.reset} Upgrade failed. Try: npm install -g @calliopelabs/cli@latest`);
       process.exit(1);
     }
   }
@@ -366,7 +367,7 @@ async function main(): Promise<void> {
 
   // Show warning if auto/god mode is enabled
   if (skipPermissions) {
-    console.log(`${colors.magenta}⚡ AUTO MODE ENABLED${colors.reset}`);
+    console.log(`${getPaletteColor('accent')}⚡ AUTO MODE ENABLED${colors.reset}`);
     console.log(`${colors.dim}   Tools execute without confirmation. Use wisely.${colors.reset}`);
     console.log();
   }

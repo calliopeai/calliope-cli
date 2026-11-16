@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { colors as c } from './styles.js';
+import { getPaletteColor } from './hud/api.js';
 
 const PACKAGE_NAME = '@calliopelabs/cli';
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -124,8 +125,8 @@ export async function checkForUpdates(silent = false): Promise<boolean> {
 
   if (hasUpdate && !silent) {
     console.log();
-    console.log(`${c.yellow}${c.bold}  Update available!${c.reset} ${c.dim}${currentVersion}${c.reset} → ${c.green}${latestVersion}${c.reset}`);
-    console.log(`${c.dim}  Run ${c.cyan}npm install -g ${PACKAGE_NAME}${c.reset}${c.dim} to update${c.reset}`);
+    console.log(`${getPaletteColor('warning')}${c.bold}  Update available!${c.reset} ${c.dim}${currentVersion}${c.reset} → ${getPaletteColor('success')}${latestVersion}${c.reset}`);
+    console.log(`${c.dim}  Run ${getPaletteColor('primary')}npm install -g ${PACKAGE_NAME}${c.reset}${c.dim} to update${c.reset}`);
     console.log();
   }
 

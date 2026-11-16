@@ -199,7 +199,10 @@ export type SemanticColorKey = keyof PaletteColors;
 export interface Palette {
   name: string;
   description: string;
+  /** ANSI escapes at the terminal's colour depth ("" paints nothing). */
   colors: PaletteColors;
+  /** The design-system colour behind each key, as "#rrggbb" ("" for the terminal's own). */
+  hex?: PaletteColors;
 }
 
 export interface HUDConfig {

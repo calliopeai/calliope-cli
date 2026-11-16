@@ -8,14 +8,15 @@ import { input, select, confirm, password } from '@inquirer/prompts';
 import * as config from './config.js';
 import type { LLMProvider } from './config.js';
 import { color as c } from './styles.js';
+import { paletteColorize } from './hud/api.js';
 
 const BANNER = `
-${c(' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗', 'brightCyan')}
-${c('██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝', 'brightCyan')}
-${c('██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ', 'cyan')}
-${c('██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ', 'cyan')}
-${c('╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗', 'brightCyan')}
-${c(' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝', 'cyan')}
+${paletteColorize(' ██████╗ █████╗ ██╗     ██╗     ██╗ ██████╗ ██████╗ ███████╗', 'primary')}
+${paletteColorize('██╔════╝██╔══██╗██║     ██║     ██║██╔═══██╗██╔══██╗██╔════╝', 'primary')}
+${paletteColorize('██║     ███████║██║     ██║     ██║██║   ██║██████╔╝█████╗  ', 'primary')}
+${paletteColorize('██║     ██╔══██║██║     ██║     ██║██║   ██║██╔═══╝ ██╔══╝  ', 'primary')}
+${paletteColorize('╚██████╗██║  ██║███████╗███████╗██║╚██████╔╝██║     ███████╗', 'primary')}
+${paletteColorize(' ╚═════╝╚═╝  ╚═╝╚══════╝╚══════╝╚═╝ ╚═════╝ ╚═╝     ╚══════╝', 'primary')}
 
         ${c('Multi-Model AI Agent CLI', 'dim')}
 `;
@@ -54,7 +55,7 @@ export async function runSetup(force = false): Promise<boolean> {
   if (process.env.OPENAI_COMPAT_BASE_URL) envProviders.push('openai-compat');
 
   if (envProviders.length > 0) {
-    console.log(c(`  Found API keys in environment: ${envProviders.join(', ')}`, 'green'));
+    console.log(paletteColorize(`  Found API keys in environment: ${envProviders.join(', ')}`, 'success'));
     console.log();
   }
 
@@ -148,7 +149,7 @@ export async function runSetup(force = false): Promise<boolean> {
     };
 
     if (apiKeyUrls[providerChoice]) {
-      console.log(c(`  Get one at: ${apiKeyUrls[providerChoice]}`, 'cyan'));
+      console.log(paletteColorize(`  Get one at: ${apiKeyUrls[providerChoice]}`, 'primary'));
     }
     console.log();
 
@@ -202,9 +203,9 @@ export async function runSetup(force = false): Promise<boolean> {
   // Summary
   console.log();
   console.log(c('  ─────────────────────────────────────────', 'dim'));
-  console.log(c('  Setup complete!', 'green'));
+  console.log(paletteColorize('  Setup complete!', 'success'));
   console.log();
-  console.log(`  ${c('Provider:', 'dim')} ${c(providerChoice, 'cyan')}`);
+  console.log(`  ${c('Provider:', 'dim')} ${paletteColorize(providerChoice, 'primary')}`);
   console.log(`  ${c('Config:', 'dim')} ${c(config.getConfigPath(), 'dim')}`);
   console.log();
   console.log(c('  Type your first message to begin, or /help for commands.', 'dim'));
@@ -256,7 +257,7 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
 
       if (apiKey && apiKey.length > 10) {
         config.setProviderCred(provider.id, { apiKey });
-        console.log(c(`  ✓ ${provider.name} configured`, 'green'));
+        console.log(paletteColorize(`  ✓ ${provider.name} configured`, 'success'));
       }
     }
   }
@@ -267,7 +268,7 @@ async function configureAdditionalProviders(existingEnvProviders: string[]): Pro
  */
 export async function reconfigure(): Promise<void> {
   console.log();
-  console.log(c('  Reconfiguring Calliope...', 'cyan'));
+  console.log(paletteColorize('  Reconfiguring Calliope...', 'primary'));
   console.log();
 
   await runSetup(true);

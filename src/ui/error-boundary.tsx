@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { Box, Text, useInput, useApp } from 'ink';
+import { getInkColor } from '../hud/api.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -139,11 +140,11 @@ export function ErrorFallback({
   return (
     <Box flexDirection="column" padding={1}>
       <Box marginBottom={1}>
-        <Text color="red" bold>⚠️  Calliope encountered an error</Text>
+        <Text color={getInkColor('error')} bold>⚠️  Calliope encountered an error</Text>
       </Box>
 
-      <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor="red" padding={1}>
-        <Text color="red">{error?.message || 'Unknown error'}</Text>
+      <Box flexDirection="column" marginBottom={1} borderStyle="round" borderColor={getInkColor('error')} padding={1}>
+        <Text color={getInkColor('error')}>{error?.message || 'Unknown error'}</Text>
         {error?.name && error.name !== 'Error' && (
           <Text dimColor>Type: {error.name}</Text>
         )}
@@ -158,9 +159,9 @@ export function ErrorFallback({
 
       <Box marginTop={1}>
         <Text>
-          <Text color="cyan">[R]</Text>
+          <Text color={getInkColor('primary')}>[R]</Text>
           <Text>etry  </Text>
-          <Text color="cyan">[Q]</Text>
+          <Text color={getInkColor('primary')}>[Q]</Text>
           <Text>uit</Text>
         </Text>
       </Box>

@@ -154,7 +154,7 @@ export function ChatInput({
   }, {isActive: !disabled});
 
   // Determine prompt style based on state
-  const promptColor = disabled ? 'gray' : isProcessing ? 'yellow' : 'cyan';
+  const promptColor = getInkColor(disabled ? 'textDim' : isProcessing ? 'warning' : 'primary');
   const isEditing = editingQueueIndex !== null && editingQueueIndex !== undefined;
   const promptText = isProcessing
     ? (isEditing ? `edit[${editingQueueIndex + 1}]>` : 'queue>')

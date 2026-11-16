@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach } from 'vitest';
 import { rmSync } from 'node:fs';
+import { setColorDepth } from '../../src/hud/terminal-theme.js';
 
 if (!process.env.CALLIOPE_CONFIG_DIR) {
   const tag = process.env.VITEST_POOL_ID ?? String(process.pid);
@@ -58,3 +59,10 @@ beforeEach(() => rmSync(process.env.CALLIOPE_HEALTH_DIR!, { recursive: true, for
 // credentials set their own env explicitly.
 process.env.AWS_EC2_METADATA_DISABLED = 'true';
 process.env.AWS_CONTAINER_CREDENTIALS_RELATIVE_URI = '';
+
+// Colour: the suite runs piped (no TTY), where the CLI paints nothing. Pin the
+// 16-colour depth so palette and diff assertions see colour whatever the
+// runner's environment says, and let no developer CALLIOPE_THEME leak in.
+// tests/terminal-theme.test.ts covers detection itself.
+delete process.env.CALLIOPE_THEME;
+setColorDepth('16');
