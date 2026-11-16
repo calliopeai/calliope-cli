@@ -230,6 +230,12 @@ The existing permission, scope and policy gates still apply. A delegated
 execution guard can narrow host tools further; supplying a transport does not
 relax its command-containment requirements.
 
+Headless calls with `toolRuntime` do not load filesystem memory or automatic
+project context on the SDK host. The caller supplies any required initial
+instructions through the prompt, or reads workspace documents through the
+declared hosted tools. This prevents project context aliases from reading host
+files outside the workspace. Ordinary local headless context loading is unchanged.
+
 The host returns the exact original `toolCallId`, textual `result`, and optional
 boolean `isError` and textual `displayResult`. A confirmed error is available to
 the same agent for repair. A thrown exception or malformed/mismatched reply stops

@@ -322,7 +322,9 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   // Build messages
   const systemPrompt = getSystemPromptForProvider(resolvedProvider);
   const contextGuard = execution ? new ExecutionGuard(execution, cwd) : undefined;
-  const memoryContext = contextGuard ? memory.buildMemoryContext(cwd, { allowPath: file => !contextGuard.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
+  // A hosted workspace is not a filesystem grant to this SDK process. Its
+  // caller supplies initial context through the prompt or the declared tools.
+  const memoryContext = options.toolRuntime ? '' : contextGuard ? memory.buildMemoryContext(cwd, { allowPath: file => !contextGuard.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
   const fullPrompt = memoryContext.trim()
     ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
     : systemPrompt;
