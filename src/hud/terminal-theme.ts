@@ -2,8 +2,7 @@
  * Calliope AI terminal colours.
  *
  * The CLI paints with the Calliope AI Workbench brand from the design
- * system's terminal token mapping (@calliopelabs/ui `tokens/terminal`,
- * vendored in src/vendor/calliope-ui until the package is published): the
+ * system's terminal token mapping (@calliopelabs/ui `tokens/terminal`): the
  * brand's dark or light theme, degraded to what the terminal takes.
  *
  * - Colour depth: detected once from the environment (FORCE_COLOR, NO_COLOR,
@@ -21,7 +20,7 @@ import {
   type ColorDepth,
   type Mode,
   type TerminalTheme,
-} from '../vendor/calliope-ui/tokens.terminal.js';
+} from '@calliopelabs/ui/tokens/terminal';
 
 export type { ColorDepth, Mode, TerminalTheme };
 export { inkColor, sgr };

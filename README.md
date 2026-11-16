@@ -143,7 +143,7 @@ One file, 16 keys. Credentials live in a per-provider map with environment-varia
 
 ### Colours
 
-The CLI wears the Calliope AI Workbench brand from the design system's terminal token mapping (`@calliopelabs/ui`, vendored in `src/vendor/calliope-ui` by `scripts/vendor-calliope-ui.mjs` until the package version that carries it is published). It paints at the depth your terminal takes: 24-bit colour when `COLORTERM` is `truecolor` or `24bit`, the nearest xterm-256 colour when `TERM` has `256color`, the nearest of the sixteen ANSI colours otherwise, and none when output is piped or `NO_COLOR` is set. `FORCE_COLOR` (`0` to `3`) overrides the detection.
+The CLI wears the Calliope AI Workbench brand from the design system's terminal token mapping (`@calliopelabs/ui/tokens/terminal`). It paints at the depth your terminal takes: 24-bit colour when `COLORTERM` is `truecolor` or `24bit`, the nearest xterm-256 colour when `TERM` has `256color`, the nearest of the sixteen ANSI colours otherwise, and none when output is piped or `NO_COLOR` is set. `FORCE_COLOR` (`0` to `3`) overrides the detection.
 
 Dark is the default. On a light terminal choose light with `/config set theme light` (stored), or for one run `CALLIOPE_THEME=light` (`dark`, `light` or `no-color`; the variable wins over the stored choice).
 
