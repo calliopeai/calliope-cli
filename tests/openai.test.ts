@@ -627,16 +627,18 @@ describe('chatOpenAI (non-streaming, Chat Completions)', () => {
     expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
   });
 
-  it.each(['gpt-6.1-sol', 'gpt-6.1-terra'])('sends only max_completion_tokens for %s', async (model) => {
-    mockCreateResponse = { choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }] };
-    await chatOpenAI(makeSimpleMessages(), [], model);
-    expect(typeof lastCreateParams?.max_completion_tokens).toBe('number');
-    expect(lastCreateParams).not.toHaveProperty('max_tokens');
+  it.each(['gpt-6.1-sol', 'gpt-6.1-terra'])('preserves the requested output cap through Responses for %s', async model => {
+    mockResponsesCreateResponse = { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } };
+    await chatOpenAI(makeSimpleMessages(), [], model, undefined, undefined, { maxOutputTokens: 17 });
+    expect(lastResponsesCreateParams?.max_output_tokens).toBe(17);
+    expect(lastResponsesCreateParams).not.toHaveProperty('max_tokens');
+    expect(lastCreateParams).toBeNull();
 
-    mockStreamChunks = [{ choices: [{ delta: { content: 'ok' }, finish_reason: 'stop' }] }];
-    await chatOpenAI(makeSimpleMessages(), [], model, () => {});
-    expect(typeof lastStreamCreateParams?.max_completion_tokens).toBe('number');
-    expect(lastStreamCreateParams).not.toHaveProperty('max_tokens');
+    mockResponsesStreamEvents = [{ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 1, output_tokens: 1 } } }];
+    await chatOpenAI(makeSimpleMessages(), [], model, () => {}, undefined, { maxOutputTokens: 17 });
+    expect(lastResponsesStreamParams?.max_output_tokens).toBe(17);
+    expect(lastResponsesStreamParams).not.toHaveProperty('max_tokens');
+    expect(lastStreamCreateParams).toBeNull();
   });
 
   it('returns content and stop finish reason', async () => {
@@ -1138,7 +1140,7 @@ describe('chatOpenAI (streaming, Responses API)', () => {
     ).rejects.toThrow('Responses stream failed');
   });
 
-  it('handles function call with invalid JSON arguments gracefully', async () => {
+  it('refuses invalid streamed JSON arguments without inventing executable arguments', async () => {
     mockResponsesStreamEvents = [
       {
         type: 'response.output_item.done',
@@ -1158,11 +1160,9 @@ describe('chatOpenAI (streaming, Responses API)', () => {
       },
     ];
 
-    // Streaming Responses API is lenient - falls back to empty object
     const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', vi.fn());
-    expect(result.toolCalls).toEqual([
-      { id: 'call_bad', name: 'test', arguments: {} },
-    ]);
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.finishReason).toBe('error');
   });
 });
 
@@ -1334,7 +1334,7 @@ describe('chatOpenAI (Responses API streaming, additional coverage)', () => {
 
     const result = await chatOpenAI(makeSimpleMessages(), [], 'o3', vi.fn());
     expect(result.content).toBe('hello');
-    expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+    expect(result.usage).toBeUndefined();
   });
 
   it('handles function call with missing call_id using fallback', async () => {
@@ -1479,7 +1479,7 @@ describe('chatOpenAI (Responses API streaming, usage edge cases)', () => {
     expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
   });
 
-  it('handles function call with empty arguments string (fallback to {})', async () => {
+  it('refuses an empty streamed argument string without fabricating an object', async () => {
     mockResponsesStreamEvents = [
       {
         type: 'response.output_item.done',
@@ -1500,9 +1500,8 @@ describe('chatOpenAI (Responses API streaming, usage edge cases)', () => {
     ];
 
     const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', vi.fn());
-    expect(result.toolCalls).toEqual([
-      { id: 'call_empty_args', name: 'test', arguments: {} },
-    ]);
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.finishReason).toBe('error');
   });
 });
 
@@ -1704,5 +1703,96 @@ describe('header-only streaming calls at the output limit (#487)', () => {
       expect(result).not.toHaveProperty('truncatedToolCalls');
       expect(result.toolCalls).toEqual([{ id: 'header-call', name: 'test_tool', arguments: {} }]);
     }
+  });
+});
+
+
+describe('newer discovered GPT generations keep tool turns on Responses (#469)', () => {
+  it.each(['gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-7-fixture'])('uses Responses for a non-streamed tool call on %s', async model => {
+    mockResponsesCreateResponse = {
+      status: 'completed', output: [{ type: 'function_call', call_id: 'call_read', name: 'read_file', arguments: '{"path":"feature.txt"}' }],
+      usage: { input_tokens: 12, output_tokens: 4 },
+    };
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), model);
+    expect(lastResponsesCreateParams?.model).toBe(model);
+    expect(lastResponsesCreateParams?.tools).toEqual(toResponsesTools(makeTools()));
+    expect(lastCreateParams).toBeNull();
+    expect(result.toolCalls).toEqual([{ id: 'call_read', name: 'read_file', arguments: { path: 'feature.txt' } }]);
+    expect(result.finishReason).toBe('tool_use');
+    await chatOpenAI([
+      ...makeSimpleMessages(),
+      { role: 'assistant', content: '', toolCalls: result.toolCalls },
+      { role: 'tool', content: 'feature contents', toolCallId: 'call_read' },
+    ], makeTools(), model);
+    expect(lastResponsesCreateParams?.input).toEqual(expect.arrayContaining([
+      { type: 'function_call', call_id: 'call_read', name: 'read_file', arguments: '{"path":"feature.txt"}' },
+      { type: 'function_call_output', call_id: 'call_read', output: 'feature contents' },
+    ]));
+  });
+
+  it.each(['gpt-6.1-sol', 'gpt-6.1-terra'])('uses Responses and retains call IDs while streaming %s', async model => {
+    mockResponsesStreamEvents = [
+      { type: 'response.created', response: {}, sequence_number: 0 },
+      { type: 'response.output_item.done', output_index: 0, sequence_number: 1,
+        item: { id: 'fc_read', type: 'function_call', status: 'completed', call_id: 'call_read', name: 'read_file', arguments: '{"path":"feature.txt"}' } },
+      { type: 'response.completed', sequence_number: 2, response: { status: 'completed', usage: { input_tokens: 12, output_tokens: 4 } } },
+    ];
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), model, vi.fn());
+    expect(lastResponsesStreamParams?.model).toBe(model);
+    expect(lastStreamCreateParams).toBeNull();
+    expect(result.toolCalls).toEqual([{ id: 'call_read', name: 'read_file', arguments: { path: 'feature.txt' } }]);
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 4 });
+  });
+});
+
+describe('Responses tool frames settle before decoding (#470)', () => {
+  function fixture(streaming: boolean, status: string, argumentsText: string) {
+    const output = [
+      { type: 'function_call', call_id: 'valid_call', name: 'read_file', arguments: '{"path":"a.txt"}' },
+      { type: 'function_call', call_id: 'partial_call', name: 'write_file', arguments: argumentsText },
+    ];
+    const response = { status, output, usage: { input_tokens: 17, output_tokens: 23 } };
+    mockResponsesCreateResponse = response;
+    mockResponsesStreamEvents = [
+      ...output.map(item => ({ type: 'response.output_item.done', item })),
+      { type: status === 'incomplete' ? 'response.incomplete' : 'response.completed', response },
+    ];
+    return chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', streaming ? vi.fn() : undefined);
+  }
+
+  it.each([false, true])('retains usage and drops an incomplete tool batch, streaming=%s', async streaming => {
+    const result = await fixture(streaming, 'incomplete', '{"path":"unfinished');
+    expect(result.finishReason).toBe('length');
+    expect(result.truncatedToolCalls).toBe(true);
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.usage).toEqual({ inputTokens: 17, outputTokens: 23 });
+  });
+
+  it.each([false, true])('refuses the whole malformed complete batch while retaining usage, streaming=%s', async streaming => {
+    const result = await fixture(streaming, 'completed', '{"path":"private-sentinel');
+    expect(result.finishReason).toBe('error');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.usage).toEqual({ inputTokens: 17, outputTokens: 23 });
+    expect(result.warnings?.join(' ')).toContain('malformed tool arguments');
+    expect(JSON.stringify(result)).not.toContain('private-sentinel');
+  });
+
+  it.each(['null', '[]', '"text"', 'true'])('refuses non-object JSON arguments %s', async argumentsText => {
+    for (const streaming of [false, true]) {
+      const result = await fixture(streaming, 'completed', argumentsText);
+      expect(result.finishReason).toBe('error');
+      expect(result.toolCalls).toBeUndefined();
+      expect(result.usage).toEqual({ inputTokens: 17, outputTokens: 23 });
+    }
+  });
+
+  it('does not execute a streamed call without a terminal event', async () => {
+    mockResponsesStreamEvents = [{ type: 'response.output_item.done', item: {
+      type: 'function_call', call_id: 'orphan_call', name: 'read_file', arguments: '{"path":"a.txt"}',
+    } }];
+    const result = await chatOpenAI(makeSimpleMessages(), makeTools(), 'o3', vi.fn());
+    expect(result.finishReason).toBe('error');
+    expect(result.toolCalls).toBeUndefined();
+    expect(result.usage).toBeUndefined();
   });
 });

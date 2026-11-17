@@ -52,7 +52,9 @@ Modules live in subdirectories; import via each package's index.
 `runtime.runTurn` owns model/tool execution for terminal, headless and ACP clients.
 Its `assistant_message` journal events include `usageReported`: false means the provider omitted usage, even though the legacy numeric token counters remain zero. Consumers must distinguish missing usage from reported zero and preserve `costSource: subscription` separately from API dollar estimates. Older events lack the presence marker.
 Headless callers can set `--reasoning-effort` or `CALLIOPE_REASONING_EFFORT`; the flag wins, invalid input exits 2, and the shared runtime enforces live provider/model support through every request and continuation. Packaged Node and native smoke tests verify the SDK wire against a synthetic local transport.
+OpenAI GPT generations 5 and newer use Responses for reasoning and function-tool turns. This protocol rule derives from the discovered model ID; it does not supply a model catalog or grant reasoning-effort support.
 Clients adapt presentation and approval; new execution gates belong in the runtime.
+OpenAI Responses tool batches are decoded after terminal status. Incomplete batches use bounded length continuation; headless malformed batches request correction under the same three-consecutive-continuation, iteration, cost and deadline limits, without executing arguments. Reported usage remains metered and missing usage stays unknown.
 See [docs/runtime.md](docs/runtime.md) for cancellation, budgets and scope semantics,
 and [docs/routing.md](docs/routing.md) for live metadata and routing decisions.
 Provider/model controls and preference precedence are documented in

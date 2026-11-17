@@ -172,7 +172,7 @@ interface ResponsesOutputItemDoneEvent {
 }
 
 interface ResponsesCompletedEvent {
-  type: 'response.completed';
+  type: 'response.completed' | 'response.incomplete' | 'response.failed';
   response: {
     status: 'completed' | 'incomplete' | 'failed';
     usage?: { input_tokens: number; output_tokens: number };
@@ -217,23 +217,15 @@ interface ResponsesAPIResponse {
  * Models that require the Responses API instead of Chat Completions
  * These are OpenAI's newer reasoning models that only work with /v1/responses
  */
-const RESPONSES_API_MODELS = [
-  'o3',
-  'o3-mini',
-  'o3-pro',
-  'o4-mini',
-  'gpt-5',
-  // GPT-6 Astra supports function tools with reasoning only through
-  // Responses; keeping it here also prevents accidental Chat Completions
-  // dispatch when the planner supplies the standard reasoning setting.
-  'gpt-6-astra',
-];
+const RESPONSES_API_MODELS = ['o3', 'o4-mini'];
 
-/**
- * Check if a model requires the Responses API
+/** Select the request protocol, not model availability. The live catalog owns
+ * eligibility; newer GPT generations need Responses for reasoning with tools.
  */
 export function requiresResponsesAPI(model: string): boolean {
-  return RESPONSES_API_MODELS.some(m => model.startsWith(m));
+  const generation = /^gpt-(\d+)(?:[.-]|$)/.exec(model)?.[1];
+  return (generation !== undefined && Number(generation) >= 5) ||
+    RESPONSES_API_MODELS.some(m => model.startsWith(m));
 }
 
 /**
@@ -340,6 +332,29 @@ function isFunctionCallOutput(item: ResponsesOutputItem): item is ResponsesFunct
   return item.type === 'function_call';
 }
 
+/** Decode only a settled complete batch; partial or malformed calls never become tools. */
+function responsesToolFrame(items: ResponsesOutputItem[], status: ResponsesAPIResponse['status'] | undefined):
+  Pick<LLMResponse, 'toolCalls' | 'finishReason' | 'truncatedToolCalls' | 'warnings' | 'errorCode'> {
+  const calls = items.filter(isFunctionCallOutput);
+  if (status === 'incomplete') return {
+    finishReason: 'length', ...(calls.length ? { truncatedToolCalls: true } : {}),
+  };
+  if (status !== 'completed') return { finishReason: 'error' };
+  try {
+    const toolCalls = calls.map(item => {
+      const args: unknown = typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments;
+      if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid argument object');
+      return { id: item.call_id || item.id || `call_${Date.now()}`, name: item.name,
+        arguments: args as Record<string, unknown> };
+    });
+    return { toolCalls: toolCalls.length ? toolCalls : undefined,
+      finishReason: normalizeFinishReason(status, toolCalls.length > 0) };
+  } catch {
+    return { finishReason: 'error', errorCode: 'invalid_tool_arguments',
+      warnings: ['OpenAI returned malformed tool arguments; no tools were executed.'] };
+  }
+}
+
 // ============================================================================
 // Provider Implementations
 // ============================================================================
@@ -369,8 +384,8 @@ async function chatOpenAIResponses(
   // Use streaming if callback provided
   if (onToken) {
     let content = '';
-    const toolCalls: ToolCall[] = [];
-    let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
+    const outputItems: ResponsesOutputItem[] = [];
+    let terminalStatus: ResponsesAPIResponse['status'] | undefined;
     let inputTokens = 0;
     let outputTokens = 0;
     let usageSeen = false;
@@ -395,21 +410,7 @@ async function chatOpenAIResponses(
           content += typedEvent.delta;
           onToken(typedEvent.delta);
         } else if (isOutputItemDoneEvent(typedEvent) && isFunctionCallOutput(typedEvent.item as ResponsesOutputItem)) {
-          const item = typedEvent.item as ResponsesFunctionCallOutput;
-          let parsedArgs: Record<string, unknown> = {};
-          try {
-            parsedArgs = typeof item.arguments === 'string'
-              ? JSON.parse(item.arguments || '{}')
-              : (item.arguments as Record<string, unknown>) ?? {};
-          } catch {
-            debugLog(`Failed to parse Responses API tool call arguments for ${item.name}: ${String(item.arguments).substring(0, 200)}`);
-          }
-          toolCalls.push({
-            id: item.call_id || item.id || `call_${Date.now()}`,
-            name: item.name,
-            arguments: parsedArgs,
-          });
-          finishReason = 'tool_use';
+          outputItems.push(typedEvent.item as ResponsesFunctionCallOutput);
         } else if (isCompletedEvent(typedEvent)) {
           const response = typedEvent.response;
           if (response?.usage) {
@@ -417,16 +418,16 @@ async function chatOpenAIResponses(
             inputTokens = response.usage.input_tokens || 0;
             outputTokens = response.usage.output_tokens || 0;
           }
-          finishReason = normalizeFinishReason(response?.status, toolCalls.length > 0);
+          terminalStatus = response?.status ?? (typedEvent.type === 'response.completed' ? 'completed'
+            : typedEvent.type === 'response.incomplete' ? 'incomplete' : 'failed');
         }
       }
 
       throwIfCancelled(signal);
       return {
         content,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        finishReason,
-        usage: limits?.bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
+        ...responsesToolFrame(outputItems, terminalStatus),
+        usage: usageSeen ? { inputTokens, outputTokens } : undefined,
       };
     } catch (streamError) {
       throwIfCancelled(signal);
@@ -452,28 +453,9 @@ async function chatOpenAIResponses(
 
   // Extract content and tool calls from response
   let content = response.output_text || '';
-  const toolCalls: ToolCall[] = [];
-
-  // Process output items for tool calls
-  for (const item of response.output) {
-    if (isFunctionCallOutput(item)) {
-      toolCalls.push({
-        id: item.call_id || item.id || `call_${Date.now()}`,
-        name: item.name,
-        arguments: typeof item.arguments === 'string'
-          ? JSON.parse(item.arguments)
-          : item.arguments as Record<string, unknown>,
-      });
-    }
-  }
-
-  // Determine finish reason
-  const finishReason = normalizeFinishReason(response.status, toolCalls.length > 0);
-
   return {
     content,
-    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-    finishReason,
+    ...responsesToolFrame(response.output, response.status),
     usage: response.usage ? {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,

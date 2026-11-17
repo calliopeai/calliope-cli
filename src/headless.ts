@@ -470,8 +470,8 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       emit({ type: 'status', timestamp: now(), data: { message } }, outputMode);
       process.stderr.write(message + '\n');
     }
-    if (!stoppedBy && (result.reason === 'length' || result.reason === 'empty_response')) {
-      const message = `Run gave up: ${result.reason === 'length' ? 'output length limit reached' : 'empty model replies'} (${result.reason}) after ${MAX_CONSECUTIVE_CONTINUATIONS} consecutive continuations.`;
+    if (!stoppedBy && (result.reason === 'length' || result.reason === 'empty_response' || result.reason === 'invalid_tool_arguments')) {
+      const message = `Run gave up: ${result.reason === 'length' ? 'output length limit reached' : result.reason === 'invalid_tool_arguments' ? 'malformed tool arguments' : 'empty model replies'} (${result.reason}) after ${MAX_CONSECUTIVE_CONTINUATIONS} consecutive continuations.`;
       emit({ type: 'error', timestamp: now(), data: { message, reason: result.reason } }, outputMode);
       process.stderr.write(message + '\n');
     }

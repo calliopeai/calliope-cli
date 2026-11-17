@@ -132,3 +132,31 @@ it('cancels Google HTTP transport and settles a bounded attempt as unknown',asyn
   const pending=chat('google',probeMessages('text'),[],'toy',undefined,undefined,{signal:controller.signal,maxOutputTokens:13,attemptBudget:{reserve:async()=>'ticket',settle}});const rejected=expect(pending).rejects.toThrow();await started;controller.abort();await rejected;
   expect(wireSignal!.aborted).toBe(true);expect(settle).toHaveBeenCalledWith('ticket','cancelled',undefined);expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it.each([false,true])('settles malformed Responses usage without retry or executable defaults (stream=%s)',async stream=>{
+  const wire=syntheticWire('responses','tool',stream);
+  const corrupt=(text:string)=>JSON.stringify(JSON.parse(text),(key,value)=>key==='arguments'?'coordinate-free malformed JSON':value);
+  const body=stream?wire.body.toString().split('\n').map(line=>line.startsWith('data: ')&&line!=='data: [DONE]'?'data: '+corrupt(line.slice(6)):line).join('\n'):corrupt(wire.body.toString());
+  vi.stubGlobal('fetch',vi.fn(async()=>wireResponse(Buffer.from(body),wire.type)));
+  const reserve=vi.fn(async()=> 'malformed-response'),settle=vi.fn(async()=>{}),retry=vi.fn(),events:any[]=[];
+  const result=await chat('openai',probeMessages('tool'),[TOOL],'gpt-5-test',stream?()=>{}:undefined,retry,
+    {maxOutputTokens:13,attemptBudget:{reserve,settle},onStreamEvent:event=>events.push(event)});
+  expect(result).toMatchObject({finishReason:'error',errorCode:'invalid_tool_arguments',usage:{inputTokens:7,outputTokens:3}});
+  expect(result.toolCalls).toBeUndefined();
+  expect(fetch).toHaveBeenCalledOnce();expect(reserve).toHaveBeenCalledOnce();
+  expect(settle).toHaveBeenCalledExactlyOnceWith('malformed-response','error',{inputTokens:7,outputTokens:3});
+  expect(retry).not.toHaveBeenCalled();
+  if(stream)expect(events.map(event=>event.state)).toEqual(['started','failed']);
+});
+
+it.each(['known','missing-usage','missing-terminal'])('settles failed Responses streams once with %s usage evidence',async evidence=>{
+  const wire=syntheticWire('responses','error',true);
+  const body=evidence==='missing-usage'?withoutUsage(wire.body,wire.type):evidence==='missing-terminal'
+    ?Buffer.from(wire.body.toString().split('\n\n').filter(block=>!block.includes('response.failed')).join('\n\n')):wire.body;
+  vi.stubGlobal('fetch',vi.fn(async()=>wireResponse(body,wire.type)));
+  const reserve=vi.fn(async()=> 'failed-response'),settle=vi.fn(async()=>{});
+  await expect(chat('openai',probeMessages('text'),[],'gpt-5-test',()=>{},undefined,
+    {maxOutputTokens:13,maxProviderRetries:0,attemptBudget:{reserve,settle}})).rejects.toThrow();
+  expect(fetch).toHaveBeenCalledOnce();expect(reserve).toHaveBeenCalledOnce();
+  expect(settle).toHaveBeenCalledExactlyOnceWith('failed-response','error',evidence==='known'?{inputTokens:7,outputTokens:3}:undefined);
+});

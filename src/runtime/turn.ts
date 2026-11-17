@@ -37,8 +37,8 @@ import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCh
 import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
-export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'waiting_for_user' | 'stopped';
-/** Consecutive truncated or empty replies a `continueOnLength` turn recovers from before giving up. */
+export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'invalid_tool_arguments' | 'waiting_for_user' | 'stopped';
+/** Consecutive truncated, empty or malformed replies recovered before giving up. */
 export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict; verification?: CompletionVerification }
@@ -557,13 +557,35 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         let response = await request(currentRequest);
         // A reply cut off by the output limit may carry a partial tool call: never run, store or repair it.
         if (options.continueOnLength && response.finishReason === 'length' && response.toolCalls?.length) response = { ...response, toolCalls: undefined };
-        if (response.finishReason === 'error') throw response.errorCode === 'refusal' ? new ProviderRefusalError() : new Error('Provider returned an unsuccessful completion');
         try { checkBudget(); }
         catch (error) {
           messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
           await options.onResponse?.(response, iterations);
           throw error;
         }
+        if (options.continueOnLength && response.finishReason === 'error' && response.errorCode === 'invalid_tool_arguments') {
+          messages.current.push({ role: 'assistant', content: response.content,
+            providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          await checkpoint('active');
+          const stop = await options.onResponse?.(response, iterations);
+          throwIfCancelled(signal);
+          checkBudget();
+          if (stop === 'stop') { reason = 'stopped'; options.onIterationEnd?.(iterations); break; }
+          if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
+            reason = 'invalid_tool_arguments';
+            options.onIterationEnd?.(iterations);
+            break;
+          }
+          messages.current.push({ role: 'user', content:
+            'Your previous tool-call arguments were malformed and no tools from that response were executed. Send complete valid JSON arguments using the existing tools. Do not repeat tools with recorded successful results.' });
+          await checkpoint('active');
+          options.onWarning?.(`Requesting corrected tool arguments (${continuations}/${MAX_CONSECUTIVE_CONTINUATIONS}) under the original allowance; no malformed tools were executed.`);
+          options.onIterationEnd?.(iterations);
+          continue;
+        }
+        if (response.finishReason === 'error') throw response.errorCode === 'refusal' ? new ProviderRefusalError()
+          : new Error(response.errorCode === 'invalid_tool_arguments'
+            ? 'Provider returned malformed tool arguments; no tools were executed.' : 'Provider returned an unsuccessful completion');
         response = await repairToolCalls({ ...currentRequest, response, repairedIds, signal,
           request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false); checkBudget(); return value; },
           onRepair: options.onRepair });

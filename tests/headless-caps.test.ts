@@ -947,3 +947,68 @@ describe('headless initial control admission', () => {
     expect(mockChat).not.toHaveBeenCalled();
   });
 });
+
+
+describe('bounded malformed-tool correction (#470)', () => {
+  const malformed = () => ({ content: '', finishReason: 'error', errorCode: 'invalid_tool_arguments',
+    usage: { inputTokens: 800, outputTokens: 200 } });
+
+  it('keeps one session and consumed progress while correcting without tool effects', async () => {
+    const histories: any[][] = [], progress: any[] = [];
+    const responses = [malformed(), toolCallWithUsage('corrected'),
+      { content: 'done', finishReason: 'stop', usage: { inputTokens: 800, outputTokens: 200 } }];
+    mockChat.mockImplementation(async (_provider, messages) => {
+      histories.push(structuredClone(messages)); return responses.shift();
+    });
+    mockExecuteTool.mockResolvedValue({ result: 'ok', isError: false });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', outputMode: 'json', maxCost: 1,
+      onTurnProgressCommitted: async receipt => { progress.push(receipt); } })).toBe(0);
+    expect(mockExecuteTool).toHaveBeenCalledOnce();
+    expect(mockExecuteTool.mock.calls[0]![0].id).toBe('corrected');
+    expect(histories[1]?.some(message => message.role === 'user' && message.content.includes('no tools from that response were executed'))).toBe(true);
+    expect(progress.map(receipt => receipt.progress.iterations)).toEqual([1, 2, 3]);
+    expect(new Set(progress.map(receipt => receipt.progress.turnId)).size).toBe(1);
+    expect(new Set(progress.map(receipt => receipt.sessionId)).size).toBe(1);
+    expect(eventOf('done')).toMatchObject({ data: { reason: 'completed', iterations: 3, inputTokens: 2400, outputTokens: 600 } });
+  });
+
+  it('stops nonzero after the shared consecutive-continuation bound', async () => {
+    mockChat.mockImplementation(async () => malformed());
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', outputMode: 'json', maxCost: 1 })).toBe(4);
+    expect(mockChat).toHaveBeenCalledTimes(4);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(eventOf('done')).toMatchObject({ data: { reason: 'invalid_tool_arguments', iterations: 4, inputTokens: 3200, outputTokens: 800 } });
+  });
+
+  it('meters malformed responses and stops before spending past the original cost cap', async () => {
+    mockChat.mockImplementation(async () => malformed());
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', outputMode: 'json', maxCost: 0.15 })).toBe(CAP_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledTimes(2);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    expect(eventOf('done')).toMatchObject({ data: { reason: 'budget', stoppedBy: 'cost', inputTokens: 1600, outputTokens: 400 } });
+  });
+});
+
+
+describe('malformed response callback contract (#470)', () => {
+  it.each(['corrected','exhausted','budget','callback-stop'])('notifies each response exactly once during %s', async mode => {
+    const { runTurn } = await import('../src/runtime/index.js');
+    const malformed = { content: '', finishReason: 'error', errorCode: 'invalid_tool_arguments', usage: { inputTokens: 800, outputTokens: 200 } };
+    const good = { content: 'done', finishReason: 'stop', usage: { inputTokens: 800, outputTokens: 200 } };
+    let calls = 0;
+    mockChat.mockImplementation(async () => mode === 'corrected' && ++calls > 1 ? good : malformed);
+    const onResponse = vi.fn(async (_response: import('../src/types.js').LLMResponse) => mode === 'callback-stop' ? 'stop' as const : undefined);
+    const result = await runTurn({ sessionId: 'malformed-callback-' + mode, cwd: process.cwd(), provider: 'anthropic',
+      prompt: 'Original goal', messages: { current: [{ role: 'user', content: 'Original goal' }] }, confirmation: 'none',
+      continueOnLength: true, onCheckpoint: async () => {}, onResponse,
+      maxCostPerRun: mode === 'budget' ? 0.15 : 1 });
+    const count = mode === 'exhausted' ? 4 : mode === 'callback-stop' ? 1 : 2;
+    expect(onResponse).toHaveBeenCalledTimes(count);expect(mockChat).toHaveBeenCalledTimes(count);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+    for (const [response] of onResponse.mock.calls) {
+      expect(response.usage).toEqual({ inputTokens: 800, outputTokens: 200 });
+      expect(response.toolCalls).toBeUndefined();
+    }
+    expect(result.reason).toBe(mode === 'corrected' ? 'completed' : mode === 'exhausted' ? 'invalid_tool_arguments' : mode === 'budget' ? 'budget' : 'stopped');
+  });
+});
