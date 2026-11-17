@@ -3,7 +3,7 @@
 #
 # Multi-stage build:
 #   builder  — compiles TypeScript and prunes to production deps
-#   runtime  — minimal Alpine image, non-root user, production-ready
+#   runtime  — slim Debian image, non-root user, production-ready
 #
 # Usage:
 #   Interactive:  docker run -it --rm -e ANTHROPIC_API_KEY=... calliope-cli
@@ -12,7 +12,7 @@
 ################################################################################
 
 # ── Stage 1: Builder ──────────────────────────────────────────────────────────
-FROM node:24-alpine AS builder
+FROM node:24-bookworm-slim AS builder
 
 WORKDIR /build
 
@@ -30,15 +30,17 @@ RUN npm run build
 RUN npm prune --production
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM node:24-alpine AS runtime
+FROM node:24-bookworm-slim AS runtime
 
 # git is needed by calliope-cli for project memory / session operations
-RUN apk add --no-cache git
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends git ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 # Non-root user with home dir for config persistence
-# UID/GID 2000 sidesteps the `node` user that ships at 1000 in node:24-alpine
-RUN addgroup -g 2000 calliope && \
-    adduser -u 2000 -G calliope -s /bin/sh -D -h /home/calliope calliope
+# UID/GID 2000 sidesteps the `node` user that ships at 1000 in node:24-bookworm-slim
+RUN groupadd -g 2000 calliope && \
+    useradd -u 2000 -g calliope -s /bin/sh -m -d /home/calliope calliope
 
 WORKDIR /app
 

@@ -365,32 +365,32 @@ describe('getInkColor', () => {
   it('should return a string for known semantic keys', () => {
     const result = getInkColor('primary');
     expect(typeof result).toBe('string');
-    expect(result.length).toBeGreaterThan(0);
+    expect(result!.length).toBeGreaterThan(0);
   });
 
-  it('should return "cyan" for default palette primary', () => {
+  it('should return the brand primary for the default palette', () => {
     applyPalette('default');
-    expect(getInkColor('primary')).toBe('cyan');
+    expect(getInkColor('primary')).toBe('blueBright');
   });
 
-  it('should return "red" for error', () => {
+  it('should return the danger role for error', () => {
     applyPalette('default');
-    expect(getInkColor('error')).toBe('red');
+    expect(getInkColor('error')).toBe('redBright');
   });
 
-  it('should return "green" for success', () => {
+  it('should return the success role', () => {
     applyPalette('default');
-    expect(getInkColor('success')).toBe('green');
+    expect(getInkColor('success')).toBe('greenBright');
   });
 
-  it('should return "yellow" for warning', () => {
+  it('should return the warning role', () => {
     applyPalette('default');
-    expect(getInkColor('warning')).toBe('yellow');
+    expect(getInkColor('warning')).toBe('yellowBright');
   });
 
-  it('should return "blue" for info', () => {
+  it('should return the info role (green: the brand has no blue status)', () => {
     applyPalette('default');
-    expect(getInkColor('info')).toBe('blue');
+    expect(getInkColor('info')).toBe('greenBright');
   });
 
   it('should change after applying a different palette', () => {
@@ -398,7 +398,7 @@ describe('getInkColor', () => {
     const defaultPrimary = getInkColor('primary');
     applyPalette('light');
     const lightPrimary = getInkColor('primary');
-    expect(defaultPrimary).toBe('cyan');
+    expect(defaultPrimary).toBe('blueBright');
     expect(lightPrimary).toBe('blue');
   });
 });
@@ -421,19 +421,20 @@ describe('useThemeColors', () => {
     expect(colors).toHaveProperty('border');
   });
 
-  it('should return strings for all values', () => {
+  it('should return a string, or undefined for the terminal colour, for every value', () => {
     const colors = useThemeColors();
     for (const value of Object.values(colors)) {
-      expect(typeof value).toBe('string');
+      expect(value === undefined || typeof value === 'string').toBe(true);
     }
+    expect(colors.text).toBeUndefined();
   });
 
   it('should return Ink-compatible color names', () => {
     applyPalette('default');
     const colors = useThemeColors();
-    expect(colors.primary).toBe('cyan');
-    expect(colors.error).toBe('red');
-    expect(colors.success).toBe('green');
+    expect(colors.primary).toBe('blueBright');
+    expect(colors.error).toBe('redBright');
+    expect(colors.success).toBe('greenBright');
   });
 
   it('should reflect palette changes', () => {
@@ -441,8 +442,7 @@ describe('useThemeColors', () => {
     const defaultColors = useThemeColors();
     applyPalette('light');
     const lightColors = useThemeColors();
-    // Default primary = cyan, light primary = blue
-    expect(defaultColors.primary).toBe('cyan');
+    expect(defaultColors.primary).toBe('blueBright');
     expect(lightColors.primary).toBe('blue');
   });
 });

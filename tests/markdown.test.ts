@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown, stripMarkdown } from '../src/markdown.js';
 import { colors } from '../src/styles.js';
+import { getPaletteColor } from '../src/hud/api.js';
+
+// Accents come from the current palette (the Calliope AI Workbench brand).
+const primary = getPaletteColor('primary');
 
 // =============================================================================
 // renderMarkdown
@@ -12,10 +16,10 @@ describe('renderMarkdown', () => {
   // ---------------------------------------------------------------------------
 
   describe('headers', () => {
-    it('should render h1 with bold, brightCyan, and underline', () => {
+    it('should render h1 with bold, the primary colour, and underline', () => {
       const result = renderMarkdown('# Hello World');
       expect(result).toContain(colors.bold);
-      expect(result).toContain(colors.brightCyan);
+      expect(result).toContain(primary);
       expect(result).toContain(colors.underline);
       expect(result).toContain('Hello World');
       expect(result).toContain(colors.reset);
@@ -26,17 +30,17 @@ describe('renderMarkdown', () => {
     it('should render h2 with bold and brightCyan', () => {
       const result = renderMarkdown('## Section');
       expect(result).toContain(colors.bold);
-      expect(result).toContain(colors.brightCyan);
+      expect(result).toContain(primary);
       expect(result).toContain('Section');
       // h2 should not have underline
       expect(result).not.toContain(colors.underline);
       expect(result).not.toContain('## ');
     });
 
-    it('should render h3 with bold and cyan', () => {
+    it('should render h3 with bold and the primary colour', () => {
       const result = renderMarkdown('### Subsection');
       expect(result).toContain(colors.bold);
-      expect(result).toContain(colors.cyan);
+      expect(result).toContain(primary);
       expect(result).toContain('Subsection');
       expect(result).not.toContain('### ');
     });
@@ -49,8 +53,7 @@ describe('renderMarkdown', () => {
       expect(h1).toContain(colors.underline);
       expect(h2).not.toContain(colors.underline);
       expect(h3).not.toContain(colors.underline);
-      // h3 uses cyan, h1/h2 use brightCyan
-      expect(h3).toContain(colors.cyan);
+      expect(h3).toContain(primary);
     });
   });
 
@@ -87,8 +90,7 @@ describe('renderMarkdown', () => {
 
     it('should render inline code with backticks', () => {
       const result = renderMarkdown('Use `console.log` for debugging');
-      expect(result).toContain(colors.bgGray);
-      expect(result).toContain(colors.white);
+      expect(result).toContain(getPaletteColor('selection'));
       expect(result).toContain('console.log');
       expect(result).toContain(colors.reset);
     });
@@ -96,7 +98,7 @@ describe('renderMarkdown', () => {
     it('should render links', () => {
       const result = renderMarkdown('Visit [Example](https://example.com)');
       expect(result).toContain(colors.underline);
-      expect(result).toContain(colors.blue);
+      expect(result).toContain(primary);
       expect(result).toContain('Example');
       expect(result).toContain('https://example.com');
       expect(result).not.toContain('[Example]');
@@ -105,7 +107,7 @@ describe('renderMarkdown', () => {
     it('should handle multiple inline formats in one line', () => {
       const result = renderMarkdown('**bold** and `code` and *italic*');
       expect(result).toContain(colors.bold);
-      expect(result).toContain(colors.bgGray);
+      expect(result).toContain(getPaletteColor('selection'));
       expect(result).toContain(colors.italic);
     });
   });
@@ -117,7 +119,7 @@ describe('renderMarkdown', () => {
   describe('lists', () => {
     it('should render unordered list with dash', () => {
       const result = renderMarkdown('- item one');
-      expect(result).toContain(colors.cyan);
+      expect(result).toContain(primary);
       // Bullet character
       expect(result).toContain('\u2022');
       expect(result).toContain('item one');
@@ -144,7 +146,7 @@ describe('renderMarkdown', () => {
 
     it('should render ordered list items', () => {
       const result = renderMarkdown('1. First item');
-      expect(result).toContain(colors.cyan);
+      expect(result).toContain(primary);
       expect(result).toContain('1.');
       expect(result).toContain('First item');
     });
@@ -227,17 +229,16 @@ describe('renderMarkdown', () => {
     it('should apply syntax highlighting for known languages', () => {
       const input = '```typescript\nconst foo = "bar";\n```';
       const result = renderMarkdown(input);
-      // The keyword "const" should get a color applied (magenta for TS keywords)
-      expect(result).toContain(colors.magenta);
-      // The string "bar" should be highlighted (green for strings)
-      expect(result).toContain(colors.green);
+      // The keyword "const" and the string "bar" take the palette's code colours
+      expect(result).toContain(getPaletteColor('codeKeyword'));
+      expect(result).toContain(getPaletteColor('codeString'));
     });
 
     it('should handle language aliases', () => {
       const input = '```js\nconst x = 1;\n```';
       const result = renderMarkdown(input);
       // 'js' maps to 'javascript', so keywords should be highlighted
-      expect(result).toContain(colors.magenta);
+      expect(result).toContain(getPaletteColor('codeKeyword'));
     });
 
     it('should handle python code blocks', () => {
@@ -245,7 +246,7 @@ describe('renderMarkdown', () => {
       const result = renderMarkdown(input);
       expect(result).toContain('python');
       // Python keywords should be highlighted
-      expect(result).toContain(colors.magenta);
+      expect(result).toContain(getPaletteColor('codeKeyword'));
     });
 
     it('should handle unknown language without crashing', () => {
@@ -254,8 +255,8 @@ describe('renderMarkdown', () => {
       // Should still display the code block
       expect(result).toContain('brainfuck');
       expect(result).toContain('+++[>++<-]');
-      // Unknown languages get white color
-      expect(result).toContain(colors.white);
+      // Unknown languages take the terminal's own foreground, with no colour
+      expect(result).not.toContain(getPaletteColor('codeKeyword'));
     });
 
     it('should handle multi-line code blocks', () => {

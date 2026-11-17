@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Text, useInput, useWindowSize } from 'ink';
+import { getInkColor } from '../../hud/api.js';
 import type { CapturedToolOutput } from '../../sessions/index.js';
 import { approvalDisplayText } from '../../approvals/index.js';
 import { wrapToolOutput } from '../tool-output-wrap.js';
@@ -22,7 +23,7 @@ export function ToolOutputViewer({ output, onClose }: { output: CapturedToolOutp
     <Text dimColor>{output.record.id} | {output.record.createdAt}</Text>
     {(expanded ? rows.slice(current * viewport.rows, (current + 1) * viewport.rows) : rows.slice(0, 3)).map((line, index) => <Text key={index}>{line}</Text>)}
     <Text dimColor>{expanded ? `Page ${current + 1}/${pages}` : 'Collapsed'} | [E/Enter] {expanded ? 'Collapse' : 'Expand'} | [N/P] Next/previous | [Esc] Close</Text>
-    {output.record.truncated && <Text color="yellow">Output was truncated at the storage limit ({output.record.sourceChars} source characters).</Text>}
-    {!output.saved && <Text color="yellow">Available in this transcript only; saving failed.</Text>}
+    {output.record.truncated && <Text color={getInkColor('warning')}>Output was truncated at the storage limit ({output.record.sourceChars} source characters).</Text>}
+    {!output.saved && <Text color={getInkColor('warning')}>Available in this transcript only; saving failed.</Text>}
   </Box>;
 }

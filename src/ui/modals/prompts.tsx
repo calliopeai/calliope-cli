@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { getInkColor } from '../../hud/api.js';
 import { parseFileReferences } from '../../files.js';
 import type { ApprovalChoice, PendingApproval } from '../../approvals/index.js';
 import { getSessionResumeAction } from '../input-utils.js';
@@ -33,10 +34,10 @@ export function UpgradePrompt({
 
   return (
     <Box flexDirection="column" marginY={1}>
-      <Text color="yellow">
-        Update available: v{currentVersion} → <Text color="green">v{latestVersion}</Text>
+      <Text color={getInkColor('warning')}>
+        Update available: v{currentVersion} → <Text color={getInkColor('success')}>v{latestVersion}</Text>
       </Text>
-      <Text>Upgrade now? <Text color="cyan">(y/N)</Text></Text>
+      <Text>Upgrade now? <Text color={getInkColor('primary')}>(y/N)</Text></Text>
     </Box>
   );
 }
@@ -113,11 +114,11 @@ export function ComplexityWarning({
     };
   }, [prompt]);
 
-  const riskColors = { low: 'green', medium: 'yellow', high: 'red' } as const;
+  const riskColors = { low: getInkColor('success'), medium: getInkColor('warning'), high: getInkColor('error') };
 
   return (
-    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="yellow" paddingX={1}>
-      <Text color="yellow" bold>🔍 Operation Preview</Text>
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor={getInkColor('warning')} paddingX={1}>
+      <Text color={getInkColor('warning')} bold>🔍 Operation Preview</Text>
       <Text> </Text>
       <Text dimColor>{reason}</Text>
 
@@ -125,10 +126,10 @@ export function ComplexityWarning({
         <>
           <Text> </Text>
           {analysis.operations.length > 0 && (
-            <Text>Operations: <Text color="cyan">{analysis.operations.join(', ')}</Text></Text>
+            <Text>Operations: <Text color={getInkColor('primary')}>{analysis.operations.join(', ')}</Text></Text>
           )}
           {analysis.files.length > 0 && (
-            <Text>Files referenced: <Text color="cyan">{analysis.files.length}</Text>
+            <Text>Files referenced: <Text color={getInkColor('primary')}>{analysis.files.length}</Text>
               {analysis.files.length <= 3 && (
                 <Text dimColor> ({analysis.files.map(f => f.split('/').pop()).join(', ')})</Text>
               )}
@@ -141,12 +142,12 @@ export function ComplexityWarning({
       <Text> </Text>
       <Text>This operation may affect multiple files or require careful planning.</Text>
       <Text> </Text>
-      <Text color="cyan">How would you like to proceed?</Text>
+      <Text color={getInkColor('primary')}>How would you like to proceed?</Text>
       <Text> </Text>
       <Text>
-        <Text color="green">[P]</Text><Text>roceed directly  </Text>
-        <Text color="yellow">[L]</Text><Text>et me plan first  </Text>
-        <Text color="red">[C]</Text><Text>ancel</Text>
+        <Text color={getInkColor('success')}>[P]</Text><Text>roceed directly  </Text>
+        <Text color={getInkColor('warning')}>[L]</Text><Text>et me plan first  </Text>
+        <Text color={getInkColor('error')}>[C]</Text><Text>ancel</Text>
       </Text>
     </Box>
   );
@@ -182,14 +183,14 @@ export function SessionResumePrompt({
   })();
 
   return (
-    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor="cyan" paddingX={1}>
-      <Text color="cyan" bold>📂 Previous Session Found</Text>
+    <Box flexDirection="column" marginY={1} borderStyle="round" borderColor={getInkColor('primary')} paddingX={1}>
+      <Text color={getInkColor('primary')} bold>📂 Previous Session Found</Text>
       <Text> </Text>
-      <Text>Project: <Text color="yellow">{session.projectName}</Text></Text>
+      <Text>Project: <Text color={getInkColor('system')}>{session.projectName}</Text></Text>
       <Text>Last active: <Text dimColor>{timeAgo}</Text></Text>
       <Text>Messages: <Text dimColor>{session.messageCount}</Text></Text>
       <Text> </Text>
-      <Text><Text color="cyan">[R]</Text>esume session  <Text color="cyan">[N]</Text>ew session  <Text dimColor>[Enter/Esc] new</Text></Text>
+      <Text><Text color={getInkColor('primary')}>[R]</Text>esume session  <Text color={getInkColor('primary')}>[N]</Text>ew session  <Text dimColor>[Enter/Esc] new</Text></Text>
     </Box>
   );
 }
@@ -210,7 +211,7 @@ export function ToolConfirmation({ pending, onAnswer }: {
     else if (input.toLowerCase() === 'p' && request.reusable) onAnswer('allow_project');
     else if (input.toLowerCase() === 'n') onAnswer('reject');
   });
-  const riskColor = request.risk === 'critical' ? 'red' : 'yellow';
+  const riskColor = getInkColor(request.risk === 'critical' ? 'error' : 'warning');
   return (
     <Box flexDirection="column" marginY={1} borderStyle="round" borderColor={riskColor} paddingX={1}>
       <Text color={riskColor} bold>{request.risk.toUpperCase()} RISK — {request.tool}</Text>

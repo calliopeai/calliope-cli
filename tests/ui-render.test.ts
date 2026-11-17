@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderMarkdown } from '../src/markdown.js';
 import { highlightSyntax } from '../src/diff.js';
+import { getPaletteColor } from '../src/hud/api.js';
 
 const ESC = '\x1b';
 // A well-formed SGR sequence: ESC [ <params> m
@@ -40,10 +41,10 @@ describe('#160 highlightSyntax — no regex over injected ANSI', () => {
     const out = highlightSyntax(line, 'foo.ts');
     expect(hasNoOrphanedSGR(out)).toBe(true);
     expect(visibleText(out)).toBe(line);
-    // The number "2" lives inside the comment, so the yellow number color must
-    // NOT appear — the dim comment rule (earlier priority) wins the whole span.
-    expect(out).not.toContain('\x1b[33m'); // yellow / numbers
-    expect(out).toContain('\x1b[2m');      // dim / comment
+    // The number "2" lives inside the comment, so the number color must NOT
+    // appear: the comment rule (earlier priority) wins the whole span.
+    expect(out).not.toContain(getPaletteColor('codeNumber'));
+    expect(out).toContain(getPaletteColor('codeComment'));
   });
 
   it('string containing a number is colored as a string, not split by the number rule', () => {

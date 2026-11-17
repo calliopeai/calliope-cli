@@ -10,6 +10,7 @@ import { colors as ANSI } from '../styles.js';
 import type { Skin, Palette, BoxChars, SemanticColorKey } from './types.js';
 import { SKINS, BOX_STYLES, SPINNER_SETS } from './skins.js';
 import { PALETTES } from './palettes.js';
+import { colorDepth, inkColor } from './terminal-theme.js';
 
 // ============================================================================
 // State
@@ -78,10 +79,26 @@ export function paletteColorize(text: string, key: SemanticColorKey): string {
   return `${color}${text}${ANSI.reset}`;
 }
 
-export function getInkColor(key: SemanticColorKey): string {
-  const ansiCode = getPaletteColor(key);
-  return ansiToInkColor(ansiCode);
+/**
+ * An Ink `color` prop for a key: the brand colour at the terminal's depth
+ * ("#rrggbb", "ansi256(n)" or an ANSI name), or undefined (the terminal's own
+ * colour) when the terminal takes none or the key has no colour.
+ */
+export function getInkColor(key: SemanticColorKey): string | undefined {
+  const depth = colorDepth();
+  if (depth === 'none') return undefined;
+  const palette = getCurrentPalette();
+  if (!palette.hex) return ansiToInkColor(getPaletteColor(key));
+  const hex = palette.hex[key];
+  if (!hex) return undefined;
+  // Every render asks; the nearest-colour search runs once per colour and depth.
+  const cacheKey = `${hex}/${depth}`;
+  let color = inkColors.get(cacheKey);
+  if (color === undefined) inkColors.set(cacheKey, (color = inkColor(hex, depth)!));
+  return color;
 }
+
+const inkColors = new Map<string, string>();
 
 const ANSI_TO_INK: Record<string, string> = {
   [ANSI.black]: 'black',

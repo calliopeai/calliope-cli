@@ -207,79 +207,65 @@ describe('getCurrentPalette', () => {
 // ============================================================================
 
 describe('getInkColor', () => {
-  it('should return a valid Ink color name for known ANSI codes', () => {
-    // The default palette maps primary to ANSI.cyan which should resolve to 'cyan'
-    expect(getInkColor('primary')).toBe('cyan');
+  // The test setup pins the 16-colour depth: each key degrades to the ANSI
+  // name nearest its Workbench brand colour (bright on dark, normal on light).
+  it('should return the Ink name of the brand primary', () => {
+    expect(getInkColor('primary')).toBe('blueBright');
   });
 
-  it('should return correct Ink color for the error role (red)', () => {
-    expect(getInkColor('error')).toBe('red');
+  it('should return the status roles', () => {
+    expect(getInkColor('error')).toBe('redBright');
+    expect(getInkColor('success')).toBe('greenBright');
+    expect(getInkColor('warning')).toBe('yellowBright');
+    expect(getInkColor('info')).toBe('greenBright');
   });
 
-  it('should return correct Ink color for the success role (green)', () => {
-    expect(getInkColor('success')).toBe('green');
-  });
-
-  it('should return correct Ink color for the warning role (yellow)', () => {
-    expect(getInkColor('warning')).toBe('yellow');
-  });
-
-  it('should return correct Ink color for the info role (blue)', () => {
-    expect(getInkColor('info')).toBe('blue');
-  });
-
-  it('should fall back to white for unmapped ANSI codes', () => {
-    // background in default palette is empty string, which won't map
-    expect(getInkColor('background')).toBe('white');
+  it('should leave keys with no colour to the terminal', () => {
+    expect(getInkColor('background')).toBeUndefined();
+    expect(getInkColor('text')).toBeUndefined();
+    expect(getInkColor('textBold')).toBeUndefined();
   });
 
   it('should change output after applying a different palette', () => {
     const defaultPrimary = getInkColor('primary');
     applyPalette('light');
     const lightPrimary = getInkColor('primary');
-    // Light palette uses blue for primary, default uses cyan
-    expect(defaultPrimary).toBe('cyan');
+    expect(defaultPrimary).toBe('blueBright');
     expect(lightPrimary).toBe('blue');
   });
 
   it('should map core roles correctly for the default palette', () => {
-    expect(getInkColor('secondary')).toBe('blue');
-    expect(getInkColor('accent')).toBe('magenta');
-    expect(getInkColor('user')).toBe('green');
-    expect(getInkColor('assistant')).toBe('cyan');
-    expect(getInkColor('system')).toBe('yellow');
-    expect(getInkColor('text')).toBe('white');
+    expect(getInkColor('secondary')).toBe('gray');
+    expect(getInkColor('accent')).toBe('blueBright');
+    expect(getInkColor('user')).toBe('greenBright');
+    expect(getInkColor('assistant')).toBe('blueBright');
+    expect(getInkColor('system')).toBe('yellowBright');
     expect(getInkColor('textDim')).toBe('gray');
     expect(getInkColor('border')).toBe('gray');
   });
 
-  it('should strip bold modifier and still map textBold correctly', () => {
-    // textBold is bold + white, ansiToInkColor strips modifiers like \x1b[1m
-    expect(getInkColor('textBold')).toBe('white');
-  });
-
   it('should map code syntax colors correctly', () => {
-    expect(getInkColor('codeKeyword')).toBe('magenta');
-    expect(getInkColor('codeString')).toBe('green');
-    expect(getInkColor('codeNumber')).toBe('cyan');
+    expect(getInkColor('codeKeyword')).toBe('blueBright');
+    expect(getInkColor('codeString')).toBe('greenBright');
+    expect(getInkColor('codeNumber')).toBe('yellowBright');
     expect(getInkColor('codeComment')).toBe('gray');
-    expect(getInkColor('codeFunction')).toBe('yellow');
+    expect(getInkColor('codeFunction')).toBe('greenBright');
   });
 
   it('should map diff colors correctly', () => {
-    expect(getInkColor('diffAdd')).toBe('green');
-    expect(getInkColor('diffRemove')).toBe('red');
+    expect(getInkColor('diffAdd')).toBe('greenBright');
+    expect(getInkColor('diffRemove')).toBe('redBright');
     expect(getInkColor('diffContext')).toBe('gray');
   });
 
   it('should return different ink colors when switching between palettes', () => {
-    const results: string[] = [];
+    const results: Array<string | undefined> = [];
     for (const paletteName of ['default', 'light']) {
       clearHUDCache();
       applyPalette(paletteName);
       results.push(getInkColor('primary'));
     }
-    expect(results[0]).toBe('cyan');
+    expect(results[0]).toBe('blueBright');
     expect(results[1]).toBe('blue');
   });
 
@@ -289,9 +275,15 @@ describe('getInkColor', () => {
     expect(getInkColor('error')).toBe('red');
     expect(getInkColor('success')).toBe('green');
     expect(getInkColor('warning')).toBe('yellow');
-    expect(getInkColor('text')).toBe('black');
-    expect(getInkColor('user')).toBe('blue');
-    expect(getInkColor('assistant')).toBe('magenta');
+    expect(getInkColor('text')).toBeUndefined();
+    expect(getInkColor('user')).toBe('green');
+    expect(getInkColor('assistant')).toBe('blue');
+  });
+
+  it('should keep the ANSI names of the monochrome palette', () => {
+    applyPalette('monochrome');
+    expect(getInkColor('primary')).toBe('white');
+    expect(getInkColor('textDim')).toBe('gray');
   });
 });
 
@@ -362,9 +354,10 @@ describe('getPaletteColor', () => {
   });
 
   it('should return ANSI code matching the default palette', () => {
-    expect(getPaletteColor('primary')).toBe(ANSI.cyan);
-    expect(getPaletteColor('error')).toBe(ANSI.red);
-    expect(getPaletteColor('success')).toBe(ANSI.green);
+    // The Workbench brand at the 16-colour depth the test setup pins.
+    expect(getPaletteColor('primary')).toBe(ANSI.brightBlue);
+    expect(getPaletteColor('error')).toBe(ANSI.brightRed);
+    expect(getPaletteColor('success')).toBe(ANSI.brightGreen);
   });
 
   it('should return palette color from applied palette', () => {
@@ -384,7 +377,7 @@ describe('getPaletteColor', () => {
     const beforeApply = getPaletteColor('primary');
     applyPalette('light');
     const afterApply = getPaletteColor('primary');
-    expect(beforeApply).toBe(ANSI.cyan);
+    expect(beforeApply).toBe(ANSI.brightBlue);
     expect(afterApply).toBe(ANSI.blue);
   });
 });
@@ -566,7 +559,7 @@ describe('clearHUDCache', () => {
     applyPalette('light');
     expect(getInkColor('primary')).toBe('blue');
     clearHUDCache();
-    expect(getInkColor('primary')).toBe('cyan');
+    expect(getInkColor('primary')).toBe('blueBright');
   });
 });
 

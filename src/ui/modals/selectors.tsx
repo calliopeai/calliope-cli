@@ -6,6 +6,7 @@
 
 import React, { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
+import { getInkColor } from '../../hud/api.js';
 import { formatModelDetails } from '../../preferences/index.js';
 import type { ModelInfo } from '../../model-detection.js';
 import type { LLMProvider } from '../../types.js';
@@ -38,14 +39,14 @@ export function ModelSelector({
 
   return (
     <Box flexDirection="column" marginY={1}>
-      <Text color="yellow">Select model (↑/↓ navigate, Enter select, Esc cancel):</Text>
+      <Text color={getInkColor('system')}>Select model (↑/↓ navigate, Enter select, Esc cancel):</Text>
       {visible.map((model, i) => {
         const globalIndex = start + i;
         const isSelected = globalIndex === index;
         const name = model.name || model.id;
         const displayName = name.length > 50 ? name.slice(0, 47) + '...' : name;
         return (
-          <Text key={model.id} color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+          <Text key={model.id} color={isSelected ? getInkColor('primary') : undefined} bold={isSelected}>
             {isSelected ? '❯ ' : '  '}{displayName}
           </Text>
         );
@@ -113,7 +114,7 @@ export function SessionSelector({
 
   return (
     <Box flexDirection="column" marginY={1}>
-      <Text color="yellow">Sessions (↑/↓, Enter load, Del delete, Esc cancel):</Text>
+      <Text color={getInkColor('system')}>Sessions (↑/↓, Enter load, Del delete, Esc cancel):</Text>
       {hasMore && hasAbove && <Text dimColor>  ↑ more</Text>}
       {visible.map((session, i) => {
         const globalIndex = start + i;
@@ -121,7 +122,7 @@ export function SessionSelector({
         const timeAgo = formatTimeAgo(session.lastAccessedAt);
         const name = session.projectName.length > 30 ? session.projectName.slice(0, 27) + '...' : session.projectName;
         return (
-          <Text key={session.id} color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+          <Text key={session.id} color={isSelected ? getInkColor('primary') : undefined} bold={isSelected}>
             {isSelected ? '❯ ' : '  '}{name} <Text dimColor>({timeAgo}, {session.messageCount} msgs)</Text>
           </Text>
         );
@@ -174,7 +175,7 @@ export function ProviderSelector({
 
   return (
     <Box flexDirection="column" marginY={1}>
-      <Text color="yellow">Select provider (↑/↓ navigate, Enter select, Esc cancel):</Text>
+      <Text color={getInkColor('system')}>Select provider (↑/↓ navigate, Enter select, Esc cancel):</Text>
       {!anyConfigured && (
         <Text dimColor>  No providers configured. Ollama is the easiest starting point (local, free).</Text>
       )}
@@ -182,19 +183,19 @@ export function ProviderSelector({
         const globalIndex = start + i;
         const isSelected = globalIndex === index;
         const star = p.configured ? '★' : '☆';
-        const starColor = p.configured ? 'green' : 'gray';
+        const starColor = getInkColor(p.configured ? 'success' : 'textDim');
         const tag = p.recommended ? ' (recommended)' : '';
         return (
           <Box key={p.id}>
-            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+            <Text color={isSelected ? getInkColor('primary') : undefined} bold={isSelected}>
               {isSelected ? '❯ ' : '  '}
             </Text>
             <Text color={starColor}>{star} </Text>
-            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+            <Text color={isSelected ? getInkColor('primary') : undefined} bold={isSelected}>
               {p.label}{p.health ? ` [${p.health}]` : ''}
             </Text>
             {p.note && <Text dimColor>  — {p.note}</Text>}
-            {tag && <Text color="yellow">{tag}</Text>}
+            {tag && <Text color={getInkColor('system')}>{tag}</Text>}
             {!p.configured && <Text dimColor>  (needs {p.configHint})</Text>}
           </Box>
         );
