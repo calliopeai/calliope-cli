@@ -248,7 +248,9 @@ export function validateLLMResponse(response: LLMResponse): LLMResponse {
   if (!['stop', 'tool_use', 'length', 'error'].includes(response.finishReason)) {
     response.finishReason = 'stop';
   }
-  if (response.finishReason !== 'error' || response.errorCode !== 'refusal') delete response.errorCode;
+  if (response.finishReason !== 'error' ||
+      (response.errorCode !== 'refusal' && response.errorCode !== 'invalid_tool_arguments')) delete response.errorCode;
+  if (response.errorCode === 'invalid_tool_arguments') response.toolCalls = undefined;
 
   return response;
 }

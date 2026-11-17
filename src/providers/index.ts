@@ -299,9 +299,10 @@ export async function chat(
         await settle('error', response.usage);
         throw new ProviderRefusalError();
       }
-      if (stream && response.finishReason === 'error') throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
       await settle(response.finishReason === 'error' ? 'error' : 'success', response.usage);
-      stream?.finish('completed');
+      if (stream && response.finishReason === 'error' && response.errorCode !== 'invalid_tool_arguments')
+        throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
+      stream?.finish(response.finishReason === 'error' ? 'failed' : 'completed');
       const usage = response.usage;
       record({ outcome: response.finishReason === 'error' ? 'error' : 'success',
         ...(response.finishReason === 'error' ? { failure: 'response' as const } : {}),

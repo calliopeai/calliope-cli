@@ -84,7 +84,7 @@ export interface LLMResponse {
   /** Set only to true: the output limit cut a tool call short and it was removed from toolCalls. */
   truncatedToolCalls?: boolean;
   /** Normalized terminal diagnostic; never provider response text. */
-  errorCode?: 'refusal';
+  errorCode?: 'refusal' | 'invalid_tool_arguments';
   usage?: {
     inputTokens: number;
     outputTokens: number;
