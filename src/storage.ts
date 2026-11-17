@@ -12,6 +12,7 @@ import { activeSessionId, readPrivateSessionFile, readConversation, writeConvers
 import type { Message } from './types.js';
 import { IterationLedger } from './iteration-ledger.js';
 import type { IterationLedgerSnapshot } from './iteration-ledger.js';
+import type { TurnProgress } from './sessions/turn-progress.js';
 import { validSessionExecutionBinding, type SessionExecutionBinding } from './sessions/execution-binding.js';
 
 // ============================================================================
@@ -453,7 +454,7 @@ export function readSessionConversation(sessionId: string): ConversationState {
 }
 
 export function saveSessionConversation(sessionId: string, messages: Message[], options: {
-  expectedRevision: string | null; status: RecoveryStatus; signal?: AbortSignal;
+  expectedRevision: string | null; status: RecoveryStatus; signal?: AbortSignal; progress?: TurnProgress;
 }): ConversationSnapshot {
   const dir = getSessionDirById(sessionId);
   if (!dir) throw new SessionRecoveryError('invalid', 'session not found; start /new before continuing.');

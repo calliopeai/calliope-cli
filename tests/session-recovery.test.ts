@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { readConversation, writeConversation, retainMessages, validateMessages, MAX_SNAPSHOT_BYTES } from '../src/sessions/index.js';
 import * as storage from '../src/storage.js';
 import type { Message } from '../src/types.js';
+import { simulateWindowsDirectoryFsyncDenial } from './helpers/windows-fsync.js';
 
 // Keep real filesystem behavior while permitting one injected fsync failure.
 vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
@@ -155,6 +156,51 @@ it('keeps the previous snapshot and cleans temporary files when fsync fails', ()
   expect(() => save(hello, saved.revision)).toThrow(/disk space/);
   expect(readConversation(dir, 'test')).toEqual(saved);
   expect(fs.readdirSync(dir)).toEqual(['events', 'messages.json']);
+});
+
+it.skipIf(process.platform === 'win32')('flushes the published snapshot directory before acknowledging its checkpoint', () => {
+  const fsync = fs.fsyncSync;
+  let publishedRevision: string | undefined;
+  vi.spyOn(fs, 'fsyncSync').mockImplementation(fd => {
+    const stat = fs.fstatSync(fd), original = fs.statSync(dir);
+    if (stat.isDirectory() && stat.dev === original.dev && stat.ino === original.ino) {
+      const snapshot = readConversation(dir, 'test');
+      publishedRevision = snapshot.revision!;
+      expect(snapshot.messages).toEqual(hello);
+      expect(snapshot.history?.id).toBe(snapshot.revision);
+      expect(fs.existsSync(join(dir, 'messages.lock'))).toBe(true);
+    }
+    fsync(fd);
+  });
+  const saved = save();
+  expect(publishedRevision).toBe(saved.revision);
+});
+
+it.skipIf(process.platform === 'win32')('refuses checkpoint acknowledgment when publication directory durability is unknown', () => {
+  const original = save(), fsync = fs.fsyncSync;
+  vi.spyOn(fs, 'fsyncSync').mockImplementation(fd => {
+    const stat = fs.fstatSync(fd), directory = fs.statSync(dir);
+    if (stat.isDirectory() && stat.dev === directory.dev && stat.ino === directory.ino)
+      throw new Error('directory flush failed');
+    fsync(fd);
+  });
+  const changed: Message[] = [...hello, { role: 'assistant', content: 'saved but not acknowledged' }];
+  expect(() => save(changed, original.revision)).toThrow(/disk space/);
+  const retained = readConversation(dir, 'test');
+  expect(retained.messages).toEqual(changed);
+  expect(retained.revision).not.toBe(original.revision);
+  expect(() => save(hello, original.revision)).toThrow(/another terminal/);
+  expect(readConversation(dir, 'test')).toEqual(retained);
+  expect(fs.readdirSync(dir)).toEqual(['events', 'messages.json']);
+});
+
+it('keeps Windows checkpoint publication compatible with directory flush denial', () => {
+  const restore = simulateWindowsDirectoryFsyncDenial();
+  try {
+    save();
+    expect(readConversation(dir, 'test').messages).toEqual(hello);
+  }
+  finally { restore(); }
 });
 
 it('rejects orphan or duplicate tool results and duplicate tool IDs', () => {

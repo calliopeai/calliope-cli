@@ -20,7 +20,7 @@ import {qualifyHeadlessCompletion} from './headless-completion.mjs';
 test('headless completion checks repair original criteria without resetting the SDK turn', async () => {
   const results = await qualifyHeadlessCompletion();
   assert.deepEqual(results.map(result => [result.mode, result.exit, result.providerRequests]),
-    [['repair', 0, 4], ['host-refuse', 1, 2], ['deadline', 6, 2], ['admission-refuse', 1, 0]]);
+    [['repair', 0, 4], ['host-refuse', 1, 2], ['deadline', 6, 2], ['admission-refuse', 1, 0], ['allowance-refuse', 1, 0], ['allowance-stale', 1, 0]]);
   assert.ok(results.every(result => result.initialAdmissions === 1));
 });
 
