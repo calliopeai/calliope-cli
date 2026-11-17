@@ -9,6 +9,7 @@
 import { runTurn } from './runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
 import type { RuntimeControl, ControlCheckpoint, ControlReadyCheckpoint, ControlReceipt } from './runtime/control.js';
+import type { TurnProgress } from './sessions/turn-progress.js';
 import { completionCheckLimit, type CompletionCheck } from './runtime/completion.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
@@ -50,6 +51,12 @@ export const CAP_EXIT_CODE = 6;
 
 export type HeadlessOutputMode = 'json' | 'text';
 
+export const HEADLESS_PROGRESS_PROTOCOL_VERSION = 1;
+
+export interface HeadlessProgressReceipt extends ControlReadyCheckpoint {
+  readonly progress: Readonly<TurnProgress>;
+}
+
 export interface HeadlessQuestionReceipt {
   readonly sessionId: string;
   readonly toolCallId: string;
@@ -70,6 +77,8 @@ export interface HeadlessOptions {
   onControlCommitted?: (receipt: ControlReceipt, signal?: AbortSignal) => Promise<void>;
   /** Acknowledge the first saved control checkpoint before any provider inference. */
   onControlReady?: (checkpoint: ControlReadyCheckpoint, signal?: AbortSignal) => Promise<void>;
+  /** Acknowledge retained allowance before provider or verification work begins. */
+  onTurnProgressCommitted?: (receipt: HeadlessProgressReceipt, signal?: AbortSignal) => Promise<void>;
   /** Answer an authorized host question in this same session, allowance and clock. Not a tool approval. */
   answerQuestion?: TurnOptions['answerQuestion'];
   /** Acknowledge the original conversation's saved answer before further execution. */
@@ -207,6 +216,10 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   }
   if (options.onControlReady !== undefined && typeof options.onControlReady !== 'function') {
     emit({ type: 'error', timestamp: now(), data: { message: 'Initial control acknowledgment requires a host callback.' } }, outputMode);
+    return 2;
+  }
+  if (options.onTurnProgressCommitted !== undefined && typeof options.onTurnProgressCommitted !== 'function') {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Turn allowance acknowledgment requires a host callback.' } }, outputMode);
     return 2;
   }
   if ((options.onControlCommitted || options.onControlReady) && !options.control) {
@@ -352,6 +365,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   let revision: string | null = null;
   let savedQuestion: ReturnType<typeof saveSessionConversation> | undefined;
   let savedControl: ControlCheckpoint | undefined;
+  let savedProgress: ReturnType<typeof saveSessionConversation> | undefined;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
@@ -364,14 +378,27 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         const branch = await branchSession(sessionId, { kind: 'safety', signal, runlog });
         emit({ type: 'status', timestamp: now(), data: { message: `Recovery conversation branch: ${branch.session.id}`, sessionId: branch.session.id } }, outputMode);
       },
-      onCheckpoint: (history, status) => {
-        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status });
+      retainTurnProgress: !!(options.control || options.completionCheck || options.onTurnProgressCommitted),
+      onCheckpoint: (history, status, progress) => {
+        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status, progress });
         revision = saved.revision;
+        if (progress) savedProgress = saved;
         if (options.onQuestionCommitted) savedQuestion = saved;
         if (options.control || options.completionCheck) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
 
       },
+      onTurnProgressCommitted: options.onTurnProgressCommitted ? async (progress, progressSignal) => {
+        if (!savedProgress || JSON.stringify(savedProgress.progress) !== JSON.stringify(progress))
+          throw new Error('Turn allowance checkpoint is unavailable.');
+        const proof = Object.freeze({ sessionId, revision: savedProgress.revision, checksum: savedProgress.checksum,
+          progress: Object.freeze(structuredClone(progress)) });
+        const result = await options.onTurnProgressCommitted!(proof, progressSignal);
+        if (result !== undefined) throw new Error('Invalid turn allowance acknowledgment.');
+        const current = readSessionConversation(sessionId);
+        if (current.revision !== proof.revision || !('checksum' in current) || current.checksum !== proof.checksum)
+          throw new Error('Turn allowance checkpoint changed during acknowledgment.');
+      } : undefined,
       continueOnLength: true,
       onContinue: ({ reason, attempt, max }) => {
         const message = `[continue ${attempt}/${max}] ${reason === 'length' ? 'output length limit reached' : 'empty model reply'}; asking the model to continue`;

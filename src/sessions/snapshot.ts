@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Message } from '../types.js';
 import { throwIfCancelled } from '../cancellation.js';
+import { assertTurnProgress, validateTurnProgress, type TurnProgress } from './turn-progress.js';
 import { makeEvent, eventLink, appendSessionEvents, readSessionEvent, stateHash, type SessionEvent } from './history.js';
 import { MAX_SNAPSHOT_BYTES, assertSessionDirectory, hash, invalid, object, readPrivateSessionFile, retainMessages, SessionRecoveryError, statuses, validateMessages, type ConversationState, type ConversationSnapshot, type RecoveryStatus } from './format.js';
 
@@ -21,6 +22,7 @@ export function readConversation(dir: string, sessionId: string): ConversationSt
       !/^[0-9a-f-]{36}$/.test(data.revision) || typeof data.updatedAt !== 'string' || !Number.isFinite(Date.parse(data.updatedAt)) ||
       !statuses.includes(data.status as RecoveryStatus) || !Number.isSafeInteger(data.droppedMessages) || Number(data.droppedMessages) < 0) throw invalid();
     validateMessages(data.messages);
+    if (data.progress !== undefined) validateTurnProgress(data.progress);
     const { checksum, ...body } = data;
     if (checksum !== hash(JSON.stringify(body))) throw invalid();
     if (data.history !== undefined) {
@@ -33,7 +35,7 @@ export function readConversation(dir: string, sessionId: string): ConversationSt
 }
 
 export function writeConversation(dir: string, sessionId: string, messages: Message[], options: {
-  expectedRevision: string | null; status: RecoveryStatus; cap?: number; signal?: AbortSignal; droppedMessages?: number;
+  expectedRevision: string | null; status: RecoveryStatus; cap?: number; signal?: AbortSignal; droppedMessages?: number; progress?: TurnProgress;
 }): ConversationSnapshot {
   throwIfCancelled(options.signal);
   assertSessionDirectory(dir);
@@ -41,11 +43,6 @@ export function writeConversation(dir: string, sessionId: string, messages: Mess
   validateMessages(messages);
   if (!statuses.includes(options.status) || options.droppedMessages !== undefined && (!Number.isSafeInteger(options.droppedMessages) || options.droppedMessages < 0)) throw invalid();
   const retained = retainMessages(messages, options.cap ?? 1000);
-  const body = { version: 1 as const, sessionId, revision: randomUUID(), updatedAt: new Date().toISOString(),
-    status: options.status, droppedMessages: (options.droppedMessages ?? 0) + messages.length - retained.length, messages: retained };
-  const serialized = JSON.stringify(body);
-  let snapshot = { ...JSON.parse(serialized), checksum: hash(serialized) } as ConversationSnapshot;
-  if (Buffer.byteLength(JSON.stringify(snapshot)) + 256 > MAX_SNAPSHOT_BYTES) throw new SessionRecoveryError('invalid', 'snapshot exceeds 16 MiB; compact the conversation or start /new.');
   const lock = join(dir, 'messages.lock'), temp = join(dir, `.messages-${randomUUID()}.tmp`);
   let lockFd: number;
   try { lockFd = fs.openSync(lock, 'wx', 0o600); }
@@ -55,6 +52,14 @@ export function writeConversation(dir: string, sessionId: string, messages: Mess
     fs.writeFileSync(lockFd, JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }));
     const previous = readConversation(dir, sessionId);
     if (previous.revision !== options.expectedRevision) throw new SessionRecoveryError('conflict', 'another terminal saved this session; use /resume to reload it or /new before continuing.');
+    const progress = options.progress === undefined ? previous.progress : options.progress;
+    assertTurnProgress(previous.progress, progress);
+    const body = { version: 1 as const, sessionId, revision: randomUUID(), updatedAt: new Date().toISOString(),
+      status: options.status, droppedMessages: (options.droppedMessages ?? 0) + messages.length - retained.length, messages: retained,
+      ...(progress ? { progress: structuredClone(progress) } : {}) };
+    const serialized = JSON.stringify(body);
+    let snapshot = { ...JSON.parse(serialized), checksum: hash(serialized) } as ConversationSnapshot;
+    if (Buffer.byteLength(JSON.stringify(snapshot)) + 256 > MAX_SNAPSHOT_BYTES) throw new SessionRecoveryError('invalid', 'snapshot exceeds 16 MiB; compact the conversation or start /new.');
     const events: SessionEvent[] = [];
     let parent = previous.history ?? null;
     if (!parent && previous.revision !== null) {
@@ -75,6 +80,16 @@ export function writeConversation(dir: string, sessionId: string, messages: Mess
     if (now.dev !== identity.dev || now.ino !== identity.ino) throw invalid();
     if (readConversation(dir, sessionId).revision !== options.expectedRevision) throw new SessionRecoveryError('conflict', 'snapshot changed during the save; reload with /resume.');
     fs.renameSync(temp, join(dir, 'messages.json'));
+    // The checkpoint is acknowledged only after its published name is durable.
+    // Match the history writer's Windows directory-flush exception (#384).
+    if (process.platform !== 'win32') {
+      const fd = fs.openSync(dir, 'r');
+      try {
+        const current = fs.fstatSync(fd);
+        if (current.dev !== identity.dev || current.ino !== identity.ino) throw invalid();
+        fs.fsyncSync(fd);
+      } finally { fs.closeSync(fd); }
+    }
     return snapshot;
   } catch (error) {
     if (error instanceof SessionRecoveryError || options.signal?.aborted) throw error;

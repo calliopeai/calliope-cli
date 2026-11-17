@@ -19,7 +19,7 @@ async function snapshot(directory, id, withPath = false) {
     if (entry.isDirectory()) { const found = await snapshot(path, id, withPath); if (found) return found; }
     else if (entry.name === 'messages.json') {
       const saved = JSON.parse(await readFile(path, 'utf8'));
-      if (saved.sessionId === id) return withPath ? { path, saved } : saved;
+      if (id === undefined || saved.sessionId === id) return withPath ? { path, saved } : saved;
     }
   }
 }
@@ -30,7 +30,7 @@ export async function qualifyHeadlessControl() {
     const root = await mkdtemp(join(tmpdir(), 'calliope518-sdk-'));
     const fixtureHome = join(root, 'home'), config = join(root, 'config'), project = join(root, 'project');
     await Promise.all([fixtureHome, config, project].map(path => mkdir(path)));
-    let calls = 0, questionAcks = 0, failure, output = '', stderr = '', child, timer;
+    let calls = 0, questionAcks = 0, failure, output = '', stderr = '', child, timer, turnId;
     const receipts = [];
     let providerStarted, releaseProvider;
     const providerReady = new Promise(resolve => { providerStarted = resolve; });
@@ -58,6 +58,9 @@ export async function qualifyHeadlessControl() {
           const saved = await snapshot(fixtureHome, body.sessionId);
           assert.ok(saved, 'The public SDK receipt must name a real saved conversation');
           assert.equal(body.revision, saved.revision); assert.equal(body.checksum, saved.checksum);
+          assert.equal(saved.progress.version, 1);
+          assert.equal(saved.progress.iterationLimit, 4); assert.equal(saved.progress.completionLimit, 0);
+          turnId ??= saved.progress.turnId; assert.equal(saved.progress.turnId, turnId);
           const { checksum, ...unsigned } = saved;
           assert.equal(checksum, createHash('sha256').update(JSON.stringify(unsigned)).digest('hex'));
           if (request.url === '/host/question') {
@@ -93,6 +96,10 @@ export async function qualifyHeadlessControl() {
         assert.equal(request.headers.authorization, 'Bearer local-fixture-only');
         assert.ok(['pause-steer', 'tool-pause', 'policy-revoked', 'question-pause'].includes(mode), 'A stopped/paused SDK admitted inference');
         const index = calls++;
+        const saved = await snapshot(fixtureHome, receipts[0]?.sessionId);
+        assert.equal(saved.progress.iterations, index + 1, 'Provider work began without a saved iteration admission');
+        assert.equal(saved.progress.completionChecks, 0);
+        turnId ??= saved.progress.turnId; assert.equal(saved.progress.turnId, turnId);
         if (mode === 'tool-pause' && index === 0) { providerStarted(); await providerRelease; }
         assert.ok(body.messages.some(message => message.role === 'user' && message.content.includes('Original control goal')));
         if (mode === 'pause-steer') {
@@ -209,7 +216,7 @@ const code=await running;assert.equal(control.state.phase,'stopped');process.exi
       const events = output.trim().split('\n').map(line => JSON.parse(line));
       if (success) assert.equal(events.at(-1).data.reason, 'completed');
       results.push({ mode, exit: code, providerRequests: calls, controlReceipts: receipts.map(receipt => receipt.kind),
-        questionAcknowledgments: questionAcks, realFileVerified: wrote, paidRequests: 0 });
+        questionAcknowledgments: questionAcks, realFileVerified: wrote, turnAllowanceRetained: !!turnId, paidRequests: 0 });
     } finally {
       clearTimeout(timer);
       if (child && child.exitCode === null && child.signalCode === null) { child.kill('SIGKILL'); await once(child, 'exit'); }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Retain consumed turn and completion allowances in session checkpoints. Headless hosts can opt into versioned progress receipts that require durable acknowledgement before another effect; missing or refused acknowledgements stop the run. Retained state alone does not authorize replacement execution (#521).
+
 - Paint the interface with the Calliope AI Workbench brand from the design system's terminal token mapping instead of hand-picked ANSI colours, at the terminal's colour depth (truecolor, 256 or 16). `NO_COLOR` and a piped stdout now turn colour off, `FORCE_COLOR` overrides the detection, and `CALLIOPE_THEME=dark|light|no-color` overrides the stored theme for a run.
 - Headless runs no longer end as successful when a turn is cut off by the output limit or the model replies with nothing. They discard truncated tool calls, ask the model to continue (up to 3 times in a row, reported as `status` events with `continuing: true`), and exit 4 with an `error` if it still fails. Iteration, cost and time limits still apply (#470).
 

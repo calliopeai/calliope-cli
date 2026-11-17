@@ -12,6 +12,8 @@ import * as path from 'node:path';
 import { createHash } from 'node:crypto';
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 
+vi.mock('node:fs', async original => ({ ...await original<typeof import('node:fs')>() }));
+
 const runsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'calliope-caps-runs-'));
 const configured: { budget?: Record<string, number> } = {};
 
@@ -103,7 +105,130 @@ afterEach(() => {
 
 afterAll(() => fs.rmSync(runsDir, { recursive: true, force: true }));
 
+describe('headless allowance acknowledgment', () => {
+  it('acknowledges exact saved, frozen progress before provider and verifier work', async () => {
+    const { readSessionConversation } = await import('../src/storage.js');
+    const receipts: Array<{ iterations: number; completionChecks: number }> = [];
+    const acknowledged = vi.fn(async receipt => {
+      expect(Object.isFrozen(receipt)).toBe(true); expect(Object.isFrozen(receipt.progress)).toBe(true);
+      const saved = readSessionConversation(receipt.sessionId);
+      expect(saved).toMatchObject({ revision: receipt.revision, checksum: receipt.checksum, progress: receipt.progress });
+      receipts.push(receipt.progress);
+    });
+    mockChat.mockImplementationOnce(async () => {
+      expect(receipts).toMatchObject([{ iterations: 1, completionChecks: 0 }]);
+      return { content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } };
+    });
+    const check = vi.fn(async () => {
+      expect(receipts).toMatchObject([{ iterations: 1, completionChecks: 0 }, { iterations: 1, completionChecks: 1 }]);
+      return { accepted: true as const, evidenceSha256: 'a'.repeat(64) };
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', onTurnProgressCommitted: acknowledged, completionCheck: check })).toBe(0);
+    expect(acknowledged).toHaveBeenCalledTimes(2); expect(check).toHaveBeenCalledOnce();
+    expect(acknowledged.mock.calls[0]![0].progress.turnId).toBe(acknowledged.mock.calls[1]![0].progress.turnId);
+  });
+
+  it.each(['iteration', 'verification'])('holds consumed %s allowance when host acknowledgment fails', async stage => {
+    const { readSessionConversation } = await import('../src/storage.js');
+    mockChat.mockResolvedValue({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const check = vi.fn(async () => ({ accepted: true as const, evidenceSha256: 'a'.repeat(64) }));
+    const ack = vi.fn(async receipt => {
+      if (stage === 'iteration' || receipt.progress.completionChecks) throw new Error('private allowance diagnostic');
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', completionCheck: check, onTurnProgressCommitted: ack })).toBe(1);
+    expect(mockChat).toHaveBeenCalledTimes(stage === 'iteration' ? 0 : 1); expect(check).not.toHaveBeenCalled();
+    const saved = readSessionConversation(ack.mock.calls[0]![0].sessionId);
+    expect(saved.progress).toMatchObject({ iterations: 1, completionChecks: stage === 'iteration' ? 0 : 1 });
+    expect(saved.status).toBe('interrupted');
+    expect(JSON.stringify(events())).not.toContain('private allowance diagnostic');
+  });
+
+  it.each(['iteration', 'verification'])('cancels a stalled %s acknowledgment without admitting effects', async stage => {
+    const controller = new AbortController();
+    mockChat.mockResolvedValue({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const check = vi.fn(async () => ({ accepted: true as const, evidenceSha256: 'a'.repeat(64) }));
+    const ack = vi.fn(async receipt => {
+      if (stage === 'iteration' || receipt.progress.completionChecks) {
+        controller.abort(); await new Promise<void>(() => {});
+      }
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', signal: controller.signal, onTurnProgressCommitted: ack, completionCheck: check })).toBe(130);
+    expect(mockChat).toHaveBeenCalledTimes(stage === 'iteration' ? 0 : 1); expect(check).not.toHaveBeenCalled();
+  });
+
+  it('refuses a checkpoint changed during acknowledgment before inference', async () => {
+    const { readSessionConversation, saveSessionConversation } = await import('../src/storage.js');
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', onTurnProgressCommitted: async proof => {
+      const saved = readSessionConversation(proof.sessionId);
+      saveSessionConversation(proof.sessionId, saved.messages, { expectedRevision: saved.revision, status: 'active' });
+    } })).toBe(1);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed callbacks and non-void acknowledgments before inference', async () => {
+    expect(await runHeadless({ prompt: 'Original goal', onTurnProgressCommitted: false as never })).toBe(2);
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', onTurnProgressCommitted: async () => false as never })).toBe(1);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
+
 describe('headless completion verification', () => {
+  it('persists iteration admission before a provider call that fails', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const { readSessionConversation } = await import('../src/storage.js');
+    let admitted;
+    mockChat.mockImplementationOnce(async () => {
+      const id = events().find(event => event.data.sessionId)?.data.sessionId;
+      admitted = readSessionConversation(id).progress;
+      expect(admitted).toMatchObject({ iterations: 1, completionChecks: 0, iterationLimit: 10 });
+      throw new Error('provider interrupted');
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control: new RuntimeControl() })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    const id = events().find(event => event.data.sessionId)?.data.sessionId;
+    expect(readSessionConversation(id).progress).toEqual(admitted);
+    expect(readSessionConversation(id).status).toBe('interrupted');
+  });
+
+  it('persists verification admission before each verifier, including an interrupted attempt', async () => {
+    const { readSessionConversation } = await import('../src/storage.js');
+    mockChat.mockResolvedValue({ content: 'proposed result', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const admissions: unknown[] = [];
+    const check = vi.fn(async proposal => {
+      const saved = readSessionConversation(proposal.sessionId);
+      expect(saved.revision).toBe(proposal.revision);
+      expect(saved.progress).toMatchObject({ iterations: proposal.iteration, completionChecks: proposal.attempt });
+      admissions.push(saved.progress);
+      if (proposal.attempt === 2) throw new Error('verifier interrupted');
+      return { accepted: false as const, feedback: 'Repair the existing criterion.' };
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', completionCheck: check, maxCompletionChecks: 2 })).toBe(1);
+    expect(check).toHaveBeenCalledTimes(2);
+    const id = check.mock.calls[0]![0].sessionId;
+    const saved = readSessionConversation(id);
+    expect(saved.progress).toMatchObject({ iterations: 2, completionChecks: 2, completionLimit: 2 });
+    expect(admissions[0]).toMatchObject({ iterations: 1, completionChecks: 1, turnId: saved.progress!.turnId });
+  });
+
+  it.each(['iteration', 'verification'])('refuses effects after a failed %s allowance save', async stage => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      if (stage === 'iteration' ? options.progress?.iterations === 1 : options.progress?.completionChecks === 1)
+        throw new Error('allowance storage unavailable');
+      return original(id, messages, options);
+    });
+    mockChat.mockResolvedValue({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 1 } });
+    const check = vi.fn(async () => ({ accepted: true as const, evidenceSha256: 'a'.repeat(64) }));
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', completionCheck: check })).toBe(1);
+      expect(mockChat).toHaveBeenCalledTimes(stage === 'iteration' ? 0 : 1);
+      expect(check).not.toHaveBeenCalled(); expect(mockExecuteTool).not.toHaveBeenCalled();
+      const id = events().find(event => event.data.sessionId)?.data.sessionId;
+      expect(storage.readSessionConversation(id).progress).toMatchObject({ iterations: stage === 'iteration' ? 0 : 1, completionChecks: 0 });
+    } finally { writer.mockRestore(); }
+  });
+
   it('keeps hosted tools, admission and repair in the original session and allowance', async () => {
     const { RuntimeControl } = await import('../src/runtime/index.js');
     const ready = vi.fn(async () => {}), execute = vi.fn(async (call: ToolCall) => ({ toolCallId: call.id, result: 'host workspace updated' }));
@@ -748,6 +873,37 @@ describe('headless initial control admission', () => {
     expect(JSON.stringify(events()) + JSON.stringify(stderr.mock.calls)).not.toContain('private initial authority diagnostic');
     expect(eventOf('error').data.message).toBe('Initial control checkpoint was not acknowledged.');
     expect(control.state.phase).toBe('stopped');
+  });
+
+  it.skipIf(process.platform === 'win32')('holds an unflushed checkpoint before ownership acknowledgment or inference', async () => {
+    const { RuntimeControl } = await import('../src/runtime/index.js');
+    const { readConversation } = await import('../src/sessions/index.js');
+    const rename = fs.renameSync, fsync = fs.fsyncSync;
+    let published: string | undefined;
+    const renameSpy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      rename(from, to);
+      if (typeof to === 'string' && path.basename(to) === 'messages.json') published = path.dirname(to);
+    });
+    const syncSpy = vi.spyOn(fs, 'fsyncSync').mockImplementation(fd => {
+      if (published) {
+        const actual = fs.fstatSync(fd), directory = fs.statSync(published);
+        if (actual.isDirectory() && actual.dev === directory.dev && actual.ino === directory.ino)
+          throw new Error('private directory flush diagnostic');
+      }
+      fsync(fd);
+    });
+    const ready = vi.fn(), control = new RuntimeControl();
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', control, onControlReady: ready })).toBe(1);
+      expect(ready).not.toHaveBeenCalled(); expect(mockChat).not.toHaveBeenCalled();
+      expect(mockExecuteTool).not.toHaveBeenCalled();
+      expect(control.state.phase).toBe('stopped');
+      expect(published).toBeDefined();
+      const body = JSON.parse(fs.readFileSync(path.join(published!, 'messages.json'), 'utf8'));
+      expect(readConversation(published!, body.sessionId).messages.at(-1)?.content).toBe('Original goal');
+      expect(JSON.stringify(events())).not.toContain('private directory flush diagnostic');
+      expect(events().some(event => event.type === 'done')).toBe(false);
+    } finally { renameSpy.mockRestore(); syncSpy.mockRestore(); }
   });
 
   it('refuses a saved revision changed during initial acknowledgment before inference', async () => {
