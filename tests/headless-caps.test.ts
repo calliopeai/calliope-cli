@@ -66,6 +66,7 @@ vi.mock('../src/routing/index.js', async importActual => ({
 import { runHeadless, parseHeadlessCaps, parseHeadlessEffort, BUDGET_EXIT_CODE, CAP_EXIT_CODE, type HeadlessQuestionReceipt } from '../src/headless.js';
 import { summarizeDir } from '../src/cost.js';
 import type { ToolCall } from '../src/types.js';
+import { readSessionConversation, saveSessionConversation } from '../src/storage.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,6 +89,151 @@ let stdout: ReturnType<typeof vi.spyOn>;
 let stderr: ReturnType<typeof vi.spyOn>;
 const events = () => stdout.mock.calls.map(call => JSON.parse(String(call[0])));
 const eventOf = (type: string) => events().find(event => event.type === type);
+
+const currentEvidence = () => {
+  const id = events().find(event => event.type === 'status' && event.data.sessionId)?.data.sessionId;
+  expect(id).toBeTypeOf('string');
+  return readSessionConversation(id);
+};
+
+describe('opt-in original-turn runtime evidence', () => {
+  it('refuses malformed capture options before inference', async () => {
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: 'yes' as any })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('requires explicit capture and a function for host runtime acknowledgment', async () => {
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', onRuntimeStateCommitted: async () => {} })).toBe(2);
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      onRuntimeStateCommitted: true as any })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges the exact durable runtime checkpoint before provider work and on completion', async () => {
+    const phases: string[] = [], statuses: string[] = [];
+    mockChat.mockImplementationOnce(async () => {
+      expect(phases.at(-1)).toBe('provider');
+      return { content: 'done', usage: { inputTokens: 1, outputTokens: 2 } };
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      onRuntimeStateCommitted: async proof => {
+        const saved = readSessionConversation(proof.sessionId);
+        expect(saved).toMatchObject({ revision: proof.revision, checksum: proof.checksum, status: proof.status,
+          progress: proof.progress, runtimeState: proof.runtimeState });
+        phases.push(proof.runtimeState.effect.kind); statuses.push(proof.status);
+      } })).toBe(0);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(statuses.at(-1)).toBe('completed');
+    expect(currentEvidence().runtimeState?.totals).toMatchObject({ inputTokens: 1, outputTokens: 2 });
+  });
+
+  it('observes the same control checkpoint before asking its host to acknowledge runtime evidence', async () => {
+    const { RuntimeControl } = await import('../src/runtime/control.js');
+    const control = new RuntimeControl();
+    mockChat.mockResolvedValueOnce({ content: 'done', usage: { inputTokens: 1, outputTokens: 2 } });
+    let receipts = 0;
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, control,
+      onRuntimeStateCommitted: async proof => {
+        receipts++;
+        expect(control.state.sessionId).toBe(proof.sessionId);
+        expect(control.state.checkpoint).toEqual({ revision: proof.revision, checksum: proof.checksum });
+      } })).toBe(0);
+    expect(receipts).toBeGreaterThan(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+  });
+
+  it.each(['reject', 'invalid', 'changed', 'cancel'])('stops before inference when a runtime acknowledgment is %s', async failure => {
+    const controller = new AbortController();
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, signal: controller.signal,
+      onRuntimeStateCommitted: async (proof, signal) => {
+        if (proof.runtimeState.effect.kind !== 'provider') return;
+        if (failure === 'reject') throw new Error('Host refused checkpoint');
+        if (failure === 'invalid') return { accepted: true } as any;
+        if (failure === 'cancel') { controller.abort(); return untilAborted(signal); }
+        const saved = readSessionConversation(proof.sessionId);
+        saveSessionConversation(proof.sessionId, saved.messages, { expectedRevision: saved.revision, status: saved.status });
+      } })).toBe(1);
+    expect(mockChat).not.toHaveBeenCalled();
+    expect(currentEvidence().runtimeState?.effect.kind).toBe('provider');
+  });
+
+  it.each(['ask_question', 'create_plan'])('keeps an unanswered %s pending instead of inventing a quiescent boundary', async name => {
+    mockChat.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'waiting', name, arguments: { question: 'Who reads it?' } }], usage: { inputTokens: 1, outputTokens: 1 } });
+    mockExecuteTool.mockResolvedValueOnce({ result: 'Displayed', isError: false });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true })).toBe(4);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'waiting_for_user', runtimeState: {
+      effect: { kind: name === 'ask_question' ? 'question' : 'tool', id: 'waiting' } } });
+  });
+
+  it('saves pending provider work and original bounds before transport, preserving an interrupted request', async () => {
+    const start = Date.now();
+    mockChat.mockImplementationOnce(async () => {
+      const saved = currentEvidence();
+      expect(saved.progress).toMatchObject({ iterations: 1, completionChecks: 0 });
+      expect(saved.runtimeState).toMatchObject({ maxCostUsd: 3, continuations: 0, effect: { kind: 'provider' },
+        totals: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, toolCalls: 0 } });
+      expect(saved.runtimeState!.startedAt).toBeGreaterThanOrEqual(start);
+      expect(saved.runtimeState!.deadline! - saved.runtimeState!.startedAt).toBe(60000);
+      throw new Error('lost response');
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      maxCost: 3, maxTime: 60 })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'interrupted', runtimeState: { effect: { kind: 'provider' } } });
+  });
+
+  it('retains correction attempts, totals and missing response usage through real headless checkpoints', async () => {
+    mockChat.mockResolvedValueOnce({ content: '', finishReason: 'error', errorCode: 'invalid_tool_arguments', usage: { inputTokens: 1, outputTokens: 2 } });
+    mockChat.mockImplementationOnce(async () => {
+      expect(currentEvidence().runtimeState).toMatchObject({ continuations: 1, effect: { kind: 'provider' },
+        totals: { inputTokens: 1, outputTokens: 2 } });
+      return { content: '', finishReason: 'tool_use', toolCalls: [{ id: 'read-once', name: 'read_file', arguments: {} }] };
+    });
+    mockExecuteTool.mockImplementationOnce(async () => {
+      expect(currentEvidence().runtimeState?.effect).toEqual({ kind: 'tool', id: 'read-once' });
+      return { toolCallId: 'read-once', result: 'source', isError: false };
+    });
+    mockChat.mockResolvedValueOnce({ content: 'done', finishReason: 'stop', usage: { inputTokens: 3, outputTokens: 4 } });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true })).toBe(0);
+    expect(mockChat).toHaveBeenCalledTimes(3);
+    expect(mockExecuteTool).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'completed', progress: { iterations: 3 }, runtimeState: {
+      continuations: 0, responseUsageComplete: false, effect: { kind: 'quiescent' },
+      totals: { inputTokens: 4, outputTokens: 6, toolCalls: 1 } } });
+  });
+
+  it('keeps a saved answer pending when its host acknowledgment fails', async () => {
+    mockChat.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'audience', name: 'ask_question', arguments: { question: 'Who reads it?' } }], usage: { inputTokens: 1, outputTokens: 1 } });
+    mockExecuteTool.mockResolvedValueOnce({ result: 'Question displayed', isError: false });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      answerQuestion: async () => 'Operators', onQuestionCommitted: async () => { throw new Error('lost acknowledgment'); } })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'interrupted', runtimeState: { effect: { kind: 'question', id: 'audience' } } });
+    expect(currentEvidence().messages).toContainEqual({ role: 'tool', toolCallId: 'audience', content: 'Operators' });
+  });
+
+  it('records verifier admission before its effect and retains an unresolved check', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 2, outputTokens: 3 } });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      maxCompletionChecks: 2, completionCheck: async proposal => {
+        const saved = readSessionConversation(proposal.sessionId);
+        expect(saved.revision).toBe(proposal.revision);
+        expect(saved.progress).toMatchObject({ completionChecks: 1, completionLimit: 2 });
+        expect(saved.runtimeState?.effect.kind).toBe('verification');
+        throw new Error('lost verifier result');
+      } })).toBe(1);
+    expect(currentEvidence()).toMatchObject({ status: 'interrupted', runtimeState: { effect: { kind: 'verification' } } });
+  });
+
+  it('keeps the exhausted correction count instead of replenishing it at interruption', async () => {
+    mockChat.mockResolvedValue({ content: '', finishReason: 'error', errorCode: 'invalid_tool_arguments', usage: { inputTokens: 1, outputTokens: 1 } });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true })).toBe(4);
+    expect(mockChat).toHaveBeenCalledTimes(4);
+    expect(currentEvidence()).toMatchObject({ status: 'interrupted', progress: { iterations: 4 }, runtimeState: {
+      continuations: 4, effect: { kind: 'quiescent' }, totals: { inputTokens: 4, outputTokens: 4 } } });
+  });
+});
 
 beforeEach(() => {
   mockChat.mockReset();

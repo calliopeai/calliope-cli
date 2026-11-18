@@ -7,13 +7,14 @@ import { assertSessionDirectory, hash, invalid, object, readPrivateSessionFile, 
   validateMessages, MAX_SNAPSHOT_BYTES, MAX_SNAPSHOT_MESSAGES, type ConversationState, type ConversationSnapshot, type RecoveryStatus } from './format.js';
 import type { Message } from '../types.js';
 import { assertTurnProgress, validateTurnProgress, type TurnProgress } from './turn-progress.js';
+import { assertRuntimeProgress, assertTurnRuntimeState, validateTurnRuntimeState, type TurnRuntimeState } from './runtime-state.js';
 
 export interface EventLink { id: string; hash: string; sessionId: string }
 export interface SessionEvent extends EventLink {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   at: string;
   parent: EventLink | null;
-  change: { keep: number; append: Message[]; status: RecoveryStatus; droppedMessages: number; progress?: TurnProgress };
+  change: { keep: number; append: Message[]; status: RecoveryStatus; droppedMessages: number; progress?: TurnProgress; runtimeState?: TurnRuntimeState };
   stateHash: string;
 }
 export const MAX_HISTORY_EVENTS = 10000;
@@ -21,25 +22,28 @@ export const MAX_HISTORY_BYTES = 64 * 1024 * 1024;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const digest = /^[0-9a-f]{64}$/;
 const fields = new Set(['version', 'id', 'hash', 'sessionId', 'at', 'parent', 'change', 'stateHash']);
-export const stateHash = (state: Pick<ConversationState, 'messages' | 'status' | 'droppedMessages' | 'progress'>): string =>
+export const stateHash = (state: Pick<ConversationState, 'messages' | 'status' | 'droppedMessages' | 'progress' | 'runtimeState'>): string =>
   hash(JSON.stringify({ messages: state.messages, status: state.status, droppedMessages: state.droppedMessages,
-    ...(state.progress !== undefined ? { progress: state.progress } : {}) }));
+    ...(state.progress !== undefined ? { progress: state.progress } : {}),
+    ...(state.runtimeState !== undefined ? { runtimeState: state.runtimeState } : {}) }));
 export const eventLink = (event: SessionEvent): EventLink => ({ id: event.id, hash: event.hash, sessionId: event.sessionId });
 
 export function validateEvent(value: unknown, sessionId: string): SessionEvent {
   if (!object(value)) throw invalid();
   const event = value as unknown as SessionEvent;
   const link = (value: unknown) => object(value) && Object.keys(value).length === 3 && typeof value.sessionId === 'string' && /^[a-zA-Z0-9_-]{1,200}$/.test(value.sessionId) && typeof value.id === 'string' && uuid.test(value.id) && typeof value.hash === 'string' && digest.test(value.hash);
-  if (Object.keys(value).some(key => !fields.has(key)) || ![1, 2].includes(event.version) || event.sessionId !== sessionId || !/^[a-zA-Z0-9_-]{1,200}$/.test(event.sessionId) ||
+  if (Object.keys(value).some(key => !fields.has(key)) || ![1, 2, 3].includes(event.version) || event.sessionId !== sessionId || !/^[a-zA-Z0-9_-]{1,200}$/.test(event.sessionId) ||
     typeof event.id !== 'string' || !uuid.test(event.id) || typeof event.at !== 'string' || !Number.isFinite(Date.parse(event.at)) ||
     new Date(event.at).toISOString() !== event.at || event.parent !== null && !link(event.parent) ||
-    !object(event.change) || Object.keys(event.change).sort().join() !== (event.version === 2 ? 'append,droppedMessages,keep,progress,status' : 'append,droppedMessages,keep,status') ||
+    !object(event.change) || Object.keys(event.change).sort().join() !== (event.version === 3 ? 'append,droppedMessages,keep,progress,runtimeState,status' : event.version === 2 ? 'append,droppedMessages,keep,progress,status' : 'append,droppedMessages,keep,status') ||
     !Number.isSafeInteger(event.change.keep) || event.change.keep < 0 || event.change.keep > MAX_SNAPSHOT_MESSAGES ||
     !Array.isArray(event.change.append) || event.change.append.length > MAX_SNAPSHOT_MESSAGES ||
     !Number.isSafeInteger(event.change.droppedMessages) || event.change.droppedMessages < 0 ||
     !statuses.includes(event.change.status) || !digest.test(event.stateHash) || !digest.test(event.hash)) throw invalid();
   try {
-    if (event.version === 2) validateTurnProgress(event.change.progress);
+    if (event.version >= 2) validateTurnProgress(event.change.progress);
+    if (event.version === 3) validateTurnRuntimeState(event.change.runtimeState);
+    assertRuntimeProgress(event.change.runtimeState, event.change.progress);
     const { hash: expected, ...body } = event;
     if (hash(JSON.stringify(body)) !== expected) throw invalid();
   } catch { throw invalid(); }
@@ -50,12 +54,16 @@ export function makeEvent(sessionId: string, previous: ConversationState | null,
   parent: EventLink | null, id = randomUUID(), at = new Date().toISOString()): SessionEvent {
   validateMessages(next.messages);
   assertTurnProgress(previous?.progress, next.progress);
+  if (next.runtimeState && !previous?.runtimeState && previous !== null) throw invalid();
+  assertTurnRuntimeState(previous?.runtimeState, next.runtimeState);
+  assertRuntimeProgress(next.runtimeState, next.progress);
   let keep = 0;
   if (previous && parent) while (keep < Math.min(previous.messages.length, next.messages.length) &&
     JSON.stringify(previous.messages[keep]) === JSON.stringify(next.messages[keep])) keep++;
-  const body = { version: next.progress ? 2 as const : 1 as const, id, sessionId, at, parent,
+  const body = { version: next.runtimeState ? 3 as const : next.progress ? 2 as const : 1 as const, id, sessionId, at, parent,
     change: { keep, append: next.messages.slice(keep), status: next.status, droppedMessages: next.droppedMessages,
-      ...(next.progress ? { progress: structuredClone(next.progress) } : {}) }, stateHash: stateHash(next) };
+      ...(next.progress ? { progress: structuredClone(next.progress) } : {}),
+      ...(next.runtimeState ? { runtimeState: structuredClone(next.runtimeState) } : {}) }, stateHash: stateHash(next) };
   return validateEvent(JSON.parse(JSON.stringify({ ...body, hash: hash(JSON.stringify(body)) })), sessionId);
 }
 
@@ -119,9 +127,13 @@ export function applyEvent(previous: ConversationState | null, event: SessionEve
   const messages = [...(previous?.messages.slice(0, event.change.keep) ?? []), ...event.change.append];
   validateMessages(messages);
   assertTurnProgress(previous?.progress, event.change.progress);
+  if (event.change.runtimeState && !previous?.runtimeState && previous !== null) throw invalid();
+  assertTurnRuntimeState(previous?.runtimeState, event.change.runtimeState);
+  assertRuntimeProgress(event.change.runtimeState, event.change.progress);
   const body = { version: 1 as const, sessionId: event.sessionId, revision: event.id, updatedAt: event.at,
     status: event.change.status, droppedMessages: event.change.droppedMessages, messages,
-    ...(event.change.progress ? { progress: structuredClone(event.change.progress) } : {}), history: eventLink(event) };
+    ...(event.change.progress ? { progress: structuredClone(event.change.progress) } : {}),
+    ...(event.change.runtimeState ? { runtimeState: structuredClone(event.change.runtimeState) } : {}), history: eventLink(event) };
   if (stateHash(body) !== event.stateHash) throw invalid();
   return { ...body, checksum: hash(JSON.stringify(body)) };
 }

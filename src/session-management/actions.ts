@@ -49,7 +49,7 @@ export async function branchSession(id: string, options: SessionActionOptions & 
   const log = options.runlog ?? RunLog.open(id);
   try {
     installToolState(dir, files, options.signal);
-    const state = writeConversation(dir, session.id, messages ?? replay.snapshot.messages, { expectedRevision: null, status: replay.snapshot.status, signal: options.signal, cap: MAX_SNAPSHOT_MESSAGES, progress: replay.snapshot.progress, droppedMessages: messages && JSON.stringify(messages) !== JSON.stringify(replay.snapshot.messages) ? 0 : replay.snapshot.droppedMessages });
+    const state = writeConversation(dir, session.id, messages ?? replay.snapshot.messages, { expectedRevision: null, status: replay.snapshot.status, signal: options.signal, cap: MAX_SNAPSHOT_MESSAGES, progress: replay.snapshot.progress, runtimeState: replay.snapshot.runtimeState, droppedMessages: messages && JSON.stringify(messages) !== JSON.stringify(replay.snapshot.messages) ? 0 : replay.snapshot.droppedMessages });
     storage.updateSessionSummary(session.id, state);
     log.policyEvent({ tool: 'session_branch', source: 'session-history', decision: 'allow', durationMs: 0,
       reason: `kind=${options.kind ?? 'manual'} destination=${session.id} sourceRevision=${replay.snapshot.revision} revision=${state.revision} toolStateHash=${session.lineage!.toolStateHash}` });

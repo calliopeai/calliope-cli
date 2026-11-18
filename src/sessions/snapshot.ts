@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import type { Message } from '../types.js';
 import { throwIfCancelled } from '../cancellation.js';
 import { assertTurnProgress, validateTurnProgress, type TurnProgress } from './turn-progress.js';
+import { assertRuntimeProgress, assertTurnRuntimeState, validateTurnRuntimeState, type TurnRuntimeState } from './runtime-state.js';
 import { makeEvent, eventLink, appendSessionEvents, readSessionEvent, stateHash, type SessionEvent } from './history.js';
 import { MAX_SNAPSHOT_BYTES, assertSessionDirectory, hash, invalid, object, readPrivateSessionFile, retainMessages, SessionRecoveryError, statuses, validateMessages, type ConversationState, type ConversationSnapshot, type RecoveryStatus } from './format.js';
 
@@ -23,6 +24,8 @@ export function readConversation(dir: string, sessionId: string): ConversationSt
       !statuses.includes(data.status as RecoveryStatus) || !Number.isSafeInteger(data.droppedMessages) || Number(data.droppedMessages) < 0) throw invalid();
     validateMessages(data.messages);
     if (data.progress !== undefined) validateTurnProgress(data.progress);
+    if (data.runtimeState !== undefined) validateTurnRuntimeState(data.runtimeState);
+    assertRuntimeProgress(data.runtimeState as TurnRuntimeState | undefined, data.progress as TurnProgress | undefined);
     const { checksum, ...body } = data;
     if (checksum !== hash(JSON.stringify(body))) throw invalid();
     if (data.history !== undefined) {
@@ -35,7 +38,7 @@ export function readConversation(dir: string, sessionId: string): ConversationSt
 }
 
 export function writeConversation(dir: string, sessionId: string, messages: Message[], options: {
-  expectedRevision: string | null; status: RecoveryStatus; cap?: number; signal?: AbortSignal; droppedMessages?: number; progress?: TurnProgress;
+  expectedRevision: string | null; status: RecoveryStatus; cap?: number; signal?: AbortSignal; droppedMessages?: number; progress?: TurnProgress; runtimeState?: TurnRuntimeState;
 }): ConversationSnapshot {
   throwIfCancelled(options.signal);
   assertSessionDirectory(dir);
@@ -54,9 +57,14 @@ export function writeConversation(dir: string, sessionId: string, messages: Mess
     if (previous.revision !== options.expectedRevision) throw new SessionRecoveryError('conflict', 'another terminal saved this session; use /resume to reload it or /new before continuing.');
     const progress = options.progress === undefined ? previous.progress : options.progress;
     assertTurnProgress(previous.progress, progress);
+    const runtimeState = options.runtimeState === undefined ? previous.runtimeState : options.runtimeState;
+    if (runtimeState && !previous.runtimeState && previous.revision !== null) throw invalid();
+    assertTurnRuntimeState(previous.runtimeState, runtimeState);
+    assertRuntimeProgress(runtimeState, progress);
     const body = { version: 1 as const, sessionId, revision: randomUUID(), updatedAt: new Date().toISOString(),
       status: options.status, droppedMessages: (options.droppedMessages ?? 0) + messages.length - retained.length, messages: retained,
-      ...(progress ? { progress: structuredClone(progress) } : {}) };
+      ...(progress ? { progress: structuredClone(progress) } : {}),
+      ...(runtimeState ? { runtimeState: structuredClone(runtimeState) } : {}) };
     const serialized = JSON.stringify(body);
     let snapshot = { ...JSON.parse(serialized), checksum: hash(serialized) } as ConversationSnapshot;
     if (Buffer.byteLength(JSON.stringify(snapshot)) + 256 > MAX_SNAPSHOT_BYTES) throw new SessionRecoveryError('invalid', 'snapshot exceeds 16 MiB; compact the conversation or start /new.');

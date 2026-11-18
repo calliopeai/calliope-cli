@@ -10,6 +10,8 @@ import { runTurn } from './runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
 import type { RuntimeControl, ControlCheckpoint, ControlReadyCheckpoint, ControlReceipt } from './runtime/control.js';
 import type { TurnProgress } from './sessions/turn-progress.js';
+import type { TurnRuntimeState } from './sessions/runtime-state.js';
+import type { RecoveryStatus } from './sessions/format.js';
 import { completionCheckLimit, type CompletionCheck } from './runtime/completion.js';
 import { connectDelegatedExecution, executionBinding, type DelegatedExecutionOptions } from './execution/delegated.js';
 import { ExecutionGuard } from './execution/guard.js';
@@ -52,6 +54,15 @@ export const CAP_EXIT_CODE = 6;
 export type HeadlessOutputMode = 'json' | 'text';
 
 export const HEADLESS_PROGRESS_PROTOCOL_VERSION = 1;
+/** Opt-in original-turn evidence only; does not advertise cold execution resume. */
+export const HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION = 1;
+
+export interface HeadlessRuntimeStateReceipt extends ControlCheckpoint {
+  readonly sessionId: string;
+  readonly status: RecoveryStatus;
+  readonly progress: Readonly<TurnProgress>;
+  readonly runtimeState: Readonly<TurnRuntimeState>;
+}
 
 export interface HeadlessProgressReceipt extends ControlReadyCheckpoint {
   readonly progress: Readonly<TurnProgress>;
@@ -66,6 +77,10 @@ export interface HeadlessQuestionReceipt {
 }
 
 export interface HeadlessOptions {
+  /** Opt-in checkpoint evidence for future fenced recovery; does not enable resume. */
+  retainRuntimeState?: boolean;
+  /** Acknowledge each saved runtime checkpoint before the next effect; not recovery authority. */
+  onRuntimeStateCommitted?: (receipt: HeadlessRuntimeStateReceipt, signal?: AbortSignal) => Promise<void>;
   /** Trusted workspace transport; task text cannot configure this capability. */
   toolRuntime?: TurnOptions['toolRuntime'];
   signal?: AbortSignal;
@@ -209,6 +224,15 @@ async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean') {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Runtime state capture requires an explicit boolean.' } }, outputMode);
+    return 2;
+  }
+  if (options.onRuntimeStateCommitted !== undefined &&
+      (typeof options.onRuntimeStateCommitted !== 'function' || options.retainRuntimeState !== true)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Runtime checkpoint acknowledgment requires capture and a host callback.' } }, outputMode);
+    return 2;
+  }
   try { completionCheckLimit(options.completionCheck, options.maxCompletionChecks); }
   catch {
     emit({ type: 'error', timestamp: now(), data: { message: 'Completion verification requires a host callback and 1 to 8 checks.' } }, outputMode);
@@ -371,6 +395,8 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
+      ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeClock: { startedAt: clock.started,
+        deadline: options.maxTime === undefined ? null : Math.floor(clock.started + options.maxTime * 1000) } } : {}),
       captureToolOutput: true,
       client: 'headless',
       onSafetyBranch: async () => {
@@ -379,15 +405,28 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         emit({ type: 'status', timestamp: now(), data: { message: `Recovery conversation branch: ${branch.session.id}`, sessionId: branch.session.id } }, outputMode);
       },
       retainTurnProgress: !!(options.control || options.completionCheck || options.onTurnProgressCommitted),
-      onCheckpoint: (history, status, progress) => {
-        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status, progress });
+      onCheckpoint: (history, status, progress, runtimeState) => {
+        const saved = saveSessionConversation(sessionId, history, { expectedRevision: revision, status, progress,
+          ...(runtimeState ? { runtimeState } : {}) });
         revision = saved.revision;
         if (progress) savedProgress = saved;
         if (options.onQuestionCommitted) savedQuestion = saved;
         if (options.control || options.completionCheck) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
-
       },
+      onRuntimeStateCommitted: options.onRuntimeStateCommitted ? async (runtimeState, progress, receiptSignal) => {
+        if (!savedProgress || JSON.stringify(savedProgress.progress) !== JSON.stringify(progress) ||
+            JSON.stringify(savedProgress.runtimeState) !== JSON.stringify(runtimeState))
+          throw new Error('Runtime checkpoint evidence is unavailable.');
+        const proof = Object.freeze({ sessionId, revision: savedProgress.revision, checksum: savedProgress.checksum,
+          status: savedProgress.status, progress: Object.freeze(structuredClone(progress)),
+          runtimeState: Object.freeze(structuredClone(runtimeState)) });
+        const result: unknown = await options.onRuntimeStateCommitted!(proof, receiptSignal);
+        if (result !== undefined) throw new Error('Invalid runtime checkpoint acknowledgment.');
+        const current = readSessionConversation(sessionId);
+        if (current.revision !== proof.revision || !('checksum' in current) || current.checksum !== proof.checksum)
+          throw new Error('Runtime checkpoint changed before acknowledgment.');
+      } : undefined,
       onTurnProgressCommitted: options.onTurnProgressCommitted ? async (progress, progressSignal) => {
         if (!savedProgress || JSON.stringify(savedProgress.progress) !== JSON.stringify(progress))
           throw new Error('Turn allowance checkpoint is unavailable.');
