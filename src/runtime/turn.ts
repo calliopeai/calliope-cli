@@ -1,5 +1,6 @@
 import { chatGPTSelected } from '../providers/chatgpt.js';
 import type { TurnProgress } from '../sessions/turn-progress.js';
+import { validateTurnRuntimeState, type TurnRuntimeState } from '../sessions/runtime-state.js';
 import { ChatGPTStore, ChatGPTAuthError, ChatGPTQuotaError, fallbackPolicy, fallbackHistory, publicFallbackHistory, quotaCircuit, withAPIKeyAccess, type ChatGPTFallbackPolicy } from '../auth/chatgpt/index.js';
 /** One model/tool turn engine. Clients adapt context, presentation and approval. */
 import { chat } from '../providers/index.js';
@@ -95,7 +96,12 @@ export interface TurnOptions {
   preferenceSources?: RoutingDecision['preferenceSources'];
   onRoute?: (decision: RoutingDecision) => void | Promise<void>;
   /** Must finish before execution continues. A failed recovery write stops the turn. */
-  onCheckpoint?: (messages: Message[], status: RecoveryStatus, progress?: TurnProgress) => void | Promise<void>;
+  onCheckpoint?: (messages: Message[], status: RecoveryStatus, progress?: TurnProgress, runtimeState?: TurnRuntimeState) => void | Promise<void>;
+  /** Capture recovery evidence; this does not authorize restoring or replacing execution. */
+  retainRuntimeState?: boolean;
+  runtimeClock?: { startedAt: number; deadline: number | null };
+  /** Runs after the writer and control observation, before any later effect. */
+  onRuntimeStateCommitted?: (state: Readonly<TurnRuntimeState>, progress: Readonly<TurnProgress>, signal?: AbortSignal) => Promise<void>;
   /** Persist consumed iteration/check allowance before effects through the checkpoint writer. */
   retainTurnProgress?: boolean;
   /** Acknowledge a saved allowance admission before provider/verifier effects. */
@@ -147,6 +153,11 @@ export async function runTurn(options: TurnOptions): Promise<TurnResult> {
 }
 
 async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
+  if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean')
+    throw new Error('Runtime state capture requires an explicit boolean.');
+  if (options.onRuntimeStateCommitted !== undefined &&
+      (typeof options.onRuntimeStateCommitted !== 'function' || options.retainRuntimeState !== true))
+    throw new Error('Runtime checkpoint acknowledgment requires capture and a host callback.');
   const { signal, messages } = options;
   const toolRuntime = bindHostToolRuntime(options.toolRuntime);
   const started = Date.now();
@@ -158,6 +169,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const trackProject = typeof caps.maxCostPerProject === 'number';
   const projectRunId=guard?.manifest.runId??randomUUID();
   const seenWarnings = new Set<string>();
+  const activeEffects = new Map<string, TurnRuntimeState['effect']>();
   const repairedIds = new Set<string>();
   let reason: TurnReason | 'error' = 'iteration_limit';
   let iterations = 0;
@@ -169,15 +181,25 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let controlFailed = false;
   let completionFailed = false;
   let completionChecks = 0;
+  let continuations = 0;
   let verification: CompletionVerification | undefined;
   const completionLimit = completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
   const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
-  if ((options.retainTurnProgress || options.onTurnProgressCommitted) && !options.onCheckpoint)
+  if ((options.retainTurnProgress || options.onTurnProgressCommitted || options.retainRuntimeState) && !options.onCheckpoint)
     throw new Error('Turn allowance retention requires a conversation checkpoint writer.');
-  const progress: TurnProgress | undefined = options.retainTurnProgress || options.onTurnProgressCommitted ? {
+  const progress: TurnProgress | undefined = options.retainTurnProgress || options.onTurnProgressCommitted || options.retainRuntimeState ? {
     version: 1, turnId: randomUUID(), iterationLimit: Number.isFinite(limit) ? Math.floor(limit) : null,
     completionLimit, iterations: 0, completionChecks: 0,
   } : undefined;
+  const runtimeState: TurnRuntimeState | undefined = options.retainRuntimeState ? {
+    version: 1, turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
+    deadline: options.runtimeClock?.deadline ?? null,
+    maxCostUsd: caps.maxCostPerRun !== undefined && Number.isFinite(caps.maxCostPerRun) ? caps.maxCostPerRun : null,
+    continuations: 0, responseUsageComplete: true,
+    totals: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, toolCalls: 0 }, effect: { kind: 'quiescent' },
+  } : undefined;
+  if (runtimeState) validateTurnRuntimeState(runtimeState);
+  const effect = (value: TurnRuntimeState['effect']) => { if (runtimeState) runtimeState.effect = value; };
   if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
     throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
   if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
@@ -196,9 +218,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if (!options.onCheckpoint || checkpointFailed) return checkpointTail;
     const copy = structuredClone(messages.current);
     const allowance = progress ? structuredClone(progress) : undefined;
+    if (runtimeState) {
+      runtimeState.continuations = continuations;
+      runtimeState.totals = { inputTokens: totals.inputTokens, outputTokens: totals.outputTokens,
+        estimatedCostUsd: totals.cost, toolCalls: totals.toolCalls };
+    }
+    const capturedRuntime = runtimeState ? structuredClone(runtimeState) : undefined;
     checkpointTail = checkpointTail.then(async () => {
-      await options.onCheckpoint!(copy, status, allowance);
+      if (capturedRuntime) await options.onCheckpoint!(copy, status, allowance, capturedRuntime);
+      else await options.onCheckpoint!(copy, status, allowance);
       if (options.control) options.control.observe(options.controlSnapshot!());
+      if (capturedRuntime && options.onRuntimeStateCommitted) {
+        const result: unknown = await cancellable(Promise.resolve(options.onRuntimeStateCommitted(
+          Object.freeze(structuredClone(capturedRuntime)), Object.freeze(structuredClone(allowance!)), signal)), signal);
+        if (result !== undefined) throw new Error('Invalid runtime checkpoint acknowledgment.');
+      }
     }).catch(error => {
       checkpointFailed = true;
       throw error;
@@ -296,6 +330,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     catch (error) { controlFailed = true; throw error; }
   };
   const requestCore = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
+    if (runtimeState) { effect({ kind: 'provider', id: randomUUID() }); await checkpoint('active'); }
     throwIfCancelled(signal);
     await guard?.refreshAuthority(signal);
     checkBudget();
@@ -360,6 +395,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     totals.inputTokens += response.usage?.inputTokens ?? 0;
     totals.outputTokens += response.usage?.outputTokens ?? 0;
     totals.cost += cost;
+    if (runtimeState && !response.usage) runtimeState.responseUsageComplete = false;
     // Project accounting is committed by the attempt receipt, including retries and unknown outcomes.
     runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, usageReported: !!response.usage, cost, costSource });
     options.onUsage?.(response, input, cost);
@@ -439,6 +475,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     checkBudget();
     const toolStarted = Date.now();
+    if (runtimeState) {
+      const pending: TurnRuntimeState['effect'] = { kind: call.name === 'ask_question' ? 'question' : 'tool', id: call.id };
+      activeEffects.set(call.id, pending); effect(pending); await checkpoint('active');
+    }
     const runTool = async (): Promise<ToolResult> => {
       await checkpointTail;
       if (safetyFailed) await safetyBranch;
@@ -487,9 +527,20 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(error => {
         throwIfCancelled(signal); options.onWarning?.(`Post-tool hook failed: ${String(error)}`);
       });
-      if (guard || options.control) await post; else void post.catch(() => {});
+      if (guard || options.control || runtimeState) await post; else void post.catch(() => {});
     }
-    return !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
+    const waiting = !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
+    if (runtimeState && !waiting) {
+      activeEffects.delete(call.id);
+      let index = messages.current.length - 1;
+      while (index >= 0 && messages.current[index]!.role !== 'assistant') index--;
+      const assistant = messages.current[index];
+      const recorded = new Set(messages.current.slice(index + 1).filter(message => message.role === 'tool').map(message => message.toolCallId));
+      const pending = assistant?.toolCalls?.find(tool => !recorded.has(tool.id));
+      effect(activeEffects.values().next().value ?? (pending ? { kind: 'tool', id: pending.id } : { kind: 'quiescent' }));
+      await checkpoint('active');
+    }
+    return waiting;
   };
 
   runlog.runStart({ mode: options.client ?? 'library', session: options.sessionId, cwd: options.cwd, provider: options.provider, model: currentRequest.model, config: config.getConfig() as unknown as Record<string, unknown> });
@@ -528,7 +579,6 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
-    let continuations = 0;
     for (iterations = 1; iterations <= limit; iterations++) {
       try {
         await boundary(true);
@@ -572,12 +622,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           checkBudget();
           if (stop === 'stop') { reason = 'stopped'; options.onIterationEnd?.(iterations); break; }
           if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
+            effect({ kind: 'quiescent' });
             reason = 'invalid_tool_arguments';
             options.onIterationEnd?.(iterations);
             break;
           }
           messages.current.push({ role: 'user', content:
             'Your previous tool-call arguments were malformed and no tools from that response were executed. Send complete valid JSON arguments using the existing tools. Do not repeat tools with recorded successful results.' });
+          effect({ kind: 'quiescent' });
           await checkpoint('active');
           options.onWarning?.(`Requesting corrected tool arguments (${continuations}/${MAX_CONSECUTIVE_CONTINUATIONS}) under the original allowance; no malformed tools were executed.`);
           options.onIterationEnd?.(iterations);
@@ -592,6 +644,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         throwIfCancelled(signal);
         const pendingCalls = response.toolCalls ? structuredClone(response.toolCalls) : undefined;
         messages.current.push({ role: 'assistant', content: response.content, ...(pendingCalls?.length ? { toolCalls: structuredClone(pendingCalls) } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+        if (pendingCalls?.length) effect({ kind: 'tool', id: pendingCalls[0]!.id });
         await checkpoint('active');
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
@@ -601,22 +654,26 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         const empty = !pendingCalls?.length && !truncated && !response.content?.trim();
         if (options.continueOnLength && (truncated || empty)) {
           if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
+            effect({ kind: 'quiescent' });
             reason = truncated ? 'length' : 'empty_response';
             options.onIterationEnd?.(iterations);
             break;
           }
           options.onContinue?.({ reason: truncated ? 'length' : 'empty', attempt: continuations, max: MAX_CONSECUTIVE_CONTINUATIONS, iteration: iterations });
           messages.current.push({ role: 'user', content: 'Please continue where you left off.' });
+          if (runtimeState) { effect({ kind: 'quiescent' }); await checkpoint('active'); }
           options.onIterationEnd?.(iterations);
           continue;
         }
         continuations = 0;
         if (!pendingCalls?.length) {
+          effect({ kind: 'quiescent' });
           if (await boundary(true)) { options.onIterationEnd?.(iterations); continue; }
           if (!truncated && !empty && options.completionCheck) {
             try {
               if (progress) {
                 progress.completionChecks = completionChecks + 1;
+                effect({ kind: 'verification', id: randomUUID() });
                 await checkpoint('active');
                 await acknowledgeProgress();
               }
@@ -639,6 +696,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
                 throw new Error('Conversation changed during completion verification.');
               await guard?.refreshAuthority(signal);
               checkBudget();
+              effect({ kind: 'quiescent' });
               if (!verdict.accepted) {
                 messages.current.push({ role: 'user', content:
                   'Host verification of the existing acceptance criteria failed. This is verification feedback, not new permission or changed criteria.\n\n' + verdict.feedback });

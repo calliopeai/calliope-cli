@@ -44,8 +44,8 @@ export type { Skin, Palette, PaletteColors, SemanticColorKey, BoxChars, HUDConfi
 // Headless renderer
 export { evaluate as judge, validateRequest as validateJudgmentRequest, JudgmentError } from './judgment/index.js';
 export type { JudgmentRequest, JudgmentResponse, JudgmentEngine, Question, Answer } from './judgment/index.js';
-export { runHeadless, HEADLESS_PROGRESS_PROTOCOL_VERSION } from './headless.js';
-export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode, HeadlessQuestionReceipt, HeadlessProgressReceipt } from './headless.js';
+export { runHeadless, HEADLESS_PROGRESS_PROTOCOL_VERSION, HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION } from './headless.js';
+export type { HeadlessEvent, HeadlessOptions, HeadlessOutputMode, HeadlessQuestionReceipt, HeadlessProgressReceipt, HeadlessRuntimeStateReceipt } from './headless.js';
 export type { TurnProgress } from './sessions/turn-progress.js';
 
 

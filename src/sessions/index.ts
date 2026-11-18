@@ -7,3 +7,4 @@ export * from './portable.js';
 export * from './output.js';
 export * from './execution-binding.js';
 export * from './turn-progress.js';
+export * from './runtime-state.js';

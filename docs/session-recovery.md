@@ -101,5 +101,45 @@ tools must supply a session ID created by storage.
 The pending submission queue is not persisted. Branching and private import/export
 are documented in [session history](session-history.md).
 
+## Headless execution evidence
+
+SDK hosts can opt into `runHeadless({ retainRuntimeState: true, ... })` when
+starting a new session. First require the root SDK export
+`HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION === 1`; older SDKs can silently ignore
+unknown options. This capability advertises evidence capture, not execution resume.
+Its checkpoints retain `runtimeState` beside the existing
+turn allowance: the original start and deadline, cost cap, continuation count,
+reported response token totals, estimated cost, tool-call count and current
+provider/tool/question/verification effect. Pending work is saved before its
+effect. An unresolved request or acknowledgment remains pending on interruption;
+synthetic tool-pair cleanup does not turn it into a successful effect.
+
+Hosts that retain a remote recovery floor can also supply
+`onRuntimeStateCommitted` with capture enabled. The callback receives the exact
+saved session/revision/checksum, status, original allowance and runtime evidence
+after every local checkpoint. It must durably acknowledge that receipt and
+return nothing before execution continues, and honor the original abort signal.
+A rejection, invalid return, cancellation or changed local checkpoint stops
+execution. The callback does not grant ownership, release a reservation or enable
+headless resume; the paired host must still validate those separately.
+
+`responseUsageComplete` describes only responses returned to the runtime. It is
+false after any such response omits usage. Totals are not an invoice or proof
+that all provider attempts settled; the original reservation ledger remains
+authoritative for charges and unknown requests.
+
+Runtime evidence uses history event version 3. It must start with the first
+conversation checkpoint, match the original turn ID, and retain its start,
+deadline and cost cap. Later checkpoints cannot reduce reported totals or
+restore a missing-usage marker. Replay, branches and portable bundles retain the
+evidence. Versions 1 and 2 remain unchanged when capture is disabled; older CLI
+versions cannot read version 3 histories.
+
+This option captures evidence and does not enable headless execution resume.
+A quiescent marker, a portable bundle or a valid checksum does not prove current
+Native ownership, the original account/model/policy, settled reservations or
+remaining execution authority. Interrupted goals still require the paired
+host admission and ledger recovery contract tracked in #521.
+
 The run-log v1 envelope adds `session_checkpoint` events with `revision`,
 `checksum`, `status` and `messageCount`; existing event types are unchanged.

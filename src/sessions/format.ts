@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import type { Message } from '../types.js';
 import type { TurnProgress } from './turn-progress.js';
+import type { TurnRuntimeState } from './runtime-state.js';
 
 export const MAX_SNAPSHOT_BYTES = 16 * 1024 * 1024;
 export const MAX_SNAPSHOT_MESSAGES = 10000;
@@ -14,6 +15,7 @@ export interface ConversationState {
   droppedMessages: number;
   history?: { id: string; hash: string; sessionId: string };
   progress?: TurnProgress;
+  runtimeState?: TurnRuntimeState;
 }
 export interface ConversationSnapshot extends ConversationState {
   version: 1;
