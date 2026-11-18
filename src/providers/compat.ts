@@ -10,7 +10,7 @@ import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNon
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, LLMProvider, ToolCall } from '../types.js';
-import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
+import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
 import { openRouterBounds } from './openrouter-bounds.js';
@@ -297,7 +297,7 @@ export async function chatOpenAICompatible(
   const openaiTools = toOpenAITools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens(provider, model, messages, tools), limits?.maxOutputTokens);
+  const dynamicMaxTokens = calculateMaxTokens(provider, model, messages, tools, limits?.maxOutputTokens);
   // OpenAI's own API rejects max_tokens on newer models; other servers only accept it.
   let targetsOpenAI = false;
   try {

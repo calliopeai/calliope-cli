@@ -189,3 +189,46 @@ it('cancels effort counting without paid dispatch or resetting the persistent bu
   await expect(chat('anthropic',messages,tools,route.model,undefined,undefined,{reasoningEffort:'low',maxOutputTokens:100,attemptBudget:execution.budget(route,messages,tools,false),signal:controller.signal})).rejects.toMatchObject({name:'AbortError'});
   expect(requests).toHaveLength(1);expect(ledger.read(project).projection.spent.costNanos).toBe(0);
 });
+
+
+import { configureAutoCompressor, getAutoCompressorConfig, resetAutoCompressorState } from '../src/auto-compressor.js';
+it.each(['ordinary', 'compression'] as const)('reserves the actual Anthropic non-streaming output for %s requests', async mode => {
+  respond = async (path, body) => {
+    if (path.endsWith('/models')) return json({ data: [{ id: route.model, max_input_tokens: 65536, max_tokens: 16384 }], has_more: false });
+    if (path.endsWith('/count_tokens')) return json({ input_tokens: 7 });
+    return json({ id: 'counted-wide', type: 'message', role: 'assistant', model: route.model,
+      content: [{ type: 'text', text: 'A retained synthetic summary and completed response.' }], stop_reason: 'end_turn',
+      usage: { input_tokens: 7, output_tokens: 3 } });
+  };
+  const manifest = executionManifest(project);
+  manifest.tokenBudget = 20000; manifest.costBudgetNanos = 1000000000;
+  for (const account of manifest.accounts) {
+    account.tokenBudget = account.id === 'root' ? 20000 : 10000;
+    account.costBudgetNanos = account.id === 'root' ? 1000000000 : 500000000;
+  }
+  const ledger = new ReservationLedger(join(root, 'wide-ledger')); ledger.create(manifest);
+  const previous = getAutoCompressorConfig();
+  const onCompression = vi.fn();
+  try {
+    if (mode === 'compression') {
+      configureAutoCompressor({ enabled: true, triggerThreshold: 1, targetThreshold: 0.5, preserveRecent: 2, useLlm: true, compressionModel: undefined });
+      resetAutoCompressorState();
+    }
+    const history: Message[] = mode === 'ordinary' ? [{ role: 'user', content: 'Return the result.' }]
+      : Array.from({ length: 12 }, (_, i) => ({ role: i % 2 ? 'assistant' as const : 'user' as const, content: 'x'.repeat(400) }));
+    const result = await runTurn({ cwd: project, provider: 'anthropic', model: route.model, sessionId: randomUUID(),
+      prompt: 'Return the result.', messages: { current: history }, confirmation: 'none', maxIterations: 1, tools: () => [],
+      disableCompression: mode === 'ordinary', onCompression, runlog: RunLog.open(randomUUID(), { enabled: false }),
+      execution: { ledger, manifestHash: manifestHash(manifest), agentId: 'a', maxOutputTokens: 16384 } });
+    expect(result.reason).toBe('completed');
+    const paid = requests.filter(request => request.path.endsWith('/messages'));
+    expect(paid).toHaveLength(mode === 'ordinary' ? 1 : 2);
+    expect(paid.every(request => request.body.max_tokens === 8192)).toBe(true);
+    const { calculateMaxTokens } = await import('../src/providers/types.js');
+    expect(calculateMaxTokens('anthropic', route.model, [{ role: 'user', content: 'Short request' }], [], 16384, true)).toBe(16384);
+    const entries = Object.values(ledger.read(project).projection.requests);
+    expect(entries).toHaveLength(paid.length);
+    expect(entries.every(entry => entry.reservation.outputTokens === 8192 && entry.state === 'settled')).toBe(true);
+    if (mode === 'compression') expect(onCompression).toHaveBeenCalledWith(expect.objectContaining({ method: 'llm' }));
+  } finally { configureAutoCompressor(previous); resetAutoCompressorState(); }
+});

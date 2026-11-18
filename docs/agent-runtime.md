@@ -166,3 +166,11 @@ state and retention. They do not replace real-wire captures. See
 and [isolated workers](isolated-workers.md) for version 3 worktrees and reviewed
 container verification. Brain/KG, controlled improvement and broader worker-tool
 support remain tracked in #254.
+
+Runtime response estimates use the immutable admitted request rates when an
+execution or project budget supplies them, and the assistant journal marks
+`costSource: admission`. The estimate reuses the ledger’s per-token nano-dollar
+rounding. These rates may be conservative reviewed bounds rather
+than invoice prices. Uncapped discovery/fallback estimates and subscription
+zero-dollar semantics remain separate. Missing response usage stays unknown and
+does not release its reservation; numeric zero is not a verified charge.

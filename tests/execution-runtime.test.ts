@@ -31,7 +31,20 @@ beforeEach(()=>{
   }));
 });
 afterEach(()=>{config.resetConfig();saveHooks([]);clearModelCache();vi.restoreAllMocks();vi.unstubAllGlobals();vi.unstubAllEnvs();fs.rmSync(join(projectBudgetPath(project),'..'),{recursive:true,force:true});fs.rmSync(root,{recursive:true,force:true});});
+// The full production tool schemas do not fit the tiny accounting-only model.
+function fullToolWindow() {
+  metadata.context_length=8192;
+  manifest.tokenBudget=16000;manifest.costBudgetNanos=20000000;
+  Object.assign(manifest.accounts[0]!,{tokenBudget:16000,costBudgetNanos:20000000});
+  Object.assign(manifest.accounts[1]!,{tokenBudget:14000,costBudgetNanos:15000000});
+}
 const options=(extra:Partial<TurnOptions>={}):TurnOptions=>({cwd:project,provider:'deepseek',model:'toy',sessionId:randomUUID(),prompt:'Use the public toy file.',messages:{current:[{role:'user',content:'Use the public toy file.'}]},confirmation:'none',maxIterations:3,tools:()=>[],runlog:RunLog.open(randomUUID(),{enabled:false}),execution:{ledger,manifestHash:manifestHash(manifest),agentId:'a',maxOutputTokens:100},...extra});
+it('refuses an overfull tool schema before inference or reservation rather than squeezing output below its cap',async()=>{
+  ledger.create(manifest);
+  const result=await runTurn(options({tools:getTools}));
+  expect(result.reason).toBe('budget');expect(result.budget?.message).toMatch(/context.*reduce/i);
+  expect(requests).toHaveLength(0);expect(ledger.read(project).events).toEqual([]);
+});
 it.each([false,true])('rechecks original agent authority after host verification (revoked=%s)',async revoke=>{
   ledger.create(manifest);let revoked=false,saved:ReturnType<typeof saveSessionConversation>|undefined;
   const session=createSession(project,{activate:false});
@@ -54,10 +67,26 @@ it('executes a bounded request using live metadata and records reservation/usage
   expect(JSON.stringify(saved.events)).not.toContain('Use the public toy');
   const trace=readRunLog(log.filePath);expect(verifyChain(trace).ok).toBe(true);expect(trace.some(e=>e.type==='policy_event'&&JSON.stringify(e).includes('execution-budget'))).toBe(true);
 });
+it('keeps an explicit caller ceiling while quoting the smaller live output limit',async()=>{
+  ledger.create(manifest);const opts=options();opts.execution!.maxOutputTokens=4096;
+  expect((await runTurn(opts)).reason).toBe('completed');expect(requests).toHaveLength(1);
+  expect(requests[0].max_tokens).toBe(100);expect(opts.execution!.maxOutputTokens).toBe(4096);
+  expect(Object.values(ledger.read(project).projection.requests)[0]!.reservation.outputTokens).toBe(100);
+});
+it('reserves the actual context-clipped transport allowance without expanding the host ceiling',async()=>{
+  fullToolWindow();metadata.context_length=5000;metadata.max_output_tokens=5000;ledger.create(manifest);
+  const opts=options();opts.execution!.maxOutputTokens=6000;
+  expect((await runTurn(opts)).reason).toBe('completed');expect(requests).toHaveLength(1);
+  expect(requests[0].max_tokens).toBeGreaterThan(0);expect(requests[0].max_tokens).toBeLessThan(5000);
+  expect(opts.execution!.maxOutputTokens).toBe(6000);
+  const projection=ledger.read(project).projection,saved=Object.values(projection.requests)[0]!;
+  expect(saved.reservation.outputTokens).toBe(requests[0].max_tokens);expect(projection.spent.tokens).toBe(10);
+});
 it('commits trusted attempt provenance before each native SDK dispatch and freezes the caller snapshot',async()=>{
+  fullToolWindow();
   ledger.create(manifest);const attribution:RequestAttribution={version:1,kind:'task',taskId:'inspect-a',attempt:1,eventId:randomUUID(),eventHash:'a'.repeat(64),sessionId:randomUUID()},expected=structuredClone(attribution),opts=options({sessionId:attribution.sessionId,tools:getTools});opts.execution!.attribution=attribution;
   respond=async()=>{
-    const pending=Object.values(ledger.read(project).projection.requests).find(r=>r.state==='pending');expect(pending?.reservation.attribution).toEqual(expected);expect(pending?.accounted?.tokens).toBe(1000);
+    const pending=Object.values(ledger.read(project).projection.requests).find(r=>r.state==='pending');expect(pending?.reservation.attribution).toEqual(expected);expect(pending?.accounted?.tokens).toBe(8292);
     attribution.eventHash='f'.repeat(64);return requests.length===1?completion({name:'read_file',args:{path:'a/toy.txt'}}):completion();
   };
   expect((await runTurn(opts)).reason).toBe('completed');expect(requests).toHaveLength(2);
@@ -88,12 +117,14 @@ it('retains missing usage and rejects malformed usage without returning budget t
   expect((await runTurn(options())).reason).toBe('budget');expect(requests).toHaveLength(2);
 });
 it('enforces generated tool authority and safe non-interactive mutation defaults',async()=>{
+  fullToolWindow();
   ledger.create(manifest);respond=async()=>requests.length===1?completion({name:'write_file',args:{path:'a/denied.txt',content:'no'}}):completion();
   const denied:any[]=[];await runTurn(options({tools:getTools,onToolResult:(_call,result)=>{denied.push(result);}}));expect(denied[0].isError).toBe(true);expect(fs.existsSync(join(project,'a/denied.txt'))).toBe(false);
   requests=[];respond=async()=>requests.length===1?completion({name:'write_file',args:{path:'b/outside.txt',content:'no'}}):completion();const approve=vi.fn(async()=> 'allow' as const);
   await runTurn(options({tools:getTools,approve}));expect(approve).not.toHaveBeenCalled();expect(fs.existsSync(join(project,'b/outside.txt'))).toBe(false);
 });
 it('allows an explicitly approved scoped mutation and rejects undeclared tool schemas',async()=>{
+  fullToolWindow();
   ledger.create(manifest);respond=async request=>{expect(request.tools.every((t:any)=>!['shell','web_fetch','configure'].includes(t.function.name))).toBe(true);return requests.length===1?completion({name:'write_file',args:{path:'a/new.txt',content:'approved'}}):completion();};
   const approve=vi.fn(async()=> 'allow' as const);const result=await runTurn(options({tools:getTools,approve}));expect(result.reason).toBe('completed');expect(approve).toHaveBeenCalledTimes(1);expect(fs.readFileSync(join(project,'a/new.txt'),'utf8')).toBe('approved');
 });
@@ -121,6 +152,7 @@ it.each(['ordinary','child'] as const)('shares project reservations between an a
   release();expect((await running).reason).toBe('completed');expect(loadProjectSpend(project).spentUsd).toBe(0.000013);
 });
 it('enforces configured run caps before dispatch and rechecks tightened policy before a file mutation',async()=>{
+  fullToolWindow();
   ledger.create(manifest);config.set('budget',{maxTokensPerRun:999});expect((await runTurn(options())).reason).toBe('budget');expect(requests).toHaveLength(0);expect(loadProjectSpend(project).spentUsd).toBe(0);
   config.set('budget',{});respond=async()=>completion({name:'write_file',args:{path:'a/policy.txt',content:'no'}});
   const result=await runTurn(options({tools:getTools,approve:async()=>{config.set('budget',{maxTokensPerRun:1});return 'allow';}}));
@@ -134,6 +166,7 @@ it('reserves ordinary project-capped turns, preserves unknown usage and freezes 
   expect(loadProjectSpend(project).spentUsd).toBe(0.002213);expect((await runTurn(ordinary())).reason).toBe('budget');expect(requests).toHaveLength(3);
 });
 it('waits for asynchronous post-tool hooks and cancels their process when an agent deadline expires',async()=>{
+  fullToolWindow();
   // Exercise the same 500 ms allowance after the real child signals readiness;
   // process startup under host load must not consume this test's fake clock.
   vi.useFakeTimers({now:Date.now()-10000,toFake:['Date','setTimeout','clearTimeout']});

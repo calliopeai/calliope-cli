@@ -152,7 +152,7 @@ describe('opt-in original-turn runtime evidence', () => {
         if (failure === 'cancel') { controller.abort(); return untilAborted(signal); }
         const saved = readSessionConversation(proof.sessionId);
         saveSessionConversation(proof.sessionId, saved.messages, { expectedRevision: saved.revision, status: saved.status });
-      } })).toBe(1);
+      } })).toBe(failure === 'cancel' ? 130 : 1);
     expect(mockChat).not.toHaveBeenCalled();
     expect(currentEvidence().runtimeState?.effect.kind).toBe('provider');
   });
@@ -1156,5 +1156,287 @@ describe('malformed response callback contract (#470)', () => {
       expect(response.toolCalls).toBeUndefined();
     }
     expect(result.reason).toBe(mode === 'corrected' ? 'completed' : mode === 'exhausted' ? 'invalid_tool_arguments' : mode === 'budget' ? 'budget' : 'stopped');
+  });
+});
+
+
+describe('cancelled runtime capture finalization', () => {
+  it.each(['external', 'deadline'] as const)('preserves the %s exit and pending effect when final acknowledgment cannot run', async mode => {
+    const controller = new AbortController();
+    const acknowledgedStatuses: string[] = [];
+    if (mode === 'deadline') vi.useFakeTimers();
+    mockChat.mockImplementationOnce(async (...args: unknown[]) => {
+      const signal = (args[6] as { signal?: AbortSignal }).signal;
+      const pending = untilAborted(signal);
+      if (mode === 'external') controller.abort();
+      else vi.advanceTimersByTime(1000);
+      return pending;
+    });
+    let code: number;
+    try { code = await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      ...(mode === 'external' ? { signal: controller.signal } : { maxTime: 1 }),
+      onRuntimeStateCommitted: async (proof, signal) => {
+        if (signal?.aborted) throw new Error('Acknowledgment cancelled');
+        acknowledgedStatuses.push(proof.status);
+      } }); } finally { vi.useRealTimers(); }
+    expect(code!).toBe(mode === 'external' ? 130 : CAP_EXIT_CODE);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'cancelled', runtimeState: { effect: { kind: 'provider' } } });
+    expect(acknowledgedStatuses).not.toContain('cancelled');
+    if (mode === 'deadline') expect(eventOf('budget_exceeded')).toMatchObject({ kind: 'time' });
+  });
+
+  it.each([true, false])('retains returned-response accounting on cancellation (usage present: %s)', async reported => {
+    const controller = new AbortController();
+    mockChat.mockImplementationOnce(async () => {
+      controller.abort();
+      return { content: 'Must not be presented', ...(reported ? { usage: { inputTokens: 7, outputTokens: 3 } } : {}) };
+    });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      signal: controller.signal })).toBe(130);
+    expect(currentEvidence()).toMatchObject({ status: 'cancelled', runtimeState: {
+      responseUsageComplete: reported,
+      totals: { inputTokens: reported ? 7 : 0, outputTokens: reported ? 3 : 0 },
+      effect: { kind: 'provider' },
+    } });
+    expect(events().filter(event => event.type === 'message')).toHaveLength(0);
+    expect(mockExecuteTool).not.toHaveBeenCalled();
+  });
+});
+
+
+it('does not start verification when cancellation arrives during its durable capture', async () => {
+  const storage = await import('../src/storage.js');
+  const original = storage.saveSessionConversation;
+  const controller = new AbortController();
+  const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+    const saved = original(id, messages, options);
+    if (options.runtimeState?.effect.kind === 'verification') controller.abort();
+    return saved;
+  });
+  const verifier = vi.fn(async () => ({ accepted: true as const, evidenceSha256: 'a'.repeat(64) }));
+  mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 2 } });
+  try {
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      signal: controller.signal, completionCheck: verifier })).toBe(130);
+    expect(verifier).not.toHaveBeenCalled();
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence()).toMatchObject({ status: 'cancelled', progress: { iterations: 1, completionChecks: 1 },
+      runtimeState: { effect: { kind: 'verification' } } });
+  } finally { writer.mockRestore(); }
+});
+
+
+describe('checkpoint cancellation boundaries', () => {
+  it.each(['external', 'deadline'] as const)('saves cancellation while a host acknowledgment is pending (%s)', async mode => {
+    const controller = new AbortController();
+    if (mode === 'deadline') vi.useFakeTimers();
+    let pendingAcknowledgments = 0;
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        ...(mode === 'external' ? { signal: controller.signal } : { maxTime: 1 }),
+        onRuntimeStateCommitted: async (proof, signal) => {
+          if (proof.runtimeState.effect.kind !== 'provider') return;
+          pendingAcknowledgments++;
+          const pending = untilAborted(signal);
+          if (mode === 'external') controller.abort();
+          else vi.advanceTimersByTime(1000);
+          return pending;
+        } })).toBe(mode === 'external' ? 130 : CAP_EXIT_CODE);
+      expect(pendingAcknowledgments).toBe(1);
+      expect(mockChat).not.toHaveBeenCalled();
+      expect(currentEvidence()).toMatchObject({ status: 'cancelled', progress: { iterations: 1 },
+        runtimeState: { effect: { kind: 'provider' } } });
+    } finally { vi.useRealTimers(); }
+  });
+
+  it.each(['normal', 'malformed'] as const)('does not present a %s response cancelled during its durable save', async kind => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const controller = new AbortController();
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      const saved = original(id, messages, options);
+      if (messages.some(message => message.role === 'assistant' && message.content === 'Cancelled response')) controller.abort();
+      return saved;
+    });
+    mockChat.mockResolvedValueOnce({ content: 'Cancelled response', usage: { inputTokens: 1, outputTokens: 2 },
+      ...(kind === 'malformed' ? { finishReason: 'error', errorCode: 'invalid_tool_arguments' } : { finishReason: 'stop' }) });
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        signal: controller.signal })).toBe(130);
+      expect(events().filter(event => event.type === 'message')).toHaveLength(0);
+      expect(mockChat).toHaveBeenCalledOnce();
+      expect(mockExecuteTool).not.toHaveBeenCalled();
+      expect(currentEvidence()).toMatchObject({ status: 'cancelled', runtimeState: {
+        totals: { inputTokens: 1, outputTokens: 2 }, responseUsageComplete: true } });
+    } finally { writer.mockRestore(); }
+  });
+
+  it('does not disguise a local save failure as cancellation', async () => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const controller = new AbortController();
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      if (options.runtimeState?.effect.kind === 'provider') {
+        controller.abort();
+        const error = new Error('Local checkpoint failed'); error.name = 'AbortError'; throw error;
+      }
+      return original(id, messages, options);
+    });
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        signal: controller.signal, onRuntimeStateCommitted: async () => {} })).toBe(1);
+      expect(mockChat).not.toHaveBeenCalled();
+      expect(currentEvidence().status).toBe('active');
+    } finally { writer.mockRestore(); }
+  });
+});
+
+
+describe('terminal checkpoint cancellation', () => {
+  it.each(['external', 'deadline'] as const)('retains the %s exit if the completed checkpoint acknowledgment is cancelled', async mode => {
+    const controller = new AbortController();
+    if (mode === 'deadline') vi.useFakeTimers();
+    mockChat.mockResolvedValueOnce({ content: 'completed proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 2 } });
+    const acknowledged: string[] = [];
+    let completedAttempts = 0;
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        ...(mode === 'external' ? { signal: controller.signal } : { maxTime: 1 }),
+        onRuntimeStateCommitted: async (proof, signal) => {
+          if (proof.status === 'completed') {
+            completedAttempts++;
+            const pending = untilAborted(signal);
+            if (mode === 'external') controller.abort();
+            else vi.advanceTimersByTime(1000);
+            return pending;
+          }
+          acknowledged.push(proof.revision);
+        } })).toBe(mode === 'external' ? 130 : CAP_EXIT_CODE);
+      const saved = currentEvidence();
+      expect(saved).toMatchObject({ status: 'cancelled', runtimeState: {
+        totals: { inputTokens: 1, outputTokens: 2 }, effect: { kind: 'quiescent' } } });
+      expect(acknowledged).not.toContain(saved.revision);
+      expect(completedAttempts).toBe(1);
+      expect(mockChat).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('keeps a genuine completed-checkpoint acknowledgment rejection fatal', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 2 } });
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+      onRuntimeStateCommitted: async proof => { if (proof.status === 'completed') throw new Error('Host rejected completed checkpoint'); } })).toBe(1);
+    expect(mockChat).toHaveBeenCalledOnce();
+    expect(currentEvidence().status).toBe('completed');
+  });
+});
+
+
+describe('final checkpoint callback boundaries', () => {
+  it.each([
+    { capture: true, mode: 'external' }, { capture: true, mode: 'deadline' },
+    { capture: false, mode: 'external' }, { capture: false, mode: 'deadline' },
+  ] as const)('captures cancellation during terminal save ($capture, $mode)', async ({ capture, mode }) => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const controller = new AbortController();
+    if (mode === 'deadline') vi.useFakeTimers();
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      const saved = original(id, messages, options);
+      if (options.status === 'completed') {
+        if (mode === 'external') controller.abort();
+        else vi.advanceTimersByTime(1000);
+      }
+      return saved;
+    });
+    mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 1, outputTokens: 2 } });
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: capture,
+        ...(mode === 'external' ? { signal: controller.signal } : { maxTime: 1 }) })).toBe(mode === 'external' ? 130 : CAP_EXIT_CODE);
+      expect(currentEvidence().status).toBe('cancelled');
+      if (!capture) expect(currentEvidence().runtimeState).toBeUndefined();
+      expect(mockChat).toHaveBeenCalledOnce();
+    } finally { writer.mockRestore(); vi.useRealTimers(); }
+  });
+
+  it.each(['read_file', 'ask_question'] as const)('retains the %s result without presenting or acknowledging it after cancellation', async name => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const controller = new AbortController();
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      const saved = original(id, messages, options);
+      if (messages.some(message => message.role === 'tool')) controller.abort();
+      return saved;
+    });
+    mockChat.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'captured-result', name,
+      arguments: name === 'ask_question' ? { question: 'Who is the audience?' } : { path: 'sample.txt' } }],
+      usage: { inputTokens: 1, outputTokens: 2 } });
+    mockExecuteTool.mockResolvedValueOnce({ result: 'Retained result', isError: false });
+    const onQuestionCommitted = vi.fn(async () => {});
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        signal: controller.signal, ...(name === 'ask_question' ? { answerQuestion: async () => 'Agreed audience' } : {}),
+        onQuestionCommitted })).toBe(130);
+      expect(mockExecuteTool).toHaveBeenCalledOnce();
+      expect(onQuestionCommitted).not.toHaveBeenCalled();
+      expect(events().filter(event => event.type === 'tool_result')).toHaveLength(0);
+      expect(currentEvidence().status).toBe('cancelled');
+      expect(currentEvidence().messages.some(message => message.role === 'tool' && message.toolCallId === 'captured-result'
+        && message.content === (name === 'ask_question' ? 'Agreed audience' : 'Retained result'))).toBe(true);
+    } finally { writer.mockRestore(); }
+  });
+
+  it.each(['initial', 'iteration'] as const)('does not start the %s admission callback after its save is cancelled', async stage => {
+    const { RuntimeControl } = await import('../src/runtime/control.js');
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const controller = new AbortController();
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      const saved = original(id, messages, options);
+      if (options.status === 'active' && options.progress?.iterations === (stage === 'initial' ? 0 : 1)) controller.abort();
+      return saved;
+    });
+    const ready = vi.fn(async () => {}), progress = vi.fn(async () => {});
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+        signal: controller.signal, control: new RuntimeControl(), onControlReady: ready,
+        onTurnProgressCommitted: progress })).toBe(130);
+      expect(ready).toHaveBeenCalledTimes(stage === 'initial' ? 0 : 1);
+      expect(progress).not.toHaveBeenCalled();
+      expect(mockChat).not.toHaveBeenCalled();
+      expect(currentEvidence().status).toBe('cancelled');
+    } finally { writer.mockRestore(); }
+  });
+});
+
+
+describe('over-budget response capture', () => {
+  it.each(['write', 'acknowledge'] as const)('does not present an over-budget response after its %s fails', async failure => {
+    const storage = await import('../src/storage.js');
+    const original = storage.saveSessionConversation;
+    const writer = vi.spyOn(storage, 'saveSessionConversation').mockImplementation((id, messages, options) => {
+      if (failure === 'write' && messages.some(message => message.role === 'assistant')) throw new Error('Response save refused');
+      return original(id, messages, options);
+    });
+    mockChat.mockResolvedValueOnce({ content: 'Over-budget proposal', finishReason: 'stop', usage: { inputTokens: 800, outputTokens: 200 } });
+    try {
+      expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, maxCost: 0.05,
+        onRuntimeStateCommitted: async proof => {
+          if (failure === 'acknowledge' && proof.runtimeState.totals.inputTokens > 0) throw new Error('Response acknowledgment refused');
+        } })).toBe(1);
+      expect(events().filter(event => event.type === 'message')).toHaveLength(0);
+      expect(mockChat).toHaveBeenCalledOnce();
+      expect(mockExecuteTool).not.toHaveBeenCalled();
+    } finally { writer.mockRestore(); }
+  });
+
+  it('preserves the cost-cap exit when the over-budget response is saved and acknowledged', async () => {
+    mockChat.mockResolvedValueOnce({ content: 'Over-budget proposal', finishReason: 'stop', usage: { inputTokens: 800, outputTokens: 200 } });
+    const acknowledged: string[] = [];
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, maxCost: 0.05,
+      onRuntimeStateCommitted: async proof => { if (proof.runtimeState.totals.inputTokens > 0) acknowledged.push(proof.revision); } })).toBe(CAP_EXIT_CODE);
+    expect(acknowledged.length).toBeGreaterThan(0);
+    expect(events().filter(event => event.type === 'message')).toHaveLength(1);
+    expect(currentEvidence().runtimeState?.totals).toMatchObject({ inputTokens: 800, outputTokens: 200 });
   });
 });

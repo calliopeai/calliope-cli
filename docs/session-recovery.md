@@ -123,6 +123,17 @@ A rejection, invalid return, cancellation or changed local checkpoint stops
 execution. The callback does not grant ownership, release a reservation or enable
 headless resume; the paired host must still validate those separately.
 
+When the execution signal is already aborted, the final cancelled checkpoint is
+saved locally without calling the host acknowledgment with that expired signal.
+Cancellation and time-cap exits retain their normal result; save failures still
+fail the run. The host's last acknowledged checkpoint and unresolved reservations
+remain authoritative. A locally saved final state does not claim remote acknowledgment.
+The same rule applies when cancellation arrives during a successful local save or interrupts a pending host acknowledgment:
+no further effects start, and the final cancelled state is saved locally. Genuine
+write or acknowledgment failures still fail the run.
+Returned-response usage is retained even when cancellation prevents presenting
+the response or starting further work.
+
 `responseUsageComplete` describes only responses returned to the runtime. It is
 false after any such response omits usage. Totals are not an invoice or proof
 that all provider attempts settled; the original reservation ledger remains

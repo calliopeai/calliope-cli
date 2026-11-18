@@ -10,6 +10,7 @@ import OpenAI from 'openai';
 import { select } from '@inquirer/prompts';
 import * as config from './config.js';
 import type { LLMProvider } from './types.js';
+import { requestModelLimits } from './models/request-limits.js';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { cancellable, throwIfCancelled } from './cancellation.js';
 import { createHash } from 'node:crypto';
@@ -1156,8 +1157,10 @@ const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
  * Get context limit for a model - uses cached model info first, falls back to defaults
  */
 export function getModelContextLimit(provider: LLMProvider, modelId: string): number {
+  const reviewed = requestModelLimits(provider, modelId);
   // First check cached model info from API
   const modelInfo = getModelInfo(provider, modelId);
+  if (reviewed?.contextLength !== undefined) return Math.min(reviewed.contextLength, modelInfo?.contextLength ?? reviewed.contextLength);
   if (modelInfo?.contextLength) {
     return modelInfo.contextLength;
   }
@@ -1203,7 +1206,9 @@ const DEFAULT_MAX_OUTPUT: Record<string, number> = {
  * family fallback. Conservative 8192 default keeps unknown/local models safe.
  */
 export function getModelMaxOutput(provider: LLMProvider, modelId: string): number {
+  const reviewed = requestModelLimits(provider, modelId);
   const modelInfo = getModelInfo(provider, modelId);
+  if (reviewed?.maxOutputTokens !== undefined) return Math.min(reviewed.maxOutputTokens, modelInfo?.maxOutputTokens ?? reviewed.maxOutputTokens);
   if (modelInfo?.maxOutputTokens) {
     return modelInfo.maxOutputTokens;
   }

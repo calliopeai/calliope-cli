@@ -18,6 +18,7 @@ import * as verification from '../src/orchestration/verification.js';
 
 let root:string,project:string,runs:RunStore,goals:GoalStore,created:GoalInspection|undefined,requests:any[],proposed:unknown;
 let respond:(task:any,body:any,signal:AbortSignal)=>Promise<Response>;
+let modelContextLength:number;
 // Full-suite/coverage process contention must not expire the test harness before its bounded scenario.
 const it=(name:string,run:()=>Promise<void>)=>test(name,run,20000);
 const json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
@@ -32,10 +33,10 @@ const options=():GoalOptions=>({store:runs,goals,limits:{tokenBudget:50000,costB
 const start=()=>startGoal(project,'Inspect the public toy project and record evidence.',options());
 async function planningHistory(){const goal=goals.read(created!.manifest.id),run=await runs.read(goal.state.planning!.runId,project),store=new ExecutionStore(join(runs.root,run.run.id),run.manifest);return{goal,run,store,...store.read()};}
 beforeEach(()=>{
-  config.resetConfig();saveHooks([]);clearModelCache();root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-goal-runtime-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);fs.mkdirSync(join(project,'a'));fs.mkdirSync(join(project,'b'));runs=new RunStore(join(root,'runs'));goals=new GoalStore(join(root,'goals'));created=undefined;requests=[];proposed=plan();respond=async(task,body)=>reply(task,body);
+  modelContextLength=8192;config.resetConfig();saveHooks([]);clearModelCache();root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-goal-runtime-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);fs.mkdirSync(join(project,'a'));fs.mkdirSync(join(project,'b'));runs=new RunStore(join(root,'runs'));goals=new GoalStore(join(root,'goals'));created=undefined;requests=[];proposed=plan();respond=async(task,body)=>reply(task,body);
   for(const provider of config.getProviderNames()){const names=config.getProviderEnvVars(provider);for(const name of[names.apiKey,names.baseUrl])if(name)vi.stubEnv(name,'');}
   config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://goal.invalid/v1'});config.set('routing',{enabled:true,providerPool:['deepseek']});
-  vi.stubGlobal('fetch',vi.fn(async(input,init)=>{const req=new Request(input,init);if(new URL(req.url).pathname==='/v1/models')return json({data:[{id:'goal-toy',context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]});
+  vi.stubGlobal('fetch',vi.fn(async(input,init)=>{const req=new Request(input,init);if(new URL(req.url).pathname==='/v1/models')return json({data:[{id:'goal-toy',context_length:modelContextLength,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]});
     expect(req.url).toBe('https://goal.invalid/v1/chat/completions');const body=await req.json(),context=body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')),task=JSON.parse(context.content).task;requests.push({task:task.id,body});return respond(task,body,init?.signal??req.signal);
   }));
 });
@@ -57,6 +58,14 @@ it('repairs an inherited retry violation through the SDK, keeps rejected bytes a
   expect(replayExecution(h.header,h.run.manifest,h.events)).toEqual(h.state);
   expect((await resumeGoal(project,h.goal.manifest.id,{goals:new GoalStore(goals.root),store:new RunStore(runs.root)})).goal.proposal).toEqual(result.goal.proposal);expect(requests).toHaveLength(2);
 });
+it('holds an undersized discovered planner before inference or reservation',async()=>{
+  modelContextLength=4096;
+  await expect(start()).rejects.toThrow(/usable proposal/);
+  expect(requests).toHaveLength(0);
+  const h=await planningHistory();
+  expect(h.goal.state.execution).toBeNull();
+  expect(Object.keys(new ReservationLedger(join(runs.root,h.run.run.id,'budget')).read(project).projection.requests)).toHaveLength(0);
+});
 it('bounds repeated malformed plans and retains all attempts without allocating execution',async()=>{
   proposed='{';await expect(startGoal(project,'Public malformed draft.',{...options(),planningRepairs:2})).rejects.toThrow(/usable proposal/);
   const h=await planningHistory();expect(requests).toHaveLength(3);expect(h.state.tasks.propose).toMatchObject({attempts:3,status:'failed',escalation:'human'});expect(h.goal.state).toMatchObject({planningFrozen:true,status:'failed',execution:null,planningSpend:{tokens:30}});
@@ -70,7 +79,7 @@ it('repairs missing and oversized reports only within the original attempt count
 });
 it('validates and repairs both planning stages before a reviewer consumes the accepted draft',async()=>{
   const counts:Record<string,number>={};respond=async(task,body)=>{counts[task.id]=(counts[task.id]??0)+1;return completion(JSON.stringify({version:1,summary:'Public reviewed draft.',outputs:task.outputs.map((o:any)=>({id:o.id,content:o.id==='plan-review'?'Reviewed the supplied draft.':counts[task.id]===1?'{':JSON.stringify(plan())})),risks:[]}));};
-  const result=await startGoal(project,'Public reviewed proposal.',{...options(),planningRepairs:1,team:{version:1,reviewer:{provider:'deepseek',model:'goal-toy'}}});
+  const opts=options();const result=await startGoal(project,'Public reviewed proposal.',{...opts,limits:{...opts.limits,planningTokens:20000},planningRepairs:1,team:{version:1,reviewer:{provider:'deepseek',model:'goal-toy'}}});
   expect(result.status).toBe('review_required');expect(requests.map(r=>r.task)).toEqual(['draft','draft','propose','propose']);const h=await planningHistory();expect(h.state.tasks.draft!.attempts).toBe(2);expect(h.state.tasks.propose!.attempts).toBe(2);expect(h.goal.state.planningSpend!.tokens).toBe(40);
   const context=JSON.parse(requests[2].body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')).content);expect(JSON.parse(context.dependencyArtifacts[0].content)).toEqual(plan());expect(result.goal.proposal!.source).toMatchObject({kind:'agent',artifactId:'proposal'});
 });
@@ -80,7 +89,7 @@ it('cancels after a rejected artifact without issuing a repair and retains the p
 });
 it('denies a repair when the original planning budget cannot admit another request',async()=>{
   respond=async()=>json({id:'toy',object:'chat.completion',model:'goal-toy',choices:[{index:0,message:{role:'assistant',content:JSON.stringify({version:1,summary:'Invalid draft.',outputs:[{id:'proposal',content:'{'}],risks:[]})},finish_reason:'stop'}],usage:{prompt_tokens:4000,completion_tokens:100,total_tokens:4100}});
-  const opts=options();await expect(startGoal(project,'Bounded public draft.',{...opts,planningRepairs:2,limits:{...opts.limits,planningTokens:6000}})).rejects.toThrow();
+  const opts=options();await expect(startGoal(project,'Bounded public draft.',{...opts,planningRepairs:2,limits:{...opts.limits,planningTokens:10000}})).rejects.toThrow();
   const h=await planningHistory();expect(requests).toHaveLength(1);expect(h.goal.state).toMatchObject({status:'denied',planningFrozen:true,execution:null});expect(h.goal.state.planningSpend!.tokens).toBe(4100);
 });
 it('never retries a policy-denied planner tool and does not create files',async()=>{
@@ -158,7 +167,7 @@ it('records policy denial before execution starts and keeps the one approved all
 it('cancels a running planner, waits for transport abort and preserves unknown request spend',async()=>{
   let ready!:()=>void,wireSignal:AbortSignal|undefined;const began=new Promise<void>(resolve=>{ready=resolve;});respond=async(_task,_body,signal)=>{wireSignal=signal;ready();return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));};
   const pending=start();const rejected=expect(pending).rejects.toThrow();await began;const id=created!.manifest.id;await cancelGoal(project,id,options());await rejected;
-  const saved=goals.read(id);expect(wireSignal!.aborted).toBe(true);expect(saved.state).toMatchObject({status:'cancelled',revoked:true,planningFrozen:true,planningSpend:{tokens:4196}});expect(goals.owner(id)).toBeNull();
+  const saved=goals.read(id);expect(wireSignal!.aborted).toBe(true);expect(saved.state).toMatchObject({status:'cancelled',revoked:true,planningFrozen:true,planningSpend:{tokens:8292}});expect(goals.owner(id)).toBeNull();
   expect((await resumeGoal(project,id,options())).status).toBe('cancelled');expect(requests).toHaveLength(1);
 });
 it('revokes linked worker authority and direct retry or acceptance after explicit goal cancellation',async()=>{

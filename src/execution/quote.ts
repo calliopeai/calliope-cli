@@ -10,7 +10,7 @@ import {integer} from './authority.js';
 import {requestCostNanos} from './ledger.js';
 import {ProjectSpendLedger} from './project-spend.js';
 import {readBillingEvidence,assertBillingCurrent,validateInputCount,validateQuoteEvidence,fullContextTerms,type BillingEvidence,type InputCount,type QuoteEvidence} from './billing.js';
-import {estimateTotalTokens} from '../summarization.js';
+import {estimateInputTokens} from '../context-tokens.js';
 
 export function costCapNanos(value:number):number {
   if(!Number.isFinite(value)||value<0)throw new ExecutionLimitError('budget','Configured cost cap is invalid.');
@@ -29,7 +29,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
       if(quoteEvidence.version!==2)throw new ExecutionLimitError('authority','Wrong reviewed admission evidence.');
       // Provider wrappers and protocol metadata can exceed the local estimator;
       // keep a bounded cushion while settlement remains authoritative.
-      const terms=fullContextTerms(quoteEvidence), measured=estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,measured)):terms.inputTokens;
+      const terms=fullContextTerms(quoteEvidence), measured=estimateInputTokens(messages,tools), inputTokens=measuredInput?Math.min(terms.inputTokens,Math.max(1,measured)):terms.inputTokens;
       const {maxOutputTokens:outputLimit,inputPrice,outputPrice}=terms;
       if(maxOutputTokens>outputLimit)throw new ExecutionLimitError('budget','Requested output exceeds live or reviewed model limits.');
       // Keep the signed live quote alongside measured input reservations. The
@@ -45,7 +45,7 @@ export function providerQuote(route:RouteCandidate|undefined,messages:Message[],
     // Local servers expose a context window but no billable input reservation;
     // reserve the measured request size so token budgets remain meaningful.
     const contextLimit=route.contextLength??0;
-    const measured=Math.max(1,estimateTotalTokens(messages)+Math.ceil(JSON.stringify(tools).length/4));
+    const measured=Math.max(1,estimateInputTokens(messages,tools));
     // When measured reservations are enabled, reserve the serialized request
     // rather than the model's entire context window. Keep the live context as
     // the hard ceiling so oversized prompts still fail closed.

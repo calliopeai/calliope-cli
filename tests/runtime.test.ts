@@ -998,3 +998,17 @@ describe('trusted host tool runtime', () => {
     expect(chatMock).toHaveBeenCalledTimes(1); expect(executeMock).not.toHaveBeenCalled();
   });
 });
+
+
+it('does not present a budget-exceeded response when its usage callback cancels the turn', async () => {
+  const controller = new AbortController();
+  config.set('budget', { maxTokensPerRun: 1 });
+  chatMock.mockResolvedValueOnce(text('Cancelled over-budget response', 10));
+  const onResponse = vi.fn();
+  const result = await runTurn(options({ signal: controller.signal, onUsage: () => controller.abort(), onResponse }));
+  expect(result.reason).toBe('cancelled');
+  expect(result.totals.inputTokens).toBe(10);
+  expect(onResponse).not.toHaveBeenCalled();
+  expect(chatMock).toHaveBeenCalledOnce();
+  expect(executeMock).not.toHaveBeenCalled();
+});

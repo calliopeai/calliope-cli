@@ -11,7 +11,7 @@ import OpenAI from 'openai';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
-import { normalizeFinishReason, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
+import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 
 // ============================================================================
 // Shared OpenAI Format Converters (also used by compat provider)
@@ -378,7 +378,7 @@ async function chatOpenAIResponses(
   const responsesTools = toResponsesTools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('openai', model, messages, tools), limits?.maxOutputTokens);
+  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools, limits?.maxOutputTokens);
   debugLog(`OpenAI Responses API request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided
@@ -487,7 +487,7 @@ export async function chatOpenAI(
   const openaiTools = toOpenAITools(tools);
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('openai', model, messages, tools), limits?.maxOutputTokens);
+  const dynamicMaxTokens = calculateMaxTokens('openai', model, messages, tools, limits?.maxOutputTokens);
   debugLog(`OpenAI request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
   // Use streaming if callback provided

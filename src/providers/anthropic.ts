@@ -11,7 +11,7 @@ import {validateInputCount,type InputCount} from '../execution/billing.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
-import { getTextContent, calculateMaxTokens, limitOutputTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
+import { getTextContent, calculateMaxTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 
 /**
  * Convert MessageContent to Anthropic content format
@@ -129,10 +129,10 @@ function prepareAnthropicRequest(messages:Message[],tools:Tool[],model:string,st
   }));
 
   // Calculate dynamic max_tokens based on available context space
-  const dynamicMaxTokens = limitOutputTokens(calculateMaxTokens('anthropic', model, messages, tools), limits?.maxOutputTokens);
+  const dynamicMaxTokens = calculateMaxTokens('anthropic', model, messages, tools, limits?.maxOutputTokens, streaming);
   debugLog(`Anthropic request: model=${model}, max_tokens=${dynamicMaxTokens}`);
 
-  return {model,max_tokens:streaming?dynamicMaxTokens:Math.min(dynamicMaxTokens,8192),system:systemInstruction,messages:anthropicMessages,
+  return {model,max_tokens:dynamicMaxTokens,system:systemInstruction,messages:anthropicMessages,
     tools:anthropicTools.length?anthropicTools:undefined,...(thinking?{thinking}:{}),
     ...(limits?.reasoningEffort !== undefined ? {output_config:{effort:limits.reasoningEffort}} : {})};
 }

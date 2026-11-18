@@ -101,12 +101,17 @@ export class ExecutionGuard {
     if(project.blocked||caps.maxCostPerProject!==undefined&&project.spentUsd>caps.maxCostPerProject || caps.maxTokensPerRun!==undefined&&saved.projection.spent.tokens>caps.maxTokensPerRun || caps.maxCostPerRun!==undefined&&saved.projection.spent.costNanos>costCapNanos(caps.maxCostPerRun))
       throw new ExecutionLimitError('budget','Current project or run policy no longer permits execution.');
   }
-  budget(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,signal?:AbortSignal,onEvent?:(event:{requestId:string;stage:string;revision:string;tokens:number;costNanos:number})=>void):ProviderAttemptBudget {
+  budget(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,signal?:AbortSignal,onEvent?:(event:{requestId:string;stage:string;revision:string;tokens:number;costNanos:number})=>void,requestedMaximum?:number):ProviderAttemptBudget {
     this.assertActive(signal);
     route=structuredClone(route);const billing=readBillingEvidence(route,this.scopeManifest.project.root);
-    const base=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,undefined,this.measuredInputReservation);
+    const outputLimit=billing?.profile.admission==='reviewed-full-context-v1'
+      ?Math.min(billing.profile.limits.maxOutputTokens,route?.maxOutputTokens??billing.profile.limits.maxOutputTokens):route?.maxOutputTokens;
+    if(requestedMaximum!==undefined)integer(requestedMaximum,1,100000000);
+    const maxOutputTokens=Math.min(this.maxOutputTokens,outputLimit??this.maxOutputTokens,requestedMaximum??this.maxOutputTokens);
+    const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,undefined,this.measuredInputReservation);
     const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
+      billingRates:Object.freeze({input:base.inputPrice,output:base.outputPrice}),
       ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
       ...(billing?.profile.admission==='provider-count-v1'?{inputCounting:'anthropic-count-tokens' as const}:{}),
       reserve:async actual=>{
@@ -115,7 +120,7 @@ export class ExecutionGuard {
           throw new ExecutionLimitError('authority','Provider attempt does not match its discovered budget quote.');
         if(base.provider==='openrouter'&&(actual.priceCeiling?.input!==base.inputPrice||actual.priceCeiling?.output!==base.outputPrice))throw new ExecutionLimitError('authority','Provider price ceiling changed after budget admission.');
         if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,this.scopeManifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
-        const quote=providerQuote(route,messages,tools,streaming,this.maxOutputTokens,billing,actual.inputCount,this.measuredInputReservation);
+        const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount,this.measuredInputReservation);
         const id=randomUUID(),caps=getBudgetCaps();
         await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};

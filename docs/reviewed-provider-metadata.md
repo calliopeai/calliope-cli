@@ -64,6 +64,26 @@ reservation and before dispatch; deletion, edits or expiry revoke admission.
 Revocation after a durable reservation retains that reservation conservatively.
 No automatic paid probe or retry can replenish the original allowance.
 
+## Request context and output
+
+Compression, local input reservations and provider output sizing share the same
+conservative estimate, including tool schemas and tool-call arguments. It is an
+estimate, not a provider tokenizer or a usage report.
+
+For the matching request, positive live limits and reviewed limits also bound
+compression and transport. The smaller positive limit wins when both exist;
+reviewed limits fill missing live values without changing discovery or routing.
+The request scope rechecks endpoint identity, discovery freshness and unchanged
+operator evidence. It does not grant reasoning-effort support.
+
+The transport output cap is clipped to available context, model limits and the
+original caller ceiling before bounded admission. The reservation uses that same
+cap. A caller's explicit small cap is preserved; when the remaining context cannot
+fit the normal minimum allowance, the request stops before inference with an
+actionable context error. It never forces a minimum that exceeds available context.
+Adjust context or supply current reviewed evidence explicitly before starting a
+new evaluation; a failed evaluation remains failed.
+
 ## Versioning and recovery
 
 Version-2 billing files can contain these profiles together with unchanged

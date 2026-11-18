@@ -8,6 +8,8 @@ import type {HealthProvider} from '../health/types.js';
 import type {RouteCandidate} from '../routing/index.js';
 import {assertExecutionStoreOutsideProject,hex,integer,invalid,shape} from './authority.js';
 import {ExecutionLimitError} from './types.js';
+import {withRequestModelLimits} from '../models/request-limits.js';
+import {providerTarget} from '../health/target.js';
 
 export interface BillingProfile {
   provider:'anthropic'; model:string; target:string;
@@ -123,4 +125,29 @@ export function reviewedOutputLimit(route:RouteCandidate,project:string):number|
   return profile?.admission==='reviewed-full-context-v1'
     ?Math.min(route.maxOutputTokens??profile.limits.maxOutputTokens,profile.limits.maxOutputTokens)
     :route.maxOutputTokens;
+}
+
+/** Transport bounds use positive evidence without changing cached live routing metadata. */
+export function withReviewedModelLimits<T>(requestedRoute:RouteCandidate|undefined,project:string,action:()=>T):T {
+  const route=requestedRoute?structuredClone(requestedRoute):undefined;
+  const evidence=readBillingEvidence(route,project);
+  if(!route)return withRequestModelLimits(undefined,action);
+  const profile=evidence?.profile.admission==='reviewed-full-context-v1'?evidence.profile:undefined;
+  if(route.evidence!=='live'){
+    if(profile)throw new ExecutionLimitError('authority','Reviewed transport limits require current matching discovery.');
+    return withRequestModelLimits(undefined,action);
+  }
+  const contextLength=profile?Math.min(profile.limits.contextLength,route.contextLength??profile.limits.contextLength):route.contextLength??undefined;
+  const maxOutputTokens=profile?Math.min(profile.limits.maxOutputTokens,route.maxOutputTokens??profile.limits.maxOutputTokens):route.maxOutputTokens??undefined;
+  for(const value of [contextLength,maxOutputTokens])if(value!==undefined)integer(value,1,100000000);
+  if(contextLength===undefined&&maxOutputTokens===undefined)return withRequestModelLimits(undefined,action);
+  const assertCurrent=()=>{
+    const at=Date.parse(route.discoveredAt??'');
+    if(route.evidence!=='live'||!Number.isFinite(at)||Date.now()-at>300000||at>Date.now()+1000||
+       route.capabilities.chat===false||providerTarget(route.provider).key!==route.target||readBillingEvidence(route,project)?.hash!==evidence?.hash)
+      throw new ExecutionLimitError('authority','Reviewed transport limits require current matching discovery and unchanged operator evidence.');
+    if(evidence)assertBillingCurrent(evidence,route);
+  };
+  assertCurrent();
+  return withRequestModelLimits({provider:route.provider,model:route.model,contextLength,maxOutputTokens,assertCurrent},action);
 }

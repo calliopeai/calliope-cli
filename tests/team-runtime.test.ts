@@ -27,7 +27,7 @@ function reply(context:any){const task=context.task;
   if(task.id==='propose'){expect(context.dependencyArtifacts[0]).toMatchObject({id:'draft',source:{runId:created!.state.planning?.runId??expect.any(String)}});return completion([{id:'proposal',content:JSON.stringify(plan())},{id:'plan-review',content:'Reviewed the public draft; human approval remains required.'}]);}
   return completion(task.outputs.map((output:any)=>({id:output.id,content:'public toy evidence'})));
 }
-const options=():GoalOptions=>({store:runs,goals,preference:{provider:'deepseek',model:'controller-toy'},team:{version:1,reviewer:{provider:'groq',model:'reviewer-toy'},workers:{provider:'mistral',model:'worker-toy'},maxAttempts:2},limits:{tokenBudget:60000,costBudgetNanos:100000000,timeBudgetMs:180000,planningTokens:12000,planningCostNanos:20000000,planningTimeMs:60000,maxOutputTokens:100},onCreated:view=>{created=view;},onProgress:view=>progress.push(view)});
+const options=():GoalOptions=>({store:runs,goals,preference:{provider:'deepseek',model:'controller-toy'},team:{version:1,reviewer:{provider:'groq',model:'reviewer-toy'},workers:{provider:'mistral',model:'worker-toy'},maxAttempts:2},limits:{tokenBudget:60000,costBudgetNanos:100000000,timeBudgetMs:180000,planningTokens:20000,planningCostNanos:20000000,planningTimeMs:60000,maxOutputTokens:100},onCreated:view=>{created=view;},onProgress:view=>progress.push(view)});
 beforeEach(()=>{
   config.resetConfig();saveHooks([]);clearModelCache();root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-team-runtime-')));fs.chmodSync(root,0o700);project=join(root,'project');fs.mkdirSync(project);runs=new RunStore(join(root,'runs'));goals=new GoalStore(join(root,'goals'));requests=[];progress=[];created=undefined;incompatible=false;respond=async(context)=>reply(context);
   for(const provider of config.getProviderNames()){const env=config.getProviderEnvVars(provider);for(const name of [env.apiKey,env.baseUrl])if(name)vi.stubEnv(name,'');}
@@ -35,7 +35,7 @@ beforeEach(()=>{
   config.set('routing',{enabled:true,providerPool:['deepseek','groq','mistral']});
   vi.stubGlobal('fetch',vi.fn(async(input,init)=>{const req=new Request(input,init),url=new URL(req.url),provider=url.hostname.split('.')[0]!;
     expect(['deepseek.invalid','groq.invalid','mistral.invalid']).toContain(url.hostname);
-    if(url.pathname==='/v1/models')return json({data:[{id:provider==='deepseek'?'controller-toy':provider==='groq'?'reviewer-toy':'worker-toy',context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:!(incompatible&&provider==='mistral'),streaming:true}}]});
+    if(url.pathname==='/v1/models')return json({data:[{id:provider==='deepseek'?'controller-toy':provider==='groq'?'reviewer-toy':'worker-toy',context_length:8192,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:!(incompatible&&provider==='mistral'),streaming:true}}]});
     expect(url.pathname).toBe('/v1/chat/completions');const body=await req.json(),context=JSON.parse(body.messages.find((message:any)=>message.role==='user'&&typeof message.content==='string'&&message.content.startsWith('{')).content);requests.push({provider,model:body.model,context});expect(body.max_tokens).toBeLessThanOrEqual(100);return respond(context,init?.signal??req.signal);
   }));
 });

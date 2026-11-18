@@ -7,7 +7,8 @@
 
 import { throwIfCancelled } from './cancellation.js';
 import { chat } from './providers/index.js';
-import { summarizeMessages, estimateTotalTokens, validateMessageHistory } from './summarization.js';
+import { summarizeMessages, validateMessageHistory } from './summarization.js';
+import { estimateInputTokens } from './context-tokens.js';
 import type { Message as LLMMessage, LLMProvider, Tool } from './types.js';
 
 // ============================================================================
@@ -178,9 +179,9 @@ export async function autoCompress(
   model?: string,
   signal?: AbortSignal,
   request?: CompressionRequest,
+  tools: Tool[] = [],
 ): Promise<CompressionResult> {
-  // Use the exact same token estimation method as the UI to avoid threshold mismatches
-  const currentTokens = estimateTotalTokens(messages);
+  const currentTokens = estimateInputTokens(messages, tools);
   const status = getAutoCompressorStatus(currentTokens, contextLimit);
 
   // Not over threshold — no compression needed
@@ -252,7 +253,7 @@ export async function autoCompress(
     ...toKeep,
   ]);
 
-  const compressedTokens = estimateTotalTokens(compressed);
+  const compressedTokens = estimateInputTokens(compressed, tools);
   if (compressedTokens >= currentTokens) {
     return {
       compressed: false,
