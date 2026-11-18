@@ -114,6 +114,19 @@ provider/tool/question/verification effect. Pending work is saved before its
 effect. An unresolved request or acknowledgment remains pending on interruption;
 synthetic tool-pair cleanup does not turn it into a successful effect.
 
+Hosts can explicitly select `runtimeStateVersion: 2` with capture enabled after
+requiring `HEADLESS_EXECUTION_STATE_PROTOCOL_VERSION === 2`. These records add
+`execution.phase` and every active effect, distinguishing provider admission,
+recorded assistant responses, installed compressed context, queued/running tools,
+questions and verification.
+A recorded result can coexist with unresolved post-tool or acknowledgment work;
+its effect remains active until that work settles. Parallel tool completion
+removes only the settled tool. If a tool callback leaves work unresolved, v2
+capture stops rather than allowing an error retry to overwrite those effects. An existing conversation cannot change capture
+versions, and older v1 records do not acquire phase facts retrospectively.
+This additional evidence does not enable execution restore or settle unknown
+provider reservations. Legacy callers keep the original v1 capture format.
+
 Hosts that retain a remote recovery floor can also supply
 `onRuntimeStateCommitted` with capture enabled. The callback receives the exact
 saved session/revision/checksum, status, original allowance and runtime evidence

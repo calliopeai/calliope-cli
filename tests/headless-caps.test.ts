@@ -109,22 +109,26 @@ describe('opt-in original-turn runtime evidence', () => {
     expect(mockChat).not.toHaveBeenCalled();
   });
 
-  it('acknowledges the exact durable runtime checkpoint before provider work and on completion', async () => {
-    const phases: string[] = [], statuses: string[] = [];
+  it.each([undefined, 1, 2] as const)('acknowledges exact durable runtime checkpoints with capture version %s', async runtimeStateVersion => {
+    const phases: string[] = [], statuses: string[] = [], executionPhases: string[] = [];
     mockChat.mockImplementationOnce(async () => {
       expect(phases.at(-1)).toBe('provider');
       return { content: 'done', usage: { inputTokens: 1, outputTokens: 2 } };
     });
-    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, runtimeStateVersion,
       onRuntimeStateCommitted: async proof => {
         const saved = readSessionConversation(proof.sessionId);
         expect(saved).toMatchObject({ revision: proof.revision, checksum: proof.checksum, status: proof.status,
           progress: proof.progress, runtimeState: proof.runtimeState });
         phases.push(proof.runtimeState.effect.kind); statuses.push(proof.status);
+        if (proof.runtimeState.version === 2) executionPhases.push(proof.runtimeState.execution.phase);
       } })).toBe(0);
     expect(mockChat).toHaveBeenCalledOnce();
     expect(statuses.at(-1)).toBe('completed');
     expect(currentEvidence().runtimeState?.totals).toMatchObject({ inputTokens: 1, outputTokens: 2 });
+    expect(currentEvidence().runtimeState?.version).toBe(runtimeStateVersion ?? 1);
+    if (runtimeStateVersion === 2) expect(executionPhases).toContain('response_recorded');
+    else expect(currentEvidence().runtimeState).not.toHaveProperty('execution');
   });
 
   it('observes the same control checkpoint before asking its host to acknowledge runtime evidence', async () => {
@@ -203,19 +207,20 @@ describe('opt-in original-turn runtime evidence', () => {
       totals: { inputTokens: 4, outputTokens: 6, toolCalls: 1 } } });
   });
 
-  it('keeps a saved answer pending when its host acknowledgment fails', async () => {
+  it.each([1, 2] as const)('keeps a saved answer pending after lost acknowledgment with capture version %s', async runtimeStateVersion => {
     mockChat.mockResolvedValueOnce({ content: '', toolCalls: [{ id: 'audience', name: 'ask_question', arguments: { question: 'Who reads it?' } }], usage: { inputTokens: 1, outputTokens: 1 } });
     mockExecuteTool.mockResolvedValueOnce({ result: 'Question displayed', isError: false });
-    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, runtimeStateVersion,
       answerQuestion: async () => 'Operators', onQuestionCommitted: async () => { throw new Error('lost acknowledgment'); } })).toBe(1);
     expect(mockChat).toHaveBeenCalledOnce();
     expect(currentEvidence()).toMatchObject({ status: 'interrupted', runtimeState: { effect: { kind: 'question', id: 'audience' } } });
+    if (runtimeStateVersion === 2) expect(currentEvidence().runtimeState).toMatchObject({ execution: { phase: 'question_pending', activeEffects: [{ kind: 'question', id: 'audience' }] } });
     expect(currentEvidence().messages).toContainEqual({ role: 'tool', toolCallId: 'audience', content: 'Operators' });
   });
 
-  it('records verifier admission before its effect and retains an unresolved check', async () => {
+  it.each([1, 2] as const)('retains unresolved verifier admission with capture version %s', async runtimeStateVersion => {
     mockChat.mockResolvedValueOnce({ content: 'proposal', finishReason: 'stop', usage: { inputTokens: 2, outputTokens: 3 } });
-    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true,
+    expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: true, runtimeStateVersion,
       maxCompletionChecks: 2, completionCheck: async proposal => {
         const saved = readSessionConversation(proposal.sessionId);
         expect(saved.revision).toBe(proposal.revision);
@@ -224,6 +229,7 @@ describe('opt-in original-turn runtime evidence', () => {
         throw new Error('lost verifier result');
       } })).toBe(1);
     expect(currentEvidence()).toMatchObject({ status: 'interrupted', runtimeState: { effect: { kind: 'verification' } } });
+    if (runtimeStateVersion === 2) expect(currentEvidence().runtimeState).toMatchObject({ execution: { phase: 'verification_pending', activeEffects: [{ kind: 'verification' }] } });
   });
 
   it('keeps the exhausted correction count instead of replenishing it at interruption', async () => {

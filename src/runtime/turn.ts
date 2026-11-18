@@ -101,6 +101,8 @@ export interface TurnOptions {
   onCheckpoint?: (messages: Message[], status: RecoveryStatus, progress?: TurnProgress, runtimeState?: TurnRuntimeState) => void | Promise<void>;
   /** Capture recovery evidence; this does not authorize restoring or replacing execution. */
   retainRuntimeState?: boolean;
+  /** Opt-in explicit phase/effect capture; existing callers retain the v1 wire. */
+  runtimeStateVersion?: 1 | 2;
   runtimeClock?: { startedAt: number; deadline: number | null };
   /** Runs after the writer and control observation, before any later effect. */
   onRuntimeStateCommitted?: (state: Readonly<TurnRuntimeState>, progress: Readonly<TurnProgress>, signal?: AbortSignal) => Promise<void>;
@@ -160,6 +162,9 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   if (options.onRuntimeStateCommitted !== undefined &&
       (typeof options.onRuntimeStateCommitted !== 'function' || options.retainRuntimeState !== true))
     throw new Error('Runtime checkpoint acknowledgment requires capture and a host callback.');
+  if (options.runtimeStateVersion !== undefined &&
+      (options.retainRuntimeState !== true || ![1, 2].includes(options.runtimeStateVersion)))
+    throw new Error('Runtime state version requires capture and version 1 or 2.');
   const { signal, messages } = options;
   const toolRuntime = bindHostToolRuntime(options.toolRuntime);
   const started = Date.now();
@@ -195,14 +200,28 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     completionLimit, iterations: 0, completionChecks: 0,
   } : undefined;
   const runtimeState: TurnRuntimeState | undefined = options.retainRuntimeState ? {
-    version: 1, turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
+    ...(options.runtimeStateVersion === 2 ? { version: 2 as const, execution: { phase: 'ready' as const, activeEffects: [] } } : { version: 1 as const }),
+    turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
     deadline: options.runtimeClock?.deadline ?? null,
     maxCostUsd: caps.maxCostPerRun !== undefined && Number.isFinite(caps.maxCostPerRun) ? caps.maxCostPerRun : null,
     continuations: 0, responseUsageComplete: true,
     totals: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, toolCalls: 0 }, effect: { kind: 'quiescent' },
   } : undefined;
   if (runtimeState) validateTurnRuntimeState(runtimeState);
-  const effect = (value: TurnRuntimeState['effect']) => { if (runtimeState) runtimeState.effect = value; };
+  const effect = (value: TurnRuntimeState['effect']) => {
+    if (!runtimeState) return;
+    runtimeState.effect = value;
+    if (runtimeState.version === 2) {
+      const phase = value.kind === 'quiescent' ? 'ready' : value.kind === 'provider' ? 'provider_pending'
+        : value.kind === 'verification' ? 'verification_pending' : value.kind === 'question' ? 'question_pending' : 'tools_pending';
+      runtimeState.execution = { phase, activeEffects: value.kind === 'quiescent' ? []
+        : value.kind === 'provider' || value.kind === 'verification' ? [{ ...value }]
+        : [...activeEffects.values()].filter((item): item is Exclude<TurnRuntimeState['effect'], { kind: 'quiescent' }> => item.kind !== 'quiescent').map(item => ({ ...item })) };
+    }
+  };
+  const recordedResponse = () => {
+    if (runtimeState?.version === 2) runtimeState.execution = { phase: 'response_recorded', activeEffects: [] };
+  };
   if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
     throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
   if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
@@ -227,6 +246,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         estimatedCostUsd: totals.cost, toolCalls: totals.toolCalls };
     }
     const capturedRuntime = runtimeState ? structuredClone(runtimeState) : undefined;
+    if (capturedRuntime?.version === 2) validateTurnRuntimeState(capturedRuntime);
     let writeStarted = false, locallySaved = false;
     const preceding = status === 'cancelled' && signal?.aborted && checkpointWaitCancelled && !checkpointFailed
       ? checkpointTail.catch(error => { if (!isCancellation(error)) throw error; }) : checkpointTail;
@@ -463,12 +483,28 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     }
     await options.onToolResult?.(structuredClone(call), result, iterations, output);
   };
+  const settleToolEffect = async (call: ToolCall): Promise<void> => {
+    if (runtimeState) {
+      activeEffects.delete(call.id);
+      let index = messages.current.length - 1;
+      while (index >= 0 && messages.current[index]!.role !== 'assistant') index--;
+      const assistant = messages.current[index];
+      const recorded = new Set(messages.current.slice(index + 1).filter(message => message.role === 'tool').map(message => message.toolCallId));
+      const pending = assistant?.toolCalls?.find(tool => !recorded.has(tool.id));
+      effect(activeEffects.values().next().value ?? (pending ? { kind: 'tool', id: pending.id } : { kind: 'quiescent' }));
+      await checkpoint('active');
+    }
+  };
   const execute = async (pendingCall: ToolCall): Promise<boolean> => {
     const call = structuredClone(pendingCall), outputCall = structuredClone(call);
     throwIfCancelled(signal);
     checkBudget();
     runlog.toolCall({ id: call.id, name: call.name, args: call.arguments });
     totals.toolCalls++;
+    if (runtimeState?.version === 2) {
+      const pending: TurnRuntimeState['effect'] = { kind: call.name === 'ask_question' ? 'question' : 'tool', id: call.id };
+      activeEffects.set(call.id, pending); effect(pending); await checkpoint('active');
+    }
     await options.onToolStart?.(structuredClone(call), iterations);
     let validateAdmission: (() => PermissionDecision | undefined) | undefined;
     const authorize = async (): Promise<PermissionDecision> => {
@@ -485,8 +521,16 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     };
     const decision = await authorize();
     throwIfCancelled(signal);
-    if (decision.decision === 'cancelled') { permissionCancelled = true; return true; }
-    if (decision.decision !== 'allow') { await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs); return false; }
+    if (decision.decision === 'cancelled') {
+      permissionCancelled = true;
+      if (runtimeState?.version === 2) await settleToolEffect(call);
+      return true;
+    }
+    if (decision.decision !== 'allow') {
+      await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs);
+      if (runtimeState?.version === 2) await settleToolEffect(call);
+      return false;
+    }
     await checkpointTail;
     throwIfCancelled(signal);
     if (options.onSafetyBranch && ['medium', 'high', 'critical'].includes(assessToolRisk(call).level)) {
@@ -500,7 +544,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     checkBudget();
     const toolStarted = Date.now();
-    if (runtimeState) {
+    if (runtimeState?.version === 1) {
       const pending: TurnRuntimeState['effect'] = { kind: call.name === 'ask_question' ? 'question' : 'tool', id: call.id };
       activeEffects.set(call.id, pending); effect(pending); await checkpoint('active');
     }
@@ -534,6 +578,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throwIfCancelled(signal);
       if (retryDecision.decision !== 'allow') {
         await report(call, { toolCallId: call.id, result: retryDecision.reason, isError: true }, Date.now() - toolStarted);
+        if (runtimeState?.version === 2) await settleToolEffect(call);
         if (retryDecision.decision === 'cancelled') permissionCancelled = true;
         return retryDecision.decision === 'cancelled';
       }
@@ -555,16 +600,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       if (guard || options.control || runtimeState) await post; else void post.catch(() => {});
     }
     const waiting = !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
-    if (runtimeState && !waiting) {
-      activeEffects.delete(call.id);
-      let index = messages.current.length - 1;
-      while (index >= 0 && messages.current[index]!.role !== 'assistant') index--;
-      const assistant = messages.current[index];
-      const recorded = new Set(messages.current.slice(index + 1).filter(message => message.role === 'tool').map(message => message.toolCallId));
-      const pending = assistant?.toolCalls?.find(tool => !recorded.has(tool.id));
-      effect(activeEffects.values().next().value ?? (pending ? { kind: 'tool', id: pending.id } : { kind: 'quiescent' }));
-      await checkpoint('active');
-    }
+    if (!waiting) await settleToolEffect(call);
     return waiting;
   };
 
@@ -628,6 +664,11 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (compressed.compressed) {
           messages.current = compressed.messages;
           currentRequest.messages = messages.current;
+          if (runtimeState?.version === 2) {
+            effect({ kind: 'quiescent' });
+            runtimeState.execution = { phase: 'context_recorded', activeEffects: [] };
+            await checkpoint('active');
+          }
           options.onCompression?.(compressed);
         }
         await boundary(true);
@@ -641,6 +682,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         try { checkBudget(); }
         catch (error) {
           messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          recordedResponse();
           await checkpoint('active');
           throwIfCancelled(signal);
           await options.onResponse?.(response, iterations);
@@ -649,6 +691,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (options.continueOnLength && response.finishReason === 'error' && response.errorCode === 'invalid_tool_arguments') {
           messages.current.push({ role: 'assistant', content: response.content,
             providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          recordedResponse();
           await checkpoint('active');
           throwIfCancelled(signal);
           const stop = await options.onResponse?.(response, iterations);
@@ -679,6 +722,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         const pendingCalls = response.toolCalls ? structuredClone(response.toolCalls) : undefined;
         messages.current.push({ role: 'assistant', content: response.content, ...(pendingCalls?.length ? { toolCalls: structuredClone(pendingCalls) } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
         if (pendingCalls?.length) effect({ kind: 'tool', id: pendingCalls[0]!.id });
+        else recordedResponse();
         await checkpoint('active');
         throwIfCancelled(signal);
         const stop = await options.onResponse?.(response, iterations);
@@ -774,6 +818,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
         if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof HostToolRuntimeError || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (runtimeState?.version === 2 && activeEffects.size) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }

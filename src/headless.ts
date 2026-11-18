@@ -56,6 +56,8 @@ export type HeadlessOutputMode = 'json' | 'text';
 export const HEADLESS_PROGRESS_PROTOCOL_VERSION = 1;
 /** Opt-in original-turn evidence only; does not advertise cold execution resume. */
 export const HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION = 1;
+/** Explicit phase/effect capture only, without cold execution resume. */
+export const HEADLESS_EXECUTION_STATE_PROTOCOL_VERSION = 2;
 
 export interface HeadlessRuntimeStateReceipt extends ControlCheckpoint {
   readonly sessionId: string;
@@ -79,6 +81,8 @@ export interface HeadlessQuestionReceipt {
 export interface HeadlessOptions {
   /** Opt-in checkpoint evidence for future fenced recovery; does not enable resume. */
   retainRuntimeState?: boolean;
+  /** Explicit phase/effect capture, without replacement execution authority. */
+  runtimeStateVersion?: 1 | 2;
   /** Acknowledge each saved runtime checkpoint before the next effect; not recovery authority. */
   onRuntimeStateCommitted?: (receipt: HeadlessRuntimeStateReceipt, signal?: AbortSignal) => Promise<void>;
   /** Trusted workspace transport; task text cannot configure this capability. */
@@ -231,6 +235,11 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   if (options.onRuntimeStateCommitted !== undefined &&
       (typeof options.onRuntimeStateCommitted !== 'function' || options.retainRuntimeState !== true)) {
     emit({ type: 'error', timestamp: now(), data: { message: 'Runtime checkpoint acknowledgment requires capture and a host callback.' } }, outputMode);
+    return 2;
+  }
+  if (options.runtimeStateVersion !== undefined &&
+      (options.retainRuntimeState !== true || ![1, 2].includes(options.runtimeStateVersion))) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Runtime state version requires capture and version 1 or 2.' } }, outputMode);
     return 2;
   }
   try { completionCheckLimit(options.completionCheck, options.maxCompletionChecks); }
@@ -395,7 +404,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
-      ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeClock: { startedAt: clock.started,
+      ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeStateVersion: options.runtimeStateVersion, runtimeClock: { startedAt: clock.started,
         deadline: options.maxTime === undefined ? null : Math.floor(clock.started + options.maxTime * 1000) } } : {}),
       captureToolOutput: true,
       client: 'headless',
