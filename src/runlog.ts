@@ -76,8 +76,8 @@ export interface AssistantMessagePayload {
   /** False when the provider omitted usage; numeric counters retain their legacy zero defaults. */
   usageReported?: boolean;
   cost: number;
-  /** Missing discovery prices use the documented emergency estimate. */
-  costSource?: 'discovery' | 'fallback' | 'subscription';
+  /** Admission rates can be conservative; no estimate source proves an invoice charge. */
+  costSource?: 'admission' | 'discovery' | 'fallback' | 'subscription';
 }
 
 export interface ToolCallPayload {

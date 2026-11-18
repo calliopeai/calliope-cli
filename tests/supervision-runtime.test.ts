@@ -41,7 +41,7 @@ beforeEach(()=>{
   for(const provider of config.getProviderNames()){const names=config.getProviderEnvVars(provider);for(const name of [names.apiKey,names.baseUrl])if(name)vi.stubEnv(name,'');}
   config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://supervision.invalid/v1'});config.set('routing',{enabled:true,providerPool:['deepseek']});
   vi.stubGlobal('fetch',vi.fn(async(input,init)=>{
-    const req=new Request(input,init);if(req.url==='https://supervision.invalid/v1/models')return json({data:['worker-toy','controller-toy','reviewer-toy'].map(id=>({id,context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}))});
+    const req=new Request(input,init);if(req.url==='https://supervision.invalid/v1/models')return json({data:['worker-toy','controller-toy','reviewer-toy'].map(id=>({id,context_length:id==='worker-toy'?8192:16384,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}))});
     expect(req.url).toBe('https://supervision.invalid/v1/chat/completions');const body=await req.json(),context=JSON.parse(body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')).content);requests.push({context,body});
     let content:string,tool_calls;
     if(context.kind==='controller-review'){expect(body.tools??[]).toEqual([]);const decision=await decide(context,init?.signal??req.signal);content=typeof decision==='string'?decision:JSON.stringify(decision);}
@@ -61,7 +61,7 @@ const execute=(id:string,extra={})=>executeReviewedRun(project,id,{store:runs,ap
 
 it.each(['stop','decompose'])('exposes denied-parent availability to both review roles and enforces policy after %s',async action=>{
   const p=plan();p.agents[1]!.maxChildDepth=1;p.agents[1]!.maxChildCount=1;const reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';reviewer.maxChildDepth=0;reviewer.maxChildCount=0;p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
-  const child=structuredClone(p.agents[1]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=8000;child.costBudgetUsd=0.1;
+  const child=structuredClone(p.agents[1]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=10000;child.costBudgetUsd=0.1;
   const task=structuredClone(p.tasks[0]!);task.id='child-task';task.agentId='child';task.outputs[0]!.id='child-report';task.outputs[0]!.path='a/child.txt';task.outputs[1]!.id='child-patch';task.outputs[2]!.id='child-tests';task.acceptanceChecks![0]!.artifactId='child-report';task.acceptanceChecks![1]!.artifactId='child-tests';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';
   const transport=fetch;vi.stubGlobal('fetch',async(input,init)=>{const response=await transport(input,init),body=await response.clone().json();if(body.model==='worker-toy'&&body.choices[0].message.tool_calls){body.choices[0].message.tool_calls[0].function={name:'read_file',arguments:JSON.stringify({path:'package.json'})};return json(body);}return response;});
   const roles:string[]=[];decide=async context=>{
@@ -117,7 +117,7 @@ it('denies model-requested tools from a reviewer even when its JSON verdict appr
 it('uses reviewed limits for ID-only worker, controller and reviewer discovery with replayable reservations',async()=>{
   const p=plan(),reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
   const original=fetch;vi.stubGlobal('fetch',vi.fn(async(input,init)=>new Request(input,init).url.endsWith('/models')?json({data:['worker-toy','controller-toy','reviewer-toy'].map(id=>({id}))}):original(input,init)));
-  const file=join(root,'billing.json'),now=Date.now();vi.stubEnv('CALLIOPE_BILLING_FILE',file);fs.writeFileSync(file,JSON.stringify({version:2,profiles:p.agents.map(a=>({version:2,provider:'deepseek',model:a.preference.model,target:providerTarget('deepseek').key,checkedAt:now,expiresAt:now+60000,sources:['https://example.invalid/fixture'],prices:{input:1,output:2},capabilities:{chat:true,tools:true},limits:{contextLength:4096,maxOutputTokens:100},admission:'reviewed-full-context-v1'}))}),{mode:0o600});
+  const file=join(root,'billing.json'),now=Date.now();vi.stubEnv('CALLIOPE_BILLING_FILE',file);fs.writeFileSync(file,JSON.stringify({version:2,profiles:p.agents.map(a=>({version:2,provider:'deepseek',model:a.preference.model,target:providerTarget('deepseek').key,checkedAt:now,expiresAt:now+60000,sources:['https://example.invalid/fixture'],prices:{input:1,output:2},capabilities:{chat:true,tools:true},limits:{contextLength:a.preference.model==='worker-toy'?8192:16384,maxOutputTokens:100},admission:'reviewed-full-context-v1'}))}),{mode:0o600});
   const view=await reviewed(p),result=await execute(view.run.id);expect(result.status).toBe('completed');expect(requests.map(r=>r.body.model)).toEqual(['worker-toy','worker-toy','controller-toy','reviewer-toy']);expect(requests.every(r=>r.body.max_tokens===100)).toBe(true);
   const saved=new ReservationLedger(join(runs.root,view.run.id,'budget')).read(project);expect(saved.events.filter(e=>e.change.type==='reserve')).toHaveLength(4);for(const e of saved.events)if(e.change.type==='reserve')expect(e).toMatchObject({version:4,change:{reservation:{quoteEvidence:{version:2,live:{maxOutputTokens:null}},attribution:{version:1}}}});
   expect(replayExecution(result.execution.header,view.manifest,result.execution.events)).toEqual(result.execution.state);expect(result.accounting).toMatchObject({status:'available',run:{accounted:{tokens:40,costNanos:52000}}});
@@ -532,7 +532,7 @@ it.each(['approve','reject'] as const)('keeps a child replan sequential at full 
   const p=plan();p.limits.maxAgents=4;p.limits.maxTasks=2;p.limits.maxConcurrent=1;p.supervision!.maxStalledRounds=3;
   p.agents[1]!.maxChildDepth=1;p.agents[1]!.maxChildCount=1;
   const reviewer=structuredClone(p.agents[1]!);reviewer.id='reviewer';reviewer.preference.model='reviewer-toy';reviewer.maxChildDepth=0;reviewer.maxChildCount=0;p.agents.push(reviewer);p.supervision!.reviewerId='reviewer';
-  const child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=8000;child.costBudgetUsd=0.1;
+  const child=structuredClone(p.agents[1]!),task=structuredClone(p.tasks[0]!);child.id='child';child.parentId='a';child.maxChildDepth=0;child.maxChildCount=0;child.tokenBudget=10000;child.costBudgetUsd=0.1;
   child.allowedPaths=[{path:'a/child.txt',access:'write'}];
   task.id='child-task';task.agentId=child.id;task.outputs.forEach(o=>o.id='child-'+o.id);task.outputs[0]!.path='a/child.txt';task.isolation!.patchArtifactId='child-patch';task.isolation!.commands[0]!.artifactId='child-tests';task.acceptanceChecks!.forEach(c=>c.artifactId='child-'+c.artifactId);
   verificationExits=[1,1,0,0];

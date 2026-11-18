@@ -6,6 +6,7 @@ import { ChatGPTStore, ChatGPTAuthError, ChatGPTQuotaError, fallbackPolicy, fall
 import { chat } from '../providers/index.js';
 import type { ChatOptions, StreamCallback, RetryCallback } from '../providers/types.js';
 import type { ProviderAttemptBudget } from '../providers/types.js';
+import { calculateMaxTokens } from '../providers/types.js';
 import { executeTool, getTools, type ExecuteToolOptions } from '../tools.js';
 import { DEFAULT_MODELS, calculateCost, type LLMProvider, type LLMResponse, type Message, type Tool, type ToolCall, type ToolResult, type Mode } from '../types.js';
 import { cancellable, cancellableDelay, cancellationError, isCancellation, throwIfCancelled } from '../cancellation.js';
@@ -31,9 +32,10 @@ import { getSessionDirById, getSessionById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
-import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, type AgentExecution } from '../execution/index.js';
+import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, requestCostNanos, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
 import { assertExecutionBinding } from '../execution/delegated.js';
+import { withReviewedModelLimits, reviewedOutputLimit } from '../execution/billing.js';
 import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCheckpoint } from './control.js';
 import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
 
@@ -176,6 +178,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let checkpointFailed = false;
+  let checkpointWaitCancelled = false;
   let questionCommitFailed = false;
   let safetyFailed = false;
   let controlFailed = false;
@@ -224,23 +227,35 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         estimatedCostUsd: totals.cost, toolCalls: totals.toolCalls };
     }
     const capturedRuntime = runtimeState ? structuredClone(runtimeState) : undefined;
-    checkpointTail = checkpointTail.then(async () => {
+    let writeStarted = false, locallySaved = false;
+    const preceding = status === 'cancelled' && signal?.aborted && checkpointWaitCancelled && !checkpointFailed
+      ? checkpointTail.catch(error => { if (!isCancellation(error)) throw error; }) : checkpointTail;
+    checkpointTail = preceding.then(async () => {
+      writeStarted = true;
       if (capturedRuntime) await options.onCheckpoint!(copy, status, allowance, capturedRuntime);
       else await options.onCheckpoint!(copy, status, allowance);
       if (options.control) options.control.observe(options.controlSnapshot!());
-      if (capturedRuntime && options.onRuntimeStateCommitted) {
+      locallySaved = true;
+      if (status !== 'cancelled') throwIfCancelled(signal);
+      // An aborted final checkpoint stays local; the host's prior acknowledgment remains authoritative.
+      if (capturedRuntime && options.onRuntimeStateCommitted && !(status === 'cancelled' && signal?.aborted)) {
         const result: unknown = await cancellable(Promise.resolve(options.onRuntimeStateCommitted(
           Object.freeze(structuredClone(capturedRuntime)), Object.freeze(structuredClone(allowance!)), signal)), signal);
         if (result !== undefined) throw new Error('Invalid runtime checkpoint acknowledgment.');
       }
+      if (status !== 'cancelled') throwIfCancelled(signal);
     }).catch(error => {
-      checkpointFailed = true;
+      if (signal?.aborted && isCancellation(error) &&
+          (locallySaved || !writeStarted && checkpointWaitCancelled))
+        checkpointWaitCancelled = true;
+      else checkpointFailed = true;
       throw error;
     });
     return checkpointTail;
   };
   const acknowledgeProgress = async (): Promise<void> => {
     if (!progress || !options.onTurnProgressCommitted) return;
+    throwIfCancelled(signal);
     try {
       const result: unknown = await cancellable(Promise.resolve(options.onTurnProgressCommitted(Object.freeze(structuredClone(progress)), signal)), signal);
       if (result !== undefined) throw new Error('Invalid allowance acknowledgment.');
@@ -342,7 +357,11 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if(guard)input={...input,tools:guard.tools(input.tools)};
     const policy = paidFallback ? fallbackPolicy() : undefined;
     const requestTracksProject = trackProject || !!paidFallback;
-    const maxOutputTokens=guard?.maxOutputTokens??(policy?Math.min(policy.maxOutputTokens,input.route?.maxOutputTokens??policy.maxOutputTokens):trackProject?input.route?.maxOutputTokens??0:undefined);
+    const outputLimit=input.route?reviewedOutputLimit(input.route,options.cwd):null;
+    const outputMaximum=guard?Math.min(guard.maxOutputTokens,outputLimit??guard.maxOutputTokens)
+      :policy?Math.min(policy.maxOutputTokens,outputLimit??policy.maxOutputTokens):trackProject?outputLimit??0:undefined;
+    const maxOutputTokens=guard||requestTracksProject?withReviewedModelLimits(input.route,options.cwd,
+      ()=>calculateMaxTokens(input.provider,input.model,input.messages,input.tools,outputMaximum,stream&&!!options.onToken)):undefined;
     const assertPaidAdmission = () => {
       if (!paidFallback) return;
       const current = fallbackPolicy(), account = new ChatGPTStore().active();
@@ -355,7 +374,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     const requestSignal=requestController?.signal??signal;
     let attemptBudget:ProviderAttemptBudget|undefined;
     try {
-      attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}))
+      attemptBudget=guard?.budget(input.route,input.messages,input.tools,stream&&!!options.onToken,signal,event=>runlog.policyEvent({tool:'provider',source:'execution-budget',decision:event.stage==='exceeded'?'deny':'allow',reason:JSON.stringify(event),durationMs:0}),maxOutputTokens)
         ??(requestTracksProject?projectAttemptBudget(options.cwd,projectRunId,input.route,input.messages,input.tools,stream&&!!options.onToken,maxOutputTokens!,requestSignal,(requestId,stage,quoteEvidence)=>runlog.policyEvent({tool:'provider',source:'project-budget',decision:stage==='exceeded'?'deny':'allow',reason:JSON.stringify({requestId,stage,quoteEvidence}),durationMs:0}),options.measuredInputReservation??false,policy?.maxProjectCostUsd):undefined);
     } catch (error) {
       runlog.policyEvent({tool:'provider',source:'execution-budget',decision:'deny',reason:error instanceof Error?error.message:'Budget admission failed',durationMs:0});
@@ -373,7 +392,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
     const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
     let response:LLMResponse;
-    try {response = await chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
+    try {response = await withReviewedModelLimits(input.route, options.cwd, () => chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
       reasoningEffort: options.reasoningEffort,
       ...(paidFallback ? { maxProviderRetries: 0 } : options.maxProviderRetries !== undefined ? { maxProviderRetries: options.maxProviderRetries } : {}),
@@ -384,18 +403,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
         options.onWarning?.(message);
       },
-    });}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
-    throwIfCancelled(signal);
+    }));}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     if (paidFallback) response = { ...response, providerMetadata: { ...response.providerMetadata, openai: { chatgptFallback: { clientId: paidFallback.clientId, model: paidFallback.policy.model } } } };
-    const prices = paidFallback ? attemptBudget?.billingRates : input.route?.price;
-    const costSource = response.billing === 'subscription' ? 'subscription' : paidFallback ? 'fallback' : prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
-    const cost = response.billing === 'subscription' ? 0 : response.usage ? prices?.input !== undefined && prices.output !== undefined
+    const admittedPrices = attemptBudget?.billingRates;
+    const prices = admittedPrices ?? input.route?.price;
+    const costSource = response.billing === 'subscription' ? 'subscription' : admittedPrices ? 'admission' : paidFallback ? 'fallback' : prices?.input !== undefined && prices.output !== undefined ? 'discovery' : 'fallback';
+    const cost = response.billing === 'subscription' ? 0 : response.usage ? admittedPrices
+      ? requestCostNanos(response.usage.inputTokens, response.usage.outputTokens, admittedPrices.input, admittedPrices.output) / 1e9
+      : prices?.input !== undefined && prices.output !== undefined
       ? response.usage.inputTokens / 1000000 * prices!.input! + response.usage.outputTokens / 1000000 * prices!.output!
       : calculateCost(input.model, response.usage.inputTokens, response.usage.outputTokens) : 0;
     totals.inputTokens += response.usage?.inputTokens ?? 0;
     totals.outputTokens += response.usage?.outputTokens ?? 0;
     totals.cost += cost;
     if (runtimeState && !response.usage) runtimeState.responseUsageComplete = false;
+    throwIfCancelled(signal);
     // Project accounting is committed by the attempt receipt, including retries and unknown outcomes.
     runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, usageReported: !!response.usage, cost, costSource });
     options.onUsage?.(response, input, cost);
@@ -430,6 +452,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model), answeredQuestion) });
     await checkpoint('active');
+    throwIfCancelled(signal);
     if (answeredQuestion && options.onQuestionCommitted) {
       try {
         // Its saved revision must stay stable until the host acknowledges it.
@@ -465,12 +488,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if (decision.decision === 'cancelled') { permissionCancelled = true; return true; }
     if (decision.decision !== 'allow') { await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs); return false; }
     await checkpointTail;
+    throwIfCancelled(signal);
     if (options.onSafetyBranch && ['medium', 'high', 'critical'].includes(assessToolRisk(call).level)) {
-      safetyBranch ??= Promise.resolve().then(() => options.onSafetyBranch!(structuredClone(call))).catch(error => { if (!isCancellation(error)) safetyFailed = true; throw error; });
+      safetyBranch ??= Promise.resolve().then(() => { throwIfCancelled(signal); return options.onSafetyBranch!(structuredClone(call)); }).catch(error => { if (!isCancellation(error)) safetyFailed = true; throw error; });
       await safetyBranch;
     }
     // A parallel result may have failed to persist while this tool awaited permission.
     await checkpointTail;
+    throwIfCancelled(signal);
     await options.beforeTool?.(structuredClone(call), iterations);
     throwIfCancelled(signal);
     checkBudget();
@@ -555,6 +580,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throw new Error('Question delivery acknowledgement requires a conversation checkpoint writer.');
     }
     await checkpoint('active');
+    throwIfCancelled(signal);
     if (options.onControlReady) {
       try {
         const saved = options.controlSnapshot!();
@@ -586,15 +612,19 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         checkBudget();
         if (progress) { progress.iterations = iterations; await checkpoint('active'); await acknowledgeProgress(); }
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
+        const discoveredAt = Date.parse(currentRequest.route?.discoveredAt ?? '');
+        if (currentRequest.route?.evidence === 'live' && (!Number.isFinite(discoveredAt) ||
+            discoveredAt > Date.now() + 1000 || Date.now() - discoveredAt > 300000))
+          currentRequest = await resolveRoute(currentRequest);
         const compressed = options.disableCompression ? {
           compressed:false, method:'none' as const, messages:messages.current,
           originalTokens:0, compressedTokens:0, summarizedCount:0,
-        } : await autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
+        } : await access(() => withReviewedModelLimits(currentRequest.route, options.cwd, () => autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
           async (summaryMessages, summaryModel) => {
             const response = await request({ ...currentRequest, model: summaryModel || currentRequest.model, messages: summaryMessages, tools: [] }, {}, false);
             checkBudget();
             return response;
-          });
+          }, currentRequest.tools)));
         if (compressed.compressed) {
           messages.current = compressed.messages;
           currentRequest.messages = messages.current;
@@ -605,11 +635,14 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         await boundary(false);
         throwIfCancelled(signal);
         let response = await request(currentRequest);
+        throwIfCancelled(signal);
         // A reply cut off by the output limit may carry a partial tool call: never run, store or repair it.
         if (options.continueOnLength && response.finishReason === 'length' && response.toolCalls?.length) response = { ...response, toolCalls: undefined };
         try { checkBudget(); }
         catch (error) {
           messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          await checkpoint('active');
+          throwIfCancelled(signal);
           await options.onResponse?.(response, iterations);
           throw error;
         }
@@ -617,6 +650,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           messages.current.push({ role: 'assistant', content: response.content,
             providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
           await checkpoint('active');
+          throwIfCancelled(signal);
           const stop = await options.onResponse?.(response, iterations);
           throwIfCancelled(signal);
           checkBudget();
@@ -646,6 +680,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         messages.current.push({ role: 'assistant', content: response.content, ...(pendingCalls?.length ? { toolCalls: structuredClone(pendingCalls) } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
         if (pendingCalls?.length) effect({ kind: 'tool', id: pendingCalls[0]!.id });
         await checkpoint('active');
+        throwIfCancelled(signal);
         const stop = await options.onResponse?.(response, iterations);
         throwIfCancelled(signal);
         checkBudget();
@@ -684,7 +719,10 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
               const proposal = Object.freeze({ revision: proof.revision, checksum: proof.checksum, sessionId: options.sessionId,
                 iteration: iterations, attempt: ++completionChecks, content: response.content });
               let checked: unknown;
-              try { checked = await cancellable(Promise.resolve(options.completionCheck(proposal, signal)), signal); }
+              try {
+                throwIfCancelled(signal);
+                checked = await cancellable(Promise.resolve(options.completionCheck(proposal, signal)), signal);
+              }
               catch (error) {
                 if (signal?.aborted || isCancellation(error)) throw error;
                 throw new Error('Host completion verification failed; no completion was accepted.');
@@ -760,7 +798,13 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     completePendingTools(messages.current, reason);
     try {
       if (!checkpointFailed) await checkpoint(reason === 'completed' || reason === 'cancelled' || reason === 'waiting_for_user' ? reason : 'interrupted');
-    } catch (error) { reason = 'error'; throw error; }
+    } catch (error) {
+      if (!checkpointFailed && checkpointWaitCancelled && signal?.aborted && isCancellation(error)) {
+        reason = 'cancelled';
+        try { await checkpoint('cancelled'); }
+        catch (saveError) { reason = 'error'; throw saveError; }
+      } else { reason = 'error'; throw error; }
+    }
     finally {
       totals.durationMs = Date.now() - started;
       runlog.runEnd({ totals, exitReason: reason });

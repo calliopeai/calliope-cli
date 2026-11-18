@@ -29,7 +29,7 @@ beforeEach(()=>{
   for(const provider of config.getProviderNames()){const names=config.getProviderEnvVars(provider);for(const name of [names.apiKey,names.baseUrl])if(name)vi.stubEnv(name,'');}
   config.setProviderCred('deepseek',{apiKey:'synthetic',baseUrl:'https://isolated.invalid/v1'});config.set('routing',{enabled:true,providerPool:['deepseek']});
   vi.stubGlobal('fetch',vi.fn(async(input,init)=>{
-    const req=new Request(input,init);if(req.url==='https://isolated.invalid/v1/models')return json({data:[{id:'isolated-toy',context_length:4096,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]});
+    const req=new Request(input,init);if(req.url==='https://isolated.invalid/v1/models')return json({data:[{id:'isolated-toy',context_length:8192,max_output_tokens:100,pricing:{input:1,output:2},capabilities:{chat:true,tools:true,streaming:true}}]});
     expect(req.url).toBe('https://isolated.invalid/v1/chat/completions');requests++;const body=await req.json(),count=body.messages.filter((m:any)=>m.role==='tool').length,task=JSON.parse(body.messages.find((m:any)=>m.role==='user'&&m.content.startsWith('{')).content).task;
     const step=(toolSteps??[{name:'write_file',arguments:{path:task.outputs[0].path,content:task.id==='second'?'public toy different':'public toy candidate'}}])[count],first=!!step;
     expect(body.tools.every((t:any)=>t.function.name!=='shell')).toBe(true);

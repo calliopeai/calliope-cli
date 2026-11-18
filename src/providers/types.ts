@@ -5,10 +5,14 @@
  */
 
 import { getModelContextLimit, getModelMaxOutput } from '../model-detection.js';
+import { estimateInputTokens } from '../context-tokens.js';
+import { ExecutionLimitError } from '../execution/types.js';
+export { estimateInputTokens } from '../context-tokens.js';
 import type { Message, Tool, LLMResponse, LLMProvider, TextContent } from '../types.js';
 
 // Constants
 export const MAX_TOKENS = 8192;
+export const ANTHROPIC_NON_STREAM_OUTPUT_LIMIT = 8192;
 export const MIN_OUTPUT_TOKENS = 1024; // Minimum output tokens to request
 export const CONTEXT_BUFFER_PERCENT = 0.08; // 8% of context as safety buffer
 export const CONTEXT_BUFFER_MIN = 1024; // Minimum buffer (scales with context size)
@@ -43,7 +47,7 @@ export type ProviderPriceCeiling = Readonly<{ input: number; output: number }>;
 export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling; maxProviderRetries?: number }
 export interface ProviderAttemptBudget {
   /** Conservative rates used by this native reservation, in USD per million tokens. */
-  readonly billingRates?: { input: number; output: number };
+  readonly billingRates?: Readonly<{ input: number; output: number }>;
   readonly priceCeiling?: ProviderPriceCeiling;
   inputCounting?:'anthropic-count-tokens';
   reserve(attempt: {provider: LLMProvider; model: string; target: string; maxOutputTokens: number; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?:ProviderPriceCeiling}): Promise<string>;
@@ -86,69 +90,32 @@ export function getTextContent(content: Message['content']): string {
 }
 
 /**
- * Estimate tokens from messages (conservative: ~3 chars per token)
- * Uses conservative estimation to avoid context overflow
- */
-export function estimateInputTokens(messages: Message[], tools: Tool[]): number {
-  let totalChars = 0;
-
-  for (const msg of messages) {
-    // Add per-message overhead (role, structure, etc.)
-    totalChars += 50;
-
-    if (typeof msg.content === 'string') {
-      totalChars += msg.content.length;
-    } else if (Array.isArray(msg.content)) {
-      for (const block of msg.content) {
-        if (block.type === 'text') {
-          totalChars += (block as TextContent).text.length;
-        } else if (block.type === 'image') {
-          // Images are roughly 85 tokens per tile (assuming ~750 tokens average)
-          totalChars += 3000;
-        }
-      }
-    }
-    // Add overhead for tool calls in assistant messages
-    if (msg.toolCalls) {
-      totalChars += JSON.stringify(msg.toolCalls).length;
-    }
-  }
-
-  // Add tool definitions overhead
-  if (tools.length > 0) {
-    totalChars += JSON.stringify(tools).length;
-  }
-
-  // Very conservative estimate: 2.5 characters per token
-  // Plus 35% overhead for message structure, system prompt, and formatting
-  return Math.ceil((totalChars / 2.5) * 1.35);
-}
-
-/**
  * Calculate dynamic max_tokens based on available context space
  */
 export function calculateMaxTokens(
   provider: LLMProvider,
   model: string,
   messages: Message[],
-  tools: Tool[]
+  tools: Tool[],
+  maximum?: number,
+  streaming = true
 ): number {
   const contextLimit = getModelContextLimit(provider, model);
   const estimatedInput = estimateInputTokens(messages, tools);
   // Use percentage-based buffer with minimum floor
-  const buffer = Math.max(CONTEXT_BUFFER_MIN, Math.ceil(contextLimit * CONTEXT_BUFFER_PERCENT));
+  // A fixed floor must not consume an entire small, positively discovered window.
+  const buffer = Math.min(Math.floor(contextLimit * 0.2), Math.max(CONTEXT_BUFFER_MIN, Math.ceil(contextLimit * CONTEXT_BUFFER_PERCENT)));
   const available = contextLimit - estimatedInput - buffer;
 
   debugLog(`Context calculation: limit=${contextLimit}, input≈${estimatedInput}, buffer=${buffer}, available=${available}`);
 
-  // Ensure we have at least MIN_OUTPUT_TOKENS, up to the model's real output ceiling
-  if (available < MIN_OUTPUT_TOKENS) {
-    debugLog(`WARNING: Very limited output space (${available}), using minimum ${MIN_OUTPUT_TOKENS}`);
-    return MIN_OUTPUT_TOKENS;
+  const transportMaximum = provider === 'anthropic' && !streaming
+    ? Math.min(maximum ?? ANTHROPIC_NON_STREAM_OUTPUT_LIMIT, ANTHROPIC_NON_STREAM_OUTPUT_LIMIT) : maximum;
+  const maxOutput = limitOutputTokens(getModelMaxOutput(provider, model), transportMaximum);
+  const minimum = Math.min(MIN_OUTPUT_TOKENS, maxOutput);
+  if (available < minimum) {
+    throw new ExecutionLimitError('budget', `Request context leaves ${available} estimated output tokens; at least ${minimum} are required. Configure reviewed provider limits or reduce the input/tool context before retrying.`);
   }
-
-  // Cap by the model's actual max output (capability-derived), not a global 8192.
-  const maxOutput = getModelMaxOutput(provider, model);
   return Math.min(maxOutput, available);
 }
 

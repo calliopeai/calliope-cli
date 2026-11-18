@@ -288,7 +288,7 @@ export async function chatBedrock(
   const { system, messages: bedrockMessages } = toBedrockMessages(messages);
 
   // Calculate dynamic max tokens
-  const dynamicMaxTokens = calculateMaxTokens('bedrock', model, messages, tools);
+  const dynamicMaxTokens = calculateMaxTokens('bedrock', model, messages, tools, maxOutputTokens);
   debugLog(`Bedrock request: model=${model}, region=${region}, max_tokens=${dynamicMaxTokens}, streaming=${isStreaming}`);
 
   const requestBody: Record<string, unknown> = {

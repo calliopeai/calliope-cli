@@ -34,7 +34,7 @@ beforeEach(async () => {
     const endpoint = String(url), authorization = new Headers(init?.headers).get('authorization');
     if (endpoint.endsWith('/models')) {
       if (authorization === 'Bearer plan-fixture-token') return discoveryQuota ? Response.json({ error: { code: 'insufficient_quota' } }, { status: 429 }) : Response.json({ models: [{ slug: 'gpt-plan-test', display_name: 'Plan model', visibility: 'list' }] });
-      return Response.json({ object: 'list', data: [{ id: 'gpt-paid-test', created: 1, context_length: 100, max_output_tokens: 30, capabilities: { chat: true, tools: true, streaming: true }, ...(missingPrices ? {} : { pricing: { input: 1, output: 2 } }) }] });
+      return Response.json({ object: 'list', data: [{ id: 'gpt-paid-test', created: 1, context_length: 512, max_output_tokens: 30, capabilities: { chat: true, tools: true, streaming: true }, ...(missingPrices ? {} : { pricing: { input: 1, output: 2 } }) }] });
     }
     if (endpoint.endsWith('/responses')) {
       planRequests++;
@@ -126,7 +126,7 @@ it('fails closed if fallback is disabled for an existing paid conversation', asy
   expect(paidBodies).toHaveLength(0); expect(planRequests).toBe(0);
 });
 it('shares the paid ceiling across concurrent fallback turns', async () => {
-  config.set('chatgptFallback', { ...policy, maxProjectCostUsd: 0.000145 });
+  config.set('chatgptFallback', { ...policy, maxProjectCostUsd: 0.000557 });
   await openQuotaCircuit('oaiapp_test', 'quota');
   const results = await Promise.all([runTurn(options()), runTurn(options())]);
   expect(results.map(r => r.reason).sort()).toEqual(['budget', 'completed']); expect(paidBodies).toHaveLength(1);
@@ -190,4 +190,16 @@ it.each(['disable','lower','account'])('rechecks %s changes after queued admissi
   });
   await expect(runTurn(options())).rejects.toThrow(/changed|disabled/);
   expect(paidBodies).toHaveLength(0); expect(loadProjectSpend(root).spentUsd).toBeGreaterThan(0);
+});
+
+
+it('keeps API-key authority through compression admission after the subscription circuit opens', async () => {
+  await openQuotaCircuit('oaiapp_test', 'quota');
+  const result = await runTurn(options({ disableCompression: false }));
+  expect(result.reason).toBe('completed');
+  expect(planRequests).toBe(0);
+  expect(paidBodies).toHaveLength(1);
+  expect(paidBodies[0]).toMatchObject({ model: 'gpt-paid-test', max_completion_tokens: 20 });
+  expect(loadProjectSpend(root).spentUsd).toBeCloseTo(0.000014);
+  expect(config.getProviderCred('openai').accessMethod).toBe('chatgpt');
 });
