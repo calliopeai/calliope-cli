@@ -87,6 +87,7 @@ export interface HeadlessOptions {
   onRuntimeStateCommitted?: (receipt: HeadlessRuntimeStateReceipt, signal?: AbortSignal) => Promise<void>;
   /** Correlated response facts under the original delegated ledger, not replacement authority. */
   onProviderResponseReceived?: TurnOptions['onProviderResponseReceived'];
+  onProviderRequestReserved?: TurnOptions['onProviderRequestReserved'];
   /** Trusted workspace transport; task text cannot configure this capability. */
   toolRuntime?: TurnOptions['toolRuntime'];
   signal?: AbortSignal;
@@ -231,9 +232,15 @@ async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
   const providerResponseWriter = options.onProviderResponseReceived;
+  const providerRequestWriter = options.onProviderRequestReserved;
   if (providerResponseWriter !== undefined &&
       (typeof providerResponseWriter !== 'function' || options.retainRuntimeState !== true || !options.ledger)) {
     emit({ type: 'error', timestamp: now(), data: { message: 'Headless provider checkpoints require runtime capture, the original delegated ledger and a host callback.' } }, outputMode);
+    return 2;
+  }
+  if (providerRequestWriter !== undefined &&
+      (typeof providerRequestWriter !== 'function' || options.retainRuntimeState !== true || !options.ledger)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Headless provider requests require runtime capture, the original delegated ledger and a host callback.' } }, outputMode);
     return 2;
   }
   if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean') {
@@ -413,6 +420,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   try {
     const result = await runTurn({
       ...(providerResponseWriter ? { onProviderResponseReceived: providerResponseWriter } : {}),
+      ...(providerRequestWriter ? { onProviderRequestReserved: providerRequestWriter } : {}),
       ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeStateVersion: options.runtimeStateVersion, runtimeClock: { startedAt: clock.started,
         deadline: options.maxTime === undefined ? null : Math.floor(clock.started + options.maxTime * 1000) } } : {}),
       captureToolOutput: true,

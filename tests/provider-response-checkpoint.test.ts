@@ -1137,3 +1137,27 @@ it.each([{protocol:'anthropic' as const,stream:true},{protocol:'responses' as co
  else{await expect(operation).rejects.toBeInstanceOf(StreamProtocolError);expect(captured).not.toHaveBeenCalled();expect(Object.values(ledger.read(project).projection.requests)[0]!.state).toBe('unknown');}
  expect(calls).toBe(1);expect(retry).not.toHaveBeenCalled();
 });
+
+
+it('detaches reserved input before a host admission callback mutates its original messages', async () => {
+  const { budget } = accounting(), input = structuredClone(messages), original = input[0]!.content;
+  let wire: unknown;
+  respond = body => { wire = body.messages[0].content; return wireResponse(syntheticWire('anthropic', 'text', false).body, 'application/json'); };
+  await chat('anthropic', input, [], route.model, undefined, undefined, {
+    maxOutputTokens: 100, attemptBudget: budget, onRequestReserved: async value => {
+      expect(Object.isFrozen(value)).toBe(true); input[0]!.content = 'Changed by observer';
+    },
+  });
+  expect(JSON.stringify(wire)).toContain(original as string); expect(JSON.stringify(wire)).not.toContain('Changed by observer');
+});
+
+
+it('keeps a refused host request admission out of provider health failures', async () => {
+  const { ledger, budget } = accounting(), before = new HealthStore().read();
+  await expect(chat('anthropic', messages, [], route.model, undefined, undefined, {
+    maxOutputTokens: 100, attemptBudget: budget, onRequestReserved: async () => { throw new Error('Host unavailable'); },
+  })).rejects.toThrow('request checkpoint was not acknowledged');
+  expect(requests.filter(value => value === '/v1/messages')).toHaveLength(0);
+  expect(new HealthStore().read()).toEqual(before);
+  expect(Object.values(ledger.read(project).projection.requests).map(value => value.state)).toEqual(['unknown']);
+});

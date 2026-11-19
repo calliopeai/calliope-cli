@@ -179,6 +179,18 @@ unknown. Malformed completion fields, tool argument objects, stream framing or
 usage cannot attest completion and leave the reservation charged. Tool calls
 cut off by an output limit retain the existing truncation handling.
 
+Before inference, hosts can require
+`PROVIDER_REQUEST_CHECKPOINT_PROTOCOL_VERSION === 1` and install
+`onProviderRequestReserved` under the same original guard and runtime capture.
+Each actual attempt supplies its reserved ticket and the same logical request
+identity used by response capture. A retry gets a distinct ticket. The callback
+must durably admit that attempt and return nothing before inference starts.
+Rejection, an invalid acknowledgment, or cancellation while waiting stops
+inference without retry; the original reservation stays charged as unknown.
+This boundary does not undo a reservation or grant replacement ownership.
+Provider input-counting and model discovery may precede it. Hosts must qualify
+the SDK export rather than rely on older versions honoring a new option.
+
 This option captures evidence and does not enable headless execution resume.
 A quiescent marker, a portable bundle or a valid checksum does not prove current
 Native ownership, the original account/model/policy, settled reservations or

@@ -68,19 +68,24 @@ export function limitOutputTokens(dynamic: number, maximum?: number): number {
  * grammar-constrained `format` schema for tool-call repair (ignored elsewhere).
  */
 /** Provider facts only; this checkpoint never grants replacement execution. */
-export interface ProviderResponseCheckpoint {
+export interface ProviderRequestCheckpoint {
   readonly version: 1;
   readonly reservationId: string;
   readonly provider: LLMProvider;
   readonly model: string;
   readonly target: string;
   readonly attempt: number;
+}
+
+export interface ProviderResponseCheckpoint extends ProviderRequestCheckpoint {
   readonly usageReported: boolean;
   readonly response: Readonly<LLMResponse>;
 }
 
 export interface ChatOptions extends AdapterLimits {
   attemptBudget?: ProviderAttemptBudget;
+  /** Acknowledge the original reservation before inference. Rejection prohibits retry. */
+  onRequestReserved?: (checkpoint: ProviderRequestCheckpoint) => Promise<void>;
   /** Persist the adapter-normalized response before shared sanitization,
    * cancellation, settlement or dependent effects.
    * Requires native attempt accounting. A rejected acknowledgment prohibits retry.

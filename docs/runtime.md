@@ -230,6 +230,42 @@ The existing permission, scope and policy gates still apply. A delegated
 execution guard can narrow host tools further; supplying a transport does not
 relax its command-containment requirements.
 
+A task-scoped host can instead require
+`HOST_ACCOUNTED_TOOL_RUNTIME_PROTOCOL_VERSION === 2` and supply
+`{version: 2, executionBinding, tools, execute}`. The binding must match the
+original account, manifest and immutable task attribution from a verified
+`RemoteReservationLedger` task-execution endpoint. Local ledgers, ordinary
+parent endpoints, changed task bindings and SDK-local isolated workspaces are
+refused before inference. This explicit mode retains the account tool allowlist,
+original deadline, identity, policy/approval checks and remote authority refresh;
+the matched host enforces paths and network access in its sandbox. It does not
+invoke SDK-local tools or inject tools absent from that host. Artifact tools
+still require their original native artifact-host grant. Version 1 retains its
+existing restrictions.
+
+Owners that require `TASK_WORKSPACE_LEDGER_PROTOCOL_VERSION === 1` can
+configure a fixed `taskExecution.project` on `createLedgerServer`, using
+`taskWorkspaceLedgerAuthority` to bind the token audience to the original
+run, manifest, account, task, exact workspace and output ceiling. This exposes
+`task-workspace-execution` with binding version 3. Callers cannot substitute the
+workspace, and older clients cannot negotiate ordinary execution as a fallback.
+Different task checkouts share the original money manifest/account/deadline.
+That mode requires the accounted host above and closes SDK-local tool execution.
+
+Project-spend authority also stays at the owner. Reservations fund the original
+project ledger inside the run ledger's writer lock, including project holds from
+other runs. Client ceilings can narrow the owner's current ceiling. Task-local
+project files cannot supply a fresh allowance. Replay does not double charge;
+unknown usage retains its hold. A run-journal read alone cannot acknowledge
+owner-project settlement after a lost reply; the same settlement must be
+acknowledged without another provider request.
+
+After a thrown or malformed host result, the bound transport refuses further
+dispatches. Parallel work already started can settle its original facts. Host
+uncertainty stops retry handling and subsequent inference even if an earlier
+parallel callback error would otherwise hide it, including without runtime-state
+capture. No uncertain command is retried locally.
+
 Headless calls with `toolRuntime` do not load filesystem memory or automatic
 project context on the SDK host. The caller supplies any required initial
 instructions through the prompt, or reads workspace documents through the

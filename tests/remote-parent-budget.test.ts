@@ -1,3 +1,7 @@
+import { createLedgerServer, LedgerServerState, mintLedgerToken, ReservationLedger, ExecutionLimitError } from '../src/execution/index.js';
+import { ProjectSpendLedger } from '../src/execution/project-spend.js';
+import { projectBudgetPath } from '../src/budget.js';
+import type { RouteCandidate } from '../src/routing/index.js';
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import * as fs from 'node:fs';
 import {join} from 'node:path';
@@ -229,3 +233,56 @@ it.each(['upstream-unavailable', 'lost-chain-ack'] as const)('requires settlemen
  expect(r.authority.ledger.read(r.project).projection.requests[parentId]!.state).toBe('settled');
  expect(c.execution.ledger.read(project).events.filter(event=>event.change.type==='settle')).toHaveLength(1);
 },20000);
+
+
+it('does not confirm local refusal or refund project money after upstream admission', async () => {
+  const c = await child(link, false, 100000); expect(c.execution.ledger).toBeInstanceOf(ReservationLedger);
+  const state = new LedgerServerState(join(root, 'nested-server'));
+  const server = createLedgerServer({ ledger: c.execution.ledger as ReservationLedger, cwd: project, state, ownerAgentId: 'coordinator',
+    assertAuthority: () => {
+      if (r.authority.ledger.read(r.project).projection.spent.tokens > 0)
+        throw new ExecutionLimitError('authority', 'Original child owner changed after upstream admission.');
+    } });
+  servers.push(server); await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const token = mintLedgerToken(state.secret(), { v: 2, run: c.execution.ledger.read(project).manifest.runId,
+    role: 'parent', owner: 'coordinator', exp: c.execution.ledger.read(project).manifest.deadline });
+  const remote = await RemoteReservationLedger.connect({ url, token, root: join(root, 'nested-cache'), execution: { cwd: project, agentId: 'coordinator' } });
+  const guard = new ExecutionGuard({ ledger: remote, manifestHash: c.execution.manifestHash, agentId: 'coordinator', maxOutputTokens: 10 }, project);
+  const route: RouteCandidate = { provider: 'deepseek', model: 'fixture', target: providerTarget('deepseek').key, evidence: 'live',
+    discoveredAt: new Date().toISOString(), contextLength: 1024, maxOutputTokens: 10, price: { input: 1, output: 1 },
+    capabilities: { chat: true, tools: true, streaming: true }, estimatedCost: null, latencyMs: null, errorRate: null, score: 0, reason: 'Public offline quote' };
+  const budget = guard.budget(route, [{ role: 'user', content: 'Public fixture.' }], [], false);
+  const error = await budget.reserve({ provider: 'deepseek', model: route.model, target: route.target, maxOutputTokens: 10 }).catch(error => error);
+  expect(error).toBeInstanceOf(ExecutionLimitError); expect(remote.canReleaseFailedReservation(error)).toBe(false);
+  expect(c.execution.ledger.read(project).projection.spent.costNanos).toBe(0);
+  expect(r.authority.ledger.read(r.project).projection.spent.costNanos).toBeGreaterThan(0);
+  expect(new ProjectSpendLedger(projectBudgetPath(project)).read().spentUsd).toBeGreaterThan(0);
+});
+
+it.each(['project-funding', 'owner-validation', 'parent-connection'] as const)('retains project money when %s fails during retry of upstream-funded admission', async phase => {
+ const c=await child(),value={...request(),inputPrice:1,outputPrice:1,costNanos:100000};
+ const money=new ProjectSpendLedger(projectBudgetPath(project));let fenced=false;
+ const funding={reserve:async()=>{await money.reserveOnce(value.id,c.view.run.id,value.costNanos,1000000);},refused:()=>money.settleOnce(value.id,0)};
+ const interrupted=await c.execution.ledger.reserve(project,c.execution.manifestHash,value,undefined,()=>{if(r.authority.ledger.read(r.project).projection.spent.tokens)throw new ExecutionLimitError('authority','Interrupted after upstream admission');},funding).catch(error=>error);
+ expect(c.execution.ledger.canReleaseFailedReservation?.(interrupted)).toBe(false);
+ expect(money.readAccounting().spentNanos).toBe(value.costNanos);
+ const refused=vi.fn();
+ if(phase==='parent-connection')fs.renameSync(link.tokenFile,link.tokenFile+'.retained');
+ const retry=await c.execution.ledger.reserve(project,c.execution.manifestHash,value,undefined,()=>{if(fenced)throw new ExecutionLimitError('authority','Owner fenced during project funding');},
+  {reserve:async()=>{await funding.reserve();if(phase==='project-funding')fenced=true;},refused:funding.refused},
+  {validate:()=>{if(phase==='owner-validation')throw new ExecutionLimitError('authority','Owner validation fenced');},refused}).catch(error=>error);
+ expect(retry).toBeInstanceOf(Error);
+ const upstream=r.authority.ledger.read(r.project),mapped=parentRequestId(c.execution.ledger.read(project).manifest,value.id);
+ expect(upstream.projection.requests[mapped]!.state).toBe('pending');
+ expect(c.execution.ledger.read(project).projection.requests[value.id]).toBeUndefined();
+ expect(money.readAccounting().spentNanos).toBe(value.costNanos);
+ expect(refused).not.toHaveBeenCalled();
+ expect(c.execution.ledger.canReleaseFailedReservation?.(retry)).toBe(false);
+ // Recovery uses the original request and holds, without a second parent charge.
+ fenced=false;if(phase==='parent-connection')fs.renameSync(link.tokenFile+'.retained',link.tokenFile);
+ await c.execution.ledger.reserve(project,c.execution.manifestHash,value,undefined,undefined,funding);
+ expect(c.execution.ledger.read(project).projection.requests[value.id]!.state).toBe('pending');
+ expect(r.authority.ledger.read(r.project).events.filter(event=>event.change.type==='reserve'&&event.change.reservation.id===mapped)).toHaveLength(1);
+ expect(money.readAccounting().spentNanos).toBe(value.costNanos);
+});

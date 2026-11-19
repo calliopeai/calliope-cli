@@ -66,6 +66,9 @@ export class ProjectSpendLedger {
   readonly file:string;
   constructor(file:string){this.file=resolve(file);}
   read():{spentUsd:number;updatedAt:string;blocked:boolean;events:Event[]} {
+    const value=this.readAccounting();return{spentUsd:value.spentNanos/1e9,updatedAt:value.updatedAt,blocked:value.blocked,events:value.events};
+  }
+  readAccounting():{spentNanos:number;updatedAt:string;blocked:boolean;events:Event[]} {
     const dir=dirname(this.file);if(canonicalPath(dir)!==dir)throw damaged();if(fs.existsSync(dir))directory(dir);
     const lock=this.file+'.lock';let retriedUnstable=false;
     for(let attempt=0;attempt<=50;attempt++){
@@ -80,7 +83,7 @@ export class ProjectSpendLedger {
         if(fs.existsSync(lock)||readRaw(this.file)!==raw)continue;
         if(raw===null&&marked)throw damaged();const {state}=parse(raw);
         if(fs.existsSync(lock))continue;
-        return{spentUsd:state.spentNanos/1e9,updatedAt:state.events.at(-1)?.at??state.legacyUpdatedAt??new Date(0).toISOString(),blocked:state.blocked,events:state.events};
+        return{spentNanos:state.spentNanos,updatedAt:state.events.at(-1)?.at??state.legacyUpdatedAt??new Date(0).toISOString(),blocked:state.blocked,events:state.events};
       }catch(error){
         // A writer may finish between a partial marker read and this catch.
         // Retry that observation once; persistent damage remains an error.
@@ -92,18 +95,28 @@ export class ProjectSpendLedger {
     throw new ExecutionLimitError('locked','Project budget has another writer.');
   }
   async reserve(requestId:string,runId:string,costNanos:number,capNanos:number,signal?:AbortSignal):Promise<void>{await this.updateAsync({type:'reserve',requestId,runId,costNanos,capNanos},signal);}
+  async reserveOnce(requestId:string,runId:string,costNanos:number,capNanos:number):Promise<void>{await this.updateAsync({type:'reserve',requestId,runId,costNanos,capNanos},undefined,true);}
+  async settleOnce(requestId:string,costNanos:number|null,invalid=false):Promise<void>{await this.updateAsync({type:'settle',requestId,costNanos,...(invalid?{invalid:true as const}:{})},undefined,true);}
   async settle(requestId:string,costNanos:number|null,invalid=false):Promise<void>{await this.updateAsync({type:'settle',requestId,costNanos,...(invalid?{invalid:true as const}:{})});}
   charge(cost:number):number {return this.updateSync({type:'charge',costNanos:dollarsToNanos(cost)}).spentNanos/1e9;}
   reset():void {this.updateSync({type:'reset'});}
-  private async updateAsync(change:Change,signal?:AbortSignal):Promise<void>{for(let n=0;;n++){throwIfCancelled(signal);try{this.update(change,signal);return;}catch(error){if(!(error instanceof ExecutionLimitError)||error.code!=='locked'||n>=50)throw error;await cancellableDelay(10,signal);}}}
+  private async updateAsync(change:Change,signal?:AbortSignal,idempotent=false):Promise<void>{for(let n=0;;n++){throwIfCancelled(signal);try{this.update(change,signal,idempotent);return;}catch(error){if(!(error instanceof ExecutionLimitError)||error.code!=='locked'||n>=50)throw error;await cancellableDelay(10,signal);}}}
   private updateSync(change:Change):State {for(let n=0;;n++){try{return this.update(change);}catch(error){if(!(error instanceof ExecutionLimitError)||error.code!=='locked'||n>=50)throw error;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10);}}}
-  private update(change:Change,signal?:AbortSignal):State {
+  private update(change:Change,signal?:AbortSignal,idempotent=false):State {
     throwIfCancelled(signal);const dir=dirname(this.file),before=directory(dir,true),lock=this.file+'.lock',marker=this.file+'.initialized';let fd:number;
     try{fd=fs.openSync(lock,'wx',0o600);}catch(error){if((error as NodeJS.ErrnoException).code==='EEXIST')throw new ExecutionLimitError('locked','Project budget has another writer.');throw damaged();}
     const identity=fs.fstatSync(fd),temp=join(dir,`${randomUUID()}.tmp`);
     try{
       fs.writeFileSync(fd,String(process.pid));const raw=readRaw(this.file),marked=initialized(marker);if(raw===null&&marked)throw damaged();const prior=parse(raw);let events=prior.state.events;
       if(prior.legacy)events=[event([],{type:'import',costNanos:prior.state.spentNanos})];
+      if(idempotent&&(change.type==='reserve'||change.type==='settle')){
+        const previous=events.find(e=>e.change.type===change.type&&'requestId' in e.change&&e.change.requestId===change.requestId);
+        if(previous){
+          if(canonicalJson(previous.change)!==canonicalJson(change)||change.type==='reserve'&&prior.state.requests.get(change.requestId)?.settled)
+            throw new ExecutionLimitError('conflict','Project request already has another or settled outcome.');
+          return prior.state;
+        }
+      }
       const pending=[...prior.state.requests.values()].filter(r=>!r.settled).length;
       if(events.length+(change.type==='reserve'?pending+2:1)>MAX_EVENTS)throw new ExecutionLimitError('limit','Project budget history reached its event limit; pending reservations remain charged.');
       const next=replay([...events,event(events,change)]),output=encode(next);writeNew(temp,output);throwIfCancelled(signal);const after=directory(dir);

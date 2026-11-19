@@ -163,10 +163,18 @@ export async function chat(
 ): Promise<LLMResponse> {
   options = options ? { ...options } : undefined;
   const responseWriter = options?.onResponseReceived;
+  const requestWriter = options?.onRequestReserved;
   throwIfCancelled(options?.signal);
   if (responseWriter !== undefined &&
       (typeof responseWriter !== 'function' || !options?.attemptBudget))
     throw new ExecutionLimitError('invalid', 'Response checkpoints require native attempt accounting and a host callback.');
+  if (requestWriter !== undefined &&
+      (typeof requestWriter !== 'function' || !options?.attemptBudget))
+    throw new ExecutionLimitError('invalid', 'Request checkpoints require native attempt accounting and a host callback.');
+  if (requestWriter) {
+    messages = structuredClone(messages); tools = structuredClone(tools);
+    if (options?.format !== undefined) options.format = structuredClone(options.format);
+  }
   const bounded = !!options?.attemptBudget || !!options?.bounded;
   const maxOutputTokens = options?.maxOutputTokens;
   if (maxOutputTokens !== undefined && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 100000000) || bounded && maxOutputTokens === undefined)
@@ -298,9 +306,9 @@ export async function chat(
         if(providerTarget(actualProvider as HealthProvider).key!==target)throw new ExecutionLimitError('authority','Provider endpoint changed during token counting.');
       }
       ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!,...(limits.inputCount?{inputCount:limits.inputCount}:{}),...(limits.priceCeiling?{priceCeiling:limits.priceCeiling}:{})}) : undefined;
-      if (responseWriter && (typeof ticket !== 'string' || !ticket ||
+      if ((responseWriter || requestWriter) && (typeof ticket !== 'string' || !ticket ||
           Buffer.byteLength(ticket) > 1024 || /[\x00-\x1f\x7f]/.test(ticket)))
-        throw new ExecutionLimitError('unavailable', 'Response checkpoint has no valid native reservation; no provider request was sent.');
+        throw new ExecutionLimitError('unavailable', 'Provider checkpoint has no valid native reservation; no provider request was sent.');
     }
     catch (error) {
       throwIfCancelled(options?.signal);
@@ -314,7 +322,9 @@ export async function chat(
       try { await attemptBudget.settle(ticket,outcome,usage); }
       catch (error) { if (error instanceof ExecutionLimitError) throw error; throw new ExecutionLimitError('unavailable','Provider outcome could not be committed; its reservation remains charged.'); }
     };
-    const started = Date.now(), retryIndex = attempt++;
+    let started = Date.now();
+    const retryIndex = attempt++;
+    let requestCheckpointFailed = false;
     let received: LLMResponse | undefined;
     let responseCheckpointFailed = false;
     let outputFailure: ExecutionLimitError | undefined;
@@ -351,6 +361,22 @@ export async function chat(
     try {
       throwIfCancelled(options?.signal);
       if (attemptBudget && providerTarget(actualProvider as HealthProvider).key !== target) throw new ExecutionLimitError('authority','Provider endpoint changed during budget admission.');
+      if (requestWriter) {
+        requestCheckpointFailed = true;
+        try {
+          const acknowledgment = await cancellable(requestWriter(Object.freeze({
+            version: 1, reservationId: ticket!, provider: actualProvider, model: actualModel,
+            target: target!, attempt: retryIndex + 1,
+          })), options?.signal);
+          if (acknowledgment !== undefined) throw new Error('Invalid request acknowledgment');
+          throwIfCancelled(options?.signal);
+        } catch {
+          throwIfCancelled(options?.signal);
+          throw new ExecutionLimitError('unavailable', 'Provider request checkpoint was not acknowledged; no provider request was sent.');
+        }
+        requestCheckpointFailed = false;
+        started = Date.now();
+      }
       if (onToken) {
         const output: StreamCallback = token => {
           if (outputFailure) return;
@@ -439,7 +465,7 @@ export async function chat(
         throw notificationError;
       }
       await cancellable(flushAcknowledgements(), options?.signal).catch(() => {});
-      if (responseCheckpointFailed || error instanceof ExecutionLimitError) throw error;
+      if (requestCheckpointFailed || responseCheckpointFailed || error instanceof ExecutionLimitError) throw error;
       if (outputFailure || notificationFailure) throw outputFailure ?? notificationFailure;
       record({ outcome, ...(outcome === 'cancelled' ? { capabilities: { cancellation: true } } : { ...healthFailure(error), ...(outcome === 'timeout' ? { failure: 'timeout' as const } : {}) }) });
       throw outcome === 'cancelled' ? error : stream?.failure(error, !!options?.onStreamReset) ?? error;
@@ -471,7 +497,7 @@ export async function chat(
 
 // Re-export everything from sub-modules for public API
 export { needsSummarization, getContextHealth, estimateContextUsage } from './types.js';
-export type { StreamCallback, RetryCallback, ChatOptions, ProviderResponseCheckpoint } from './types.js';
+export type { StreamCallback, RetryCallback, ChatOptions, ProviderRequestCheckpoint, ProviderResponseCheckpoint } from './types.js';
 export { requiresResponsesAPI, toResponsesInput, toResponsesTools } from './openai.js';
 
 export type { StreamAttemptEvent } from './stream-attempt.js';

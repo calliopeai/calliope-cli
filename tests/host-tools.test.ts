@@ -50,3 +50,13 @@ describe('host tool protocol', () => {
     expect(source.execute).not.toHaveBeenCalled();
   });
 });
+
+
+it('retains v1 host uncertainty and refuses later transport calls', async () => {
+  const source = runtime({ execute: vi.fn(async () => { throw new Error('Transport reply lost'); }) });
+  const bound = bindHostToolRuntime(source)!;
+  await expect(bound.execute(call, { timeoutMs: 100, onOutput: vi.fn() })).rejects.toThrow('uncertain');
+  expect(bound.denial(call)).toContain('uncertain');
+  await expect(bound.execute(call, { timeoutMs: 100, onOutput: vi.fn() })).rejects.toThrow('uncertain');
+  expect(source.execute).toHaveBeenCalledTimes(1);
+});

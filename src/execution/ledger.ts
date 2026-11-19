@@ -162,8 +162,13 @@ export class ReservationLedger {
   async refreshAuthority(cwd:string,_agentId:string,signal?:AbortSignal):Promise<void> {
     const saved=this.read(cwd);if(saved.manifest.parent){const funding=await (await import('./parent-budget.js')).parentBudgetAuthority(saved.manifest,cwd,true,signal);await funding?.refreshAgent?.(_agentId,signal);}
   }
-  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
-    reservation(value);return this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal,beforeCommit);
+  async reserve(cwd:string,expectedManifest:string,value:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void,projectFunding?:{reserve:()=>Promise<void>;refused:()=>Promise<void>},ownerOperation?:{validate:(projection:Readonly<ReservationProjection>)=>void;refused:()=>void}):Promise<ReservationProjection> {
+    let refused=false;
+    try{
+      reservation(value);
+      return await this.append(cwd,expectedManifest,{type:'reserve',reservation:structuredClone(value)},signal,beforeCommit,projectFunding,
+        {validate:projection=>ownerOperation?.validate(projection),refused:()=>{refused=true;ownerOperation?.refused();}});
+    }catch(error){if(!refused)markParentAdmissionUncertain(error);throw error;}
   }
   async grantChildren(cwd:string,expectedManifest:string,grant:ChildGrant,signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
     validateChildGrant(grant);return this.append(cwd,expectedManifest,{type:'child_grant',grant:structuredClone(grant)},signal,beforeCommit);
@@ -186,13 +191,13 @@ export class ReservationLedger {
     }
     return result;
   }
-  private async append(cwd:string,expectedManifest:string,change:ReservationEvent['change'],signal?:AbortSignal,beforeCommit?:()=>void):Promise<ReservationProjection> {
+  private async append(cwd:string,expectedManifest:string,change:ReservationEvent['change'],signal?:AbortSignal,beforeCommit?:()=>void,projectFunding?:{reserve:()=>Promise<void>;refused:()=>Promise<void>},ownerOperation?:{validate:(projection:Readonly<ReservationProjection>)=>void;refused:()=>void}):Promise<ReservationProjection> {
     throwIfCancelled(signal);const before=directory(this.root),file=join(this.root,'history.json'),lock=join(this.root,'writer.lock');let fd:number|undefined;
     for(let attempt=0;attempt<=50;attempt++){
       throwIfCancelled(signal);sameDirectory(this.root,before);
       try{fd=fs.openSync(lock,'wx',0o600);break;}catch(error){if((error as NodeJS.ErrnoException).code!=='EEXIST')throw unavailable();recoverDeadWriterLock(lock);if(attempt===50)throw new ExecutionLimitError('locked','Budget writer is busy; no request was authorized.');await cancellableDelay(10,signal);}
     }
-    const identity=fs.fstatSync(fd!);let temp:string|undefined,funded=false;
+    const identity=fs.fstatSync(fd!);let temp:string|undefined,funded=false,projectFunded=false,parentRefusalConfirmed=false;
     try{
       fs.writeFileSync(fd!,String(process.pid));await new Promise<void>(resolve=>setImmediate(resolve));throwIfCancelled(signal);sameDirectory(this.root,before);
       const raw=read(file),journal=decode(raw),current=replay(journal.manifest,journal.events,true);checkExecutionIdentity(journal.manifest,cwd,{portable:true});
@@ -206,15 +211,30 @@ export class ReservationLedger {
       if(journal.events.length+(change.type!=='settle'?pending+2:1)>MAX_RESERVATION_EVENTS)throw new ExecutionLimitError('limit','Budget history reached its event limit; pending reservations remain charged.');
       const body={version:reservationVersion(change),id:randomUUID(),at:Math.max(this.now(),journal.events.at(-1)?.at??journal.manifest.createdAt),previous:current.revision,change};
       const event={...body,hash:digest(canonicalJson(body))},events=[...journal.events,event],next=(validateEvent(event),replay(journal.manifest,events,true)),output=encode(journal.manifest,events);
+      ownerOperation?.validate(structuredClone(next));
+      if(projectFunding&&change.type==='reserve'){await projectFunding.reserve();projectFunded=true;}
       if(funding&&change.type==='reserve'){
         const {reserveParent}=await import('./parent-budget.js');
-        await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);funded=true;
+        try{await reserveParent(funding,cwd,funding.reservation(change.reservation),signal,beforeCommit);funded=true;}
+        catch(error){parentRefusalConfirmed=!parentAdmissionUncertain(error);throw error;}
       }
       temp=join(this.root,`${randomUUID()}.tmp`);writeNew(temp,output);throwIfCancelled(signal);sameDirectory(this.root,before);checkExecutionIdentity(journal.manifest,cwd,{portable:true});
       const effective=effectiveExecutionManifest(journal.manifest,next);
       if(change.type==='reserve'&&this.now()>=Math.min(effective.deadline,...accountLineage(effective,change.reservation.agentId).map(a=>a.deadline))||change.type==='child_grant'&&change.grant.accounts.some(a=>this.now()>=a.deadline))throw new ExecutionLimitError('deadline','Agent deadline expired before reservation or grant commit.');
-      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');funding?.assertActive();beforeCommit?.();throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
-    }catch(error){if(funded)markParentAdmissionUncertain(error);throw error;}finally{
+      if(read(file)!==raw)throw new ExecutionLimitError('conflict','Budget history changed before commit.');funding?.assertActive();beforeCommit?.();ownerOperation?.validate(structuredClone(next));throwIfCancelled(signal);fs.renameSync(temp,file);temp=undefined;syncDir(this.root);return next;
+    }catch(error){
+      if(change.type==='reserve')try{
+        const saved=decode(read(file)),state=replay(saved.manifest,saved.events,true);
+        // Local absence cannot exclude a parent charge from an interrupted attempt.
+        // Only an actual parent refusal can authorize releasing this request's hold.
+        if(saved.manifest.parent&&!parentRefusalConfirmed)markParentAdmissionUncertain(error);
+        if(!funded&&!parentAdmissionUncertain(error)&&state.manifestHash===expectedManifest&&!state.requests[change.reservation.id]){
+          if(projectFunded)try{await projectFunding!.refused();}catch{/* Preserve the project hold. */}
+          ownerOperation?.refused();
+        }
+      }catch{/* Retain the project hold unless this locked operation proves non-admission and commits its release. */}
+      if(funded)markParentAdmissionUncertain(error);throw error;
+    }finally{
       fs.closeSync(fd!);try{sameDirectory(this.root,before);if(temp)fs.unlinkSync(temp);const current=fs.lstatSync(lock);if(current.ino===identity.ino&&current.dev===identity.dev)fs.unlinkSync(lock);}catch{/* Preserve foreign directories and locks. */}
     }
   }
