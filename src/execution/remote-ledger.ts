@@ -25,6 +25,7 @@ export interface RemoteLedgerOptions {
   reviewed?:ReviewedLedgerContext;
   fetch?:typeof fetch; attempts?:number; timeoutMs?:number; signal?:AbortSignal;
 }
+type LedgerWrite={manifestHash:string;reservation:RequestReservation;projectCapNanos?:number}|{manifestHash:string;settlement:RequestSettlement};
 const CODES=new Set(['invalid','authority','budget','deadline','unavailable','locked','conflict','limit']);
 
 export class RemoteReservationLedger {
@@ -34,10 +35,13 @@ export class RemoteReservationLedger {
   private readonly checkpoint:RemoteLedgerCheckpoint;
   private readonly confirmedRejections=new WeakSet<Error>();
   private binding?:{agentId:string;project:ExecutionManifest['project']};
-  private executionOperation:'execution'|'task-execution'='execution';
-  private taskBinding?:{attribution:TaskRequestAttribution;maxOutputTokens:number};
+  private executionOperation:'execution'|'task-execution'|'task-workspace-execution'='execution';
+  private taskBinding?:{attribution:TaskRequestAttribution;maxOutputTokens:number;workspaceProject?:ExecutionManifest['project']};
   get supportsTaskCapacity():boolean{return this.operations.includes('task-admit')&&this.operations.includes('task-release');}
   get taskExecutionBinding(){return this.taskBinding?structuredClone(this.taskBinding):undefined;}
+  private ownerAccounting=false;
+  private projectBudget?:{version:1;projectKey:string;spentNanos:number;blocked:boolean;capNanos:number|null};
+  get ownerProjectBudget(){return this.projectBudget?structuredClone(this.projectBudget):undefined;}
   private constructor(private readonly options:RemoteLedgerOptions){
     this.checkpoint=new RemoteLedgerCheckpoint(options.root);this.root=this.checkpoint.root;
     const saved=this.checkpoint.read();if(saved)this.journal=saved;
@@ -47,11 +51,12 @@ export class RemoteReservationLedger {
     const ledger=new RemoteReservationLedger(options),hello=await ledger.call('hello',{}) as {protocol?:string;operations?:string[];reviewed?:ReviewedLedgerContext};
     if(hello.protocol!==LEDGER_PROTOCOL)throw new ExecutionLimitError('unavailable',`Parent ledger speaks ${String(hello.protocol)}, not ${LEDGER_PROTOCOL}.`);
     ledger.operations=Array.isArray(hello.operations)?hello.operations:[];
+    ledger.ownerAccounting=ledger.operations.includes('task-workspace-execution');
     if(options.reviewed&&canonicalJson(hello.reviewed??null)!==canonicalJson(options.reviewed))throw new ExecutionLimitError('authority','Parent reviewed authority changed.');
     if(options.execution&&options.reconciliation)throw new ExecutionLimitError('invalid','Choose execution or reconciliation.');
     if(options.execution){
-      if(!Array.isArray(hello.operations)||!hello.operations.some(op=>op==='execution'||op==='task-execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
-      ledger.executionOperation=hello.operations.includes('task-execution')?'task-execution':'execution';
+      if(!Array.isArray(hello.operations)||!hello.operations.some(op=>op==='execution'||op==='task-execution'||op==='task-workspace-execution'))throw new ExecutionLimitError('unavailable','Parent ledger lacks workspace-bound execution; upgrade the parent CLI before starting this child.');
+      ledger.executionOperation=hello.operations.includes('task-workspace-execution')?'task-workspace-execution':hello.operations.includes('task-execution')?'task-execution':'execution';
       await ledger.refreshAuthority(options.execution.cwd,options.execution.agentId);
     }else {
       await ledger.accept(await ledger.call('journal',{}));
@@ -67,7 +72,7 @@ export class RemoteReservationLedger {
     return {...structuredClone(this.journal),projection:replayReservations(this.journal.manifest,this.journal.events)};
   }
   executionProject(cwd:string,agentId:string):ExecutionManifest['project'] {
-    const declared=executionProjectForAccount(this.journal.manifest,this.projection(),agentId);
+    const declared=this.taskBinding?.workspaceProject??executionProjectForAccount(this.journal.manifest,this.projection(),agentId);
     if(this.binding?agentId!==this.binding.agentId||canonicalJson(declared)!==canonicalJson(this.binding.project):canonicalJson(declared)!==canonicalJson(this.journal.manifest.project))throw new ExecutionLimitError('authority','Account requires its own verified workspace binding.');
     checkExecutionIdentity({...this.journal.manifest,project:declared},cwd);return declared;
   }
@@ -77,19 +82,19 @@ export class RemoteReservationLedger {
     const {project,projectKey}=projectIdentity(cwd),expected={agentId,project:{root:project,key:projectKey}};
     if(this.binding&&canonicalJson(this.binding)!==canonicalJson(expected))throw new ExecutionLimitError('authority','Execution binding cannot be replaced.');
     const floor=this.journal,response=await this.call(this.executionOperation,expected,signal) as Journal&{binding:unknown};
-    const isTask=this.executionOperation==='task-execution';
+    const workspace=this.executionOperation==='task-workspace-execution',isTask=this.executionOperation!=='execution';
     shape(response.binding,isTask?['version','agentId','project','attribution','maxOutputTokens']:['version','agentId','project']);
-    if(response.binding.version!==(isTask?2:1)||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
+    if(response.binding.version!==(workspace?3:isTask?2:1)||response.binding.agentId!==expected.agentId||canonicalJson(validateExecutionProject(response.binding.project))!==canonicalJson(expected.project))throw new ExecutionLimitError('authority','Parent returned a different execution binding.');
     let taskBinding:typeof this.taskBinding;
     if(isTask){
       const attribution=validateRequestAttribution(response.binding.attribution);
       if(attribution.kind!=='task')throw new ExecutionLimitError('authority','Parent returned a non-task execution binding.');
       integer(response.binding.maxOutputTokens,1,100000000);
-      taskBinding={attribution,maxOutputTokens:response.binding.maxOutputTokens};
+      taskBinding={attribution,maxOutputTokens:response.binding.maxOutputTokens,...(workspace?{workspaceProject:validateExecutionProject(response.binding.project)}:{})};
+      if(taskBinding.workspaceProject?.portable)throw new ExecutionLimitError('authority','Task workspace cannot use portable identity.');
       if(this.taskBinding&&canonicalJson(this.taskBinding)!==canonicalJson(taskBinding))throw new ExecutionLimitError('authority','Native task execution binding cannot be replaced.');
     }
-    await this.accept(response,floor,signal);this.binding=expected;this.executionProject(cwd,agentId);
-    this.taskBinding=taskBinding;
+    await this.accept(response,floor,signal);this.binding=expected;this.taskBinding=taskBinding;this.executionProject(cwd,agentId);
   }
   async admitTask(value:RemoteTaskAdmission,cwd:string,signal?:AbortSignal):Promise<void> {
     if(this.options.reconciliation||!this.operations.includes('task-admit'))throw new ExecutionLimitError('authority','Parent cannot admit remote execution.');
@@ -113,6 +118,11 @@ export class RemoteReservationLedger {
     if(this.options.reconciliation)throw new ExecutionLimitError('authority','Reconciliation cannot reserve.');
     return this.write('reserve',{manifestHash,reservation},reservation.id,signal,'Reservation outcome is unknown; no request was authorized.');
   }
+  async reserveProjectAccounted(_cwd:string,manifestHash:string,reservation:RequestReservation,projectCapNanos:number|undefined,signal?:AbortSignal):Promise<ReservationProjection> {
+    if(this.options.reconciliation||!this.taskBinding?.workspaceProject)throw new ExecutionLimitError('authority','Owner project accounting requires original task-workspace execution.');
+    if(projectCapNanos!==undefined)integer(projectCapNanos);
+    return this.write('reserve',{manifestHash,reservation,...(projectCapNanos===undefined?{}:{projectCapNanos})},reservation.id,signal,'Reservation outcome is unknown; no request was authorized.');
+  }
   async settle(_cwd:string,manifestHash:string,settlement:RequestSettlement):Promise<ReservationProjection> {
     return this.write('settle',{manifestHash,settlement},settlement.requestId,undefined,'Settlement outcome is unknown; the reservation stays charged.');
   }
@@ -125,30 +135,54 @@ export class RemoteReservationLedger {
 
   /** Retries reuse the same id (the server replays it). If every attempt is lost, inspect before
    * deciding: only an outcome the parent recorded counts; otherwise the result is unknown. */
-  private async write(op:'reserve'|'settle',body:object,id:string,signal:AbortSignal|undefined,unknown:string):Promise<ReservationProjection> {
+  private async write(op:'reserve'|'settle',body:LedgerWrite,id:string,signal:AbortSignal|undefined,unknown:string):Promise<ReservationProjection> {
+    body=structuredClone(body);
     let lost:unknown;
     for(let attempt=0;attempt<(this.options.attempts??3);attempt++){
       throwIfCancelled(signal);
-      try{const floor=this.journal;await this.accept(await this.call(op,body,signal,lost===undefined),floor,signal);return this.projection();}
+      try{const floor=this.journal;await this.accept(await this.call(op,body,signal,lost===undefined),floor,signal);if(!this.recordedWrite(op,body,id))throw new ExecutionLimitError('unavailable','Parent reply does not record the submitted operation.');return this.projection();}
       catch(error){if(error instanceof ExecutionLimitError&&error.code!=='unavailable')throw error;lost=error;await cancellableDelay(100*2**attempt,signal);}
     }
     try{
       await this.refresh();const entry=this.projection().requests[id];
-      // A linked ledger commits locally before settling its own parent. Only the
-      // settlement RPC acknowledges that complete chain; a journal read cannot.
-      if(op==='reserve'&&entry||op==='settle'&&entry&&entry.state!=='pending'&&!this.journal.manifest.parent)return this.projection();
-    }catch{/* Still unreachable: fall through to an explicit unknown outcome. */}
+      // A journal read cannot acknowledge parent-chain or owner-project
+      // settlement. Those paths still require the original settlement RPC.
+      if(entry&&this.recordedWrite(op,body,id)&&(op==='reserve'||!this.journal.manifest.parent&&!this.ownerAccounting))return this.projection();
+    }catch(error){if(error instanceof ExecutionLimitError&&error.code==='conflict')throw error;/* Still unreachable: retain an explicit unknown outcome. */}
     throw new ExecutionLimitError('unavailable',`${unknown} (${lost instanceof Error?lost.message:'parent ledger unreachable'})`);
+  }
+  private recordedWrite(op:'reserve'|'settle',body:LedgerWrite,id:string):boolean {
+    const projection=this.projection(),entry=projection.requests[id];
+    if(body.manifestHash!==projection.manifestHash)throw new ExecutionLimitError('conflict','Recovered request belongs to another execution contract.');
+    if(!entry)return false;
+    if(op==='reserve'&&'reservation' in body){
+      if(canonicalJson(entry.reservation)!==canonicalJson(body.reservation))throw new ExecutionLimitError('conflict','Recovered reservation differs from the original request.');
+      return true;
+    }
+    if(op==='settle'&&'settlement' in body&&entry.state!=='pending'){
+      const event=this.journal.events.find(event=>event.change.type==='settle'&&event.change.settlement.requestId===id);
+      if(!event||event.change.type!=='settle'||canonicalJson(event.change.settlement)!==canonicalJson(body.settlement))throw new ExecutionLimitError('conflict','Recovered settlement differs from the original outcome.');
+      return true;
+    }
+    return false;
   }
   private projection():ReservationProjection {return replayReservations(this.journal.manifest,this.journal.events);}
   /** Validate the hash chain and refuse anything but an append-only extension of what we saw. */
   private async accept(value:unknown,floor=this.journal,signal?:AbortSignal):Promise<void> {
     const next=verifiedJournal(value);
+    let projectBudget:typeof this.projectBudget;
+    if(this.ownerAccounting){
+      const budget=(value as {projectBudget?:unknown}).projectBudget;
+      shape(budget,['version','projectKey','spentNanos','blocked','capNanos']);integer(budget.spentNanos);if(budget.capNanos!==null)integer(budget.capNanos);
+      if(budget.version!==1||budget.projectKey!==next.manifest.project.key||typeof budget.blocked!=='boolean')
+        throw new ExecutionLimitError('authority','Original owner project accounting is unavailable or mismatched.');
+      projectBudget={version:1,projectKey:String(budget.projectKey),spentNanos:budget.spentNanos,blocked:budget.blocked,capNanos:budget.capNanos as number|null};
+    }
     if(floor&&!extendsJournal(floor,next))throw new ExecutionLimitError('conflict','Parent ledger history was rewritten or rolled back; execution stopped.');
     const deadline=Date.now()+Math.min(1000,this.options.timeoutMs??1000);
     while(true){
       throwIfCancelled(signal);throwIfCancelled(this.options.signal);
-      try{this.journal=this.checkpoint.save(next,this.journal,this.options.execution?projectIdentity(this.options.execution.cwd).project:undefined);return;}
+      try{this.journal=this.checkpoint.save(next,this.journal,this.options.execution?projectIdentity(this.options.execution.cwd).project:undefined);this.projectBudget=projectBudget;return;}
       catch(error){if(!(error instanceof ExecutionLimitError)||error.code!=='locked'||Date.now()>=deadline)throw error;await cancellableDelay(Math.min(25,Math.max(1,deadline-Date.now())),signal??this.options.signal);}
     }
   }

@@ -1,3 +1,7 @@
+import { projectIdentity } from '../src/approvals/index.js';
+import { taskWorkspaceLedgerAuthority } from '../src/execution/ledger-server.js';
+import { randomUUID } from 'node:crypto';
+import { executionBinding } from '../src/execution/delegated.js';
 /** Real runtime, guard, journal and provider adapters; only HTTP is synthetic. */
 import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -5,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import * as config from '../src/config.js';
-import { runTurn, type TurnOptions, type RuntimeProviderResponseCheckpoint } from '../src/runtime/index.js';
+import { runTurn, type TurnOptions, type RuntimeProviderResponseCheckpoint, type RuntimeProviderRequestCheckpoint } from '../src/runtime/index.js';
 import { ReservationLedger, manifestHash, createLedgerServer, LedgerServerState, mintLedgerToken, connectDelegatedExecution, type ExecutionManifest } from '../src/execution/index.js';
 import { runHeadless } from '../src/headless.js';
 import { executionManifest } from './helpers/execution-manifest.js';
@@ -182,15 +186,17 @@ it.each([false, true])('connects headless retention to the original scoped paren
     const request = new Request(input, init); return new URL(request.url).origin === url ? realFetch(input, init) : providerFetch(input, init);
   });
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true); vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-  const captured: RuntimeProviderResponseCheckpoint[] = [];
+  const captured: RuntimeProviderResponseCheckpoint[] = [], reserved: RuntimeProviderRequestCheckpoint[] = [];
   try {
     const code = await runHeadless({ cwd: project, provider: 'deepseek', model: 'fixture-model', prompt: 'Inspect the public fixture.',
       retainRuntimeState: true, runtimeStateVersion: 2, maxIterations: 2,
       ledger: { url, tokenFile, agentId: 'a', maxOutputTokens: 100 },
       toolRuntime: { version: 1, tools: [], execute: async () => { throw new Error('No tool was admitted'); } },
+      onProviderRequestReserved: async value => { expect(requests).toHaveLength(0); reserved.push(value); },
       onProviderResponseReceived: async value => { captured.push(value); if (lost) throw new Error('Lost headless receipt'); },
     });
     expect(code).toBe(lost ? 1 : 0); expect(requests).toHaveLength(1); expect(captured).toHaveLength(1);
+    expect(reserved).toHaveLength(1); expect(captured[0]).toMatchObject(reserved[0]!);
     expect(captured[0]).toMatchObject({ manifestHash: manifestHash(manifest), runId: manifest.runId, agentId: 'a', purpose: 'primary', iteration: 1 });
     expect(ledger.read(project).projection.spent.costNanos).toBe(13000);
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
@@ -331,3 +337,209 @@ it.each([false, true])('stops continuation notification failure after retained l
   await expect(runTurn(f.options)).rejects.toThrow('Runtime onContinue callback failed');
   expect(requests).toHaveLength(1); expect(retry).not.toHaveBeenCalled();
 });
+
+
+it('acknowledges each reserved attempt before transport and joins its response to the original turn', async () => {
+  expect((await import('../src/index.js')).PROVIDER_REQUEST_CHECKPOINT_PROTOCOL_VERSION).toBe(1);
+  const reserved: RuntimeProviderRequestCheckpoint[] = [], received: RuntimeProviderResponseCheckpoint[] = [];
+  const f = fixture({ onProviderRequestReserved: async value => {
+    expect(requests).toHaveLength(reserved.length);
+    expect(ledger.read(project).projection.requests[value.checkpoint.reservationId]!.state).toBe('pending');
+    expect(f.states.at(-1)!.effect).toEqual({ kind: 'provider', id: value.operationId });
+    reserved.push(structuredClone(value));
+  }, onProviderResponseReceived: async value => { received.push(value); } });
+  expect((await runTurn(f.options)).reason).toBe('completed');
+  expect(reserved).toHaveLength(1); expect(received).toHaveLength(1);
+  expect(received[0]).toMatchObject(reserved[0]!);
+  expect(reserved[0]).toMatchObject({ sessionId: f.options.sessionId, turnId: f.progress[0]!.turnId,
+    manifestHash: manifestHash(manifest), runId: manifest.runId, agentId: 'a', purpose: 'primary',
+    checkpoint: { version: 1, attempt: 1, provider: 'deepseek', model: 'fixture-model' } });
+});
+
+it.each(['reject', 'invalid'] as const)('refuses unacknowledged original reservations without inference or policy retry (%s)', async mode => {
+  const retry = vi.fn(() => 'retry' as const), callback = async () => {
+    if (mode === 'reject') throw new Error('Lost admission acknowledgment');
+    return { accepted: true };
+  };
+  const f = fixture({ maxProviderRetries: 2, onError: retry,
+    onProviderRequestReserved: callback as unknown as TurnOptions['onProviderRequestReserved'] });
+  await expect(runTurn(f.options)).rejects.toThrow(/request checkpoint was not acknowledged/);
+  expect(requests).toEqual([]); expect(retry).not.toHaveBeenCalled();
+  const saved = ledger.read(project);
+  expect(Object.values(saved.projection.requests).map(value => value.state)).toEqual(['unknown']);
+  expect(saved.projection.spent.costNanos).toBeGreaterThan(0);
+});
+
+it('does not start inference after cancellation while its host admission acknowledgment is pending', async () => {
+  let entered!: () => void, release!: () => void;
+  const boundary = new Promise<void>(resolve => { entered = resolve; });
+  const acknowledgment = new Promise<void>(resolve => { release = resolve; });
+  let settled!: () => void;
+  const accountingFinished = new Promise<void>(resolve => { settled = resolve; });
+  const realSettlement = ledger.settle.bind(ledger);
+  vi.spyOn(ledger, 'settle').mockImplementation(async (...args) => {
+    const result = await realSettlement(...args); settled(); return result;
+  });
+  const controller = new AbortController();
+  const f = fixture({ signal: controller.signal, onProviderRequestReserved: async () => { entered(); await acknowledgment; } });
+  const operation = runTurn(f.options);
+  await boundary; controller.abort();
+  expect((await operation).reason).toBe('cancelled');
+  await accountingFinished; release();
+  await Promise.resolve(); await Promise.resolve();
+  expect(requests).toEqual([]);
+  expect(Object.values(ledger.read(project).projection.requests).map(value => value.state)).toEqual(['unknown']);
+});
+
+it('preserves one operation while acknowledging a distinct reservation before each retry', async () => {
+  let calls = 0; respond = () => ++calls === 1 ? json({ error: { message: 'Synthetic overload' } }, 503) : response();
+  const reserved: RuntimeProviderRequestCheckpoint[] = [];
+  const f = fixture({ maxProviderRetries: 1, onProviderRequestReserved: async value => {
+    expect(requests).toHaveLength(reserved.length); reserved.push(value);
+  } });
+  expect((await runTurn(f.options)).reason).toBe('completed'); expect(requests).toHaveLength(2);
+  expect(reserved.map(value => value.checkpoint.attempt)).toEqual([1, 2]);
+  expect(new Set(reserved.map(value => value.operationId)).size).toBe(1);
+  expect(new Set(reserved.map(value => value.checkpoint.reservationId)).size).toBe(2);
+}, 15000);
+
+it.each(['compression', 'repair'] as const)('refuses %s admission without a heuristic or new primary fallback', async purpose => {
+  const reserved: RuntimeProviderRequestCheckpoint[] = [], retry = vi.fn(() => 'retry' as const), tool = vi.fn();
+  let calls = 0; respond = () => ++calls === 1 ? response({ name: 'read_file', arguments: {} }) : response();
+  const f = fixture({ provider: purpose === 'repair' ? 'openai-compat' : 'deepseek', onError: retry, onToolStart: tool,
+    tools: () => purpose === 'repair' ? [getTools().find(value => value.name === 'read_file')!] : [],
+    onProviderRequestReserved: async value => { reserved.push(value); if (value.purpose === purpose) throw new Error('Host refused admission'); } });
+  if (purpose === 'compression') {
+    configureAutoCompressor({ enabled: true, useLlm: true, triggerThreshold: 1, preserveRecent: 1 });
+    f.options.messages.current = Array.from({ length: 20 }, (_, index) => ({ role: index % 2 ? 'assistant' as const : 'user' as const,
+      content: `Public context ${index}: ` + 'Original task facts. '.repeat(10) }));
+  }
+  await expect(runTurn(f.options)).rejects.toThrow(/request checkpoint was not acknowledged/);
+  expect(requests).toHaveLength(purpose === 'repair' ? 1 : 0); expect(retry).not.toHaveBeenCalled(); expect(tool).not.toHaveBeenCalled();
+  expect(reserved.at(-1)!.purpose).toBe(purpose);
+  if (purpose === 'repair') expect(reserved[1]!.parentOperationId).toBe(reserved[0]!.operationId);
+});
+
+
+it.each(['guard', 'capture', 'callback'] as const)('denies invalid request-checkpoint authority before provider effects (%s)', async mode => {
+  const f = fixture({ onProviderRequestReserved: async () => {} });
+  if (mode === 'guard') f.options.execution = undefined;
+  if (mode === 'capture') f.options.retainRuntimeState = false;
+  if (mode === 'callback') f.options.onProviderRequestReserved = true as unknown as TurnOptions['onProviderRequestReserved'];
+  await expect(runTurn(f.options)).rejects.toThrow('Runtime provider requests require');
+  expect(fetch).not.toHaveBeenCalled(); expect(Object.keys(ledger.read(project).projection.requests)).toEqual([]);
+});
+
+it('denies headless request admission without the original delegated ledger', async () => {
+  vi.spyOn(process.stdout, 'write').mockImplementation(() => true); vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  expect(await runHeadless({ cwd: project, prompt: 'Original task', retainRuntimeState: true, onProviderRequestReserved: async () => {} })).toBe(2);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+
+async function hostedTask(mode: 'v1' | 'v2' | 'undeclared' | 'bad-task' | 'bad-account' | 'bad-manifest' | 'bad-attribution' | 'host-error' | 'fenced' | 'cancelled' | 'parallel-uncertain' | 'parallel-masked-v1' | 'parallel-masked-off' | 'artifact-unbound' | 'workspace' | 'workspace-no-host' | 'workspace-legacy-host') {
+  const parameter = mode.startsWith('parallel-') ? 'path' : 'command';
+  const command = { name: mode.startsWith('parallel-') ? 'read_file' : mode === 'artifact-unbound' ? 'artifact' : 'workspace_command', description: 'Execute inside the original Native sandbox.',
+    parameters: { type: 'object' as const, properties: { [parameter]: { type: 'string' } }, required: [parameter] } };
+  for (const account of manifest.accounts) if ((mode !== 'undeclared' || account.id !== 'a') && !account.allowedTools.includes(command.name)) account.allowedTools.push(command.name);
+  const parentProject = mode.startsWith('workspace') ? join(root, 'original-budget-project') : project;
+  if (parentProject !== project) {
+    fs.mkdirSync(parentProject); const value = projectIdentity(parentProject);
+    manifest.project = { root: value.project, key: value.projectKey };
+  }
+  ledger = new ReservationLedger(join(root, 'host-ledger')); ledger.create(manifest);
+  const state = new LedgerServerState(join(root, 'host-server'));
+  const attribution = { version: 1 as const, kind: 'task' as const, taskId: randomUUID(), attempt: 1,
+    eventId: randomUUID(), eventHash: 'd'.repeat(64), sessionId: 'original-native-admission' };
+  const local = projectIdentity(project), workspaceProject = { root: local.project, key: local.projectKey };
+  const authority = mode.startsWith('workspace') ? taskWorkspaceLedgerAuthority({ runId: manifest.runId,
+    manifestHash: manifestHash(manifest), agentId: 'a', attribution, maxOutputTokens: 100, project: workspaceProject }) : 'c'.repeat(64);
+  let active = true;
+  const server = createLedgerServer({ ledger, cwd: parentProject, state, ownerAgentId: 'a', authority,
+    taskExecution: { attribution, maxOutputTokens: 100, ...(mode.startsWith('workspace') ? { project: workspaceProject } : {}) }, assertAuthority: () => { if (!active) throw new Error('Original owner fenced'); } });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const tokenFile = join(root, 'host.token'); fs.writeFileSync(tokenFile, mintLedgerToken(state.secret(), {
+    v: 2, authority, run: manifest.runId, role: 'parent', owner: 'a', exp: manifest.deadline,
+  }), { mode: 0o600 });
+  vi.stubGlobal('fetch', (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init); return new URL(request.url).origin === url ? realFetch(input, init) : providerFetch(input, init);
+  });
+  let secondParked!: () => void, releaseSecond!: () => void;
+  const parked = new Promise<void>(resolve => { secondParked = resolve; });
+  const released = new Promise<void>(resolve => { releaseSecond = resolve; });
+  const execute = vi.fn(async (call: { id: string }) => {
+    if (mode === 'parallel-uncertain' && call.id === 'first-call') {
+      await parked; setImmediate(releaseSecond); throw new Error('Original host effect is uncertain');
+    }
+    if (mode.startsWith('parallel-masked') || mode === 'host-error') throw new Error('Native command outcome is uncertain');
+    return { toolCallId: call.id, result: 'Original sandbox command completed.' };
+  });
+  const controller = new AbortController();
+  try {
+    const execution = await connectDelegatedExecution(project, { url, tokenFile, agentId: 'a', maxOutputTokens: 100 });
+    const binding = executionBinding(execution);
+    if (mode === 'bad-task' && binding.version === 2) binding.attribution.taskId = randomUUID();
+    if (mode === 'bad-account') binding.agentId = 'b';
+    if (mode === 'bad-manifest') binding.manifestHash = 'f'.repeat(64);
+    if (mode === 'bad-attribution' && binding.version === 2) {
+      execution.attribution = { ...execution.attribution!, taskId: randomUUID() } as typeof execution.attribution;
+      binding.attribution = { ...execution.attribution! } as typeof binding.attribution;
+    }
+    let calls = 0; respond = () => {
+      if (++calls !== 1) return response();
+      if (!mode.startsWith('parallel-')) return response({ name: command.name, arguments: { command: 'public-fixture-check' } });
+      return json({ id: 'parallel-fixture', model: 'fixture-model', choices: [{ index: 0, message: { role: 'assistant', content: 'Inspect both.',
+        tool_calls: ['first-call', 'second-call'].map((id, index) => ({ id, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: `a/file-${index}.txt` }) } })) }, finish_reason: 'tool_calls' }],
+        usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 } });
+    };
+    const retry = vi.fn(async () => 'retry' as const);
+    const f = fixture({ execution, signal: controller.signal, approve: async () => 'allow',
+      parallel: mode.startsWith('parallel-'),
+      ...(mode === 'parallel-masked-off' ? { retainRuntimeState: false, runtimeStateVersion: undefined } : mode === 'parallel-masked-v1' ? { runtimeStateVersion: 1 } : {}),
+      onError: retry,
+      beforeTool: async call => { if (mode === 'parallel-uncertain' && call.id === 'second-call') { secondParked(); await released; } },
+      onToolStart: call => {
+        if (mode.startsWith('parallel-masked') && call.id === 'first-call') throw new Error('Earlier client callback failed');
+        if (mode === 'fenced') active = false; if (mode === 'cancelled') controller.abort();
+      },
+      toolRuntime: mode === 'workspace-no-host' ? undefined : mode === 'v1' || mode === 'workspace-legacy-host' ? { version: 1, tools: [command], execute }
+        : { version: 2, executionBinding: binding, tools: [command], execute } });
+    if (mode === 'workspace-no-host' || mode === 'workspace-legacy-host') {
+      await expect(runTurn(f.options)).rejects.toThrow('requires the original accounted tool host');
+      expect(requests).toEqual([]);
+    } else if (mode.startsWith('bad-')) {
+      await expect(runTurn(f.options)).rejects.toThrow('unavailable or uncertain');
+      expect(requests).toEqual([]); expect(Object.keys(ledger.read(parentProject).projection.requests)).toEqual([]);
+    } else if (mode === 'host-error' || mode === 'fenced' || mode.startsWith('parallel-')) {
+      await expect(runTurn(f.options)).rejects.toThrow(); expect(requests).toHaveLength(1);
+    } else {
+      expect((await runTurn(f.options)).reason).toBe(mode === 'cancelled' ? 'cancelled' : 'completed');
+    }
+    expect(execute).toHaveBeenCalledTimes(mode === 'v2' || mode === 'workspace' || mode === 'host-error' || mode.startsWith('parallel-') ? 1 : 0);
+    if (mode.startsWith('parallel-masked')) expect(retry).not.toHaveBeenCalled();
+    if (requests.length && mode !== 'v1' && mode !== 'undeclared' && mode !== 'artifact-unbound')
+      expect(requests[0].tools.map((value: any) => value.function.name)).toContain(command.name);
+    if (mode === 'v1' || mode === 'undeclared' || mode === 'artifact-unbound')
+      expect(requests[0].tools ?? []).not.toEqual(expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: command.name }) })]));
+    if (mode === 'v2' || mode === 'workspace') {
+      expect(Object.keys(ledger.read(parentProject).projection.requests)).toHaveLength(2);
+      expect(ledger.read(parentProject).projection.spent.costNanos).toBe(26000);
+    }
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+}
+
+it.each(['v1', 'v2', 'undeclared', 'bad-task', 'bad-account', 'bad-manifest', 'bad-attribution', 'host-error', 'fenced', 'cancelled'] as const)(
+  'binds hosted tools to original task execution without relaxing legacy or local scope (%s)', async mode => { await hostedTask(mode); });
+
+
+it('fences a parked sibling after a parallel host execution becomes uncertain', async () => { await hostedTask('parallel-uncertain'); });
+
+
+it.each(['parallel-masked-v1', 'parallel-masked-off'] as const)('does not let a masked parallel host uncertainty reach retry handling (%s)', async mode => { await hostedTask(mode); });
+
+
+it('retains the original artifact-host grant requirement under accounted hosting', async () => { await hostedTask('artifact-unbound'); });
+
+
+it.each(['workspace', 'workspace-no-host', 'workspace-legacy-host'] as const)('runs task-workspace execution only through its original accounted host (%s)', async mode => { await hostedTask(mode); });

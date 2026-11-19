@@ -15,6 +15,7 @@ import {effectiveExecutionManifest,executionProjectForAccount} from './child-gra
 import {BRAIN_TOOLS,BRAIN_TOOL_NAMES,type BrainToolContext} from '../brain/tools.js';
 import {readBillingEvidence} from './billing.js';
 import {validateRequestAttribution,type RequestAttribution} from './attribution.js';
+import {RemoteReservationLedger} from './remote-ledger.js';
 
 export interface AgentExecution {
   /** Native coordinator supplied a scoped artifact host for this invocation. */
@@ -36,12 +37,14 @@ export class ExecutionGuard {
   private readonly agentId:string;
   private readonly ledger:ReservationLedgerAccess;
   readonly maxOutputTokens:number;
+  readonly requiresHostedTools:boolean;
   private readonly assertAuthority?:()=>void;
   readonly filesRoot:string;
   private readonly workspace?:AgentExecution['workspace'];
   private readonly attribution?:RequestAttribution;
   private readonly measuredInputReservation:boolean;
   private readonly artifactHost:boolean;
+  private readonly projectOwner?:RemoteReservationLedger;
   constructor(execution:AgentExecution,private readonly cwd:string) {
     this.artifactHost=execution.artifactHost===true;
     this.attribution=execution.attribution===undefined?undefined:validateRequestAttribution(execution.attribution); this.measuredInputReservation=execution.measuredInputReservation===true;
@@ -49,7 +52,12 @@ export class ExecutionGuard {
     const saved=execution.ledger.read(cwd);
     const remoteProject=execution.ledger.executionProject?.(cwd,execution.agentId);
     const declaredProject=remoteProject??saved.manifest.project;
-    if(canonicalJson(declaredProject)!==canonicalJson(executionProjectForAccount(saved.manifest,saved.projection,execution.agentId)))throw new ExecutionLimitError('authority','Child project needs a verified native workspace binding.');
+    const taskBinding=execution.ledger instanceof RemoteReservationLedger?execution.ledger.taskExecutionBinding:undefined;
+    this.requiresHostedTools=taskBinding?.workspaceProject!==undefined;
+    this.projectOwner=this.requiresHostedTools?execution.ledger as RemoteReservationLedger:undefined;
+    if(this.requiresHostedTools&&(execution.workspace||canonicalJson(this.attribution??null)!==canonicalJson(taskBinding!.attribution)))
+      throw new ExecutionLimitError('authority','Task workspace requires its original hosted task binding.');
+    if(canonicalJson(declaredProject)!==canonicalJson(taskBinding?.workspaceProject??executionProjectForAccount(saved.manifest,saved.projection,execution.agentId)))throw new ExecutionLimitError('authority','Child project needs a verified native workspace binding.');
     // A portable match scopes everything to this mount; the origin's recorded root is never used.
     const portable=remoteProject?undefined:saved.manifest.project.portable;
     const localProject=remoteProject??(()=>{const local=checkExecutionIdentity(saved.manifest,cwd,{portable:true});return {...local,...(portable?{portable}:{})};})();
@@ -65,6 +73,7 @@ export class ExecutionGuard {
   }
   check= (call:ToolCall,cwd=this.cwd):string|undefined => {
     this.assertAuthority?.();this.workspace?.assertIdentity();
+    if(this.requiresHostedTools)return 'Task workspace requires its original accounted tool host.';
     if(call.name==='artifact'&&!this.artifactHost)return 'Artifact tools require a native host binding.';
     if(this.workspace&&call.name==='shell')return 'Isolated workers cannot issue model-selected shell commands; use the declared coordinator verifier.';
     const denial=executionToolDenial(this.scopeManifest,this.agentId,call,cwd);if(denial||!this.workspace)return denial;
@@ -78,9 +87,21 @@ export class ExecutionGuard {
     const path=resolve(this.filesRoot,rel);if(canonicalPath(path)!==path)throw new ExecutionLimitError('authority','Isolated file path became an alias.');return path;
   }
   tools(tools:Tool[]):Tool[] {
+    if(this.requiresHostedTools)return [];
     const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
     return [...tools.filter(t=>!BRAIN_TOOL_NAMES.includes(t.name as typeof BRAIN_TOOL_NAMES[number])),...BRAIN_TOOLS].filter(tool=>allowed.includes(tool.name) && ['think','ask_question','create_plan','read_file','write_file','edit_file','list_files',...BRAIN_TOOL_NAMES,...(this.artifactHost?['artifact']:[])].includes(tool.name));
   }
+  hostedTools(tools:Tool[]):Tool[] {
+    this.assertActive();
+    const allowed=accountLineage(this.manifest,this.agentId)[0]!.allowedTools;
+    return tools.filter(tool=>allowed.includes(tool.name)&&(tool.name!=='artifact'||this.artifactHost));
+  }
+  checkHosted=(call:ToolCall,cwd=this.cwd):string|undefined=>{
+    this.assertActive();checkExecutionIdentity(this.scopeManifest,cwd);
+    if(call.name==='artifact'&&!this.artifactHost)return 'Artifact tools require a native host binding.';
+    return accountLineage(this.manifest,this.agentId)[0]!.allowedTools.includes(call.name)
+      ?undefined:'Tool is outside the declared agent authority.';
+  };
   brainContext():BrainToolContext {
     return {assertActive:signal=>this.assertActive(signal),sourceDenial:source=>{
       const locator=source.locator;
@@ -99,8 +120,11 @@ export class ExecutionGuard {
     if(Date.now()>=this.deadline)throw new ExecutionLimitError('deadline','Agent deadline expired.');
     const saved=this.ledger.read(this.cwd);if(saved.projection.manifestHash!==this.expectedHash)throw new ExecutionLimitError('conflict','Execution contract changed.');
     if(saved.projection.exceeded)throw new ExecutionLimitError('budget','Provider usage exceeded its reservation; further execution is stopped.');
-    const project=new ProjectSpendLedger(projectBudgetPath(this.cwd)).read(),caps=getBudgetCaps();
-    if(project.blocked||caps.maxCostPerProject!==undefined&&project.spentUsd>caps.maxCostPerProject || caps.maxTokensPerRun!==undefined&&saved.projection.spent.tokens>caps.maxTokensPerRun || caps.maxCostPerRun!==undefined&&saved.projection.spent.costNanos>costCapNanos(caps.maxCostPerRun))
+    const owner=this.projectOwner?.ownerProjectBudget;
+    if(this.projectOwner&&!owner)throw new ExecutionLimitError('authority','Original owner project accounting is unavailable.');
+    const project=owner?{spentUsd:owner.spentNanos/1e9,blocked:owner.blocked}:new ProjectSpendLedger(projectBudgetPath(this.cwd)).read(),caps=getBudgetCaps();
+    const projectCap=Math.min(caps.maxCostPerProject??Infinity,owner?.capNanos===undefined||owner.capNanos===null?Infinity:owner.capNanos/1e9);
+    if(project.blocked||project.spentUsd>projectCap || caps.maxTokensPerRun!==undefined&&saved.projection.spent.tokens>caps.maxTokensPerRun || caps.maxCostPerRun!==undefined&&saved.projection.spent.costNanos>costCapNanos(caps.maxCostPerRun))
       throw new ExecutionLimitError('budget','Current project or run policy no longer permits execution.');
   }
   budget(route:RouteCandidate|undefined,messages:Message[],tools:Tool[],streaming:boolean,signal?:AbortSignal,onEvent?:(event:{requestId:string;stage:string;revision:string;tokens:number;costNanos:number})=>void,requestedMaximum?:number):ProviderAttemptBudget {
@@ -111,7 +135,7 @@ export class ExecutionGuard {
     if(requestedMaximum!==undefined)integer(requestedMaximum,1,100000000);
     const maxOutputTokens=Math.min(this.maxOutputTokens,outputLimit??this.maxOutputTokens,requestedMaximum??this.maxOutputTokens);
     const base=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,undefined,this.measuredInputReservation);
-    const projectLedger=new ProjectSpendLedger(projectBudgetPath(this.cwd));
+    const projectLedger=this.projectOwner?undefined:new ProjectSpendLedger(projectBudgetPath(this.cwd));
     return {
       billingRates:Object.freeze({input:base.inputPrice,output:base.outputPrice}),
       ...(base.provider==='openrouter'?{priceCeiling:Object.freeze({input:base.inputPrice,output:base.outputPrice})}:{}),
@@ -124,10 +148,14 @@ export class ExecutionGuard {
         if(billing&&((billing.profile.admission==='provider-count-v1'&&!actual.inputCount)||readBillingEvidence(route,this.scopeManifest.project.root)?.hash!==billing.hash))throw new ExecutionLimitError('authority','Billing admission was revoked or omitted its count.');
         const quote=providerQuote(route,messages,tools,streaming,maxOutputTokens,billing,actual.inputCount,this.measuredInputReservation);
         const id=randomUUID(),caps=getBudgetCaps();
-        await projectLedger.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
+        await projectLedger?.reserve(id,this.manifest.runId,quote.costNanos,caps.maxCostPerProject===undefined?Number.MAX_SAFE_INTEGER:costCapNanos(caps.maxCostPerProject),signal);
         const limits={...(caps.maxTokensPerRun===undefined?{}:{tokens:caps.maxTokensPerRun}),...(caps.maxCostPerRun===undefined?{}:{costNanos:costCapNanos(caps.maxCostPerRun)})};
         let state;
-        try{state=await this.ledger.reserve(this.cwd,this.expectedHash,{id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})},signal,()=>this.assertActive(signal));}
+        try{
+          const reservation={id,agentId:this.agentId,...quote,limits,...(this.attribution?{attribution:this.attribution}:{})};
+          state=this.projectOwner?await this.projectOwner.reserveProjectAccounted(this.cwd,this.expectedHash,reservation,caps.maxCostPerProject===undefined?undefined:costCapNanos(caps.maxCostPerProject),signal)
+            :await this.ledger.reserve(this.cwd,this.expectedHash,reservation,signal,()=>this.assertActive(signal));
+        }
         catch(error){
           // A failed reply is not proof that the parent refused admission. Keep
           // both reservations charged unless the operation is known to have
@@ -135,7 +163,7 @@ export class ExecutionGuard {
           try{
             if(this.ledger.canReleaseFailedReservation?.(error)!==false){
               const current=this.ledger.read(this.cwd).projection;
-              if(current.manifestHash===this.expectedHash&&!current.requests[id])await projectLedger.settle(id,0);
+              if(current.manifestHash===this.expectedHash&&!current.requests[id])await projectLedger?.settle(id,0);
             }
           }catch{/* Unknown admission or failed refund retains the project reservation. */}
           throw error;
@@ -149,7 +177,7 @@ export class ExecutionGuard {
         const valid=!usage||[usage.inputTokens,usage.outputTokens].every(n=>Number.isSafeInteger(n)&&n>=0&&n<=100000000);
         const state=await this.ledger.settle(this.cwd,this.expectedHash,{requestId:id,outcome:valid?outcome:'invalid-usage',...(usage&&valid?{usage}: {})});
         const quote=state.requests[id]!.reservation;
-        await projectLedger.settle(id,outcome==='success'&&valid&&usage?requestCostNanos(usage.inputTokens,usage.outputTokens,quote.inputPrice,quote.outputPrice):null,state.exceeded);
+        await projectLedger?.settle(id,outcome==='success'&&valid&&usage?requestCostNanos(usage.inputTokens,usage.outputTokens,quote.inputPrice,quote.outputPrice):null,state.exceeded);
         onEvent?.({requestId:id,stage:state.requests[id]!.state,revision:state.revision,...state.spent});
         if(state.exceeded)throw new ExecutionLimitError('budget','Provider reported usage beyond the reserved bound; execution stopped.');
       },

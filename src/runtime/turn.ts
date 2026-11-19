@@ -33,7 +33,7 @@ import { getSessionDirById, getSessionById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
 import { canonicalJson, digest } from '../approvals/index.js';
-import type { ProviderRequestPurpose, RuntimeProviderResponseCheckpoint } from './provider-checkpoint.js';
+import type { ProviderRequestPurpose, RuntimeProviderRequestCheckpoint, RuntimeProviderResponseCheckpoint } from './provider-checkpoint.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, requestCostNanos, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
@@ -80,6 +80,8 @@ export interface TurnOptions {
   onStreamReset?: () => void;
   onStreamEvent?: ChatOptions['onStreamEvent'];
   onUsage?: (response: LLMResponse, request: RuntimeRequest, cost: number) => void;
+  /** Host admission of each original reservation before inference transport. */
+  onProviderRequestReserved?: (checkpoint: RuntimeProviderRequestCheckpoint) => Promise<void>;
   /** Retain correlated provider facts under the original execution guard and turn.
    * A failed acknowledgment stops this turn. Late responses may arrive after cancellation.
    * This does not authorize replacement execution or reinterpret v1/v2 snapshots as resumable.
@@ -167,10 +169,14 @@ export async function runTurn(options: TurnOptions): Promise<TurnResult> {
 
 async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
   const retainProviderResponse = options.onProviderResponseReceived;
+  const retainProviderRequest = options.onProviderRequestReserved;
   const originalSessionId = options.sessionId;
   if (retainProviderResponse !== undefined &&
       (typeof retainProviderResponse !== 'function' || !guard || options.retainRuntimeState !== true))
     throw new ExecutionLimitError('invalid', 'Runtime provider checkpoints require the original execution guard, runtime capture and a host callback.');
+  if (retainProviderRequest !== undefined &&
+      (typeof retainProviderRequest !== 'function' || !guard || options.retainRuntimeState !== true))
+    throw new ExecutionLimitError('invalid', 'Runtime provider requests require the original execution guard, runtime capture and a host callback.');
   if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean')
     throw new Error('Runtime state capture requires an explicit boolean.');
   if (options.onRuntimeStateCommitted !== undefined &&
@@ -180,7 +186,9 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       (options.retainRuntimeState !== true || ![1, 2].includes(options.runtimeStateVersion)))
     throw new Error('Runtime state version requires capture and version 1 or 2.');
   const { signal, messages } = options;
-  const toolRuntime = bindHostToolRuntime(options.toolRuntime);
+  const toolRuntime = bindHostToolRuntime(options.toolRuntime, options.execution);
+  if(guard?.requiresHostedTools&&!toolRuntime?.accounted)
+    throw new ExecutionLimitError('authority','Task workspace execution requires the original accounted tool host.');
   const started = Date.now();
   const totals: TurnTotals = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
   const runlog = options.runlog ?? RunLog.open(options.sessionId);
@@ -383,18 +391,19 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const providerOperation = (purpose: ProviderRequestPurpose, parentOperationId: string | null = null): ProviderOperation =>
     Object.freeze({ id: randomUUID(), purpose, parentOperationId });
   const requestCore = async (input: RuntimeRequest, extra: ChatOptions, stream: boolean, operation: ProviderOperation): Promise<LLMResponse> => {
+    toolRuntime?.assertAvailable();
     if (providerCheckpointFailed) throw providerCheckpointFailed;
     if (runtimeState) { effect({ kind: 'provider', id: operation.id }); await checkpoint('active'); }
     throwIfCancelled(signal);
     await guard?.refreshAuthority(signal);
     checkBudget();
-    if(guard)input={...input,tools:guard.tools(input.tools)};
+    if(guard)input={...input,tools:toolRuntime?.accounted?guard.hostedTools(input.tools):guard.tools(input.tools)};
     const alreadyPaid = !!paidFallback;
     input = await resolveRoute(input, false, extra, stream);
     if (paidFallback && !alreadyPaid) return withAPIKeyAccess(() => requestCore(input, extra, stream, operation));
     throwIfCancelled(signal);
-    if(guard)input={...input,tools:guard.tools(input.tools)};
-    if (retainProviderResponse) input = { ...input, messages: structuredClone(input.messages), tools: structuredClone(input.tools) };
+    if(guard)input={...input,tools:toolRuntime?.accounted?guard.hostedTools(input.tools):guard.tools(input.tools)};
+    if (retainProviderResponse || retainProviderRequest) input = { ...input, messages: structuredClone(input.messages), tools: structuredClone(input.tools) };
     const policy = paidFallback ? fallbackPolicy() : undefined;
     const requestTracksProject = trackProject || !!paidFallback;
     const outputLimit=input.route?reviewedOutputLimit(input.route,options.cwd):null;
@@ -429,7 +438,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         return ticket;
       } };
     }
-    const responseContext = retainProviderResponse ? Object.freeze({
+    const responseContext = retainProviderResponse || retainProviderRequest ? Object.freeze({
       version: 1 as const, sessionId: originalSessionId, turnId: progress!.turnId, ...guard!.identity,
       operationId: operation.id, parentOperationId: operation.parentOperationId, purpose: operation.purpose, iteration: iterations,
       runtimeRequestSha256: digest(canonicalJson({ provider: input.provider, model: input.model, messages: input.messages, tools: input.tools,
@@ -440,12 +449,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     let response:LLMResponse;
     try {response = await withReviewedModelLimits(input.route, options.cwd, () => chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
-      ...(responseContext ? { onResponseReceived: async (checkpoint: import('../providers/types.js').ProviderResponseCheckpoint) => {
+      ...(responseContext && retainProviderResponse ? { onResponseReceived: async (checkpoint: import('../providers/types.js').ProviderResponseCheckpoint) => {
         try {
           const acknowledgment: unknown = await retainProviderResponse!(Object.freeze({ ...responseContext, checkpoint }));
           if (acknowledgment !== undefined) throw new Error('Invalid runtime provider acknowledgment');
         } catch {
           providerCheckpointFailed ??= new ExecutionLimitError('unavailable', 'Runtime provider response checkpoint was not acknowledged; no further execution is authorized.');
+          throw providerCheckpointFailed;
+        }
+      } } : {}),
+      ...(responseContext && retainProviderRequest ? { onRequestReserved: async (checkpoint: import('../providers/types.js').ProviderRequestCheckpoint) => {
+        try {
+          const acknowledgment: unknown = await retainProviderRequest(Object.freeze({ ...responseContext, checkpoint }));
+          if (acknowledgment !== undefined) throw new Error('Invalid runtime provider request acknowledgment');
+        } catch {
+          providerCheckpointFailed ??= new ExecutionLimitError('unavailable', 'Runtime provider request checkpoint was not acknowledged; no further execution is authorized.');
           throw providerCheckpointFailed;
         }
       } } : {}),
@@ -549,7 +567,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         get cwd() { return options.cwd; }, get mode() { return options.mode; },
         get confirmation() { return guard && options.confirmation === 'none' ? 'mutating' : options.confirmation; },
         signal, get sessionId() { return options.sessionId; }, get approvals() { return options.approvals; },
-        authority: toolRuntime ? (call, cwd) => toolRuntime.denial(call) ?? guard?.check(call, cwd) : guard?.check,
+        authority: toolRuntime ? (call, cwd) => toolRuntime.denial(call) ?? (toolRuntime.accounted ? guard!.checkHosted(call, cwd) : guard?.check(call, cwd)) : guard?.check,
         approve: options.approve ? pending => options.approve!(structuredClone(call), structuredClone(pending)) : undefined,
         audit: event => runlog.policyEvent(event), onAdmission: validate => { validateAdmission = validate; } });
       await options.onPermission?.(structuredClone(call), structuredClone(decision));
@@ -644,7 +662,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   runlog.userPrompt(options.prompt);
   const availableTools = () => {
     const tools = toolRuntime ? toolRuntime.tools() : (options.tools ?? getTools)();
-    return guard ? guard.tools(tools) : tools;
+    return guard ? toolRuntime?.accounted ? guard.hostedTools(tools) : guard.tools(tools) : tools;
   };
   try {
     throwIfCancelled(signal);
@@ -857,6 +875,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
         if (providerCheckpointFailed) throw providerCheckpointFailed;
+        toolRuntime?.assertAvailable();
         if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof HostToolRuntimeError || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
         if (runtimeState?.version === 2 && activeEffects.size) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');

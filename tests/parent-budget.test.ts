@@ -14,6 +14,7 @@ import {projectBudgetPath} from '../src/budget.js';
 import type {RouteCandidate} from '../src/routing/index.js';
 import {toyPlan} from './helpers/orchestration-plan.js';
 
+vi.mock('node:fs',async original=>({...await original<typeof import('node:fs')>()}));
 let root:string,project:string,store:RunStore,server:Server|undefined;
 beforeEach(()=>{
   config.resetConfig();saveHooks([]);root=fs.realpathSync(fs.mkdtempSync(join(tmpdir(),'calliope-parent-budget-')));
@@ -207,4 +208,36 @@ it('shares native task capacity through every local funding ancestor and release
  expect(activeRemoteTasks(middleStore.read().state)).toMatchObject([{runId:leafView.run.id,startEventId:attribution.eventId}]);
  await ticket!.release();await ticket!.release();
  expect(activeRemoteTasks(parentStore.read().state)).toEqual([]);expect(activeRemoteTasks(middleStore.read().state)).toEqual([]);
+});
+
+it('retains child project funding when the local parent commits before directory sync fails',async()=>{
+ const p=await parent(),child=await execution(await reviewed(),p.link),value={...request(),inputPrice:1,outputPrice:1,costNanos:100000};
+ const money=new ProjectSpendLedger(projectBudgetPath(project));const stat=fs.statSync((p.exec.ledger as ReservationLedger).root),sync=fs.fsyncSync;let failed=false;
+ vi.spyOn(fs,'fsyncSync').mockImplementation(fd=>{
+  const actual=fs.fstatSync(fd);
+  if(!failed&&actual.isDirectory()&&actual.dev===stat.dev&&actual.ino===stat.ino){failed=true;throw new Error('Directory sync failed after parent commit');}
+  sync(fd);
+ });
+ const error=await (child.ledger as ReservationLedger).reserve(project,child.manifestHash,value,undefined,undefined,
+  {reserve:()=>money.reserveOnce(value.id,snapshot(child).manifest.runId,value.costNanos,1000000),refused:()=>money.settleOnce(value.id,0)}).catch(error=>error);
+ expect(failed).toBe(true);expect(error).toBeInstanceOf(Error);
+ const mapped=parentRequestId(snapshot(child).manifest,value.id);
+ expect(snapshot(p.exec).projection.requests[mapped]!.state).toBe('pending');
+ expect(snapshot(child).projection.requests[value.id]).toBeUndefined();
+ expect(money.readAccounting().spentNanos).toBe(value.costNanos);
+ expect(child.ledger.canReleaseFailedReservation?.(error)).toBe(false);
+});
+
+it.each(['opaque authority failure',{reason:'opaque authority failure'},null,undefined])('retains original parent and project holds for opaque callback failure %j',async opaque=>{
+ const p=await parent(),child=await execution(await reviewed(),p.link),value={...request(),inputPrice:1,outputPrice:1,costNanos:100000};
+ const money=new ProjectSpendLedger(projectBudgetPath(project)),mapped=parentRequestId(snapshot(child).manifest,value.id),refused=vi.fn();
+ let rejected=false,failure:unknown;
+ try{await (child.ledger as ReservationLedger).reserve(project,child.manifestHash,value,undefined,
+  ()=>{if(snapshot(p.exec).projection.requests[mapped])throw opaque;},
+  {reserve:()=>money.reserveOnce(value.id,snapshot(child).manifest.runId,value.costNanos,1000000),refused:()=>money.settleOnce(value.id,0)},
+  {validate:()=>{},refused});}catch(error){rejected=true;failure=error;}
+ expect(rejected).toBe(true);expect(failure).toBe(opaque);
+ expect(snapshot(p.exec).projection.requests[mapped]!.state).toBe('pending');expect(snapshot(child).projection.requests[value.id]).toBeUndefined();
+ expect(money.readAccounting().spentNanos).toBe(value.costNanos);expect(refused).not.toHaveBeenCalled();
+ expect(child.ledger.canReleaseFailedReservation?.(failure)).toBe(false);
 });

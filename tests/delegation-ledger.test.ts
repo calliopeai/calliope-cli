@@ -334,3 +334,47 @@ it('reads a valid checkpoint replaced atomically between stat and open without d
   try{expect((await connect(parent)).read(project).manifest).toEqual(manifest);expect(replaced).toBe(true);}
   finally{vi.restoreAllMocks();syncBuiltinESMExports();}
 });
+
+it.each(['reserve','settle'] as const)('requires the exact %s body when recovering a lost RPC from the journal',async operation=>{
+ let lost=false;
+ const client=await connect(parent,{attempts:1,fetch:async(input,init)=>{
+  if(lost&&String(input).endsWith('/'+operation))throw new TypeError('Lost RPC');
+  return fetch(input,init);
+ }}),value=request('root',100);
+ await client.reserve(project,hash,value);
+ const settled={requestId:value.id,outcome:'success' as const,usage:{inputTokens:4,outputTokens:1}};
+ if(operation==='settle')await client.settle(project,hash,settled);
+ const before=ledger.read(project);lost=true;
+ // Exact original facts can still reconcile without a second write.
+ if(operation==='reserve')await client.reserve(project,hash,value);else await client.settle(project,hash,settled);
+ const changed=operation==='reserve'
+  ?client.reserve(project,hash,{...value,outputTokens:2,costNanos:requestCostNanos(value.inputTokens,2,value.inputPrice,value.outputPrice)})
+  :client.settle(project,hash,{...settled,usage:{inputTokens:3,outputTokens:2}});
+ await expect(changed).rejects.toMatchObject({code:'conflict'});
+ expect(ledger.read(project)).toEqual(before);
+});
+
+it.each(['reserve','settle'] as const)('refuses a successful %s RPC carrying only an unchanged journal',async operation=>{
+ let stale=false;
+ const client=await connect(parent,{attempts:1,fetch:async(input,init)=>{
+  if(stale&&String(input).endsWith('/'+operation)){
+   const {manifest,events}=ledger.read(project);return new Response(JSON.stringify({ok:true,manifest,events}));
+  }
+  return fetch(input,init);
+ }}),value=request('root',100);
+ if(operation==='settle')await client.reserve(project,hash,value);
+ const before=ledger.read(project);stale=true;
+ const result=operation==='reserve'?client.reserve(project,hash,value):client.settle(project,hash,{requestId:value.id,outcome:'success',usage:{inputTokens:4,outputTokens:1}});
+ await expect(result).rejects.toMatchObject({code:'unavailable'});
+ expect(ledger.read(project)).toEqual(before);
+});
+it.each(['reserve','settle'] as const)('refuses another manifest when recovering %s from the journal',async operation=>{
+ let lost=false;
+ const client=await connect(parent,{attempts:1,fetch:async(input,init)=>{
+  if(lost&&String(input).endsWith('/'+operation))throw new TypeError('Lost RPC');return fetch(input,init);
+ }}),value=request('root',100),settled={requestId:'',outcome:'success' as const,usage:{inputTokens:4,outputTokens:1}};
+ settled.requestId=value.id;await client.reserve(project,hash,value);if(operation==='settle')await client.settle(project,hash,settled);
+ const before=ledger.read(project);lost=true;
+ const result=operation==='reserve'?client.reserve(project,'f'.repeat(64),value):client.settle(project,'f'.repeat(64),settled);
+ await expect(result).rejects.toMatchObject({code:'conflict'});expect(ledger.read(project)).toEqual(before);
+});

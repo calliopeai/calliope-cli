@@ -109,17 +109,20 @@ export async function parentBudgetAuthority(input:ExecutionManifest,cwd:string,a
 
 /** Only an identical recorded reservation can recover an interrupted parent admission. */
 export async function reserveParent(authority:NonNullable<Awaited<ReturnType<typeof parentBudgetAuthority>>>,cwd:string,request:RequestReservation,signal?:AbortSignal,beforeCommit?:()=>void):Promise<void>{
-  const check=()=>{authority.assertActive();beforeCommit?.();};check();
-  const existing=authority.ledger.read(cwd).projection.requests[request.id];
-  if(existing){
-    if(existing.state!=='pending'||canonicalJson(existing.reservation)!==canonicalJson(request))throw denied('Parent reservation was settled or belongs to another request.');
-    return;
-  }
-  let admitted=false;
+  const check=()=>{authority.assertActive();beforeCommit?.();};
+  let admitted=false,absenceObserved=false;
   try {
+    check();
+    const existing=authority.ledger.read(cwd).projection.requests[request.id];
+    if(existing){
+      admitted=true;
+      if(existing.state!=='pending'||canonicalJson(existing.reservation)!==canonicalJson(request))throw denied('Parent reservation was settled or belongs to another request.');
+      return;
+    }
+    absenceObserved=true;
     await authority.ledger.reserve(cwd,authority.hash,request,signal,check);admitted=true;
     await authority.ledger.refreshAuthority?.(cwd,request.agentId,signal);check();
-  }catch(error){if(admitted||authority.ledger.canReleaseFailedReservation?.(error)===false)markParentAdmissionUncertain(error);throw error;}
+  }catch(error){if(!absenceObserved||admitted||authority.ledger.canReleaseFailedReservation?.(error)!==true)markParentAdmissionUncertain(error);throw error;}
 }
 
 export async function settleParent(authority:NonNullable<Awaited<ReturnType<typeof parentBudgetAuthority>>>,cwd:string,settlement:RequestSettlement):Promise<void>{
