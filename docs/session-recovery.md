@@ -114,6 +114,19 @@ provider/tool/question/verification effect. Pending work is saved before its
 effect. An unresolved request or acknowledgment remains pending on interruption;
 synthetic tool-pair cleanup does not turn it into a successful effect.
 
+Hosts can explicitly select `runtimeStateVersion: 2` with capture enabled after
+requiring `HEADLESS_EXECUTION_STATE_PROTOCOL_VERSION === 2`. These records add
+`execution.phase` and every active effect, distinguishing provider admission,
+recorded assistant responses, installed compressed context, queued/running tools,
+questions and verification.
+A recorded result can coexist with unresolved post-tool or acknowledgment work;
+its effect remains active until that work settles. Parallel tool completion
+removes only the settled tool. If a tool callback leaves work unresolved, v2
+capture stops rather than allowing an error retry to overwrite those effects. An existing conversation cannot change capture
+versions, and older v1 records do not acquire phase facts retrospectively.
+This additional evidence does not enable execution restore or settle unknown
+provider reservations. Legacy callers keep the original v1 capture format.
+
 Hosts that retain a remote recovery floor can also supply
 `onRuntimeStateCommitted` with capture enabled. The callback receives the exact
 saved session/revision/checksum, status, original allowance and runtime evidence
@@ -145,6 +158,26 @@ deadline and cost cap. Later checkpoints cannot reduce reported totals or
 restore a missing-usage marker. Replay, branches and portable bundles retain the
 evidence. Versions 1 and 2 remain unchanged when capture is disabled; older CLI
 versions cannot read version 3 histories.
+
+Hosts can also require the root SDK export
+`PROVIDER_RESPONSE_CHECKPOINT_PROTOCOL_VERSION === 1` before installing
+`onProviderResponseReceived` on a captured, delegated headless run (or a
+captured `runTurn` with its original execution guard). Older SDKs can ignore
+unknown options, so supplying the callback alone is insufficient qualification.
+The awaited callback receives a detached adapter response tied to its original
+session, turn, run, agent, manifest, logical operation, request digest, provider
+attempt and reservation. Primary requests, compression and repair carry distinct
+purposes; a repair also identifies its parent operation. The digest describes
+the runtime request, not exact provider wire bytes.
+
+The callback must durably acknowledge the facts and return nothing before
+settlement or dependent execution. A failure stops execution without another
+provider request. Complete facts can arrive after caller cancellation; hosts
+must retain that evidence without treating it as permission to continue.
+Known usage settles against the original reservation once. Missing usage stays
+unknown. Malformed completion fields, tool argument objects, stream framing or
+usage cannot attest completion and leave the reservation charged. Tool calls
+cut off by an output limit retain the existing truncation handling.
 
 This option captures evidence and does not enable headless execution resume.
 A quiescent marker, a portable bundle or a valid checksum does not prove current

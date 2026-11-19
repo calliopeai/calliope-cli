@@ -26,11 +26,14 @@ import { resolvePermission, type PermissionContext } from './permissions.js';
 import { bindHostToolRuntime, HostToolRuntimeError, type HostToolRuntime } from './host-tools.js';
 import type { PermissionDecision } from './types.js';
 import { repairToolCalls, type RepairEvent } from './repair.js';
+import { hostCallback } from './host-callback.js';
 import { shouldRetryTool } from './tool-retry.js';
 import { withSession, makeToolOutput, saveToolOutput, type CapturedToolOutput, type RecoveryStatus } from '../sessions/index.js';
 import { getSessionDirById, getSessionById } from '../storage.js';
 import { assessToolRisk } from '../risk.js';
 import type { ApprovalChoice, ApprovalStore } from '../approvals/index.js';
+import { canonicalJson, digest } from '../approvals/index.js';
+import type { ProviderRequestPurpose, RuntimeProviderResponseCheckpoint } from './provider-checkpoint.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionGuard, ExecutionLimitError, agentFiles, projectAttemptBudget, requestCostNanos, type AgentExecution } from '../execution/index.js';
 import {randomUUID} from 'node:crypto';
@@ -40,6 +43,7 @@ import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCh
 import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
+interface ProviderOperation { id: string; purpose: ProviderRequestPurpose; parentOperationId: string | null }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'invalid_tool_arguments' | 'waiting_for_user' | 'stopped';
 /** Consecutive truncated, empty or malformed replies recovered before giving up. */
 export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
@@ -76,6 +80,11 @@ export interface TurnOptions {
   onStreamReset?: () => void;
   onStreamEvent?: ChatOptions['onStreamEvent'];
   onUsage?: (response: LLMResponse, request: RuntimeRequest, cost: number) => void;
+  /** Retain correlated provider facts under the original execution guard and turn.
+   * A failed acknowledgment stops this turn. Late responses may arrive after cancellation.
+   * This does not authorize replacement execution or reinterpret v1/v2 snapshots as resumable.
+   */
+  onProviderResponseReceived?: (checkpoint: RuntimeProviderResponseCheckpoint) => Promise<void>;
   /** Called each time a `continueOnLength` turn asks the model to continue after a truncated or empty reply. */
   onContinue?: (event: { reason: 'length' | 'empty'; attempt: number; max: number; iteration: number }) => void;
   onResponse?: (response: LLMResponse, iteration: number) => void | 'stop' | Promise<void | 'stop'>;
@@ -101,6 +110,8 @@ export interface TurnOptions {
   onCheckpoint?: (messages: Message[], status: RecoveryStatus, progress?: TurnProgress, runtimeState?: TurnRuntimeState) => void | Promise<void>;
   /** Capture recovery evidence; this does not authorize restoring or replacing execution. */
   retainRuntimeState?: boolean;
+  /** Opt-in explicit phase/effect capture; existing callers retain the v1 wire. */
+  runtimeStateVersion?: 1 | 2;
   runtimeClock?: { startedAt: number; deadline: number | null };
   /** Runs after the writer and control observation, before any later effect. */
   onRuntimeStateCommitted?: (state: Readonly<TurnRuntimeState>, progress: Readonly<TurnProgress>, signal?: AbortSignal) => Promise<void>;
@@ -155,11 +166,19 @@ export async function runTurn(options: TurnOptions): Promise<TurnResult> {
 }
 
 async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
+  const retainProviderResponse = options.onProviderResponseReceived;
+  const originalSessionId = options.sessionId;
+  if (retainProviderResponse !== undefined &&
+      (typeof retainProviderResponse !== 'function' || !guard || options.retainRuntimeState !== true))
+    throw new ExecutionLimitError('invalid', 'Runtime provider checkpoints require the original execution guard, runtime capture and a host callback.');
   if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean')
     throw new Error('Runtime state capture requires an explicit boolean.');
   if (options.onRuntimeStateCommitted !== undefined &&
       (typeof options.onRuntimeStateCommitted !== 'function' || options.retainRuntimeState !== true))
     throw new Error('Runtime checkpoint acknowledgment requires capture and a host callback.');
+  if (options.runtimeStateVersion !== undefined &&
+      (options.retainRuntimeState !== true || ![1, 2].includes(options.runtimeStateVersion)))
+    throw new Error('Runtime state version requires capture and version 1 or 2.');
   const { signal, messages } = options;
   const toolRuntime = bindHostToolRuntime(options.toolRuntime);
   const started = Date.now();
@@ -178,6 +197,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let checkpointFailed = false;
+  let providerCheckpointFailed: ExecutionLimitError | undefined;
   let checkpointWaitCancelled = false;
   let questionCommitFailed = false;
   let safetyFailed = false;
@@ -195,14 +215,28 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     completionLimit, iterations: 0, completionChecks: 0,
   } : undefined;
   const runtimeState: TurnRuntimeState | undefined = options.retainRuntimeState ? {
-    version: 1, turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
+    ...(options.runtimeStateVersion === 2 ? { version: 2 as const, execution: { phase: 'ready' as const, activeEffects: [] } } : { version: 1 as const }),
+    turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
     deadline: options.runtimeClock?.deadline ?? null,
     maxCostUsd: caps.maxCostPerRun !== undefined && Number.isFinite(caps.maxCostPerRun) ? caps.maxCostPerRun : null,
     continuations: 0, responseUsageComplete: true,
     totals: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, toolCalls: 0 }, effect: { kind: 'quiescent' },
   } : undefined;
   if (runtimeState) validateTurnRuntimeState(runtimeState);
-  const effect = (value: TurnRuntimeState['effect']) => { if (runtimeState) runtimeState.effect = value; };
+  const effect = (value: TurnRuntimeState['effect']) => {
+    if (!runtimeState) return;
+    runtimeState.effect = value;
+    if (runtimeState.version === 2) {
+      const phase = value.kind === 'quiescent' ? 'ready' : value.kind === 'provider' ? 'provider_pending'
+        : value.kind === 'verification' ? 'verification_pending' : value.kind === 'question' ? 'question_pending' : 'tools_pending';
+      runtimeState.execution = { phase, activeEffects: value.kind === 'quiescent' ? []
+        : value.kind === 'provider' || value.kind === 'verification' ? [{ ...value }]
+        : [...activeEffects.values()].filter((item): item is Exclude<TurnRuntimeState['effect'], { kind: 'quiescent' }> => item.kind !== 'quiescent').map(item => ({ ...item })) };
+    }
+  };
+  const recordedResponse = () => {
+    if (runtimeState?.version === 2) runtimeState.execution = { phase: 'response_recorded', activeEffects: [] };
+  };
   if (completionLimit && (!options.onCheckpoint || !options.controlSnapshot))
     throw new Error('Completion verification requires the conversation writer and saved checkpoint proof.');
   if (options.onControlReady !== undefined && (typeof options.onControlReady !== 'function' || !options.control))
@@ -227,6 +261,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         estimatedCostUsd: totals.cost, toolCalls: totals.toolCalls };
     }
     const capturedRuntime = runtimeState ? structuredClone(runtimeState) : undefined;
+    if (capturedRuntime?.version === 2) validateTurnRuntimeState(capturedRuntime);
     let writeStarted = false, locallySaved = false;
     const preceding = status === 'cancelled' && signal?.aborted && checkpointWaitCancelled && !checkpointFailed
       ? checkpointTail.catch(error => { if (!isCancellation(error)) throw error; }) : checkpointTail;
@@ -286,7 +321,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     await checkpoint('active');
     const notice = `ChatGPT fallback: this session uses paid OpenAI API-key access (${policy.model}); shared project cap $${policy.maxProjectCostUsd}.`;
     runlog.policyEvent({tool:'provider',source:'chatgpt-fallback',decision:'allow',reason:notice,durationMs:0});
-    options.onWarning?.(notice);
+    await hostCallback('onWarning', () => options.onWarning?.(notice));
   };
   const access = <T>(action: () => T): T => paidFallback ? withAPIKeyAccess(action) : action();
   const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
@@ -300,8 +335,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     }));
     if (options.preferenceSources) decision.preferenceSources = options.preferenceSources;
     runlog.routingDecision(decision);
-    if (options.onRoute) await cancellable(Promise.resolve(options.onRoute(decision)),signal);
-    else options.onWarning?.(formatRoutingDecision(decision));
+    if (options.onRoute) await cancellable(hostCallback('onRoute', () => options.onRoute!(decision)),signal);
+    else await hostCallback('onWarning', () => options.onWarning?.(formatRoutingDecision(decision)));
     if (decision.status === 'cancelled') throw cancellationError();
     if (!decision.selected) {
       if (!paidFallback && (input.provider === 'openai' || initial && options.provider === 'openai') && chatGPTSelected() && quotaCircuit() && fallbackPolicy()) {
@@ -314,6 +349,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       messages: adaptRoutingPrompt(input.messages, decision.selected.provider) };
   };
   const checkBudget = () => {
+    if (providerCheckpointFailed) throw providerCheckpointFailed;
     guard?.assertActive(signal);
     if (!hasBudgetCaps(caps)) return;
     const verdict = evaluateBudget(caps, { runCostUsd: totals.cost, runTokens: totals.inputTokens + totals.outputTokens, projectCostUsd: trackProject ? loadProjectSpend(options.cwd).spentUsd : 0 });
@@ -344,17 +380,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     try { return await options.control.parked(operation, controlBoundary); }
     catch (error) { controlFailed = true; throw error; }
   };
-  const requestCore = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
-    if (runtimeState) { effect({ kind: 'provider', id: randomUUID() }); await checkpoint('active'); }
+  const providerOperation = (purpose: ProviderRequestPurpose, parentOperationId: string | null = null): ProviderOperation =>
+    Object.freeze({ id: randomUUID(), purpose, parentOperationId });
+  const requestCore = async (input: RuntimeRequest, extra: ChatOptions, stream: boolean, operation: ProviderOperation): Promise<LLMResponse> => {
+    if (providerCheckpointFailed) throw providerCheckpointFailed;
+    if (runtimeState) { effect({ kind: 'provider', id: operation.id }); await checkpoint('active'); }
     throwIfCancelled(signal);
     await guard?.refreshAuthority(signal);
     checkBudget();
     if(guard)input={...input,tools:guard.tools(input.tools)};
     const alreadyPaid = !!paidFallback;
     input = await resolveRoute(input, false, extra, stream);
-    if (paidFallback && !alreadyPaid) return withAPIKeyAccess(() => requestCore(input, extra, stream));
+    if (paidFallback && !alreadyPaid) return withAPIKeyAccess(() => requestCore(input, extra, stream, operation));
     throwIfCancelled(signal);
     if(guard)input={...input,tools:guard.tools(input.tools)};
+    if (retainProviderResponse) input = { ...input, messages: structuredClone(input.messages), tools: structuredClone(input.tools) };
     const policy = paidFallback ? fallbackPolicy() : undefined;
     const requestTracksProject = trackProject || !!paidFallback;
     const outputLimit=input.route?reviewedOutputLimit(input.route,options.cwd):null;
@@ -389,19 +429,35 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         return ticket;
       } };
     }
+    const responseContext = retainProviderResponse ? Object.freeze({
+      version: 1 as const, sessionId: originalSessionId, turnId: progress!.turnId, ...guard!.identity,
+      operationId: operation.id, parentOperationId: operation.parentOperationId, purpose: operation.purpose, iteration: iterations,
+      runtimeRequestSha256: digest(canonicalJson({ provider: input.provider, model: input.model, messages: input.messages, tools: input.tools,
+        format: extra.format ?? null, maxOutputTokens: maxOutputTokens ?? null, reasoningEffort: options.reasoningEffort ?? null, streaming: stream && !!options.onToken })),
+    }) : undefined;
     signal?.addEventListener('abort',abortRequest,{once:true});if(signal?.aborted)abortRequest();
     const requestTimer=requestController?setTimeout(()=>requestController.abort(),60000):undefined;
     let response:LLMResponse;
     try {response = await withReviewedModelLimits(input.route, options.cwd, () => chat(input.provider, input.messages, input.tools, input.model, stream ? options.onToken : undefined, options.onRetry, { ...extra, signal:requestSignal,
       ...(attemptBudget?{maxOutputTokens,attemptBudget}:{}),
+      ...(responseContext ? { onResponseReceived: async (checkpoint: import('../providers/types.js').ProviderResponseCheckpoint) => {
+        try {
+          const acknowledgment: unknown = await retainProviderResponse!(Object.freeze({ ...responseContext, checkpoint }));
+          if (acknowledgment !== undefined) throw new Error('Invalid runtime provider acknowledgment');
+        } catch {
+          providerCheckpointFailed ??= new ExecutionLimitError('unavailable', 'Runtime provider response checkpoint was not acknowledged; no further execution is authorized.');
+          throw providerCheckpointFailed;
+        }
+      } } : {}),
       reasoningEffort: options.reasoningEffort,
       ...(paidFallback ? { maxProviderRetries: 0 } : options.maxProviderRetries !== undefined ? { maxProviderRetries: options.maxProviderRetries } : {}),
       selectionMode: origin.provider === 'auto' ? 'auto' : 'explicit',
       onStreamReset: stream ? options.onStreamReset : undefined,
-      onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); options.onStreamEvent?.(event); },
+      onStreamEvent: event => { runlog.streamAttempt(event, { iteration: iterations, provider: input.provider, model: input.model }); return options.onStreamEvent?.(event); },
       onHealthWarning: (message, denied = false) => {
         runlog.policyEvent({ tool: 'provider', source: 'provider-health', decision: denied ? 'deny' : 'allow', reason: message, durationMs: 0 });
-        options.onWarning?.(message);
+        // Health presentation is explicitly best-effort, and cannot grant execution.
+        void hostCallback('onWarning', () => options.onWarning?.(message)).catch(() => {});
       },
     }));}catch(error){runlog.policyEvent({tool:'provider',source:'provider-call',decision:'deny',reason:error instanceof Error?error.message:'Provider call failed',durationMs:0});throw error;}finally{if(requestTimer)clearTimeout(requestTimer);signal?.removeEventListener('abort',abortRequest);}
     if (paidFallback) response = { ...response, providerMetadata: { ...response.providerMetadata, openai: { chatgptFallback: { clientId: paidFallback.clientId, model: paidFallback.policy.model } } } };
@@ -420,21 +476,21 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     // Project accounting is committed by the attempt receipt, including retries and unknown outcomes.
     runlog.assistantMessage({ content: response.content, tokens: { input: response.usage?.inputTokens ?? 0, output: response.usage?.outputTokens ?? 0 }, usageReported: !!response.usage, cost, costSource });
-    options.onUsage?.(response, input, cost);
-    for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); options.onWarning?.(warning); }
+    await hostCallback('onUsage', () => options.onUsage?.(response, input, cost));
+    for (const warning of response.warnings ?? []) if (!seenWarnings.has(warning)) { seenWarnings.add(warning); await hostCallback('onWarning', () => options.onWarning?.(warning)); }
     return response;
   };
-  const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true): Promise<LLMResponse> => {
+  const request = async (input: RuntimeRequest, extra: ChatOptions = {}, stream = true, operation = providerOperation('primary')): Promise<LLMResponse> => {
     const paidInput = () => paidFallback ? { ...input, provider: 'openai' as const, model: paidFallback.policy.model,
       messages: publicFallbackHistory(input.messages, paidFallback.clientId, paidFallback.policy.model), route: undefined } : input;
-    try { return await access(() => requestCore(paidInput(), extra, stream)); }
+    try { return await access(() => requestCore(paidInput(), extra, stream, operation)); }
     catch (error) {
       throwIfCancelled(signal);
       if (paidFallback && error instanceof Error && (('status' in error && error.status === 429) || ('code' in error && ['insufficient_quota','rate_limit_exceeded'].includes(String(error.code)))))
         throw new StreamProtocolError('API-key fallback quota or rate limit reached. Paid inference stopped; check the API account before retrying.');
       if (paidFallback || !(error instanceof ChatGPTQuotaError) || error.partial || input.provider !== 'openai' || !fallbackPolicy()) throw error;
       await activateFallback();
-      return request(paidInput(), extra, stream);
+      return request(paidInput(), extra, stream, operation);
     }
   };
   const report = async (call: ToolCall, result: ToolResult, durationMs: number, answeredQuestion = false) => {
@@ -447,7 +503,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         const dir = getSessionDirById(options.sessionId);
         if (!dir) throw new Error('Session storage is unavailable.');
         saveToolOutput(dir, output.record); output.saved = true;
-      } catch { options.onWarning?.('Tool output could not be saved. The tool has already finished and will not be repeated; use /tools to inspect any retained output.'); }
+      } catch { await hostCallback('onWarning', () => options.onWarning?.('Tool output could not be saved. The tool has already finished and will not be repeated; use /tools to inspect any retained output.')); }
     }
     runlog.toolResult({ id: call.id, result: result.result, isError: !!result.isError, durationMs, ...(output ? { output: { id: output.record.id, hash: output.record.hash, truncated: output.record.truncated, saved: output.saved } } : {}) });
     messages.current.push({ role: 'tool', toolCallId: call.id, content: contextResult(call, result, getModelContextLimit(currentRequest.provider, currentRequest.model), answeredQuestion) });
@@ -463,12 +519,28 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     }
     await options.onToolResult?.(structuredClone(call), result, iterations, output);
   };
+  const settleToolEffect = async (call: ToolCall): Promise<void> => {
+    if (runtimeState) {
+      activeEffects.delete(call.id);
+      let index = messages.current.length - 1;
+      while (index >= 0 && messages.current[index]!.role !== 'assistant') index--;
+      const assistant = messages.current[index];
+      const recorded = new Set(messages.current.slice(index + 1).filter(message => message.role === 'tool').map(message => message.toolCallId));
+      const pending = assistant?.toolCalls?.find(tool => !recorded.has(tool.id));
+      effect(activeEffects.values().next().value ?? (pending ? { kind: 'tool', id: pending.id } : { kind: 'quiescent' }));
+      await checkpoint('active');
+    }
+  };
   const execute = async (pendingCall: ToolCall): Promise<boolean> => {
     const call = structuredClone(pendingCall), outputCall = structuredClone(call);
     throwIfCancelled(signal);
     checkBudget();
     runlog.toolCall({ id: call.id, name: call.name, args: call.arguments });
     totals.toolCalls++;
+    if (runtimeState?.version === 2) {
+      const pending: TurnRuntimeState['effect'] = { kind: call.name === 'ask_question' ? 'question' : 'tool', id: call.id };
+      activeEffects.set(call.id, pending); effect(pending); await checkpoint('active');
+    }
     await options.onToolStart?.(structuredClone(call), iterations);
     let validateAdmission: (() => PermissionDecision | undefined) | undefined;
     const authorize = async (): Promise<PermissionDecision> => {
@@ -485,8 +557,16 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     };
     const decision = await authorize();
     throwIfCancelled(signal);
-    if (decision.decision === 'cancelled') { permissionCancelled = true; return true; }
-    if (decision.decision !== 'allow') { await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs); return false; }
+    if (decision.decision === 'cancelled') {
+      permissionCancelled = true;
+      if (runtimeState?.version === 2) await settleToolEffect(call);
+      return true;
+    }
+    if (decision.decision !== 'allow') {
+      await report(call, { toolCallId: call.id, result: decision.reason, isError: true }, decision.durationMs);
+      if (runtimeState?.version === 2) await settleToolEffect(call);
+      return false;
+    }
     await checkpointTail;
     throwIfCancelled(signal);
     if (options.onSafetyBranch && ['medium', 'high', 'critical'].includes(assessToolRisk(call).level)) {
@@ -500,7 +580,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     throwIfCancelled(signal);
     checkBudget();
     const toolStarted = Date.now();
-    if (runtimeState) {
+    if (runtimeState?.version === 1) {
       const pending: TurnRuntimeState['effect'] = { kind: call.name === 'ask_question' ? 'question' : 'tool', id: call.id };
       activeEffects.set(call.id, pending); effect(pending); await checkpoint('active');
     }
@@ -534,6 +614,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       throwIfCancelled(signal);
       if (retryDecision.decision !== 'allow') {
         await report(call, { toolCallId: call.id, result: retryDecision.reason, isError: true }, Date.now() - toolStarted);
+        if (runtimeState?.version === 2) await settleToolEffect(call);
         if (retryDecision.decision === 'cancelled') permissionCancelled = true;
         return retryDecision.decision === 'cancelled';
       }
@@ -549,22 +630,13 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     }
     await report(call, result, Date.now() - toolStarted, answeredQuestion);
     if (!signal?.aborted) {
-      const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(error => {
-        throwIfCancelled(signal); options.onWarning?.(`Post-tool hook failed: ${String(error)}`);
+      const post = executeHooks('post-tool', { tool: call.name, toolArgs: call.arguments, toolResult: result.result }, { signal, bounded: !!guard }).catch(async error => {
+        throwIfCancelled(signal); await hostCallback('onWarning', () => options.onWarning?.(`Post-tool hook failed: ${String(error)}`));
       });
       if (guard || options.control || runtimeState) await post; else void post.catch(() => {});
     }
     const waiting = !result.isError && !answeredQuestion && ['ask_question', 'create_plan'].includes(call.name);
-    if (runtimeState && !waiting) {
-      activeEffects.delete(call.id);
-      let index = messages.current.length - 1;
-      while (index >= 0 && messages.current[index]!.role !== 'assistant') index--;
-      const assistant = messages.current[index];
-      const recorded = new Set(messages.current.slice(index + 1).filter(message => message.role === 'tool').map(message => message.toolCallId));
-      const pending = assistant?.toolCalls?.find(tool => !recorded.has(tool.id));
-      effect(activeEffects.values().next().value ?? (pending ? { kind: 'tool', id: pending.id } : { kind: 'quiescent' }));
-      await checkpoint('active');
-    }
+    if (!waiting) await settleToolEffect(call);
     return waiting;
   };
 
@@ -621,67 +693,78 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           originalTokens:0, compressedTokens:0, summarizedCount:0,
         } : await access(() => withReviewedModelLimits(currentRequest.route, options.cwd, () => autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,
           async (summaryMessages, summaryModel) => {
-            const response = await request({ ...currentRequest, model: summaryModel || currentRequest.model, messages: summaryMessages, tools: [] }, {}, false);
+            const response = await request({ ...currentRequest, model: summaryModel || currentRequest.model, messages: summaryMessages, tools: [] }, {}, false, providerOperation('compression'));
             checkBudget();
             return response;
           }, currentRequest.tools)));
+        if (providerCheckpointFailed) throw providerCheckpointFailed;
         if (compressed.compressed) {
           messages.current = compressed.messages;
           currentRequest.messages = messages.current;
-          options.onCompression?.(compressed);
+          if (runtimeState?.version === 2) {
+            effect({ kind: 'quiescent' });
+            runtimeState.execution = { phase: 'context_recorded', activeEffects: [] };
+            await checkpoint('active');
+          }
+          await hostCallback('onCompression', () => options.onCompression?.(compressed));
         }
         await boundary(true);
         if (options.prepare) currentRequest = await options.prepare(currentRequest, iterations);
         await boundary(false);
         throwIfCancelled(signal);
-        let response = await request(currentRequest);
+        const primaryOperation = providerOperation('primary');
+        let response = await request(currentRequest, {}, true, primaryOperation);
         throwIfCancelled(signal);
         // A reply cut off by the output limit may carry a partial tool call: never run, store or repair it.
         if (options.continueOnLength && response.finishReason === 'length' && response.toolCalls?.length) response = { ...response, toolCalls: undefined };
         try { checkBudget(); }
         catch (error) {
           messages.current.push({ role: 'assistant', content: response.content, ...(response.toolCalls?.length ? { toolCalls: response.toolCalls } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          recordedResponse();
           await checkpoint('active');
           throwIfCancelled(signal);
-          await options.onResponse?.(response, iterations);
+          await hostCallback('onResponse', () => options.onResponse?.(response, iterations));
           throw error;
         }
         if (options.continueOnLength && response.finishReason === 'error' && response.errorCode === 'invalid_tool_arguments') {
           messages.current.push({ role: 'assistant', content: response.content,
             providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
+          recordedResponse();
           await checkpoint('active');
           throwIfCancelled(signal);
-          const stop = await options.onResponse?.(response, iterations);
+          const stop = await hostCallback('onResponse', () => options.onResponse?.(response, iterations));
           throwIfCancelled(signal);
           checkBudget();
-          if (stop === 'stop') { reason = 'stopped'; options.onIterationEnd?.(iterations); break; }
+          if (stop === 'stop') { reason = 'stopped'; await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations)); break; }
           if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
             effect({ kind: 'quiescent' });
             reason = 'invalid_tool_arguments';
-            options.onIterationEnd?.(iterations);
+            await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
             break;
           }
           messages.current.push({ role: 'user', content:
             'Your previous tool-call arguments were malformed and no tools from that response were executed. Send complete valid JSON arguments using the existing tools. Do not repeat tools with recorded successful results.' });
           effect({ kind: 'quiescent' });
           await checkpoint('active');
-          options.onWarning?.(`Requesting corrected tool arguments (${continuations}/${MAX_CONSECUTIVE_CONTINUATIONS}) under the original allowance; no malformed tools were executed.`);
-          options.onIterationEnd?.(iterations);
+          await hostCallback('onWarning', () => options.onWarning?.(`Requesting corrected tool arguments (${continuations}/${MAX_CONSECUTIVE_CONTINUATIONS}) under the original allowance; no malformed tools were executed.`));
+          await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
           continue;
         }
         if (response.finishReason === 'error') throw response.errorCode === 'refusal' ? new ProviderRefusalError()
           : new Error(response.errorCode === 'invalid_tool_arguments'
             ? 'Provider returned malformed tool arguments; no tools were executed.' : 'Provider returned an unsuccessful completion');
         response = await repairToolCalls({ ...currentRequest, response, repairedIds, signal,
-          request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false); checkBudget(); return value; },
+          request: async (repairMessages, format) => { const value = await request({ ...currentRequest, messages: repairMessages }, { format }, false, providerOperation('repair', primaryOperation.id)); checkBudget(); return value; },
           onRepair: options.onRepair });
+        if (providerCheckpointFailed) throw providerCheckpointFailed;
         throwIfCancelled(signal);
         const pendingCalls = response.toolCalls ? structuredClone(response.toolCalls) : undefined;
         messages.current.push({ role: 'assistant', content: response.content, ...(pendingCalls?.length ? { toolCalls: structuredClone(pendingCalls) } : {}), providerMetadata: { ...response.providerMetadata, calliopeRouting: { provider: currentRequest.provider, model: currentRequest.model } } });
         if (pendingCalls?.length) effect({ kind: 'tool', id: pendingCalls[0]!.id });
+        else recordedResponse();
         await checkpoint('active');
         throwIfCancelled(signal);
-        const stop = await options.onResponse?.(response, iterations);
+        const stop = await hostCallback('onResponse', () => options.onResponse?.(response, iterations));
         throwIfCancelled(signal);
         checkBudget();
         if (stop === 'stop') { reason = 'stopped'; break; }
@@ -691,19 +774,19 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           if (++continuations > MAX_CONSECUTIVE_CONTINUATIONS) {
             effect({ kind: 'quiescent' });
             reason = truncated ? 'length' : 'empty_response';
-            options.onIterationEnd?.(iterations);
+            await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
             break;
           }
-          options.onContinue?.({ reason: truncated ? 'length' : 'empty', attempt: continuations, max: MAX_CONSECUTIVE_CONTINUATIONS, iteration: iterations });
+          await hostCallback('onContinue', () => options.onContinue?.({ reason: truncated ? 'length' : 'empty', attempt: continuations, max: MAX_CONSECUTIVE_CONTINUATIONS, iteration: iterations }));
           messages.current.push({ role: 'user', content: 'Please continue where you left off.' });
           if (runtimeState) { effect({ kind: 'quiescent' }); await checkpoint('active'); }
-          options.onIterationEnd?.(iterations);
+          await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
           continue;
         }
         continuations = 0;
         if (!pendingCalls?.length) {
           effect({ kind: 'quiescent' });
-          if (await boundary(true)) { options.onIterationEnd?.(iterations); continue; }
+          if (await boundary(true)) { await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations)); continue; }
           if (!truncated && !empty && options.completionCheck) {
             try {
               if (progress) {
@@ -747,7 +830,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
                   checksum: proposal.checksum, accepted: verdict.accepted, invalidated: steered,
                   ...(verdict.accepted ? { evidenceSha256: verdict.evidenceSha256 } : {}) }), durationMs: 0 });
               if (!verdict.accepted || steered) {
-                options.onIterationEnd?.(iterations);
+                await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
                 if (completionChecks >= completionLimit) { reason = 'stopped'; break; }
                 continue;
               }
@@ -756,7 +839,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
             } catch (error) { completionFailed = true; throw error; }
           }
           reason = truncated ? 'length' : 'completed';
-          options.onIterationEnd?.(iterations);
+          await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
           break;
         }
         const canParallel = options.parallel && !pendingCalls.some(call => ['ask_question', 'create_plan'].includes(call.name));
@@ -770,10 +853,12 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
           pause = results.some(result => result.status === 'fulfilled' && result.value);
           if (pause) break;
         }
-        options.onIterationEnd?.(iterations);
+        await hostCallback('onIterationEnd', () => options.onIterationEnd?.(iterations));
         if (pause) { reason = permissionCancelled ? 'cancelled' : 'waiting_for_user'; break; }
       } catch (error) {
+        if (providerCheckpointFailed) throw providerCheckpointFailed;
         if (checkpointFailed || questionCommitFailed || controlFailed || completionFailed || safetyFailed || signal?.aborted || isCancellation(error) || error instanceof HostToolRuntimeError || error instanceof ExecutionLimitError || (error instanceof Error && error.name === 'RuntimeBudgetExceeded')) throw error;
+        if (runtimeState?.version === 2 && activeEffects.size) throw error;
         completePendingTools(messages.current, 'Tool execution interrupted');
         const action = await options.onError?.(error, iterations);
         if (action === 'retry' && !(error instanceof StreamInterruptedError) && !(error instanceof StreamProtocolError) && !(error instanceof ProviderRefusalError)) { await cancellableDelay(2000, signal); continue; }

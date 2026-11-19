@@ -7,7 +7,8 @@ vi.mock('../src/config.js', () => ({
 
 const generateContent = vi.fn();
 const generateContentStream = vi.fn();
-vi.mock('@google/genai', () => ({
+vi.mock('@google/genai', async (importOriginal) => ({
+  ...await importOriginal<typeof import('@google/genai')>(),
   GoogleGenAI: class {
     models = { generateContent, generateContentStream };
     constructor(_opts: unknown) {}

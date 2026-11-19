@@ -227,7 +227,8 @@ it.each(['anthropic', 'openai', 'google'] as const)('uses the same custom %s end
 
 it('waits for durable routing callbacks, stops on recording failure and cancels a pending callback before inference',async()=>{
   const smart={policy:{version:1 as const,profile:'cost' as const,pool:[{provider:'deepseek' as const}]},stage:'initial' as const};
-  await expect(runTurn(options({smart,onRoute:async()=>{throw new Error('Route journal unavailable');}}))).rejects.toThrow('Route journal unavailable');expect(requests).toEqual([]);
+  const retry=vi.fn(()=>'retry' as const);
+  await expect(runTurn(options({smart,onError:retry,onRoute:async()=>{throw new Error('Route journal unavailable');}}))).rejects.toMatchObject({name:'ExecutionLimitError',message:'Runtime onRoute callback failed; no further execution is authorized.'});expect(requests).toEqual([]);expect(retry).not.toHaveBeenCalled();
   let began!:()=>void;const started=new Promise<void>(resolve=>{began=resolve;}),controller=new AbortController();
   const pending=runTurn(options({smart,signal:controller.signal,onRoute:()=>{began();return new Promise<void>(()=>{});}}));await started;controller.abort();expect((await pending).reason).toBe('cancelled');expect(requests).toEqual([]);
 });

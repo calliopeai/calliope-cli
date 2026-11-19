@@ -134,7 +134,9 @@ export class RemoteReservationLedger {
     }
     try{
       await this.refresh();const entry=this.projection().requests[id];
-      if(op==='reserve'&&entry||op==='settle'&&entry&&entry.state!=='pending')return this.projection();
+      // A linked ledger commits locally before settling its own parent. Only the
+      // settlement RPC acknowledges that complete chain; a journal read cannot.
+      if(op==='reserve'&&entry||op==='settle'&&entry&&entry.state!=='pending'&&!this.journal.manifest.parent)return this.projection();
     }catch{/* Still unreachable: fall through to an explicit unknown outcome. */}
     throw new ExecutionLimitError('unavailable',`${unknown} (${lost instanceof Error?lost.message:'parent ledger unreachable'})`);
   }

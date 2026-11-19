@@ -90,3 +90,37 @@ it.each([
 ])('rejects malformed durable evidence %j', change => {
   expect(() => validateTurnRuntimeState({ ...runtime(randomUUID()), ...change })).toThrow(/invalid/);
 });
+
+it('retains v2 phase and every active tool across exact history replay and transfer', async () => {
+  const allowance = progress();
+  const state: TurnRuntimeState = { ...runtime(allowance.turnId), version: 2, effect: { kind: 'tool', id: 'second' },
+    execution: { phase: 'tools_pending', activeEffects: [{ kind: 'tool', id: 'first' }, { kind: 'tool', id: 'second' }] } };
+  const saved = writeConversation(dir, 'test', messages, { expectedRevision: null, status: 'active', progress: allowance, runtimeState: state });
+  const replay = await replaySessionHistory(dir, 'test', saved.history!);
+  expect(replay.snapshot.runtimeState).toEqual(state);
+  const parsed = await parseBundle(JSON.stringify(makeBundle(replay, [])));
+  expect(parsed.replay.snapshot.runtimeState).toEqual(state);
+  const downgrade = { ...state, version: 1 } as unknown as TurnRuntimeState;
+  delete (downgrade as unknown as Record<string, unknown>).execution;
+  expect(() => writeConversation(dir, 'test', messages, { expectedRevision: saved.revision, status: 'active', runtimeState: downgrade })).toThrow(/invalid/);
+});
+
+it.each([
+  { phase: 'unknown', activeEffects: [] },
+  { phase: 'ready', activeEffects: [{ kind: 'provider', id: 'one' }] },
+  { phase: 'provider_pending', activeEffects: [] },
+  { phase: 'provider_pending', activeEffects: [{ kind: 'provider', id: 'one' }, { kind: 'provider', id: 'two' }] },
+  { phase: 'tools_pending', activeEffects: [{ kind: 'tool', id: 'same' }, { kind: 'tool', id: 'same' }] },
+  { phase: 'tools_pending', activeEffects: [{ kind: 'question', id: 'one' }] },
+  { phase: 'response_recorded', activeEffects: [], extra: true },
+  { phase: 'tools_pending', activeEffects: [{ kind: 'tool', id: 'bad\u0000id' }] },
+])('rejects contradictory or malformed v2 execution facts %j', execution => {
+  expect(() => validateTurnRuntimeState({ ...runtime(randomUUID()), version: 2, execution })).toThrow(/invalid/);
+});
+
+it('does not upgrade old v1 evidence into a manufactured v2 execution phase', () => {
+  const allowance = progress(), state = runtime(allowance.turnId);
+  const saved = writeConversation(dir, 'test', messages, { expectedRevision: null, status: 'active', progress: allowance, runtimeState: state });
+  const upgrade: TurnRuntimeState = { ...state, version: 2, execution: { phase: 'provider_pending', activeEffects: [{ kind: 'provider', id: state.effect.kind === 'quiescent' ? 'unused' : state.effect.id }] } };
+  expect(() => writeConversation(dir, 'test', messages, { expectedRevision: saved.revision, status: 'active', runtimeState: upgrade })).toThrow(/invalid/);
+});

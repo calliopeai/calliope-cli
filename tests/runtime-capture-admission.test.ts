@@ -16,6 +16,8 @@ beforeEach(()=>{
 afterEach(()=>{config.resetConfig();vi.unstubAllGlobals();fs.rmSync(cwd,{recursive:true,force:true});});
 
 const denied:Array<{name:string;options:Partial<Options>;error:RegExp}>=[
+ {name:'version without capture',options:{runtimeStateVersion:2},error:/version requires capture/},
+ {name:'unsupported version',options:{retainRuntimeState:true,runtimeStateVersion:3 as unknown as 2},error:/version requires capture/},
  {name:'non-boolean capture',options:{retainRuntimeState:'yes' as unknown as boolean},error:/explicit boolean/},
  {name:'acknowledgment without capture',options:{onRuntimeStateCommitted:async()=>{}},error:/capture and a host callback/},
  {name:'non-callable acknowledgment',options:{retainRuntimeState:true,onRuntimeStateCommitted:true as unknown as Options['onRuntimeStateCommitted']},error:/capture and a host callback/},

@@ -1,3 +1,5 @@
+import { BedrockBlocks } from './bedrock-blocks.js';
+import { assertBedrockReasoning, assertToolArgumentObject, assertTerminalReason, assertBedrockUsage, assertBedrockTerminalResponse } from './stream-validation.js';
 /**
  * AWS Bedrock Provider - Native Converse API
  *
@@ -6,10 +8,13 @@
  */
 
 import { createHmac, createHash } from 'crypto';
+import { crc32 } from 'node:zlib';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import * as config from '../config.js';
+import { interruptCompletedResponse } from './response-retention.js';
+import { StreamProtocolError } from '../errors.js';
 import {resolveBedrockCredentials} from './bedrock-auth.js';
 import { throwIfCancelled } from '../cancellation.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, ImageContent, MessageContent } from '../types.js';
@@ -273,6 +278,7 @@ export async function chatBedrock(
   onToken?: StreamCallback,
   signal?: AbortSignal,
   maxOutputTokens?: number,
+  retainCompletedResponse = false,
 ): Promise<LLMResponse> {
   if (maxOutputTokens !== undefined && (!Number.isInteger(maxOutputTokens) || maxOutputTokens < 1)) throw new Error('maxOutputTokens must be a positive integer');
   const region = getAWSRegion();
@@ -318,7 +324,7 @@ export async function chatBedrock(
   debugLog(`Bedrock signed request: url=${baseUrl}, host=${new URL(baseUrl).host}, body_sha256=${sha256(bodyStr)}, has_session_token=${!!credentials.sessionToken}, signed_headers=${Object.keys(signed.headers).filter(k => k !== 'Authorization').sort().join(';')}`);
 
   if (isStreaming) {
-    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal, maxOutputTokens !== undefined);
+    return chatBedrockStreaming(signed.url, signed.headers, bodyStr, onToken!, signal, maxOutputTokens !== undefined, retainCompletedResponse);
   }
 
   // Non-streaming request
@@ -331,7 +337,7 @@ export async function chatBedrock(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Bedrock API error (${response.status}): ${errorBody}`);
+    throw Object.assign(new Error(`Bedrock API error (${response.status}): ${errorBody}`), {status:response.status});
   }
 
   const data = await response.json() as {
@@ -348,6 +354,8 @@ export async function chatBedrock(
     stopReason?: string;
     usage?: { inputTokens: number; outputTokens: number };
   };
+
+  if (retainCompletedResponse) assertBedrockTerminalResponse(data);
 
   // Parse response
   let content = '';
@@ -412,7 +420,8 @@ async function chatBedrockStreaming(
   body: string,
   onToken: StreamCallback,
   signal?: AbortSignal,
-  bounded = false
+  bounded = false,
+  retainCompletedResponse = false
 ): Promise<LLMResponse> {
   const response = await fetch(url, {
     method: 'POST',
@@ -423,7 +432,7 @@ async function chatBedrockStreaming(
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Bedrock streaming API error (${response.status}): ${errorBody}`);
+    throw Object.assign(new Error(`Bedrock streaming API error (${response.status}): ${errorBody}`), { status: response.status });
   }
 
   let content = '';
@@ -437,6 +446,30 @@ async function chatBedrockStreaming(
   const unparsedToolIds = new Set<string>();
   let currentToolName = '';
   let currentToolInput = '';
+  const blocks = retainCompletedResponse ? new BedrockBlocks() : undefined;
+
+  let messageStarted = false, contentStarted = false;
+  let completed = false;
+  const normalized = (): LLMResponse => {
+    const assembled = blocks?.result(finishReason);
+    let truncatedToolCalls = assembled?.truncatedToolCalls ?? false;
+    let keptToolCalls = assembled?.toolCalls ?? toolCalls;
+    const keptReasoning = assembled?.reasoningContent ?? reasoningContent;
+    if (!blocks && finishReason === 'length') {
+      truncatedToolCalls = unparsedToolIds.size > 0 || Boolean(currentToolId);
+      keptToolCalls = toolCalls.filter((tc) => !unparsedToolIds.has(tc.id));
+    }
+    if (retainCompletedResponse && finishReason !== 'length' && (unparsedToolIds.size || currentToolId))
+      throw new StreamProtocolError('Malformed or incomplete provider tool arguments; its reservation remains charged.');
+    return {
+      content,
+      toolCalls: keptToolCalls.length > 0 ? keptToolCalls : undefined,
+      finishReason: blocks ? normalizeFinishReason(finishReason, keptToolCalls.length > 0) : finishReason,
+      ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
+      ...(keptReasoning.length > 0 ? { providerMetadata: { bedrock: { reasoningContent: keptReasoning } } } : {}),
+      usage: bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
+    };
+  };
 
   // Read the response body as a stream of bytes and parse events
   const reader = response.body?.getReader();
@@ -445,6 +478,11 @@ async function chatBedrockStreaming(
   }
 
   let buffer = Buffer.alloc(0);
+  const decode = (bytes: Uint8Array): string => {
+    if (!retainCompletedResponse) return Buffer.from(bytes).toString('utf-8');
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+    catch { throw new StreamProtocolError('Bedrock stream contains invalid UTF-8; its reservation remains charged.'); }
+  };
 
   try {
     while (true) {
@@ -460,11 +498,16 @@ async function chatBedrockStreaming(
       //   Payload: variable length
       //   Message CRC: 4 bytes
       while (buffer.length >= 12) {
+        if (crc32(buffer.subarray(0, 8)) !== buffer.readUInt32BE(8))
+          throw new StreamProtocolError('Bedrock stream has an invalid prelude checksum; its reservation remains charged.');
         const totalLength = buffer.readUInt32BE(0);
         const headersLength = buffer.readUInt32BE(4);
-        // prelude CRC at offset 8 (4 bytes) — we skip validation
+        if (totalLength < 16 || headersLength > totalLength - 16)
+          throw new StreamProtocolError('Bedrock stream has invalid frame lengths; its reservation remains charged.');
 
         if (buffer.length < totalLength) break; // Wait for more data
+        if (crc32(buffer.subarray(0, totalLength - 4)) !== buffer.readUInt32BE(totalLength - 4))
+          throw new StreamProtocolError('Bedrock stream has an invalid message checksum; its reservation remains charged.');
 
         const headersStart = 12;
         const headersEnd = headersStart + headersLength;
@@ -474,64 +517,45 @@ async function chatBedrockStreaming(
         // Parse headers to find :event-type
         let eventType = '';
         let pos = headersStart;
+        const take = (length: number): number => {
+          if (length < 0 || pos + length > headersEnd)
+            throw new StreamProtocolError('Bedrock stream header exceeds its frame; its reservation remains charged.');
+          const start = pos; pos += length; return start;
+        };
         while (pos < headersEnd) {
-          const nameLen = buffer.readUInt8(pos);
-          pos += 1;
-          const name = buffer.toString('utf-8', pos, pos + nameLen);
-          pos += nameLen;
-          const headerType = buffer.readUInt8(pos);
-          pos += 1;
-
+          const nameLen = buffer.readUInt8(take(1));
+          const nameStart = take(nameLen);
+          const name = decode(buffer.subarray(nameStart, pos));
+          const headerType = buffer.readUInt8(take(1));
           if (headerType === 7) {
-            // String type
-            const valueLen = buffer.readUInt16BE(pos);
-            pos += 2;
-            const val = buffer.toString('utf-8', pos, pos + valueLen);
-            pos += valueLen;
+            const valueLen = buffer.readUInt16BE(take(2));
+            const valueStart = take(valueLen);
+            const val = decode(buffer.subarray(valueStart, pos));
             if (name === ':event-type') eventType = val;
             if (name === ':exception-type') eventType = 'exception:' + val;
-          } else if (headerType === 0) {
-            // Bool true
-            // no additional bytes
-          } else if (headerType === 1) {
-            // Bool false
-            // no additional bytes
-          } else if (headerType === 2) {
-            // Byte
-            pos += 1;
-          } else if (headerType === 3) {
-            // Short
-            pos += 2;
-          } else if (headerType === 4) {
-            // Int
-            pos += 4;
-          } else if (headerType === 5) {
-            // Long
-            pos += 8;
-          } else if (headerType === 6) {
-            // Bytes
-            const bLen = buffer.readUInt16BE(pos);
-            pos += 2 + bLen;
-          } else if (headerType === 8) {
-            // Timestamp
-            pos += 8;
-          } else if (headerType === 9) {
-            // UUID
-            pos += 16;
-          } else {
-            // Unknown header type, skip to end of headers
+          } else if (headerType === 0 || headerType === 1) {
+            // Boolean header values have no additional bytes.
+          } else if (headerType === 2) take(1);
+          else if (headerType === 3) take(2);
+          else if (headerType === 4) take(4);
+          else if (headerType === 5 || headerType === 8) take(8);
+          else if (headerType === 6) { const length = buffer.readUInt16BE(take(2)); take(length); }
+          else if (headerType === 9) take(16);
+          else {
+            if (retainCompletedResponse) throw new StreamProtocolError('Bedrock stream has unsupported header encoding; its reservation remains charged.');
             break;
           }
         }
 
         // Extract payload
-        const payload = buffer.toString('utf-8', payloadStart, payloadEnd);
+        const payload = decode(buffer.subarray(payloadStart, payloadEnd));
 
         // Advance buffer past this event
         buffer = buffer.subarray(totalLength);
 
         // Handle exceptions
         if (eventType.startsWith('exception:')) {
+          completed = false;
           try {
             const errData = JSON.parse(payload);
             throw new Error(`Bedrock stream error (${eventType}): ${errData.message || payload}`);
@@ -542,21 +566,60 @@ async function chatBedrockStreaming(
         }
 
         // Skip empty payloads
-        if (!payload.trim()) continue;
+        if (!payload.trim()) {
+          if (retainCompletedResponse) {
+            completed = false;
+            throw new StreamProtocolError('Bedrock stream has an empty event payload; its reservation remains charged.');
+          }
+          continue;
+        }
 
         let event: Record<string, unknown>;
         try {
           event = JSON.parse(payload);
         } catch {
+          if (retainCompletedResponse) {
+            completed = false;
+            throw new StreamProtocolError('Bedrock stream has malformed JSON; its reservation remains charged.');
+          }
           debugLog('Failed to parse Bedrock event payload:', payload);
           continue;
         }
+
+        if (!event || typeof event !== 'object' || Array.isArray(event)) {
+          completed = false;
+          throw new StreamProtocolError('Bedrock stream has an invalid event object; its reservation remains charged.');
+        }
+        const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
+        const invalidEvent = () => new StreamProtocolError('Bedrock stream has invalid event fields; its reservation remains charged.');
+        if (eventType === 'contentBlockDelta' && (!object(event.delta) ||
+            (event.delta.text !== undefined && typeof event.delta.text !== 'string') ||
+            (event.delta.toolUse !== undefined && (!object(event.delta.toolUse) || typeof event.delta.toolUse.input !== 'string')))) throw invalidEvent();
+        if (eventType === 'contentBlockStart' && event.start !== undefined && (!object(event.start) ||
+            (event.start.toolUse !== undefined && (!object(event.start.toolUse) || typeof event.start.toolUse.toolUseId !== 'string' || typeof event.start.toolUse.name !== 'string')))) throw invalidEvent();
+        if (retainCompletedResponse && eventType === 'messageStart') {
+          if (messageStarted || contentStarted || event.role !== 'assistant') throw invalidEvent();
+          messageStarted = true;
+        }
+        if (retainCompletedResponse && ['contentBlockStart','contentBlockDelta','contentBlockStop'].includes(eventType)) contentStarted = true;
+        if (eventType === 'messageStop' && (typeof event.stopReason !== 'string' || !event.stopReason)) throw invalidEvent();
+        if (retainCompletedResponse && eventType === 'messageStop') assertTerminalReason(event.stopReason, 'bedrock');
+        if (eventType === 'metadata' && event.usage !== undefined && (!object(event.usage) ||
+            [event.usage.inputTokens, event.usage.outputTokens].some(value => typeof value !== 'number' || !Number.isFinite(value) || value < 0))) throw invalidEvent();
+
+        if (retainCompletedResponse && eventType === 'contentBlockDelta' && object(event.delta) && event.delta.reasoningContent !== undefined)
+          assertBedrockReasoning(event.delta.reasoningContent,true);
+        if (retainCompletedResponse && eventType === 'metadata' && event.usage !== undefined)
+          assertBedrockUsage(event.usage, usageSeen ? { inputTokens, outputTokens } : undefined);
+
+        if(retainCompletedResponse && completed && eventType!=='metadata') throw new StreamProtocolError('Bedrock data followed terminal proof; its reservation remains charged.');
 
         // Process event based on type
         switch (eventType) {
           case 'contentBlockStart': {
             const start = event as { contentBlockIndex?: number; start?: { toolUse?: { toolUseId: string; name: string } } };
             if (start.start?.toolUse) {
+              if (blocks) { blocks.startTool(start.contentBlockIndex, start.start.toolUse.toolUseId, start.start.toolUse.name); break; }
               currentToolId = start.start.toolUse.toolUseId;
               currentToolName = start.start.toolUse.name;
               currentToolInput = '';
@@ -565,6 +628,17 @@ async function chatBedrockStreaming(
           }
           case 'contentBlockDelta': {
             const delta = event as { delta?: { text?: string; toolUse?: { input?: string }; reasoningContent?: unknown } };
+            if (blocks) {
+              const fields = ['text','toolUse','reasoningContent'].filter(key => (event.delta as Record<string, unknown>)[key] !== undefined);
+              if (fields.length !== 1) throw invalidEvent();
+              if (delta.delta?.text !== undefined) {
+                blocks.textDelta(event.contentBlockIndex);
+                content += delta.delta.text;
+                if (delta.delta.text) onToken(delta.delta.text);
+              } else if (delta.delta?.toolUse !== undefined) blocks.toolDelta(event.contentBlockIndex, delta.delta.toolUse.input);
+              else blocks.reasoningDelta(event.contentBlockIndex, delta.delta?.reasoningContent);
+              break;
+            }
             if (delta.delta?.text) {
               content += delta.delta.text;
               onToken(delta.delta.text);
@@ -576,12 +650,15 @@ async function chatBedrockStreaming(
             break;
           }
           case 'contentBlockStop': {
+            if (blocks) { blocks.stop(event.contentBlockIndex); break; }
             if (currentToolId && currentToolName) {
               try {
+                const parsed = JSON.parse(currentToolInput || '{}');
+                if (retainCompletedResponse) assertToolArgumentObject(parsed);
                 toolCalls.push({
                   id: currentToolId,
                   name: currentToolName,
-                  arguments: JSON.parse(currentToolInput || '{}'),
+                  arguments: parsed,
                 });
               } catch {
                 unparsedToolIds.add(currentToolId);
@@ -600,6 +677,8 @@ async function chatBedrockStreaming(
           case 'messageStop': {
             const stop = event as { stopReason?: string };
             finishReason = normalizeFinishReason(stop.stopReason, toolCalls.length > 0);
+            blocks?.result(finishReason);
+            completed = typeof stop.stopReason === 'string' && !!stop.stopReason;
             break;
           }
           case 'metadata': {
@@ -617,25 +696,19 @@ async function chatBedrockStreaming(
         }
       }
     }
+    throwIfCancelled(signal);
+    if (retainCompletedResponse && buffer.length) completed = false;
+    if (retainCompletedResponse && !completed) throw new StreamProtocolError('Bedrock stream ended without terminal proof; its reservation remains charged.');
+    return normalized();
+  } catch (error) {
+    if (retainCompletedResponse && buffer.length && !(error instanceof StreamProtocolError))
+      throw new StreamProtocolError('Bedrock stream has an incomplete frame; its reservation remains charged.');
+    if (retainCompletedResponse && completed && buffer.length === 0) interruptCompletedResponse(normalized(), error);
+    throw error;
   } finally {
     reader.releaseLock();
   }
 
-  throwIfCancelled(signal);
-  let truncatedToolCalls = false;
-  let keptToolCalls = toolCalls;
-  if (finishReason === 'length') {
-    truncatedToolCalls = unparsedToolIds.size > 0 || Boolean(currentToolId);
-    keptToolCalls = toolCalls.filter((tc) => !unparsedToolIds.has(tc.id));
-  }
-  return {
-    content,
-    toolCalls: keptToolCalls.length > 0 ? keptToolCalls : undefined,
-    finishReason,
-    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
-    ...(reasoningContent.length > 0 ? { providerMetadata: { bedrock: { reasoningContent } } } : {}),
-    usage: bounded && !usageSeen ? undefined : { inputTokens, outputTokens },
-  };
 }
 
 /**

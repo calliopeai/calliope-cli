@@ -1,3 +1,5 @@
+import { StreamFramingWitness } from './stream-framing.js';
+import { assertChatToolIdentity, parseCapturedToolArguments, assertChatStreamChunk, assertChatTerminalResponse, assertResponsesTerminalResponse, assertUsagePair } from './stream-validation.js';
 /**
  * OpenAI Provider (Chat Completions + Responses API)
  *
@@ -8,6 +10,8 @@
  */
 
 import OpenAI from 'openai';
+import { interruptCompletedResponse, throwUnverifiedStreamFailure } from './response-retention.js';
+import { StreamProtocolError } from '../errors.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall, TextContent, MessageContent } from '../types.js';
@@ -175,6 +179,7 @@ interface ResponsesCompletedEvent {
   type: 'response.completed' | 'response.incomplete' | 'response.failed';
   response: {
     status: 'completed' | 'incomplete' | 'failed';
+    output: ResponsesOutputItem[];
     usage?: { input_tokens: number; output_tokens: number };
   };
 }
@@ -333,7 +338,7 @@ function isFunctionCallOutput(item: ResponsesOutputItem): item is ResponsesFunct
 }
 
 /** Decode only a settled complete batch; partial or malformed calls never become tools. */
-function responsesToolFrame(items: ResponsesOutputItem[], status: ResponsesAPIResponse['status'] | undefined):
+function responsesToolFrame(items: ResponsesOutputItem[], status: ResponsesAPIResponse['status'] | undefined, captured = false):
   Pick<LLMResponse, 'toolCalls' | 'finishReason' | 'truncatedToolCalls' | 'warnings' | 'errorCode'> {
   const calls = items.filter(isFunctionCallOutput);
   if (status === 'incomplete') return {
@@ -344,7 +349,7 @@ function responsesToolFrame(items: ResponsesOutputItem[], status: ResponsesAPIRe
     const toolCalls = calls.map(item => {
       const args: unknown = typeof item.arguments === 'string' ? JSON.parse(item.arguments) : item.arguments;
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Invalid argument object');
-      return { id: item.call_id || item.id || `call_${Date.now()}`, name: item.name,
+      return { id: captured ? item.call_id : item.call_id || item.id || `call_${Date.now()}`, name: item.name,
         arguments: args as Record<string, unknown> };
     });
     return { toolCalls: toolCalls.length ? toolCalls : undefined,
@@ -353,6 +358,13 @@ function responsesToolFrame(items: ResponsesOutputItem[], status: ResponsesAPIRe
     return { finishReason: 'error', errorCode: 'invalid_tool_arguments',
       warnings: ['OpenAI returned malformed tool arguments; no tools were executed.'] };
   }
+}
+
+/** Terminal output is authoritative for captured text and tools, not provisional deltas. */
+function responsesOutputText(items: ResponsesOutputItem[]): string {
+  return items.flatMap(item => item.type === 'message'
+    ? ((item as {type: string; content: {type: string; text?: string}[]}).content).filter(part => part.type === 'output_text').map(part => part.text!)
+    : []).join('');
 }
 
 // ============================================================================
@@ -373,7 +385,8 @@ async function chatOpenAIResponses(
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
+  const framing = limits?.retainCompletedResponse && onToken ? new StreamFramingWitness() : undefined;
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(framing ? { fetch: framing.fetch } : {}), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const responsesInput = toResponsesInput(messages);
   const responsesTools = toResponsesTools(tools);
 
@@ -385,10 +398,16 @@ async function chatOpenAIResponses(
   if (onToken) {
     let content = '';
     const outputItems: ResponsesOutputItem[] = [];
+    let terminalOutput: ResponsesOutputItem[] = [];
     let terminalStatus: ResponsesAPIResponse['status'] | undefined;
     let inputTokens = 0;
     let outputTokens = 0;
     let usageSeen = false;
+    let observedUsage: {inputTokens:number;outputTokens:number} | undefined;
+    const hasTerminal = () => terminalStatus === 'completed' || terminalStatus === 'incomplete' || terminalStatus === 'failed';
+    const normalized = (): LLMResponse => ({ content: limits?.retainCompletedResponse ? responsesOutputText(terminalOutput) : content,
+      ...responsesToolFrame(limits?.retainCompletedResponse ? terminalOutput : outputItems, terminalStatus, limits?.retainCompletedResponse),
+      usage: usageSeen ? { inputTokens, outputTokens } : undefined });
 
     try {
       // Note: OpenAI SDK types don't fully match Responses API yet
@@ -406,13 +425,20 @@ async function chatOpenAIResponses(
 
       for await (const event of stream) {
         const typedEvent = event as ResponsesStreamEvent;
+        if(limits?.retainCompletedResponse){
+          if(hasTerminal())throw new StreamProtocolError('Responses data followed terminal proof; its reservation remains charged.');
+          const snapshot=(event as {response?:{usage?:{input_tokens:number;output_tokens:number}}}).response;
+          if(snapshot?.usage){assertUsagePair(snapshot.usage,'input_tokens','output_tokens',observedUsage);observedUsage={inputTokens:snapshot.usage.input_tokens,outputTokens:snapshot.usage.output_tokens};}
+          if(isCompletedEvent(typedEvent))assertResponsesTerminalResponse(typedEvent.response,typedEvent.type.slice('response.'.length));
+        }
         if (isTextDeltaEvent(typedEvent)) {
           content += typedEvent.delta;
           onToken(typedEvent.delta);
-        } else if (isOutputItemDoneEvent(typedEvent) && isFunctionCallOutput(typedEvent.item as ResponsesOutputItem)) {
+        } else if (!limits?.retainCompletedResponse && isOutputItemDoneEvent(typedEvent) && isFunctionCallOutput(typedEvent.item as ResponsesOutputItem)) {
           outputItems.push(typedEvent.item as ResponsesFunctionCallOutput);
         } else if (isCompletedEvent(typedEvent)) {
           const response = typedEvent.response;
+          if (limits?.retainCompletedResponse) terminalOutput = structuredClone(response.output);
           if (response?.usage) {
             usageSeen = typeof response.usage.input_tokens === 'number' && typeof response.usage.output_tokens === 'number';
             inputTokens = response.usage.input_tokens || 0;
@@ -424,12 +450,15 @@ async function chatOpenAIResponses(
       }
 
       throwIfCancelled(signal);
-      return {
-        content,
-        ...responsesToolFrame(outputItems, terminalStatus),
-        usage: usageSeen ? { inputTokens, outputTokens } : undefined,
-      };
+      if (limits?.retainCompletedResponse && !hasTerminal()) throw new StreamProtocolError('OpenAI Responses stream ended without terminal proof; its reservation remains charged.');
+      framing?.assertBoundary();
+      return normalized();
     } catch (streamError) {
+      if (limits?.retainCompletedResponse && streamError instanceof StreamProtocolError) throw streamError;
+      if (limits?.retainCompletedResponse) framing?.assertInterruptionBoundary();
+      if (limits?.retainCompletedResponse && hasTerminal())
+        interruptCompletedResponse(normalized(), streamError);
+      if (limits?.retainCompletedResponse) throwUnverifiedStreamFailure(streamError);
       throwIfCancelled(signal);
       if (isCancellation(streamError)) throw streamError;
       // Keep diagnostics out of assistant tokens; shared retry handling owns errors.
@@ -451,11 +480,13 @@ async function chatOpenAIResponses(
     createParams as Parameters<typeof client.responses.create>[0], signal ? { signal } : undefined
   ) as unknown as ResponsesAPIResponse;
 
+  if (limits?.retainCompletedResponse) assertResponsesTerminalResponse(response);
+
   // Extract content and tool calls from response
-  let content = response.output_text || '';
+  let content = limits?.retainCompletedResponse ? responsesOutputText(response.output) : response.output_text || '';
   return {
     content,
-    ...responsesToolFrame(response.output, response.status),
+    ...responsesToolFrame(response.output, response.status, limits?.retainCompletedResponse),
     usage: response.usage ? {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
@@ -482,7 +513,8 @@ export async function chatOpenAI(
   const apiKey = config.getApiKey('openai');
   if (!apiKey) throw new Error('OpenAI API key not configured');
 
-  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
+  const framing = limits?.retainCompletedResponse && onToken ? new StreamFramingWitness() : undefined;
+  const client = new OpenAI({ apiKey, baseURL: config.getBaseUrl('openai'), ...(framing ? { fetch: framing.fetch } : {}), ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const openaiMessages = toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
@@ -498,6 +530,53 @@ export async function chatOpenAI(
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
     let usage: LLMResponse['usage'];
 
+    let completed = false;
+    const normalized = (): LLMResponse => {
+      // Convert tool call deltas to tool calls
+      let truncatedToolCalls = false;
+      const toolCalls: ToolCall[] = [];
+      for (const tc of Object.values(toolCallDeltas)) {
+        const capturedArgs = limits?.retainCompletedResponse ? parseCapturedToolArguments(tc.arguments, finishReason === 'length') : undefined;
+        if (!tc.id || !tc.name) {
+          if (limits?.retainCompletedResponse && finishReason !== 'length') throw new StreamProtocolError('Incomplete provider tool identity; its reservation remains charged.');
+          if (limits?.retainCompletedResponse) truncatedToolCalls = true;
+          continue;
+        }
+        if (finishReason === 'length' && !tc.arguments.trim()) {
+          truncatedToolCalls = true;
+          continue;
+        }
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          if (limits?.retainCompletedResponse) {
+            const parsed = capturedArgs;
+            if (parsed === undefined) { truncatedToolCalls = true; continue; }
+            parsedArgs = parsed;
+          } else parsedArgs = JSON.parse(tc.arguments || '{}');
+        } catch (error) {
+          if (limits?.retainCompletedResponse && error instanceof StreamProtocolError) throw error;
+          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          // Output limit cut the arguments short: drop the call and flag it (#487).
+          if (finishReason === 'length') {
+            truncatedToolCalls = true;
+            continue;
+          }
+          if (limits?.retainCompletedResponse) throw new StreamProtocolError('Malformed provider tool arguments; its reservation remains charged.');
+        }
+        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
+      }
+
+      finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
+        usage,
+        warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
+      };
+    };
     try {
       const stream = await client.chat.completions.create({
         model,
@@ -510,6 +589,8 @@ export async function chatOpenAI(
       }, signal ? { signal } : undefined);
 
       for await (const chunk of stream) {
+        if (limits?.retainCompletedResponse) assertChatStreamChunk(chunk, usage);
+        if(limits?.retainCompletedResponse && completed && chunk.choices?.length) throw new StreamProtocolError('Chat data followed terminal proof; its reservation remains charged.');
         if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
@@ -525,6 +606,7 @@ export async function chatOpenAI(
         const toolCallDelta = choice.delta?.tool_calls;
         if (toolCallDelta) {
           for (const tc of toolCallDelta) {
+            if (limits?.retainCompletedResponse) assertChatToolIdentity(tc.index, tc, toolCallDeltas);
             if (!toolCallDeltas[tc.index]) {
               toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
             }
@@ -536,45 +618,19 @@ export async function chatOpenAI(
         }
 
         // Track finish reason
-        if (choice.finish_reason) finishReason = normalizeFinishReason(choice.finish_reason);
+        if (choice.finish_reason) { finishReason = normalizeFinishReason(choice.finish_reason); completed = true; }
       }
 
       // The SDK's async iterator can end normally after an abort.
       throwIfCancelled(signal);
-      // Convert tool call deltas to tool calls
-      let truncatedToolCalls = false;
-      const toolCalls: ToolCall[] = [];
-      for (const tc of Object.values(toolCallDeltas)) {
-        if (!tc.id || !tc.name) continue;
-        if (finishReason === 'length' && !tc.arguments.trim()) {
-          truncatedToolCalls = true;
-          continue;
-        }
-        let parsedArgs: Record<string, unknown> = {};
-        try {
-          parsedArgs = JSON.parse(tc.arguments || '{}');
-        } catch {
-          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
-          // Output limit cut the arguments short: drop the call and flag it (#487).
-          if (finishReason === 'length') {
-            truncatedToolCalls = true;
-            continue;
-          }
-        }
-        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
-      }
-
-      finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
-
-      return {
-        content,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        finishReason,
-        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
-        usage,
-        warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
-      };
+      if (limits?.retainCompletedResponse && !completed) throw new StreamProtocolError('OpenAI Chat stream ended without terminal proof; its reservation remains charged.');
+      framing?.assertBoundary();
+      return normalized();
     } catch (streamError) {
+      if (limits?.retainCompletedResponse && streamError instanceof StreamProtocolError) throw streamError;
+      if (limits?.retainCompletedResponse) framing?.assertInterruptionBoundary();
+      if (limits?.retainCompletedResponse && completed) interruptCompletedResponse(normalized(), streamError);
+      if (limits?.retainCompletedResponse) throwUnverifiedStreamFailure(streamError);
       throwIfCancelled(signal);
       if (isCancellation(streamError)) throw streamError;
       // Keep diagnostics out of assistant tokens; shared retry handling owns errors.
@@ -591,6 +647,8 @@ export async function chatOpenAI(
     tools: openaiTools.length > 0 ? openaiTools : undefined,
     max_completion_tokens: dynamicMaxTokens,
   }, signal ? { signal } : undefined);
+
+  if (limits?.retainCompletedResponse) assertChatTerminalResponse(response);
 
   if (!response.choices || response.choices.length === 0) {
     throw new Error('Empty response from OpenAI API');

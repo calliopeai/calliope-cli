@@ -1,8 +1,12 @@
+import { assertGoogleChunk } from './stream-validation.js';
+import { StreamFramingWitness } from './stream-framing.js';
 /**
  * Google Gemini Provider
  */
 
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, FinishReason } from '@google/genai';
+import { interruptCompletedResponse, throwUnverifiedStreamFailure } from './response-retention.js';
+import { StreamProtocolError } from '../errors.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
@@ -242,7 +246,8 @@ async function chatGoogleGenAI(
 
   const baseUrl = config.getBaseUrl('google')?.replace(/\/v1beta\/?$/, '');
   // SDK 3 defaults to v1; discovery and the qualified endpoint contract use v1beta.
-  const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta', ...(baseUrl ? { baseUrl } : {}), ...(limits?.bounded ? { retryOptions: { attempts: 1 } } : {}) } });
+  const framing = limits?.retainCompletedResponse && onToken ? new StreamFramingWitness() : undefined;
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { apiVersion: 'v1beta', ...(framing ? { fetch: framing.fetch } : {}), ...(baseUrl ? { baseUrl } : {}), ...(limits?.bounded ? { retryOptions: { attempts: 1 } } : {}) } });
   const systemInstruction = messages.filter(m => m.role === 'system').map(m => getTextContent(m.content)).join('\n\n');
   const contents = messages.filter(m => m.role !== 'system').map(m => {
     if (m.role === 'tool') {
@@ -273,41 +278,69 @@ async function chatGoogleGenAI(
   let inputTokens = 0;
   let outputTokens = 0;
   let usageSeen = false;
+  let candidateTokens = 0, thoughtTokens = 0;
+  let terminalReason: string | undefined;
+  const knownReasons=new Set<string>(Object.values(FinishReason));
   let finishReason: LLMResponse['finishReason'] = 'stop';
+  let completed = false;
+  const normalized = (): LLMResponse => ({
+    content, toolCalls: toolCalls.length ? toolCalls : undefined,
+    finishReason: normalizeFinishReason(finishReason, toolCalls.length > 0),
+    usage: (limits?.bounded ? usageSeen : (inputTokens || outputTokens)) ? { inputTokens, outputTokens } : undefined,
+  });
+  const terminal = (chunk: any): boolean => (chunk.candidates || []).some((candidate: any) =>
+    typeof candidate.finishReason === 'string' && !!candidate.finishReason && candidate.finishReason !== 'FINISH_REASON_UNSPECIFIED');
   const consume = (chunk: any) => {
+    if(limits?.retainCompletedResponse)assertGoogleChunk(chunk,knownReasons,{inputTokens,candidateTokens,thoughtTokens});
     const candidates = chunk.candidates || [];
+    if(limits?.retainCompletedResponse && (candidates.length>1 || completed && candidates.some((candidate:any)=>
+      candidate.content?.parts?.some((part:any)=>part.text || part.functionCall) ||
+      candidate.finishReason && candidate.finishReason!=='FINISH_REASON_UNSPECIFIED' && candidate.finishReason!==terminalReason)))
+      throw new StreamProtocolError('Google data followed or contradicted terminal proof; its reservation remains charged.');
     for (const candidate of candidates) {
-      if (candidate.finishReason) finishReason = normalizeFinishReason(candidate.finishReason);
+      if (candidate.finishReason && candidate.finishReason!=='FINISH_REASON_UNSPECIFIED') { finishReason = normalizeFinishReason(candidate.finishReason); terminalReason=candidate.finishReason; }
       for (const part of candidate.content?.parts || []) {
         if (part.text) { content += part.text; onToken?.(part.text); }
         if (part.functionCall) toolCalls.push({ id: `gemini_${Date.now()}_${Math.random().toString(36).slice(2)}`, name: part.functionCall.name, arguments: part.functionCall.args || {} });
       }
     }
     if (chunk.usageMetadata) {
-      usageSeen = typeof chunk.usageMetadata.promptTokenCount === 'number' && typeof chunk.usageMetadata.candidatesTokenCount === 'number';
-      inputTokens = chunk.usageMetadata.promptTokenCount || 0;
-      outputTokens = (chunk.usageMetadata.candidatesTokenCount || 0) + (chunk.usageMetadata.thoughtsTokenCount || 0);
+      usageSeen = typeof chunk.usageMetadata.promptTokenCount === 'number' && typeof chunk.usageMetadata.candidatesTokenCount === 'number' && (!thoughtTokens || typeof chunk.usageMetadata.thoughtsTokenCount === 'number');
+      if(typeof chunk.usageMetadata.promptTokenCount==='number')inputTokens=chunk.usageMetadata.promptTokenCount;
+      if(typeof chunk.usageMetadata.candidatesTokenCount==='number')candidateTokens=chunk.usageMetadata.candidatesTokenCount;
+      if(typeof chunk.usageMetadata.thoughtsTokenCount==='number')thoughtTokens=chunk.usageMetadata.thoughtsTokenCount;
+      outputTokens=candidateTokens+thoughtTokens;
+      if(limits?.retainCompletedResponse&&!Number.isSafeInteger(outputTokens))throw new StreamProtocolError('Invalid Google total usage; its reservation remains charged.');
     }
+    if (terminal(chunk)) completed = true;
   };
   try {
     if (onToken) {
       const stream = await ai.models.generateContentStream(request);
-      for await (const chunk of stream) { throwIfCancelled(signal); consume(chunk); }
+      for await (const chunk of stream) {
+        if(limits?.retainCompletedResponse)assertGoogleChunk(chunk,knownReasons,{inputTokens,candidateTokens,thoughtTokens});
+        if (!(limits?.retainCompletedResponse && (completed || terminal(chunk)))) throwIfCancelled(signal);
+        consume(chunk);
+      }
     } else {
-      consume(await ai.models.generateContent(request));
+      const value=await ai.models.generateContent(request);
+      if(limits?.retainCompletedResponse)assertGoogleChunk(value,knownReasons,undefined,true);
+      consume(value);
+      completed = true;
     }
+    throwIfCancelled(signal);
+    if (limits?.retainCompletedResponse && !completed) throw new StreamProtocolError('Google stream ended without terminal proof; its reservation remains charged.');
   } catch (error) {
+    if (limits?.retainCompletedResponse && error instanceof StreamProtocolError) throw error;
+    if (limits?.retainCompletedResponse) framing?.assertInterruptionBoundary();
+    if (limits?.retainCompletedResponse && completed) interruptCompletedResponse(normalized(), error);
+    if (limits?.retainCompletedResponse) throwUnverifiedStreamFailure(error);
     throwIfCancelled(signal);
     if (isCancellation(error)) throw error;
     throw error;
   }
-  throwIfCancelled(signal);
-  return {
-    content,
-    toolCalls: toolCalls.length ? toolCalls : undefined,
-    finishReason: normalizeFinishReason(finishReason, toolCalls.length > 0),
-    usage: (limits?.bounded ? usageSeen : (inputTokens || outputTokens)) ? { inputTokens, outputTokens } : undefined,
-  };
+  framing?.assertBoundary();
+  return normalized();
 }
 
 /**

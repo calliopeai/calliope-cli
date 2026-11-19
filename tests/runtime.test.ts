@@ -21,7 +21,7 @@ import * as config from '../src/config.js';
 import { RunLog, readRunLog, runLogPath, verifyChain } from '../src/runlog.js';
 import { CancellationError } from '../src/cancellation.js';
 import { StreamInterruptedError, StreamProtocolError, ProviderRefusalError } from '../src/errors.js';
-import { readToolOutputs } from '../src/sessions/index.js';
+import { validateTurnRuntimeState, type TurnRuntimeState, readToolOutputs } from '../src/sessions/index.js';
 import { clearModelCache } from '../src/model-detection.js';
 import * as storage from '../src/storage.js';
 import * as hooks from '../src/hooks.js';
@@ -1011,4 +1011,134 @@ it('does not present a budget-exceeded response when its usage callback cancels 
   expect(onResponse).not.toHaveBeenCalled();
   expect(chatMock).toHaveBeenCalledOnce();
   expect(executeMock).not.toHaveBeenCalled();
+});
+
+
+describe('explicit v2 execution phase capture', () => {
+  it('retains every active parallel tool and clears only each settled tool', async () => {
+    writeFileSync(join(root, 'other.txt'), 'independent');
+    chatMock.mockResolvedValueOnce(response(tool('read_file', 'first'), tool('read_file', 'second', { path: 'other.txt' }))).mockResolvedValueOnce(text());
+    let releaseFirst!: () => void, releaseSecond!: () => void, bothStarted!: () => void, firstSettled!: () => void;
+    const first = new Promise<void>(resolve => { releaseFirst = resolve; });
+    const second = new Promise<void>(resolve => { releaseSecond = resolve; });
+    const started = new Promise<void>(resolve => { bothStarted = resolve; });
+    const settled = new Promise<void>(resolve => { firstSettled = resolve; });
+    executeMock.mockImplementation(async (call: ToolCall) => {
+      if (call.id === 'first') await first;
+      else { bothStarted(); await second; }
+      return { toolCallId: call.id, result: 'recorded' };
+    });
+    const captures: TurnRuntimeState[] = [];
+    const running = runTurn(options({ parallel: true, retainRuntimeState: true, runtimeStateVersion: 2,
+      onCheckpoint: (_messages, _status, _progress, state) => {
+        validateTurnRuntimeState(state); captures.push(structuredClone(state));
+        if (state.version === 2 && state.execution.phase === 'tools_pending' &&
+            state.execution.activeEffects.length === 1 && state.execution.activeEffects[0]!.id === 'second') firstSettled();
+      } }));
+    const premature = running.then(() => { throw new Error('Turn completed before both tools settled'); });
+    await Promise.race([started, premature]);
+    expect(captures.at(-1)).toMatchObject({ version: 2, execution: { phase: 'tools_pending',
+      activeEffects: [{ kind: 'tool', id: 'first' }, { kind: 'tool', id: 'second' }] } });
+    releaseFirst(); await Promise.race([settled, premature]);
+    expect(captures.at(-1)).toMatchObject({ execution: { activeEffects: [{ kind: 'tool', id: 'second' }] } });
+    releaseSecond(); expect((await running).reason).toBe('completed');
+    await premature.catch(() => {});
+    expect(captures.at(-1)).toMatchObject({ execution: { phase: 'ready', activeEffects: [] } });
+    expect(executeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains the recorded response phase when its host acknowledgment is lost', async () => {
+    chatMock.mockResolvedValue(text('original response'));
+    let saved: TurnRuntimeState | undefined;
+    await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2,
+      onCheckpoint: (_messages, _status, _progress, state) => { validateTurnRuntimeState(state); saved = structuredClone(state); },
+      onRuntimeStateCommitted: async state => {
+        if (state.version === 2 && state.execution.phase === 'response_recorded') throw new Error('Host acknowledgment lost');
+      } }))).rejects.toThrow('Host acknowledgment lost');
+    expect(saved).toMatchObject({ version: 2, execution: { phase: 'response_recorded', activeEffects: [] } });
+    expect(chatMock).toHaveBeenCalledTimes(1); expect(executeMock).not.toHaveBeenCalled();
+  });
+});
+
+
+it.each(['text', 'tools'] as const)('holds unresolved v2 tool-result work instead of retrying into another %s response', async next => {
+  chatMock.mockResolvedValueOnce(response(tool('read_file', 'original')))
+    .mockResolvedValueOnce(next === 'text' ? text('do not request this') : response(tool('read_file', 'another')));
+  executeMock.mockResolvedValue({ result: 'already recorded' });
+  let saved: TurnRuntimeState | undefined;
+  const retry = vi.fn(() => 'retry' as const);
+  await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2, maxIterations: 2, onError: retry,
+    onCheckpoint: (_messages, _status, _progress, state) => { validateTurnRuntimeState(state); saved = structuredClone(state); },
+    onToolResult: call => { if (call.id === 'original') throw new Error('lost tool-result callback'); } }))).rejects.toThrow('lost tool-result callback');
+  expect(chatMock).toHaveBeenCalledTimes(1); expect(executeMock).toHaveBeenCalledTimes(1); expect(retry).not.toHaveBeenCalled();
+  expect(saved).toMatchObject({ execution: { phase: 'tools_pending', activeEffects: [{ kind: 'tool', id: 'original' }] } });
+});
+
+it('holds a v2 tool invocation when its start callback fails before dispatch', async () => {
+  chatMock.mockResolvedValueOnce(response(tool('read_file', 'original')));
+  let saved: TurnRuntimeState | undefined;
+  const retry = vi.fn(() => 'retry' as const);
+  await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2, maxIterations: 2, onError: retry,
+    onCheckpoint: (_messages, _status, _progress, state) => { validateTurnRuntimeState(state); saved = structuredClone(state); },
+    onToolStart: () => { throw new Error('lost tool-start callback'); } }))).rejects.toThrow('lost tool-start callback');
+  expect(chatMock).toHaveBeenCalledTimes(1); expect(executeMock).not.toHaveBeenCalled(); expect(retry).not.toHaveBeenCalled();
+  expect(saved).toMatchObject({ execution: { phase: 'tools_pending', activeEffects: [{ kind: 'tool', id: 'original' }] } });
+});
+
+it.each(['provider', 'heuristic'] as const)('records installed %s compression before a failing presentation callback', async method => {
+  chatMock.mockResolvedValueOnce(text('retained context'));
+  const retry = vi.fn(() => 'retry' as const);
+  let latest: { messages: Message[]; state: TurnRuntimeState } | undefined;
+  vi.spyOn(compressor, 'autoCompress').mockImplementationOnce(async (messages, _limit, _provider, _model, _signal, request) => {
+    const content = method === 'provider' ? (await request!(messages, 'summary-model')).content : 'retained context';
+    return { compressed: true, method: method === 'provider' ? 'llm' : 'heuristic',
+      messages: [{ role: 'user', content }], originalTokens: 1000, compressedTokens: 10, summarizedCount: 8 };
+  });
+  await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2, maxIterations: 2, onError: retry,
+    onCheckpoint: (messages, _status, _progress, state) => { validateTurnRuntimeState(state); latest = { messages: structuredClone(messages), state: structuredClone(state) }; },
+    onCompression: () => {
+      expect(latest).toMatchObject({ messages: [{ role: 'user', content: 'retained context' }],
+        state: { execution: { phase: 'context_recorded', activeEffects: [] } } });
+      throw new Error('compression presentation interrupted');
+    } }))).rejects.toThrow('Runtime onCompression callback failed');
+  expect(latest?.state).toMatchObject({ execution: { phase: 'context_recorded', activeEffects: [] } });
+  expect(chatMock).toHaveBeenCalledTimes(method === 'provider' ? 1 : 0);
+  expect(retry).not.toHaveBeenCalled();
+});
+
+
+it.each(['text', 'tools', 'cancelled'] as const)('settles v2 retry permission refusal before %s continuation', async next => {
+  let outcomeReported = false, settledBeforeInference = false;
+  let saved: TurnRuntimeState | undefined;
+  chatMock.mockResolvedValueOnce(response(tool('web_search', 'original', { query: 'fixture' })))
+    .mockImplementationOnce(async () => {
+      expect(settledBeforeInference).toBe(true);
+      return next === 'tools' ? response(tool('read_file', 'next')) : text();
+    }).mockResolvedValueOnce(text());
+  executeMock.mockResolvedValueOnce({ result: 'network timeout', isError: true }).mockResolvedValue({ result: 'recorded' });
+  const approve = vi.fn(async () => next === 'cancelled' ? 'cancelled' as const : 'deny' as const);
+  const opts = options({ retainRuntimeState: true, runtimeStateVersion: 2, maxRetries: 1, approve,
+    onToolRetry: () => { opts.confirmation = 'interactive'; },
+    onToolResult: call => { if (call.id === 'original') outcomeReported = true; },
+    onCheckpoint: (_messages, _status, _progress, state) => {
+      validateTurnRuntimeState(state); saved = structuredClone(state);
+      if (outcomeReported && state.version === 2 && state.execution.phase === 'ready' && !state.execution.activeEffects.length) settledBeforeInference = true;
+    } });
+  const result = await runTurn(opts);
+  expect(result.reason).toBe(next === 'cancelled' ? 'cancelled' : 'completed');
+  expect(approve).toHaveBeenCalledTimes(1);
+  expect(chatMock).toHaveBeenCalledTimes(next === 'cancelled' ? 1 : next === 'tools' ? 3 : 2);
+  expect(executeMock).toHaveBeenCalledTimes(next === 'tools' ? 2 : 1);
+  expect(saved).toMatchObject({ execution: { phase: 'ready', activeEffects: [] } });
+});
+
+it.each([false,true])('stops malformed-tool correction when warning acknowledgement fails (async=%s)',async asynchronous=>{
+ chatMock.mockResolvedValueOnce({...text(''),finishReason:'error',errorCode:'invalid_tool_arguments'});
+ const retry=vi.fn(()=>'retry' as const);let warnings=0;
+ const fail=()=>{throw new Error('Synthetic warning failure');};
+ await expect(runTurn(options({retainRuntimeState:true,runtimeStateVersion:2,continueOnLength:true,maxIterations:3,onError:retry,
+   onCheckpoint:(_messages,_status,_progress,state)=>{validateTurnRuntimeState(state);},
+   onWarning:message=>{if(message.startsWith('Requesting corrected tool arguments')){warnings++;if(asynchronous)return Promise.resolve().then(fail);fail();}},
+ }))).rejects.toThrow('Runtime onWarning callback failed');
+ expect(warnings).toBe(1);expect(chatMock).toHaveBeenCalledTimes(1);expect(executeMock).not.toHaveBeenCalled();expect(retry).not.toHaveBeenCalled();
 });

@@ -641,7 +641,7 @@ describe('chatOllama', () => {
       );
 
       expect(result.toolCalls).toHaveLength(1);
-      expect(result.toolCalls![0].id).toMatch(/^call_\d+_0$/);
+      expect(result.toolCalls![0].id).toMatch(/^call_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     });
 
     it('handles multiple tool calls', async () => {

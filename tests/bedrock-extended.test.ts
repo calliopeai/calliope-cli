@@ -17,6 +17,7 @@
  * - hasAWSCredentials: returns false when no files exist
  */
 
+import { crc32 } from 'node:zlib';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'path';
 import * as os from 'os';
@@ -80,10 +81,10 @@ function buildRawEventFrame(headerBuf: Buffer, payload: string): Buffer {
   const frame = Buffer.alloc(totalLength);
   frame.writeUInt32BE(totalLength, 0);
   frame.writeUInt32BE(headerBuf.length, 4);
-  frame.writeUInt32BE(0, 8); // prelude CRC (skipped)
+  frame.writeUInt32BE(crc32(frame.subarray(0, 8)), 8);
   headerBuf.copy(frame, 12);
   payloadBuf.copy(frame, 12 + headerBuf.length);
-  frame.writeUInt32BE(0, totalLength - 4); // message CRC (skipped)
+  frame.writeUInt32BE(crc32(frame.subarray(0, totalLength - 4)), totalLength - 4);
   return frame;
 }
 
