@@ -167,6 +167,47 @@ it('carries attribution and the host output cap through the delegated guard and 
   expect(admitted).toHaveLength(1);expect(admitted[0]!.reservation.attribution).toEqual(host.execution.attribution);
 });
 
+it('uses the supplied host transport for delegated negotiation and writes without changing attribution',async()=>{
+  await nativeStart();const host=await start(),tokenFile=join(root,'host-transport.token');
+  fs.writeFileSync(tokenFile,host.ownerToken,{mode:0o600});
+  const transport=vi.fn<typeof fetch>((input,init)=>fetch(input,init));
+  const execution=await connectDelegatedExecution(fixture.project,{url:host.url,tokenFile,agentId:'a',maxOutputTokens:100,fetch:transport});
+  expect(execution.maxOutputTokens).toBe(10);expect(execution.attribution).toEqual(host.execution.attribution);
+  const saved={...request(),attribution:execution.attribution};
+  await execution.ledger.reserve(fixture.project,execution.manifestHash,saved);
+  await execution.ledger.settle(fixture.project,execution.manifestHash,{requestId:saved.id,outcome:'success',usage:{inputTokens:5,outputTokens:1}});
+  const calls=transport.mock.calls.map(([url])=>String(url));
+  expect(calls.some(url=>url.endsWith('/v1/hello'))).toBe(true);
+  expect(calls.some(url=>url.endsWith('/v1/reserve'))).toBe(true);
+  expect(calls.some(url=>url.endsWith('/v1/settle'))).toBe(true);
+  expect(calls.every(url=>url.startsWith(host.url+'/v1/'))).toBe(true);
+  expect(fixture.authority.ledger.read(fixture.project).projection.requests[saved.id]!.state).toBe('settled');
+});
+
+it('refuses an invalid host transport before opening a token file or connecting',async()=>{
+  await expect(connectDelegatedExecution(fixture.project,{url:'http://not-contacted.invalid',tokenFile:join(root,'absent.token'),agentId:'a',fetch:42 as unknown as typeof fetch})).rejects.toMatchObject({code:'invalid'});
+});
+
+it('reconciles lost host-transport write acknowledgments under the original reservation',async()=>{
+  await nativeStart();const host=await start(),tokenFile=join(root,'lost-host-ack.token');
+  fs.writeFileSync(tokenFile,host.ownerToken,{mode:0o600});
+  const transport:typeof fetch=async(input,init)=>{
+    const response=await fetch(input,init);
+    if(String(input).endsWith('/v1/reserve'))throw new Error('Synthetic lost write acknowledgment');
+    return response;
+  };
+  const execution=await connectDelegatedExecution(fixture.project,{url:host.url,tokenFile,agentId:'a',fetch:transport});
+  const before=fixture.authority.ledger.read(fixture.project),saved={...request(),attribution:execution.attribution};
+  await execution.ledger.reserve(fixture.project,execution.manifestHash,saved);
+  const after=fixture.authority.ledger.read(fixture.project);
+  expect(Object.keys(after.projection.requests)).toEqual([saved.id]);
+  expect(after.projection.requests[saved.id]!.state).toBe('pending');
+  expect(after.manifest.deadline).toBe(before.manifest.deadline);
+  expect(after.manifest.costBudgetNanos).toBe(before.manifest.costBudgetNanos);
+  await execution.ledger.settle(fixture.project,execution.manifestHash,{requestId:saved.id,outcome:'error'});
+  expect(fixture.authority.ledger.read(fixture.project).projection.requests[saved.id]!.state).toBe('unknown');
+});
+
 it('serves task CLI metadata with a private token and refuses conflicting arguments',async()=>{
   await nativeStart();const file=join(root,'cli.token');
   const args=['serve-task','--run',fixture.view.run.id,'--task','inspect-a','--attempt','1','--max-output-tokens','10','--project',fixture.project,'--token-file',file];

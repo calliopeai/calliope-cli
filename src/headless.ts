@@ -58,6 +58,8 @@ export const HEADLESS_PROGRESS_PROTOCOL_VERSION = 1;
 export const HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION = 1;
 /** Explicit phase/effect capture only, without cold execution resume. */
 export const HEADLESS_EXECUTION_STATE_PROTOCOL_VERSION = 2;
+/** Host-supplied delegated-ledger I/O, preserving the original parent authority. */
+export const HEADLESS_LEDGER_TRANSPORT_PROTOCOL_VERSION = 1;
 
 export interface HeadlessRuntimeStateReceipt extends ControlCheckpoint {
   readonly sessionId: string;

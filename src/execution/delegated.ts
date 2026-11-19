@@ -13,9 +13,14 @@ export interface DelegatedExecutionOptions {
   tokenFile: string;
   agentId: string;
   maxOutputTokens?: number;
+  /** Trusted host transport; it does not change parent identity or allowance. */
+  fetch?: typeof fetch;
 }
 
 export async function connectDelegatedExecution(cwd: string, options: DelegatedExecutionOptions): Promise<AgentExecution> {
+  if (options.fetch !== undefined && typeof options.fetch !== 'function') {
+    throw new ExecutionLimitError('invalid', 'Delegated ledger transport must be a host function.');
+  }
   // Rotation at the same configured path must retain the verified history floor.
   mkdirSync(paths.root, { recursive: true, mode: 0o700 });
   const parent = join(realpathSync(paths.root), 'delegation-ledgers');
@@ -24,7 +29,8 @@ export async function connectDelegatedExecution(cwd: string, options: DelegatedE
   const stat = lstatSync(parent);
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.mode & 0o077) throw new Error('Delegation history directory is not private.');
   const root = join(parent, digest(canonicalJson({ project: projectIdentity(cwd), tokenFile: resolve(options.tokenFile), agentId: options.agentId })));
-  const ledger = await RemoteReservationLedger.connect({ url: options.url, token: readFileSync(options.tokenFile, 'utf8').trim(), root, execution: { cwd, agentId: options.agentId } });
+  const ledger = await RemoteReservationLedger.connect({ url: options.url, token: readFileSync(options.tokenFile, 'utf8').trim(), root, execution: { cwd, agentId: options.agentId },
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }) });
   const task=ledger.taskExecutionBinding;
   const execution = { ledger, manifestHash: ledger.read(cwd).projection.manifestHash, agentId: options.agentId,
     maxOutputTokens: task?Math.min(options.maxOutputTokens??4096,task.maxOutputTokens):options.maxOutputTokens??4096,...(task?{attribution:task.attribution}:{}) };

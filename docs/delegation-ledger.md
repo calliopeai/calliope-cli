@@ -143,6 +143,20 @@ The three flags go together, using separate flag/value arguments. Partial, repea
 unknown or equals-form ledger flags fail before execution; they never select an
 undelegated fallback.
 
+Programmatic headless hosts can supply `ledger.fetch`, a trusted function with
+the standard `fetch` signature. `HEADLESS_LEDGER_TRANSPORT_PROTOCOL_VERSION = 1`
+advertises this option from the SDK root. A host can use it to relay ledger
+requests through its own authenticated callback channel while keeping that
+channel's credentials outside the SDK process. Invalid transport values fail
+before connection; omitting the option preserves the default HTTP transport.
+
+The existing private token file, cache identity, parent history, task attribution,
+output cap, and reservation/settlement checks still apply. The adapter must
+preserve the parent's HTTP status and JSON body, including confirmed refusal
+versus unknown outcomes. An unavailable transport cannot authorize a fresh
+ledger or reset the original allowance. This option does not restore a terminated
+headless turn or grant replacement-worker authority.
+
 ## Operations
 
 `POST /v1/<op>` with `Authorization: Bearer <token>` and a JSON body.
