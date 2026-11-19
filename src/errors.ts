@@ -467,7 +467,7 @@ export async function withRetry<T>(
 
       // Notify about retry
       if (opts.onRetry) {
-        opts.onRetry(attempt, lastError, retryDelay);
+        await opts.onRetry(attempt, lastError, retryDelay);
       }
 
       await cancellableDelay(retryDelay, opts.signal);

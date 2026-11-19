@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { assertOllamaTerminalResponse, assertTerminalReason } from './stream-validation.js';
 /**
  * Native Ollama Provider
  *
@@ -14,6 +16,8 @@
 
 import { cancellable, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
+import { CompletedResponseInterruptedError, interruptCompletedResponse } from './response-retention.js';
+import { StreamProtocolError } from '../errors.js';
 import type { Message, Tool, LLMResponse, ToolCall } from '../types.js';
 import { normalizeFinishReason, debugLog, limitOutputTokens, type StreamCallback, type ChatOptions } from './types.js';
 import { getOllamaFallbackModel } from '../model-detection.js';
@@ -151,8 +155,8 @@ function toOllamaTools(tools: Tool[]): OllamaTool[] {
 function parseOllamaToolCalls(toolCalls?: OllamaToolCall[]): ToolCall[] {
   if (!toolCalls || toolCalls.length === 0) return [];
 
-  return toolCalls.map((tc, i) => ({
-    id: tc.id || `call_${Date.now()}_${i}`,
+  return toolCalls.map(tc => ({
+    id: tc.id || `call_${randomUUID()}`,
     name: tc.function.name,
     arguments: tc.function.arguments,
   }));
@@ -163,8 +167,14 @@ function parseOllamaToolCalls(toolCalls?: OllamaToolCall[]): ToolCall[] {
  * Handles XML-style: <function=name><parameter=key>value</parameter></function>
  * Handles JSON-style: {"name": "tool", "arguments": {...}}
  */
-function parseTextToolCalls(content: string): { toolCalls: ToolCall[]; cleanContent: string } {
+function parseTextToolCalls(content: string, capture = false, length = false): { toolCalls: ToolCall[]; cleanContent: string; truncatedToolCalls?: boolean } {
   const toolCalls: ToolCall[] = [];
+  let truncatedToolCalls = false;
+  const malformed = new Set<string>();
+  const invalid = () => {
+    if (!length) throw new StreamProtocolError('Invalid Ollama text tool arguments; its reservation remains charged.');
+    truncatedToolCalls = true;
+  };
 
   // Match XML-style: <function=name><parameter=key>value</parameter>...</function>
   const xmlPattern = /<function=(\w+)>([\s\S]*?)<\/function>/g;
@@ -175,17 +185,29 @@ function parseTextToolCalls(content: string): { toolCalls: ToolCall[]; cleanCont
     const name = match[1]!;
     const body = match[2]!;
     const args: Record<string, unknown> = {};
+    if (capture) {
+      const keys = new Set<string>();
+      let end = 0, valid = true, parameter;
+      paramPattern.lastIndex = 0;
+      while ((parameter = paramPattern.exec(body)) !== null) {
+        if (body.slice(end, parameter.index).trim() || keys.has(parameter[1]!) ||
+            /<\/?(?:parameter|function)(?:=|>)/.test(parameter[2]!)) valid = false;
+        keys.add(parameter[1]!);
+        end = paramPattern.lastIndex;
+      }
+      if (body.slice(end).trim()) valid = false;
+      if (!valid) { invalid(); malformed.add(match[0]); continue; }
+    }
 
     let paramMatch;
     paramPattern.lastIndex = 0;
     while ((paramMatch = paramPattern.exec(body)) !== null) {
       const value = paramMatch[2]!.trim();
       // Try to parse as JSON, fall back to string
-      try {
-        args[paramMatch[1]!] = JSON.parse(value);
-      } catch {
-        args[paramMatch[1]!] = value;
-      }
+      let parsed: unknown;
+      try { parsed = JSON.parse(value); } catch { parsed = value; }
+      if (capture) Object.defineProperty(args, paramMatch[1]!, { value: parsed, enumerable: true, writable: true, configurable: true });
+      else args[paramMatch[1]!] = parsed;
     }
 
     toolCalls.push({
@@ -196,9 +218,10 @@ function parseTextToolCalls(content: string): { toolCalls: ToolCall[]; cleanCont
   }
 
   // Strip matched XML tool calls from content
-  const cleanContent = content.replace(/<function=\w+>[\s\S]*?<\/function>/g, '').trim();
+  if (capture && content.replace(xmlPattern, '').includes('<function=')) invalid();
+  const cleanContent = content.replace(xmlPattern, value => malformed.has(value) ? value : '').trim();
 
-  return { toolCalls, cleanContent };
+  return { toolCalls, cleanContent, ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}) };
 }
 
 // ============================================================================
@@ -254,6 +277,7 @@ export async function chatOllama(
   try {
     return await doChat(baseUrl, model, ollamaMessages, ollamaTools, onToken, options?.format, options?.signal, options);
   } catch (error) {
+    if (error instanceof CompletedResponseInterruptedError) throw error;
     throwIfCancelled(options?.signal);
     if (options?.bounded) throw error;
     const errMsg = error instanceof Error ? error.message : String(error);
@@ -321,14 +345,15 @@ async function doChat(
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Ollama API error ${response.status}: ${errText}`);
+    throw Object.assign(new Error(`Ollama API error ${response.status}: ${errText}`), {status:response.status});
   }
 
   if (onToken) {
-    return streamResponse(response, onToken, limits?.bounded, signal);
+    return streamResponse(response, onToken, limits?.bounded, signal, limits?.retainCompletedResponse);
   }
 
   const data = await response.json() as OllamaChatResponse;
+  if (limits?.retainCompletedResponse) assertOllamaTerminalResponse(data);
   if (data.error) throw new Error(`Ollama API error: ${data.error}`);
 
   if (data.load_duration && data.load_duration > 10_000_000_000) {
@@ -338,9 +363,11 @@ async function doChat(
   let toolCalls = parseOllamaToolCalls(data.message?.tool_calls);
   let responseContent = data.message?.content || '';
 
+  let truncatedToolCalls = false;
   // Fallback: parse text-based tool calls if model output XML-style calls
   if (toolCalls.length === 0 && responseContent.includes('<function=')) {
-    const parsed = parseTextToolCalls(responseContent);
+    const parsed = parseTextToolCalls(responseContent, limits?.retainCompletedResponse, data.done_reason === 'length');
+    truncatedToolCalls = parsed.truncatedToolCalls ?? false;
     if (parsed.toolCalls.length > 0) {
       toolCalls = parsed.toolCalls;
       responseContent = parsed.cleanContent;
@@ -350,6 +377,7 @@ async function doChat(
 
   return {
     content: responseContent,
+    ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
     toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
     finishReason: normalizeFinishReason(data.done_reason, toolCalls.length > 0),
     usage: limits?.bounded && (typeof data.prompt_eval_count !== 'number' || typeof data.eval_count !== 'number') ? undefined : {
@@ -363,19 +391,44 @@ async function streamResponse(
   response: Response,
   onToken: StreamCallback,
   bounded = false,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  retainCompletedResponse = false
 ): Promise<LLMResponse> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error('No response body from Ollama');
 
-  const decoder = new TextDecoder();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let content = '';
   let allToolCalls: ToolCall[] = [];
   let promptTokens = 0;
   let completionTokens = 0;
   let finishReason: LLMResponse['finishReason'] = 'stop';
   let pending = '';
-  let receivedDone = false, usageSeen = false;
+  let receivedDone = false, usageSeen = false, truncatedToolCalls = false;
+
+  const normalized = (): LLMResponse => {
+    // Fallback: parse text-based tool calls from streamed content
+    if (allToolCalls.length === 0 && content.includes('<function=')) {
+      const parsed = parseTextToolCalls(content, retainCompletedResponse, finishReason === 'length');
+      truncatedToolCalls = parsed.truncatedToolCalls ?? false;
+      if (parsed.toolCalls.length > 0) {
+        allToolCalls = parsed.toolCalls;
+        content = parsed.cleanContent;
+        debugLog(`ollama: parsed ${allToolCalls.length} text-based tool call(s) from stream`);
+      }
+    }
+
+    return {
+      content,
+      ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
+      toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+      finishReason: normalizeFinishReason(finishReason, allToolCalls.length > 0),
+      usage: bounded && !usageSeen ? undefined : {
+        inputTokens: promptTokens,
+        outputTokens: completionTokens,
+      },
+    };
+  };
 
   try {
     while (true) {
@@ -390,9 +443,25 @@ async function streamResponse(
         try {
           chunk = JSON.parse(line);
         } catch {
-          throw new Error('Malformed JSON in Ollama response stream');
+          throw new StreamProtocolError('Malformed JSON in Ollama response stream');
         }
-        if (chunk.error) throw new Error(`Ollama stream error: ${chunk.error}`);
+        if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk))
+          throw new StreamProtocolError('Invalid Ollama stream event');
+        if ((chunk.done !== undefined && typeof chunk.done !== 'boolean') ||
+            (chunk.done_reason !== undefined && typeof chunk.done_reason !== 'string') ||
+            (chunk.message !== undefined && (!chunk.message || typeof chunk.message !== 'object' || Array.isArray(chunk.message) ||
+              (retainCompletedResponse && chunk.message.role !== undefined && chunk.message.role !== 'assistant') ||
+              (chunk.message.content !== undefined && typeof chunk.message.content !== 'string') ||
+              (chunk.message.tool_calls !== undefined && (!Array.isArray(chunk.message.tool_calls) ||
+                chunk.message.tool_calls.some(tc => !tc || typeof tc !== 'object' || Array.isArray(tc) ||
+                  (tc.id !== undefined && typeof tc.id !== 'string') ||
+                  !tc.function || typeof tc.function !== 'object' || Array.isArray(tc.function) ||
+                  typeof tc.function.name !== 'string' || !tc.function.arguments ||
+                  typeof tc.function.arguments !== 'object' || Array.isArray(tc.function.arguments)))))) ||
+            [chunk.prompt_eval_count, chunk.eval_count].some(value => value !== undefined && (!Number.isSafeInteger(value) || value < 0)))
+          throw new StreamProtocolError('Invalid Ollama stream event fields');
+        if (chunk.error) throw new StreamProtocolError(`Ollama stream error: ${chunk.error}`);
+        if(retainCompletedResponse&&receivedDone)throw new StreamProtocolError('Ollama data followed terminal proof; its reservation remains charged.');
 
         if (chunk.message?.content) {
           content += chunk.message.content;
@@ -405,6 +474,7 @@ async function streamResponse(
         }
 
         if (chunk.done) {
+          if (retainCompletedResponse) assertTerminalReason(chunk.done_reason, 'ollama');
           receivedDone = true;
           usageSeen = typeof chunk.prompt_eval_count === 'number' && typeof chunk.eval_count === 'number';
           finishReason = normalizeFinishReason(chunk.done_reason);
@@ -414,33 +484,28 @@ async function streamResponse(
       }
       if (done) break;
     }
+    throwIfCancelled(signal);
+    if (!receivedDone) {
+      if (retainCompletedResponse) throw new StreamProtocolError('Ollama stream ended before its completion frame; its reservation remains charged.');
+      throw new Error('Ollama stream ended before its completion frame');
+    }
+    return normalized();
+  } catch (error) {
+    if (retainCompletedResponse && error instanceof StreamProtocolError) throw error;
+    if (retainCompletedResponse) {
+      try {
+        if ((pending + decoder.decode()).trim()) throw new StreamProtocolError('Incomplete Ollama trailing frame; its reservation remains charged.');
+      } catch (decodeError) {
+        if (decodeError instanceof StreamProtocolError) throw decodeError;
+        throw new StreamProtocolError('Invalid Ollama trailing UTF-8 frame; its reservation remains charged.');
+      }
+    }
+    if (retainCompletedResponse && receivedDone) interruptCompletedResponse(normalized(), error);
+    throw error;
   } finally {
     await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
-
-  throwIfCancelled(signal);
-  if (!receivedDone) throw new Error('Ollama stream ended before its completion frame');
-
-  // Fallback: parse text-based tool calls from streamed content
-  if (allToolCalls.length === 0 && content.includes('<function=')) {
-    const parsed = parseTextToolCalls(content);
-    if (parsed.toolCalls.length > 0) {
-      allToolCalls = parsed.toolCalls;
-      content = parsed.cleanContent;
-      debugLog(`ollama: parsed ${allToolCalls.length} text-based tool call(s) from stream`);
-    }
-  }
-
-  return {
-    content,
-    toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
-    finishReason: normalizeFinishReason(finishReason, allToolCalls.length > 0),
-    usage: bounded && !usageSeen ? undefined : {
-      inputTokens: promptTokens,
-      outputTokens: completionTokens,
-    },
-  };
 }
 
 async function tryFallback(

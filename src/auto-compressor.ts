@@ -1,3 +1,4 @@
+import { ExecutionLimitError } from './execution/types.js';
 /**
  * Calliope CLI - LLM-Based Auto-Compression
  *
@@ -149,6 +150,7 @@ export async function llmSummarize(
     return null;
   } catch (error) {
     throwIfCancelled(signal);
+    if (error instanceof ExecutionLimitError) throw error;
     if (error instanceof Error && error.name === 'RuntimeBudgetExceeded') throw error;
     return null;
   }

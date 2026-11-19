@@ -1087,21 +1087,23 @@ it('holds a v2 tool invocation when its start callback fails before dispatch', a
 
 it.each(['provider', 'heuristic'] as const)('records installed %s compression before a failing presentation callback', async method => {
   chatMock.mockResolvedValueOnce(text('retained context'));
+  const retry = vi.fn(() => 'retry' as const);
   let latest: { messages: Message[]; state: TurnRuntimeState } | undefined;
   vi.spyOn(compressor, 'autoCompress').mockImplementationOnce(async (messages, _limit, _provider, _model, _signal, request) => {
     const content = method === 'provider' ? (await request!(messages, 'summary-model')).content : 'retained context';
     return { compressed: true, method: method === 'provider' ? 'llm' : 'heuristic',
       messages: [{ role: 'user', content }], originalTokens: 1000, compressedTokens: 10, summarizedCount: 8 };
   });
-  await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2,
+  await expect(runTurn(options({ retainRuntimeState: true, runtimeStateVersion: 2, maxIterations: 2, onError: retry,
     onCheckpoint: (messages, _status, _progress, state) => { validateTurnRuntimeState(state); latest = { messages: structuredClone(messages), state: structuredClone(state) }; },
     onCompression: () => {
       expect(latest).toMatchObject({ messages: [{ role: 'user', content: 'retained context' }],
         state: { execution: { phase: 'context_recorded', activeEffects: [] } } });
       throw new Error('compression presentation interrupted');
-    } }))).rejects.toThrow('compression presentation interrupted');
+    } }))).rejects.toThrow('Runtime onCompression callback failed');
   expect(latest?.state).toMatchObject({ execution: { phase: 'context_recorded', activeEffects: [] } });
   expect(chatMock).toHaveBeenCalledTimes(method === 'provider' ? 1 : 0);
+  expect(retry).not.toHaveBeenCalled();
 });
 
 
@@ -1128,4 +1130,15 @@ it.each(['text', 'tools', 'cancelled'] as const)('settles v2 retry permission re
   expect(chatMock).toHaveBeenCalledTimes(next === 'cancelled' ? 1 : next === 'tools' ? 3 : 2);
   expect(executeMock).toHaveBeenCalledTimes(next === 'tools' ? 2 : 1);
   expect(saved).toMatchObject({ execution: { phase: 'ready', activeEffects: [] } });
+});
+
+it.each([false,true])('stops malformed-tool correction when warning acknowledgement fails (async=%s)',async asynchronous=>{
+ chatMock.mockResolvedValueOnce({...text(''),finishReason:'error',errorCode:'invalid_tool_arguments'});
+ const retry=vi.fn(()=>'retry' as const);let warnings=0;
+ const fail=()=>{throw new Error('Synthetic warning failure');};
+ await expect(runTurn(options({retainRuntimeState:true,runtimeStateVersion:2,continueOnLength:true,maxIterations:3,onError:retry,
+   onCheckpoint:(_messages,_status,_progress,state)=>{validateTurnRuntimeState(state);},
+   onWarning:message=>{if(message.startsWith('Requesting corrected tool arguments')){warnings++;if(asynchronous)return Promise.resolve().then(fail);fail();}},
+ }))).rejects.toThrow('Runtime onWarning callback failed');
+ expect(warnings).toBe(1);expect(chatMock).toHaveBeenCalledTimes(1);expect(executeMock).not.toHaveBeenCalled();expect(retry).not.toHaveBeenCalled();
 });

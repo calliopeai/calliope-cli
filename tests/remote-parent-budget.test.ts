@@ -190,3 +190,42 @@ it('refuses new inference after a held remote task deadline and retains its unre
  expect(r.authority.ledger.read(r.project)).toEqual(before);expect(activeRemoteTasks(r.store.read().state)).toEqual([value]);
  await client.releaseTask(value);expect(activeRemoteTasks(r.store.read().state)).toEqual([]);
 });
+
+it.each(['upstream-unavailable', 'lost-chain-ack'] as const)('requires settlement-chain acknowledgment over two HTTP hops (%s)', async failure => {
+ const c=await child(link,false,100000);
+ const host=await prepareReviewedLedger(project,c.view.run.id,'coordinator',10,{store:runs});servers.push(host.server);
+ await new Promise<void>(resolve=>host.server.listen(0,'127.0.0.1',resolve));
+ const middleUrl=`http://127.0.0.1:${(host.server.address() as AddressInfo).port}`;
+ const upstream=servers[0]!,handlers=upstream.listeners('request');upstream.removeAllListeners('request');
+ let block=false,upstreamFailures=0,drop=false;
+ upstream.on('request',(request,result)=>{
+  if(block&&request.url==='/v1/settle'){
+   upstreamFailures++;request.resume();result.writeHead(503,{'content-type':'application/json'});
+   result.end(JSON.stringify({ok:false,code:'unavailable',message:'Synthetic upstream settlement unavailable'}));return;
+  }
+  for(const handler of handlers)handler.call(upstream,request,result);
+ });
+ const realFetch=globalThis.fetch;
+ const transport:typeof fetch=async(input,init)=>{
+  const result=await realFetch(input,init);
+  if(drop&&String(input)===middleUrl+'/v1/settle'){await result.text();throw new Error('Synthetic lost full-chain acknowledgment');}
+  return result;
+ };
+ const options={url:middleUrl,token:host.ownerToken,root:join(root,'two-hop-cache'),reviewed:host.reviewedContext,execution:{cwd:project,agentId:'coordinator'},fetch:transport};
+ const client=await RemoteReservationLedger.connect(options),value=request();await client.reserve(project,c.execution.manifestHash,value);
+ block=failure==='upstream-unavailable';drop=failure==='lost-chain-ack';
+ const settlement={requestId:value.id,outcome:'success' as const,usage:{inputTokens:4,outputTokens:1}};
+ await expect(client.settle(project,c.execution.manifestHash,settlement)).rejects.toMatchObject({code:'unavailable'});
+ const local=c.execution.ledger.read(project),parentId=parentRequestId(local.manifest,value.id);
+ expect(local.projection.requests[value.id]!.state).toBe('settled');expect(local.projection.spent.tokens).toBe(5);
+ expect(r.authority.ledger.read(r.project).projection.requests[parentId]!.state).toBe(failure==='upstream-unavailable'?'pending':'settled');
+ if(failure==='upstream-unavailable')expect(upstreamFailures).toBeGreaterThan(0);
+ // A readable funded local snapshot proves neither upstream completion nor receipt delivery.
+ await client.refresh();expect(client.read(project).projection.spent.tokens).toBe(5);
+ expect(local.manifest.tokenBudget-local.projection.spent.tokens).toBeGreaterThan(100);
+ block=false;drop=false;
+ const recovered=await RemoteReservationLedger.connect(options);
+ await recovered.settle(project,c.execution.manifestHash,settlement);
+ expect(r.authority.ledger.read(r.project).projection.requests[parentId]!.state).toBe('settled');
+ expect(c.execution.ledger.read(project).events.filter(event=>event.change.type==='settle')).toHaveLength(1);
+},20000);

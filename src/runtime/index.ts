@@ -3,6 +3,8 @@ export { HOST_TOOL_RUNTIME_PROTOCOL_VERSION } from './host-tools.js';
 export type { HostToolRuntime } from './host-tools.js';
 export * from './permissions.js';
 export * from './turn.js';
+export type { ProviderRequestPurpose, RuntimeProviderResponseCheckpoint } from './provider-checkpoint.js';
+export { PROVIDER_RESPONSE_CHECKPOINT_PROTOCOL_VERSION } from './provider-checkpoint.js';
 export * from './repair.js';
 export * from './tool-retry.js';
 export { RuntimeControl, CONTROL_CHECKPOINT_PROTOCOL_VERSION } from './control.js';

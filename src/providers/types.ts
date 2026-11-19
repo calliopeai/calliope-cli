@@ -44,7 +44,10 @@ export type StreamCallback = (token: string) => void;
 export type RetryCallback = (attempt: number, error: Error, delayMs: number) => void;
 
 export type ProviderPriceCeiling = Readonly<{ input: number; output: number }>;
-export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling; maxProviderRetries?: number }
+export interface AdapterLimits { reasoningEffort?: import('../models/index.js').ReasoningEffort; maxOutputTokens?: number; bounded?: boolean; inputCount?:import('../execution/billing.js').InputCount; priceCeiling?: ProviderPriceCeiling; maxProviderRetries?: number;
+  /** Shared dispatcher sets this only when an accounted response checkpoint is installed. */
+  retainCompletedResponse?: boolean;
+}
 export interface ProviderAttemptBudget {
   /** Conservative rates used by this native reservation, in USD per million tokens. */
   readonly billingRates?: Readonly<{ input: number; output: number }>;
@@ -64,8 +67,26 @@ export function limitOutputTokens(dynamic: number, maximum?: number): number {
  * Per-call options: cancellation across all providers, plus Ollama's optional
  * grammar-constrained `format` schema for tool-call repair (ignored elsewhere).
  */
+/** Provider facts only; this checkpoint never grants replacement execution. */
+export interface ProviderResponseCheckpoint {
+  readonly version: 1;
+  readonly reservationId: string;
+  readonly provider: LLMProvider;
+  readonly model: string;
+  readonly target: string;
+  readonly attempt: number;
+  readonly usageReported: boolean;
+  readonly response: Readonly<LLMResponse>;
+}
+
 export interface ChatOptions extends AdapterLimits {
   attemptBudget?: ProviderAttemptBudget;
+  /** Persist the adapter-normalized response before shared sanitization,
+   * cancellation, settlement or dependent effects.
+   * Requires native attempt accounting. A rejected acknowledgment prohibits retry.
+   * The detached response may arrive after cancellation; it grants no further execution.
+   */
+  onResponseReceived?: (checkpoint: ProviderResponseCheckpoint) => Promise<void>;
   /** Required to retry after visible partial output; append-only clients omit it. */
   onStreamReset?: () => void;
   onStreamEvent?: (event: import('./stream-attempt.js').StreamAttemptEvent) => void;
@@ -225,7 +246,7 @@ export function validateLLMResponse(response: LLMResponse): LLMResponse {
 /** Normalize terminal reasons before clients decide whether a turn completed. */
 export function normalizeFinishReason(reason: string | null | undefined, hasTools = false): LLMResponse['finishReason'] {
   const value = reason?.toLowerCase();
-  if (value && ['error', 'failed', 'refusal', 'content_filter', 'safety', 'recitation', 'blocklist', 'prohibited_content', 'spii', 'malformed_function_call', 'unexpected_tool_call', 'guardrail_intervened'].includes(value)) return 'error';
-  if (value && ['length', 'max_tokens', 'max_output_tokens', 'incomplete'].includes(value)) return 'length';
+  if (value && ['error', 'failed', 'refusal', 'content_filter', 'safety', 'recitation', 'blocklist', 'prohibited_content', 'spii', 'malformed_function_call', 'unexpected_tool_call', 'guardrail_intervened', 'content_filtered', 'malformed_model_output', 'malformed_tool_use'].includes(value)) return 'error';
+  if (value && ['length', 'max_tokens', 'max_output_tokens', 'incomplete', 'model_context_window_exceeded', 'pause_turn'].includes(value)) return 'length';
   return hasTools || value === 'tool_use' || value === 'tool_calls' ? 'tool_use' : 'stop';
 }

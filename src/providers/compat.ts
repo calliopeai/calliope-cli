@@ -1,3 +1,5 @@
+import { StreamFramingWitness } from './stream-framing.js';
+import { assertChatToolIdentity, parseCapturedToolArguments, assertChatStreamChunk, assertChatTerminalResponse } from './stream-validation.js';
 /**
  * OpenAI-Compatible Provider
  *
@@ -9,6 +11,8 @@ import OpenAI from 'openai';
 import type { ChatCompletionCreateParamsStreaming, ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParamsBase } from 'openai/resources/chat/completions.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
 import * as config from '../config.js';
+import { interruptCompletedResponse, throwUnverifiedStreamFailure } from './response-retention.js';
+import { StreamProtocolError } from '../errors.js';
 import type { Message, Tool, LLMResponse, LLMProvider, ToolCall } from '../types.js';
 import { normalizeFinishReason, calculateMaxTokens, debugLog, type StreamCallback, type AdapterLimits } from './types.js';
 import { toOpenAIMessages, toOpenAITools, parseOpenAIToolCalls } from './openai.js';
@@ -292,7 +296,8 @@ export async function chatOpenAICompatible(
   // Bind the active transport at request setup time. This keeps provider
   // calls observable and cancellable for embedded runtimes and test harnesses
   // that install a scoped fetch implementation after module initialization.
-  const client = new OpenAI({ apiKey, baseURL, fetch: globalThis.fetch, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
+  const framing = limits?.retainCompletedResponse && onToken ? new StreamFramingWitness() : undefined;
+  const client = new OpenAI({ apiKey, baseURL, fetch: framing?.fetch ?? globalThis.fetch, ...(limits?.bounded ? { maxRetries: 0 } : {}) });
   const openaiMessages = provider==='deepseek'?toDeepSeekMessages(messages):toOpenAIMessages(messages);
   const openaiTools = toOpenAITools(tools);
 
@@ -317,6 +322,54 @@ export async function chatOpenAICompatible(
     let finishReason: 'stop' | 'tool_use' | 'length' | 'error' = 'stop';
     let usage: LLMResponse['usage'];
 
+    let completed = false;
+    const normalized = (): LLMResponse => {
+      // Convert tool call deltas to tool calls
+      let truncatedToolCalls = false;
+      const toolCalls: ToolCall[] = [];
+      for (const tc of Object.values(toolCallDeltas)) {
+        const capturedArgs = limits?.retainCompletedResponse ? parseCapturedToolArguments(tc.arguments, finishReason === 'length') : undefined;
+        if (!tc.id || !tc.name) {
+          if (limits?.retainCompletedResponse && finishReason !== 'length') throw new StreamProtocolError('Incomplete provider tool identity; its reservation remains charged.');
+          if (limits?.retainCompletedResponse) truncatedToolCalls = true;
+          continue;
+        }
+        if (finishReason === 'length' && !tc.arguments.trim()) {
+          truncatedToolCalls = true;
+          continue;
+        }
+        let parsedArgs: Record<string, unknown> = {};
+        try {
+          if (limits?.retainCompletedResponse) {
+            const parsed = capturedArgs;
+            if (parsed === undefined) { truncatedToolCalls = true; continue; }
+            parsedArgs = parsed;
+          } else parsedArgs = JSON.parse(tc.arguments || '{}');
+        } catch (error) {
+          if (limits?.retainCompletedResponse && error instanceof StreamProtocolError) throw error;
+          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
+          // Output limit cut the arguments short: drop the call and flag it (#487).
+          if (finishReason === 'length') {
+            truncatedToolCalls = true;
+            continue;
+          }
+          if (limits?.retainCompletedResponse) throw new StreamProtocolError('Malformed provider tool arguments; its reservation remains charged.');
+        }
+        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
+      }
+
+      finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
+
+      return {
+        content,
+        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+        finishReason,
+        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
+        usage,
+        ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
+        warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
+      };
+    };
     try {
       let streamParams: ChatCompletionCreateParamsStreaming = {
         model,
@@ -331,6 +384,8 @@ export async function chatOpenAICompatible(
       const stream = await client.chat.completions.create(streamParams, signal ? { signal } : undefined);
 
       for await (const chunk of stream) {
+        if (limits?.retainCompletedResponse) assertChatStreamChunk(chunk, usage);
+        if(limits?.retainCompletedResponse && completed && chunk.choices?.length) throw new StreamProtocolError('Chat data followed terminal proof; its reservation remains charged.');
         if (chunk.usage) usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
         const choice = chunk.choices[0];
         if (!choice) continue;
@@ -347,6 +402,7 @@ export async function chatOpenAICompatible(
         const toolCallDelta = choice.delta?.tool_calls;
         if (toolCallDelta) {
           for (const tc of toolCallDelta) {
+            if (limits?.retainCompletedResponse) assertChatToolIdentity(tc.index, tc, toolCallDeltas);
             if (!toolCallDeltas[tc.index]) {
               toolCallDeltas[tc.index] = { id: '', name: '', arguments: '' };
             }
@@ -358,46 +414,19 @@ export async function chatOpenAICompatible(
         }
 
         // Track finish reason
-        if (choice.finish_reason) finishReason = normalizeFinishReason(choice.finish_reason);
+        if (choice.finish_reason) { finishReason = normalizeFinishReason(choice.finish_reason); completed = true; }
       }
 
       // The SDK's async iterator can end normally after an abort.
       throwIfCancelled(signal);
-      // Convert tool call deltas to tool calls
-      let truncatedToolCalls = false;
-      const toolCalls: ToolCall[] = [];
-      for (const tc of Object.values(toolCallDeltas)) {
-        if (!tc.id || !tc.name) continue;
-        if (finishReason === 'length' && !tc.arguments.trim()) {
-          truncatedToolCalls = true;
-          continue;
-        }
-        let parsedArgs: Record<string, unknown> = {};
-        try {
-          parsedArgs = JSON.parse(tc.arguments || '{}');
-        } catch {
-          debugLog(`Failed to parse streaming tool call arguments for ${tc.name}: ${tc.arguments?.substring(0, 200)}`);
-          // Output limit cut the arguments short: drop the call and flag it (#487).
-          if (finishReason === 'length') {
-            truncatedToolCalls = true;
-            continue;
-          }
-        }
-        toolCalls.push({ id: tc.id, name: tc.name, arguments: parsedArgs });
-      }
-
-      finishReason = normalizeFinishReason(finishReason, toolCalls.length > 0);
-
-      return {
-        content,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        finishReason,
-        ...(truncatedToolCalls ? { truncatedToolCalls: true } : {}),
-        usage,
-        ...(reasoningContent===undefined?{}:{providerMetadata:{deepseek:{version:1,reasoningContent}}}),
-        warnings: usage ? undefined : ['Streaming usage was not reported; token and cost totals are incomplete.'],
-      };
+      if (limits?.retainCompletedResponse && !completed) throw new StreamProtocolError('Compatible provider stream ended without terminal proof; its reservation remains charged.');
+      framing?.assertBoundary();
+      return normalized();
     } catch (streamError) {
+      if (limits?.retainCompletedResponse && streamError instanceof StreamProtocolError) throw streamError;
+      if (limits?.retainCompletedResponse) framing?.assertInterruptionBoundary();
+      if (limits?.retainCompletedResponse && completed) interruptCompletedResponse(normalized(), streamError);
+      if (limits?.retainCompletedResponse) throwUnverifiedStreamFailure(streamError);
       throwIfCancelled(signal);
       if (isCancellation(streamError)) throw streamError;
       // Keep diagnostics out of assistant tokens; shared retry handling owns errors.
@@ -443,6 +472,8 @@ export async function chatOpenAICompatible(
       throw error;
     }
   }
+
+  if (limits?.retainCompletedResponse) assertChatTerminalResponse(response);
 
   if (!response.choices || response.choices.length === 0) {
     throw new Error(`Empty response from ${provider} API`);

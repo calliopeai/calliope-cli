@@ -1,3 +1,4 @@
+import { assertResponseToolIdentities } from './stream-validation.js';
 import { chatGPTSelected, chatChatGPT, assertChatGPTLimits } from './chatgpt.js';
 /**
  * Provider Module - Entry Point
@@ -9,6 +10,7 @@ import * as config from '../config.js';
 import { withRetry, StreamProtocolError, ProviderRefusalError } from '../errors.js';
 import { ExecutionLimitError } from '../execution/types.js';
 import { StreamAttempt, MAX_STREAM_ATTEMPTS } from './stream-attempt.js';
+import { CompletedResponseInterruptedError, throwUnverifiedStreamFailure } from './response-retention.js';
 import type { Message, Tool, LLMResponse, LLMProvider } from '../types.js';
 import { DEFAULT_MODELS } from '../types.js';
 import { validateLLMResponse, type StreamCallback, type RetryCallback, type ChatOptions, type AdapterLimits } from './types.js';
@@ -56,11 +58,13 @@ function nativeBedrockConfigured(): boolean {
 
 let healthHistoryWarningShown = false;
 function healthHistoryWarning(warn?: (message: string) => void): void {
-  if (warn) warn('Provider health history is unavailable; run calliope doctor to inspect or restore it.');
-  else if (!healthHistoryWarningShown) {
-    healthHistoryWarningShown = true;
-    process.stderr.write('Provider health history is unavailable; run calliope doctor to inspect or restore it.\n');
-  }
+  try {
+    if (warn) warn('Provider health history is unavailable; run calliope doctor to inspect or restore it.');
+    else if (!healthHistoryWarningShown) {
+      healthHistoryWarningShown = true;
+      process.stderr.write('Provider health history is unavailable; run calliope doctor to inspect or restore it.\n');
+    }
+  } catch { /* Diagnostic presentation cannot change inference authority. */ }
 }
 function quarantined(provider: LLMProvider): boolean {
   try {
@@ -157,12 +161,18 @@ export async function chat(
   onRetry?: RetryCallback,
   options?: ChatOptions
 ): Promise<LLMResponse> {
+  options = options ? { ...options } : undefined;
+  const responseWriter = options?.onResponseReceived;
   throwIfCancelled(options?.signal);
+  if (responseWriter !== undefined &&
+      (typeof responseWriter !== 'function' || !options?.attemptBudget))
+    throw new ExecutionLimitError('invalid', 'Response checkpoints require native attempt accounting and a host callback.');
   const bounded = !!options?.attemptBudget || !!options?.bounded;
   const maxOutputTokens = options?.maxOutputTokens;
   if (maxOutputTokens !== undefined && (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 100000000) || bounded && maxOutputTokens === undefined)
     throw new ExecutionLimitError('invalid','A bounded provider call requires a positive integer output limit.');
-  const limits:AdapterLimits = { maxOutputTokens, bounded, reasoningEffort: options?.reasoningEffort };
+  const limits:AdapterLimits = { maxOutputTokens, bounded, reasoningEffort: options?.reasoningEffort,
+    ...(responseWriter ? { retainCompletedResponse: true } : {}) };
   const attemptBudget = options?.attemptBudget;
   const actualProvider = selectProvider(provider);
   const actualModel = model || DEFAULT_MODELS[actualProvider];
@@ -188,11 +198,13 @@ export async function chat(
       const automatic = options?.selectionMode === 'auto' || provider === 'auto';
       const message = `${actualProvider} is quarantined after ${quarantine.failures} failures (${quarantine.reason}) until ${quarantine.expiresAt}; ${automatic ? 'automatic inference stopped before dispatch' : 'honoring your explicit selection for a recovery attempt'}.`;
       if (automatic) quarantineHalt = message;
-      if (options?.onHealthWarning) {
-        if (automatic) options.onHealthWarning(message, true);
-        else options.onHealthWarning(message);
-      }
-      else process.stderr.write(message + '\n');
+      try {
+        if (options?.onHealthWarning) {
+          if (automatic) options.onHealthWarning(message, true);
+          else options.onHealthWarning(message);
+        }
+        else process.stderr.write(message + '\n');
+      } catch { /* Keep the independently decided quarantine outcome. */ }
     }
   } catch { healthHistoryWarning(options?.onHealthWarning); }
   if (quarantineHalt) throw new Error(quarantineHalt);
@@ -203,10 +215,12 @@ export async function chat(
   // seam for feature 1 — provider functions just serialize whatever they get.
   const backendTools = isLocalBackend(actualProvider) ? simplifyToolsForLocal(tools) : tools;
 
-  const doChat = async (onToken?: StreamCallback): Promise<LLMResponse> => {
+  const doChat = async (onToken?: StreamCallback, receive?: (response: LLMResponse) => Promise<void>, admittedTarget?: string): Promise<LLMResponse> => {
     throwIfCancelled(options?.signal);
+    if (attemptBudget && providerTarget(actualProvider as HealthProvider).key !== admittedTarget)
+      throw new ExecutionLimitError('authority', 'Provider endpoint changed before dispatch.');
     let response: LLMResponse;
-    switch (actualProvider) {
+    try { switch (actualProvider) {
       case 'anthropic':
         response = await chatAnthropic(messages, backendTools, actualModel, onToken, options?.signal, limits);
         break;
@@ -241,12 +255,26 @@ export async function chat(
           response = await chatOpenAICompatible(actualProvider, messages, backendTools, actualModel, onToken, options?.signal, limits);
         } else {
           // Native AWS mode
-          response = await chatBedrock(messages, backendTools, actualModel, onToken, options?.signal, maxOutputTokens);
+          response = await chatBedrock(messages, backendTools, actualModel, onToken, options?.signal, maxOutputTokens, limits.retainCompletedResponse);
         }
         break;
       }
       default:
         throw new Error(`Provider ${actualProvider} not implemented`);
+    } } catch (error) {
+      if (error instanceof CompletedResponseInterruptedError && receive) {
+        await receive(error.response);
+        throw new ExecutionLimitError('unavailable', 'Completed provider response was retained after interruption; no further request is authorized.');
+      }
+      if(receive && !(error instanceof ExecutionLimitError))throwUnverifiedStreamFailure(error);
+      throw error;
+    }
+    // A known response is retained before cancellation can discard it. The host
+    // checkpoint records facts, not permission to continue a cancelled turn.
+    if (receive) {
+      await receive(response);
+      throwIfCancelled(options?.signal);
+      return validateLLMResponse(response);
     }
     // Validate and sanitize response before returning
     throwIfCancelled(options?.signal);
@@ -256,6 +284,7 @@ export async function chat(
   // Wrap with retry logic
   let attempt = 0;
   let lastStream: StreamAttempt | undefined;
+  let lastAcknowledgements: (() => Promise<void>) | undefined;
   const observedChat = async (): Promise<LLMResponse> => {
     throwIfCancelled(options?.signal);
     const target = attemptBudget ? providerTarget(actualProvider as HealthProvider).key : undefined;
@@ -269,6 +298,9 @@ export async function chat(
         if(providerTarget(actualProvider as HealthProvider).key!==target)throw new ExecutionLimitError('authority','Provider endpoint changed during token counting.');
       }
       ticket = attemptBudget ? await attemptBudget.reserve({provider:actualProvider,model:actualModel,target:target!,maxOutputTokens:maxOutputTokens!,...(limits.inputCount?{inputCount:limits.inputCount}:{}),...(limits.priceCeiling?{priceCeiling:limits.priceCeiling}:{})}) : undefined;
+      if (responseWriter && (typeof ticket !== 'string' || !ticket ||
+          Buffer.byteLength(ticket) > 1024 || /[\x00-\x1f\x7f]/.test(ticket)))
+        throw new ExecutionLimitError('unavailable', 'Response checkpoint has no valid native reservation; no provider request was sent.');
     }
     catch (error) {
       throwIfCancelled(options?.signal);
@@ -283,8 +315,33 @@ export async function chat(
       catch (error) { if (error instanceof ExecutionLimitError) throw error; throw new ExecutionLimitError('unavailable','Provider outcome could not be committed; its reservation remains charged.'); }
     };
     const started = Date.now(), retryIndex = attempt++;
-    const stream = onToken ? new StreamAttempt(retryIndex + 1, onToken, options?.onStreamEvent, options?.signal) : undefined;
-    lastStream = stream;
+    let received: LLMResponse | undefined;
+    let responseCheckpointFailed = false;
+    let outputFailure: ExecutionLimitError | undefined;
+    let notificationFailure: ExecutionLimitError | undefined;
+    const acknowledgements = new Set<Promise<void>>();
+    const observeAcknowledgement = (notify: () => unknown, failed: () => void): void => {
+      let returned: unknown;
+      try { returned = notify(); } catch { failed(); return; }
+      // Attach rejection handling immediately; SDK stream callbacks remain synchronous.
+      const acknowledgement = Promise.resolve(returned).then(() => {}, () => { failed(); });
+      acknowledgements.add(acknowledgement);
+      void acknowledgement.then(() => { acknowledgements.delete(acknowledgement); });
+    };
+    const flushAcknowledgements = async (): Promise<void> => {
+      while (acknowledgements.size) await Promise.all([...acknowledgements]);
+    };
+    const assertAcknowledgements = async (): Promise<void> => {
+      await flushAcknowledgements();
+      if (outputFailure || notificationFailure) throw outputFailure ?? notificationFailure;
+    };
+    lastAcknowledgements = assertAcknowledgements;
+    let responseOperation: Promise<LLMResponse> | undefined;
+    let stream: StreamAttempt | undefined;
+    const finishStream = (state: 'completed' | 'failed' | 'cancelled') => {
+      try { stream?.finish(state); }
+      catch { throw new ExecutionLimitError('unavailable', 'Terminal stream notification was not acknowledged; no further request is authorized.'); }
+    };
     const record = (observation: Omit<import('../health/types.js').HealthObservation, 'provider' | 'target' | 'type'>) => {
       if (!health) return;
       try { health.store.append({ provider: health.target.provider, target: health.target.key, type: 'attempt',
@@ -294,7 +351,58 @@ export async function chat(
     try {
       throwIfCancelled(options?.signal);
       if (attemptBudget && providerTarget(actualProvider as HealthProvider).key !== target) throw new ExecutionLimitError('authority','Provider endpoint changed during budget admission.');
-      const response = await cancellable(doChat(stream?.push), options?.signal);
+      if (onToken) {
+        const output: StreamCallback = token => {
+          if (outputFailure) return;
+          observeAcknowledgement(() => onToken(token), () => {
+            outputFailure = new ExecutionLimitError('unavailable', 'Stream output was not acknowledged; no further request is authorized.');
+          });
+          // Capture mode drains complete provider facts before reporting presentation failure.
+          if (outputFailure && !responseWriter) throw outputFailure;
+        };
+        stream = new StreamAttempt(retryIndex + 1, output, event => {
+          observeAcknowledgement(() => options?.onStreamEvent?.(event), () => {
+            notificationFailure = new ExecutionLimitError('unavailable', `${['completed','failed','cancelled'].includes(event.state) ? 'Terminal stream' : 'Stream'} notification was not acknowledged; no further request is authorized.`);
+          });
+          if (notificationFailure && !responseWriter) throw notificationFailure;
+        }, options?.signal);
+      }
+      lastStream = stream;
+      await cancellable(assertAcknowledgements(), options?.signal);
+      const operation = doChat(stream ? token => { if (!outputFailure) stream?.push(token); } : undefined, responseWriter ? async value => {
+        assertResponseToolIdentities(value);
+        received = value;
+        try {
+          const acknowledgment = await responseWriter!(Object.freeze({
+            version: 1, reservationId: ticket!, provider: actualProvider, model: actualModel,
+            target: target!, attempt: retryIndex + 1, usageReported: value.usage !== undefined,
+            response: structuredClone(value),
+          }));
+          if (acknowledgment !== undefined) throw new Error('Invalid response acknowledgment');
+        } catch {
+          responseCheckpointFailed = true;
+          throw new ExecutionLimitError('unavailable', 'Provider response checkpoint was not acknowledged; no further request is authorized.');
+        }
+      } : undefined, target);
+      if (responseWriter) {
+        // Caller cancellation stops waiting, but the adapter still owns its
+        // original reservation until it returns or fails. Settle there exactly
+        // once so a late response can supply usage after checkpoint delivery.
+        responseOperation = operation.then(async response => {
+          await flushAcknowledgements();
+          await settle(response.finishReason === 'error' ? 'error' : 'success', response.usage);
+          if (outputFailure || notificationFailure) throw outputFailure ?? notificationFailure;
+          return response;
+        }, async error => {
+          await flushAcknowledgements();
+          if (received) await settle(received.finishReason === 'error' ? 'error' : 'success', received.usage);
+          else await settle(healthOutcome(error, options?.signal) === 'cancelled' ? 'cancelled' : 'error');
+          throw error instanceof ExecutionLimitError ? error : outputFailure ?? notificationFailure ?? error;
+        });
+      }
+      const response = await cancellable(responseOperation ?? operation, options?.signal);
+      received = response;
+      await cancellable(assertAcknowledgements(), options?.signal);
       if (stream && response.errorCode === 'refusal') {
         await settle('error', response.usage);
         throw new ProviderRefusalError();
@@ -302,7 +410,8 @@ export async function chat(
       await settle(response.finishReason === 'error' ? 'error' : 'success', response.usage);
       if (stream && response.finishReason === 'error' && response.errorCode !== 'invalid_tool_arguments')
         throw new StreamProtocolError('Provider returned an unsuccessful stream completion.');
-      stream?.finish(response.finishReason === 'error' ? 'failed' : 'completed');
+      finishStream(response.finishReason === 'error' ? 'failed' : 'completed');
+      await cancellable(assertAcknowledgements(), options?.signal);
       const usage = response.usage;
       record({ outcome: response.finishReason === 'error' ? 'error' : 'success',
         ...(response.finishReason === 'error' ? { failure: 'response' as const } : {}),
@@ -312,10 +421,26 @@ export async function chat(
           usage: !!usage && Number.isSafeInteger(usage.inputTokens) && usage.inputTokens >= 0 && Number.isSafeInteger(usage.outputTokens) && usage.outputTokens >= 0,
         } });
       return response;
-    } catch (error) {
+    } catch (caught) {
+      await cancellable(flushAcknowledgements(), options?.signal).catch(() => {});
+      const error = caught instanceof ExecutionLimitError ? caught : outputFailure ?? notificationFailure ?? caught;
       const outcome = healthOutcome(error, options?.signal);
-      await settle(outcome === 'cancelled' ? 'cancelled' : 'error');
-      stream?.finish(outcome === 'cancelled' ? 'cancelled' : 'failed');
+      // Returned usage remains accounting evidence even if retention or the
+      // caller was interrupted. Missing usage is still missing, never zero.
+      if (!responseOperation) {
+        if (received) await settle(received.finishReason === 'error' ? 'error' : 'success', received.usage);
+        else await settle(outcome === 'cancelled' ? 'cancelled' : 'error');
+      }
+      try { finishStream(outcome === 'cancelled' ? 'cancelled' : 'failed'); }
+      catch (notificationError) {
+        // Preserve the original authority/accounting/retention failure. A
+        // presentation error is terminal too, never permission to repeat I/O.
+        if (error instanceof ExecutionLimitError || responseCheckpointFailed) throw error;
+        throw notificationError;
+      }
+      await cancellable(flushAcknowledgements(), options?.signal).catch(() => {});
+      if (responseCheckpointFailed || error instanceof ExecutionLimitError) throw error;
+      if (outputFailure || notificationFailure) throw outputFailure ?? notificationFailure;
       record({ outcome, ...(outcome === 'cancelled' ? { capabilities: { cancellation: true } } : { ...healthFailure(error), ...(outcome === 'timeout' ? { failure: 'timeout' as const } : {}) }) });
       throw outcome === 'cancelled' ? error : stream?.failure(error, !!options?.onStreamReset) ?? error;
     }
@@ -324,21 +449,29 @@ export async function chat(
     signal: options?.signal,
     maxRetries: options?.maxProviderRetries ?? MAX_STREAM_ATTEMPTS - 1,
     initialDelayMs: 1000,
-    onRetry: (attempt, error, delayMs) => {
+    onRetry: async (attempt, error, delayMs) => {
       throwIfCancelled(options?.signal);
-      options?.onStreamReset?.();
-      lastStream?.retry(delayMs);
-      onRetry?.(attempt, error, delayMs);
+      try {
+        await options?.onStreamReset?.();
+        lastStream?.retry(delayMs);
+        await lastAcknowledgements?.();
+        await onRetry?.(attempt, error, delayMs);
+      } catch (error) {
+        if (error instanceof ExecutionLimitError) throw error;
+        throw new ExecutionLimitError('unavailable', 'Provider retry notification failed; no further execution is authorized.');
+      }
     },
   }); } catch (error) {
-    if (options?.signal?.aborted) lastStream?.finish('cancelled');
+    if (options?.signal?.aborted) {
+      try { lastStream?.finish('cancelled'); } catch { /* Preserve the original cancellation or authority failure. */ }
+    }
     throw error;
   }
 }
 
 // Re-export everything from sub-modules for public API
 export { needsSummarization, getContextHealth, estimateContextUsage } from './types.js';
-export type { StreamCallback, RetryCallback, ChatOptions } from './types.js';
+export type { StreamCallback, RetryCallback, ChatOptions, ProviderResponseCheckpoint } from './types.js';
 export { requiresResponsesAPI, toResponsesInput, toResponsesTools } from './openai.js';
 
 export type { StreamAttemptEvent } from './stream-attempt.js';

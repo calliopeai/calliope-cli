@@ -9,10 +9,10 @@ function crc32(bytes: Buffer): number {
   for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ ((crc & 1) ? 0xedb88320 : 0); }
   return (crc ^ 0xffffffff) >>> 0;
 }
-function awsEvent(type: string, payload: unknown): Buffer {
+export function awsEvent(type: string, payload: unknown, rawPayload?: Uint8Array): Buffer {
   const header = (key: string, value: string) => { const keyBytes = Buffer.from(key), valueBytes = Buffer.from(value); const prefix = Buffer.alloc(keyBytes.length + 4); prefix[0] = keyBytes.length; keyBytes.copy(prefix, 1); prefix[keyBytes.length + 1] = 7; prefix.writeUInt16BE(valueBytes.length, keyBytes.length + 2); return Buffer.concat([prefix, valueBytes]); };
   const headers = Buffer.concat([header(':message-type', 'event'), header(':event-type', type), header(':content-type', 'application/json')]);
-  const body = buffer(payload), prelude = Buffer.alloc(12), checksum = Buffer.alloc(4);
+  const body = rawPayload ? Buffer.from(rawPayload) : buffer(payload), prelude = Buffer.alloc(12), checksum = Buffer.alloc(4);
   prelude.writeUInt32BE(16 + headers.length + body.length, 0); prelude.writeUInt32BE(headers.length, 4); prelude.writeUInt32BE(crc32(prelude.subarray(0, 8)), 8);
   const frame = Buffer.concat([prelude, headers, body]); checksum.writeUInt32BE(crc32(frame)); return Buffer.concat([frame, checksum]);
 }

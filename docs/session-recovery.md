@@ -159,6 +159,26 @@ restore a missing-usage marker. Replay, branches and portable bundles retain the
 evidence. Versions 1 and 2 remain unchanged when capture is disabled; older CLI
 versions cannot read version 3 histories.
 
+Hosts can also require the root SDK export
+`PROVIDER_RESPONSE_CHECKPOINT_PROTOCOL_VERSION === 1` before installing
+`onProviderResponseReceived` on a captured, delegated headless run (or a
+captured `runTurn` with its original execution guard). Older SDKs can ignore
+unknown options, so supplying the callback alone is insufficient qualification.
+The awaited callback receives a detached adapter response tied to its original
+session, turn, run, agent, manifest, logical operation, request digest, provider
+attempt and reservation. Primary requests, compression and repair carry distinct
+purposes; a repair also identifies its parent operation. The digest describes
+the runtime request, not exact provider wire bytes.
+
+The callback must durably acknowledge the facts and return nothing before
+settlement or dependent execution. A failure stops execution without another
+provider request. Complete facts can arrive after caller cancellation; hosts
+must retain that evidence without treating it as permission to continue.
+Known usage settles against the original reservation once. Missing usage stays
+unknown. Malformed completion fields, tool argument objects, stream framing or
+usage cannot attest completion and leave the reservation charged. Tool calls
+cut off by an output limit retain the existing truncation handling.
+
 This option captures evidence and does not enable headless execution resume.
 A quiescent marker, a portable bundle or a valid checksum does not prove current
 Native ownership, the original account/model/policy, settled reservations or

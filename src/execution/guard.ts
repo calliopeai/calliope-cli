@@ -29,6 +29,7 @@ export interface AgentExecution {
 }
 export class ExecutionGuard {
   readonly manifest:ExecutionManifest;
+  readonly identity:Readonly<{manifestHash:string;runId:string;agentId:string}>;
   private readonly scopeManifest:ExecutionManifest;
   readonly deadline:number;
   private readonly expectedHash:string;
@@ -56,6 +57,7 @@ export class ExecutionGuard {
     if(saved.projection.manifestHash!==execution.manifestHash)throw new ExecutionLimitError('conflict','Execution contract does not match the budget ledger.');
     const effective=effectiveExecutionManifest(saved.manifest,saved.projection),agent=accountLineage(effective,execution.agentId)[0]!;
     integer(execution.maxOutputTokens,1,100000000);this.manifest=effective;this.expectedHash=execution.manifestHash;this.agentId=agent.id;this.ledger=execution.ledger;this.maxOutputTokens=execution.maxOutputTokens;
+    this.identity=Object.freeze({manifestHash:this.expectedHash,runId:effective.runId,agentId:this.agentId});
     this.scopeManifest={...effective,project:localProject};checkExecutionIdentity(this.scopeManifest,cwd);
     this.deadline=Math.min(saved.manifest.deadline,agent.deadline);
     this.filesRoot=this.workspace?.filesRoot??localProject.root;

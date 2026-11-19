@@ -1,5 +1,7 @@
 import type { LLMResponse, Tool, ToolCall, Message, LLMProvider } from '../types.js';
 import { cancellable, throwIfCancelled } from '../cancellation.js';
+import { ExecutionLimitError } from '../execution/types.js';
+import { hostCallback } from './host-callback.js';
 import { isLocalBackend, detectMalformedToolCall, buildRepairMessage, buildToolCallEnvelopeSchema, extractRepairedToolCall, getLocalModelProfile } from '../local-model.js';
 
 export interface RepairEvent { call: ToolCall; reason: string; status: 'started' | 'ok' | 'error'; corrected?: ToolCall }
@@ -18,7 +20,7 @@ export async function repairToolCalls(options: {
     const fault = detectMalformedToolCall(call, tools);
     if (!fault) continue;
     repairedIds.add(call.id);
-    options.onRepair?.({ call, reason: fault.reason, status: 'started' });
+    await hostCallback('onRepair', () => options.onRepair?.({ call, reason: fault.reason, status: 'started' }));
     let format: unknown;
     try {
       const profile = await cancellable(getLocalModelProfile(options.provider, options.model), signal);
@@ -30,20 +32,22 @@ export async function repairToolCalls(options: {
       ...response.toolCalls.map(tool => ({ role: 'tool' as const, toolCallId: tool.id, content: '[Not executed: correcting a malformed tool call.]' })),
       { role: 'user', content: buildRepairMessage(call, { reason: fault.reason }) },
     ];
+    let repaired: LLMResponse;
     try {
-      const repaired = await options.request(messages, format);
+      repaired = await options.request(messages, format);
       throwIfCancelled(signal);
-      const corrected = extractRepairedToolCall(repaired.content, repaired.toolCalls, call.id);
-      const bad = corrected ? detectMalformedToolCall(corrected, tools) : fault;
-      options.onRepair?.({ call, reason: bad?.reason || fault.reason, status: corrected && !bad ? 'ok' : 'error', corrected: corrected ?? undefined });
-      return corrected ? { ...response, toolCalls: response.toolCalls.map(tool => tool.id === call.id ? corrected : tool) } : response;
     } catch (error) {
       throwIfCancelled(signal);
+      if (error instanceof ExecutionLimitError) throw error;
       // The runtime's budget signal must stop the turn, not become a repair failure.
       if (error instanceof Error && error.name === 'RuntimeBudgetExceeded') throw error;
-      options.onRepair?.({ call, reason: fault.reason, status: 'error' });
+      await hostCallback('onRepair', () => options.onRepair?.({ call, reason: fault.reason, status: 'error' }));
       return response;
     }
+    const corrected = extractRepairedToolCall(repaired.content, repaired.toolCalls, call.id);
+    const bad = corrected ? detectMalformedToolCall(corrected, tools) : fault;
+    await hostCallback('onRepair', () => options.onRepair?.({ call, reason: bad?.reason || fault.reason, status: corrected && !bad ? 'ok' : 'error', corrected: corrected ?? undefined }));
+    return corrected ? { ...response, toolCalls: response.toolCalls.map(tool => tool.id === call.id ? corrected : tool) } : response;
   }
   return response;
 }

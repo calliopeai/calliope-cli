@@ -85,6 +85,8 @@ export interface HeadlessOptions {
   runtimeStateVersion?: 1 | 2;
   /** Acknowledge each saved runtime checkpoint before the next effect; not recovery authority. */
   onRuntimeStateCommitted?: (receipt: HeadlessRuntimeStateReceipt, signal?: AbortSignal) => Promise<void>;
+  /** Correlated response facts under the original delegated ledger, not replacement authority. */
+  onProviderResponseReceived?: TurnOptions['onProviderResponseReceived'];
   /** Trusted workspace transport; task text cannot configure this capability. */
   toolRuntime?: TurnOptions['toolRuntime'];
   signal?: AbortSignal;
@@ -228,6 +230,12 @@ async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  const providerResponseWriter = options.onProviderResponseReceived;
+  if (providerResponseWriter !== undefined &&
+      (typeof providerResponseWriter !== 'function' || options.retainRuntimeState !== true || !options.ledger)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Headless provider checkpoints require runtime capture, the original delegated ledger and a host callback.' } }, outputMode);
+    return 2;
+  }
   if (options.retainRuntimeState !== undefined && typeof options.retainRuntimeState !== 'boolean') {
     emit({ type: 'error', timestamp: now(), data: { message: 'Runtime state capture requires an explicit boolean.' } }, outputMode);
     return 2;
@@ -404,6 +412,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
+      ...(providerResponseWriter ? { onProviderResponseReceived: providerResponseWriter } : {}),
       ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeStateVersion: options.runtimeStateVersion, runtimeClock: { startedAt: clock.started,
         deadline: options.maxTime === undefined ? null : Math.floor(clock.started + options.maxTime * 1000) } } : {}),
       captureToolOutput: true,
