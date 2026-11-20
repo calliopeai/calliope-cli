@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import type { ReasoningEffort } from './metadata.js';
 import type { LLMProvider } from '../types.js';
 
 interface RequestModelLimits {
@@ -6,6 +7,7 @@ interface RequestModelLimits {
   model: string;
   contextLength?: number;
   maxOutputTokens?: number;
+  reasoningEfforts?: ReasoningEffort[];
   assertCurrent: () => void;
 }
 

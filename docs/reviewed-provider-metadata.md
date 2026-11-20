@@ -74,7 +74,20 @@ For the matching request, positive live limits and reviewed limits also bound
 compression and transport. The smaller positive limit wins when both exist;
 reviewed limits fill missing live values without changing discovery or routing.
 The request scope rechecks endpoint identity, discovery freshness and unchanged
-operator evidence. It does not grant reasoning-effort support.
+operator evidence.
+
+For native OpenAI Responses, an optional `reasoningEfforts` array on a
+version-2 profile can confirm documented effort values when live discovery omits
+them, for example `"reasoningEfforts": ["medium"]`. The exact model must still be
+live-discovered. Live effort metadata takes precedence, including an empty list.
+Routing records reviewed rather than live support, and dispatch rechecks the same
+profile, endpoint, discovery and expiry before each request. Other adapters retain
+their existing effort gates.
+
+Upgrade every SDK host that validates or replays these proofs before configuring
+`reasoningEfforts`. Older SDKs reject the new field; updating only a worker does
+not qualify a shared ledger manager. Existing profiles without the field retain
+their original format and hashes.
 
 The transport output cap is clipped to available context, model limits and the
 original caller ceiling before bounded admission. The reservation uses that same

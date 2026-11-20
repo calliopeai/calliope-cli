@@ -197,3 +197,11 @@ it('discovers individual reasoning effort values and never infers support from a
   clearModelCache();vi.mocked(fetch).mockResolvedValue(json({},503));
   expect((await selectRoute({provider:'anthropic',model:'claude-any-name',requirements:{reasoningEffort:'low'}})).selected).toBeNull();
 });
+
+it('preserves boolean false and per-level unknown effort metadata',()=>{
+  for(const metadata of [anthropicMetadata,compatibleMetadata]){
+    expect(metadata({capabilities:{effort:false}}).reasoningEfforts).toEqual([]);
+    expect(metadata({capabilities:{effort:true}}).reasoningEfforts).toEqual([]);
+    expect(metadata({capabilities:{}}).reasoningEfforts).toBeUndefined();
+  }
+});

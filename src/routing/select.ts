@@ -3,6 +3,8 @@ import * as config from '../config.js';
 import { getAvailableModels, getDiscoveredModels, getPreviousDiscoveredModels, resolveModelAlias } from '../model-detection.js';
 import { HealthStore, providerTarget, isDeclaredPrivate, summarizeHealth, healthFailure, healthOutcome, type HealthProvider } from '../health/index.js';
 import { capability, isReasoningEffort, ModelDiscoveryError, type ModelInfo, type ModelCapabilities } from '../models/index.js';
+import { requiresResponsesAPI } from '../providers/openai.js';
+import { readBillingEvidence } from '../execution/billing.js';
 import type { Message } from '../types.js';
 import type { RouteCandidate, RoutingDecision, RoutingRequest, RoutingRequirements, RoutingPreferences } from './types.js';
 import {validateSmartSelection,smartPool,smartTargetMatches,smartScore,type SmartRoutingSelection} from './smart.js';
@@ -10,11 +12,11 @@ import {validateSmartSelection,smartPool,smartTargetMatches,smartScore,type Smar
 export class RoutingUnavailableError extends Error {
   constructor(readonly decision: RoutingDecision) { super(decision.reason); this.name = 'RoutingUnavailableError'; }
 }
-function mismatch(model: ModelInfo, needs: RoutingRequirements): string | undefined {
+function mismatch(model: ModelInfo, needs: RoutingRequirements, reviewedEfforts?: ModelInfo['reasoningEfforts']): string | undefined {
   for (const key of ['chat', 'tools', 'streaming', 'vision', 'thinking', 'json'] as const) {
     if ((key === 'chat' || needs[key]) && model.capabilities?.[key] === false) return `discovery-rejects-${key}`;
   }
-  if (needs.reasoningEffort !== undefined && !model.reasoningEfforts?.includes(needs.reasoningEffort)) return 'discovery-does-not-confirm-reasoning-effort';
+  if (needs.reasoningEffort !== undefined && !(model.reasoningEfforts??reviewedEfforts)?.includes(needs.reasoningEffort)) return 'discovery-does-not-confirm-reasoning-effort';
   if (needs.minOutputTokens !== undefined && model.maxOutputTokens !== undefined && needs.minOutputTokens > model.maxOutputTokens) return 'discovery-rejects-output-budget';
   return undefined;
 }
@@ -172,15 +174,22 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
     if (target.key !== providerTarget(provider).key || (evidence === 'live' && !getDiscoveredModels(provider))) {
       exclude(provider, 'configuration-changed-during-discovery'); continue;
     }
-    // Anthropic exposes effort natively, and Astra uses the Responses API's
-    // reasoning effort field. Keep the gate model-specific so other adapters
-    // cannot receive an unsupported effort request.
-    if (needs.reasoningEffort !== undefined && provider !== 'anthropic' &&
-        !(provider === 'openai' && preferredModel === 'gpt-6-astra')) { exclude(provider, 'reasoning-effort-protocol-unsupported'); continue; }
     for (const model of models) {
       if (preferredModel && model.id !== preferredModel && !model.aliases?.includes(preferredModel)) continue;
       if(pool&&!pinnedModel&&(!explicit||pool.some(t=>t.provider===provider))&&!smartTargetMatches(pool,provider,model)){exclude(provider,'outside-smart-pool',model.id);continue;}
-      const rejected = mismatch(model, needs);
+      let reviewedEfforts: ModelInfo['reasoningEfforts'];
+      if (needs.reasoningEffort !== undefined) {
+        if (provider !== 'anthropic' && !(provider === 'openai' && requiresResponsesAPI(preferredModel??model.id))) {
+          exclude(provider, 'reasoning-effort-protocol-unsupported', model.id); continue;
+        }
+        if (provider === 'openai' && model.reasoningEfforts === undefined && evidence === 'live') {
+          try {
+            const profile = readBillingEvidence({provider,model:preferredModel??model.id,target:target.key}, request.project??process.cwd())?.profile;
+            if (profile?.admission === 'reviewed-full-context-v1') reviewedEfforts = profile.reasoningEfforts;
+          } catch { exclude(provider, 'invalid-reviewed-effort-evidence', model.id); continue; }
+        }
+      }
+      const rejected = mismatch(model, needs, reviewedEfforts);
       if (rejected) { exclude(provider, rejected, model.id); continue; }
       const estimatedCost = model.pricing?.input !== undefined && model.pricing.output !== undefined
         ? (needs.inputTokens ?? 1000) / 1000000 * model.pricing.input + (needs.outputTokens ?? 250) / 1000000 * model.pricing.output : null;
@@ -197,7 +206,7 @@ export async function selectRoute(request: RoutingRequest): Promise<RoutingDecis
         ...(needs.reasoningEffort !== undefined ? { reasoningEffort: needs.reasoningEffort } : {}),
         maxOutputTokens: model.maxOutputTokens ?? null, price: model.pricing ?? null, estimatedCost,
         latencyMs: health?.latencyMs ?? null, errorRate: health?.errorRate ?? null, score,
-        reason: `${needs.reasoningEffort !== undefined ? 'live reasoning effort ' + needs.reasoningEffort + '; ' : ''}capability ${support.toFixed(2)}, health ${healthScore.toFixed(2)}, latency ${latencyScore.toFixed(2)}, cost ${estimatedCost === null ? 'unknown' : estimatedCost.toFixed(6) + ' USD estimated'}${health?.quarantine.active ? '; explicit quarantine recovery' : ''}` });
+        reason: `${needs.reasoningEffort !== undefined ? (reviewedEfforts ? 'reviewed reasoning effort ' : 'live reasoning effort ') + needs.reasoningEffort + '; ' : ''}capability ${support.toFixed(2)}, health ${healthScore.toFixed(2)}, latency ${latencyScore.toFixed(2)}, cost ${estimatedCost === null ? 'unknown' : estimatedCost.toFixed(6) + ' USD estimated'}${health?.quarantine.active ? '; explicit quarantine recovery' : ''}` });
     }
     if (preferredModel && !models.some(model => model.id === preferredModel || model.aliases?.includes(preferredModel))) exclude(provider, 'model-not-in-live-discovery', preferredModel);
   }

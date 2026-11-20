@@ -363,7 +363,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard,recovered?
   const resolveRoute = async (input: RuntimeRequest, initial = false, extra: ChatOptions = {}, stream = true): Promise<RuntimeRequest> => {
     throwIfCancelled(signal);
     const decision = await access(() => selectRoute({ provider: paidFallback ? 'openai' : initial ? options.provider : input.provider, model: paidFallback ? paidFallback.policy.model : initial ? options.model : input.model,
-      ...(initial || paidFallback ? {} : { origin }), messages: input.messages, preferences: options.routing, smart:options.smart, signal,
+      ...(initial || paidFallback ? {} : { origin }), messages: input.messages, preferences: options.routing, smart:options.smart, signal, project:options.cwd,
       requirements: { reasoningEffort: options.reasoningEffort, tools: input.tools.length > 0, streaming: stream && !!options.onToken,
         vision: input.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image')),
         json: extra.format !== undefined,

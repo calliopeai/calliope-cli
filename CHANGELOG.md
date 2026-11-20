@@ -7,6 +7,11 @@
 - Paint the interface with the Calliope AI Workbench brand from the design system's terminal token mapping instead of hand-picked ANSI colours, at the terminal's colour depth (truecolor, 256 or 16). `NO_COLOR` and a piped stdout now turn colour off, `FORCE_COLOR` overrides the detection, and `CALLIOPE_THEME=dark|light|no-color` overrides the stored theme for a run.
 - Headless runs no longer end as successful when a turn is cut off by the output limit or the model replies with nothing. They discard truncated tool calls, ask the model to continue (up to 3 times in a row, reported as `status` events with `continuing: true`), and exit 4 with an `error` if it still fails. Iteration, cost and time limits still apply (#470).
 
+## 3.12.0: reviewed effort and original-turn recovery
+
+- Support exact expiring operator evidence for native OpenAI Responses reasoning effort when live discovery omits it, preserving live rejections and rechecking evidence before each request (#550).
+- Recover a retained quiescent turn through explicit host admission, preserving its original session, counters, deadline and ledger. Retained state does not independently grant replacement execution (#549).
+
 ## 3.8.0: subscription access and reviewed task authority
 
 - Add experimental, opt-in ChatGPT-plan sign-in, account selection and streamed Responses inference with live model discovery. Keep API-key billing separate; subscription inference refuses output-token and USD enforcement it cannot provide (#467, #472).

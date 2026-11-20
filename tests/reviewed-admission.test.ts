@@ -14,7 +14,8 @@ import {projectBudgetPath,loadProjectSpend} from '../src/budget.js';
 import {chat} from '../src/providers/index.js';
 import {runTurn} from '../src/runtime/index.js';
 import {RunLog} from '../src/runlog.js';
-import {clearModelCache} from '../src/model-detection.js';
+import {getAvailableModels,getDiscoveredModels,clearModelCache} from '../src/model-detection.js';
+import {withReviewedModelLimits} from '../src/execution/billing.js';
 import {selectRoute,type RouteCandidate} from '../src/routing/index.js';
 import type {Message,Tool} from '../src/types.js';
 
@@ -115,4 +116,61 @@ it('rejects tampered full-context evidence and lower reservations during determi
     const event=structuredClone(saved.events[0]!);if(event.change.type!=='reserve')throw Error('Expected reservation');Object.assign(event.change.reservation,patch);const {hash,...body}=event;event.hash=digest(canonicalJson(body));expect(()=>replayReservations(saved.manifest,[event])).toThrow();
   }
   const event=structuredClone(saved.events[0]!);event.version=3;const {hash,...body}=event;event.hash=digest(canonicalJson(body));expect(()=>replayReservations(saved.manifest,[event])).toThrow();expect(ledger.read(project)).toEqual(saved);
+});
+
+
+function openAIEffortFixture(model='gpt-6.1-sol') {
+  vi.stubEnv('OPENAI_API_KEY','');vi.stubEnv('OPENAI_BASE_URL','');
+  config.setProviderCred('openai',{apiKey:'synthetic',baseUrl:'https://reviewed.invalid/v1'});
+  route={...route,provider:'openai',model,target:providerTarget('openai').key};
+  profile={...profile,provider:'openai',model,target:route.target,reasoningEfforts:['medium']};writeProfile();
+  respond=async(path,body)=>{if(path.endsWith('/models'))return json({data:[{id:model,created:1}]});const wire=syntheticWire('responses','text',!!body.stream);return wireResponse(wire.body,wire.type);};
+}
+it.each([false,true])('routes and dispatches reviewed OpenAI effort with streamed=%s under the original ledger',async stream=>{
+  openAIEffortFixture();const {ledger,manifest}=guard();const routes:any[]=[];
+  const result=await runTurn({cwd:project,provider:'openai',model:route.model,reasoningEffort:'medium',sessionId:randomUUID(),prompt:'Public toy',messages:{current:[{role:'user',content:'Public toy'}]},confirmation:'none',maxIterations:1,tools:()=>[],...(stream?{onToken:()=>{}}:{}),onRoute:r=>routes.push(r),runlog:RunLog.open(randomUUID(),{enabled:false}),execution:{ledger,manifestHash:manifestHash(manifest),agentId:'a',maxOutputTokens:100}});
+  expect(result.reason).toBe('completed');expect(routes.at(-1).selected).toMatchObject({provider:'openai',model:'gpt-6.1-sol',reasoningEffort:'medium',price:{input:undefined,output:undefined}});expect(routes.at(-1).reason).toContain('reviewed reasoning effort medium');
+  const post=requests.find(r=>r.path.endsWith('/responses'))!;expect(post.body.reasoning).toEqual({effort:'medium'});expect(post.body.max_output_tokens).toBe(100);expect(requests.filter(r=>r.path.endsWith('/responses'))).toHaveLength(1);
+  const recorded=Object.values(ledger.read(project).projection.requests);expect(recorded).toHaveLength(1);expect(recorded[0]!.state).toBe('settled');expect(getDiscoveredModels('openai')![0]!.reasoningEfforts).toBeUndefined();
+});
+it('requires exact current reviewed effort and never treats a protocol match as capability evidence',async()=>{
+  openAIEffortFixture();const select=()=>selectRoute({provider:'openai',model:route.model,project,requirements:{reasoningEffort:'medium'}});
+  expect((await select()).selected?.reasoningEffort).toBe('medium');
+  for(const patch of [{reasoningEfforts:undefined},{reasoningEfforts:['high']},{expiresAt:Date.now()-1},{target:'a'.repeat(64)},{model:'different'}]){
+    const original=profile;profile={...profile,...patch} as FullContextBillingProfile;writeProfile();expect((await select()).selected).toBeNull();profile=original;
+  }
+  writeProfile();clearModelCache();respond=async()=>json({data:[{id:route.model,created:1,capabilities:{effort:{supported:false}}}]});expect((await select()).selected).toBeNull();
+  clearModelCache();respond=async()=>json({data:[{id:route.model,created:1,capabilities:{effort:{supported:true,medium:{supported:true}}}}]});expect((await select()).reason).toContain('live reasoning effort medium');
+  clearModelCache();respond=async()=>json({},503);expect((await select()).selected).toBeNull();
+});
+it('rejects reviewed effort on Chat Completions and compatible adapters',async()=>{
+  openAIEffortFixture('gpt-4-fixture');expect((await selectRoute({provider:'openai',model:route.model,project,requirements:{reasoningEffort:'medium'}})).selected).toBeNull();
+  await expect(chat('openai',messages,[],route.model,undefined,undefined,{reasoningEffort:'medium'})).rejects.toThrow(/native Anthropic or OpenAI Responses/);
+  await expect(chat('deepseek',messages,[],'gpt-6.1-sol',undefined,undefined,{reasoningEffort:'medium'})).rejects.toThrow(/native Anthropic or OpenAI Responses/);
+  expect(requests.every(r=>r.path.endsWith('/models'))).toBe(true);
+});
+it.each(['delete','edit','expire','endpoint','live-veto','live-veto-boolean'] as const)('rechecks %s after durable admission before OpenAI I/O',async change=>{
+  openAIEffortFixture();route=(await selectRoute({provider:'openai',model:route.model,project,requirements:{reasoningEffort:'medium'}})).selected!;
+  const reserve=vi.fn(async()=>{
+    if(change==='delete')fs.unlinkSync(file);
+    if(change==='edit'){profile.reasoningEfforts=['high'];writeProfile();}
+    if(change==='expire'){profile.expiresAt=Date.now()-1;writeProfile();}
+    if(change==='endpoint')config.setProviderCred('openai',{baseUrl:'https://changed.invalid/v1'});
+    if(change==='live-veto'||change==='live-veto-boolean'){clearModelCache();respond=async()=>json({data:[{id:route.model,created:1,capabilities:{effort:change==='live-veto-boolean'?false:{supported:false}}}]});await getAvailableModels('openai',{cache:'live',throwOnError:true});}
+    return 'retained-reservation';
+  }),settle=vi.fn();
+  await expect(withReviewedModelLimits(route,project,()=>chat('openai',messages,[],route.model,undefined,undefined,{reasoningEffort:'medium',maxOutputTokens:100,attemptBudget:{reserve,settle}}))).rejects.toThrow();
+  expect(reserve).toHaveBeenCalledTimes(1);expect(requests.every(r=>r.path.endsWith('/models'))).toBe(true);expect(settle).toHaveBeenCalledWith('retained-reservation','error',undefined);
+});
+it('validates reviewed effort values without changing legacy profile bytes',()=>{
+  for(const reasoningEfforts of [null,'medium',['unknown'],['medium','medium'],[1]])expect(()=>validateBillingProfile({...profile,reasoningEfforts})).toThrow();
+  expect(validateBillingProfile(profile)).toEqual(profile);expect(validateBillingProfile({...profile,reasoningEfforts:[]})).toMatchObject({reasoningEfforts:[]});
+});
+
+it('never overrides boolean false effort discovery with reviewed support',async()=>{
+  openAIEffortFixture();respond=async()=>json({data:[{id:route.model,created:1,capabilities:{effort:false}}]});
+  expect((await selectRoute({provider:'openai',model:route.model,project,requirements:{reasoningEffort:'medium'}})).selected).toBeNull();
+  expect(getDiscoveredModels('openai')![0]!.reasoningEfforts).toEqual([]);
+  await expect(withReviewedModelLimits(route,project,()=>chat('openai',messages,[],route.model,undefined,undefined,{reasoningEffort:'medium'}))).rejects.toThrow(/reasoning effort/);
+  expect(requests.every(r=>r.path.endsWith('/models'))).toBe(true);
 });
