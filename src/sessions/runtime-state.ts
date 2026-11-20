@@ -53,7 +53,8 @@ export function assertTurnRuntimeState(previous: TurnRuntimeState | undefined, n
   if (next !== undefined) validateTurnRuntimeState(next);
   if (!previous) return;
   if (!next || previous.version !== next.version || previous.turnId !== next.turnId || previous.startedAt !== next.startedAt || previous.deadline !== next.deadline ||
-      previous.maxCostUsd !== next.maxCostUsd || !previous.responseUsageComplete && next.responseUsageComplete ||
+      previous.maxCostUsd !== next.maxCostUsd && (previous.version !== 2 || next.maxCostUsd === null ||
+        previous.maxCostUsd !== null && next.maxCostUsd > previous.maxCostUsd) || !previous.responseUsageComplete && next.responseUsageComplete ||
       (['inputTokens', 'outputTokens', 'estimatedCostUsd', 'toolCalls'] as const).some(key => previous.totals[key] > next.totals[key])) throw invalid();
 }
 

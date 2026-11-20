@@ -20,7 +20,7 @@ import { resolveIterationLimit } from '../iteration-limit.js';
 import { getBudgetCaps, evaluateBudget, hasBudgetCaps, loadProjectSpend, formatBudgetHalt, type BudgetVerdict } from '../budget.js';
 import { RunLog } from '../runlog.js';
 import * as config from '../config.js';
-import { isDeclaredPrivate } from '../health/target.js';
+import { isDeclaredPrivate, providerTarget } from '../health/target.js';
 import { executeHooks } from '../hooks.js';
 import { resolvePermission, type PermissionContext } from './permissions.js';
 import { bindHostToolRuntime, HostToolRuntimeError, type HostToolRuntime } from './host-tools.js';
@@ -41,15 +41,19 @@ import { assertExecutionBinding } from '../execution/delegated.js';
 import { withReviewedModelLimits, reviewedOutputLimit } from '../execution/billing.js';
 import type { RuntimeControl, ControlBoundary, ControlCheckpoint, ControlReadyCheckpoint } from './control.js';
 import { completionCheckLimit, completionVerdict, type CompletionCheck, type CompletionVerification } from './completion.js';
+import { MAX_CONSECUTIVE_CONTINUATIONS } from './continuation-limit.js';
+import { assertTurnRecoveryOptions, takeTurnRecovery, type ActiveTurnRecovery, type PreparedTurnRecovery, type RecoveredTurn } from './turn-recovery.js';
+
+export { MAX_CONSECUTIVE_CONTINUATIONS } from './continuation-limit.js';
 
 export interface RuntimeRequest { provider: LLMProvider; model: string; messages: Message[]; tools: Tool[]; route?: RouteCandidate }
 interface ProviderOperation { id: string; purpose: ProviderRequestPurpose; parentOperationId: string | null }
 export type TurnReason = 'completed' | 'cancelled' | 'budget' | 'iteration_limit' | 'length' | 'empty_response' | 'invalid_tool_arguments' | 'waiting_for_user' | 'stopped';
-/** Consecutive truncated, empty or malformed replies recovered before giving up. */
-export const MAX_CONSECUTIVE_CONTINUATIONS = 3;
 export interface TurnTotals { inputTokens: number; outputTokens: number; cost: number; toolCalls: number; durationMs: number }
 export interface TurnResult { reason: TurnReason; iterations: number; totals: TurnTotals; budget?: BudgetVerdict; verification?: CompletionVerification }
 export interface TurnOptions {
+  /** Opaque host-admitted original checkpoint; it cannot be supplied as a data-only packet. */
+  recovery?: PreparedTurnRecovery | ActiveTurnRecovery;
   /** Every tool is dispatched exclusively through this trusted host transport. */
   toolRuntime?: HostToolRuntime;
   /** Planning calls reserve measured prompt size while retaining the reviewed context ceiling. */
@@ -156,18 +160,35 @@ export function completePendingTools(messages: Message[], reason: string): void 
 }
 
 export async function runTurn(options: TurnOptions): Promise<TurnResult> {
+  if (options.recovery) options = { ...options };
   assertExecutionBinding(getSessionById(options.sessionId)?.executionBinding, options.execution);
   const guard=options.execution?new ExecutionGuard(options.execution,options.cwd):undefined;
-  if(!guard)return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
-  const controller=new AbortController(),abort=()=>controller.abort(options.signal?.reason);
-  options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
-  if(Date.now()>=guard.deadline)controller.abort();
-  const timer=setTimeout(()=>controller.abort(),Math.max(0,guard.deadline-Date.now()));
-  try{return await withSession(options.sessionId,()=>withScope(options.cwd,()=>executeTurn({...options,signal:controller.signal},guard),options.inheritScope));}
-  finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
+  let recovered: RecoveredTurn | undefined;
+  if (options.recovery) {
+    if (!guard) throw new ExecutionLimitError('authority', 'Recovery requires the original execution ledger.');
+    recovered = takeTurnRecovery(options.recovery, options.cwd, options.execution);
+  }
+  try {
+    if (recovered) {
+      assertTurnRecoveryOptions(options, recovered);
+      if (options.control !== options.recovery!.control)
+        throw new ExecutionLimitError('authority', 'Recovery requires its original restored controller.');
+      options.messages = { current: structuredClone(recovered.messages) };
+    }
+    if(!guard)return withSession(options.sessionId, () => withScope(options.cwd, () => executeTurn(options), options.inheritScope));
+    const controller=new AbortController(),abort=()=>controller.abort(options.signal?.reason);
+    options.signal?.addEventListener('abort',abort,{once:true});if(options.signal?.aborted)abort();
+    const deadline = Math.min(guard.deadline, recovered?.runtimeState.deadline ?? Infinity);
+    if(Date.now()>=deadline)controller.abort();
+    const timer=setTimeout(()=>controller.abort(),Math.max(0,deadline-Date.now()));
+    try{return await withSession(options.sessionId,()=>withScope(options.cwd,()=>executeTurn({...options,signal:controller.signal},guard,recovered),options.inheritScope));}
+    finally{clearTimeout(timer);options.signal?.removeEventListener('abort',abort);}
+  } finally {
+    if (recovered) options.recovery!.control.stop(new Error('Original recovered invocation ended.'));
+  }
 }
 
-async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<TurnResult> {
+async function executeTurn(options: TurnOptions,guard?:ExecutionGuard,recovered?:RecoveredTurn): Promise<TurnResult> {
   const retainProviderResponse = options.onProviderResponseReceived;
   const retainProviderRequest = options.onProviderRequestReserved;
   const originalSessionId = options.sessionId;
@@ -189,19 +210,24 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   const toolRuntime = bindHostToolRuntime(options.toolRuntime, options.execution);
   if(guard?.requiresHostedTools&&!toolRuntime?.accounted)
     throw new ExecutionLimitError('authority','Task workspace execution requires the original accounted tool host.');
-  const started = Date.now();
-  const totals: TurnTotals = { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
+  const started = recovered?.runtimeState.startedAt ?? Date.now();
+  const totals: TurnTotals = recovered ? { inputTokens: recovered.runtimeState.totals.inputTokens,
+    outputTokens: recovered.runtimeState.totals.outputTokens, cost: recovered.runtimeState.totals.estimatedCostUsd,
+    toolCalls: recovered.runtimeState.totals.toolCalls, durationMs: 0 }
+    : { inputTokens: 0, outputTokens: 0, cost: 0, toolCalls: 0, durationMs: 0 };
   const runlog = options.runlog ?? RunLog.open(options.sessionId);
   const configuredCaps = getBudgetCaps();
-  const caps = options.maxCostPerRun === undefined ? configuredCaps
+  let caps = options.maxCostPerRun === undefined ? configuredCaps
     : { ...configuredCaps, maxCostPerRun: Math.min(configuredCaps.maxCostPerRun ?? Infinity, options.maxCostPerRun) };
+  if (recovered?.runtimeState.maxCostUsd !== null && recovered?.runtimeState.maxCostUsd !== undefined)
+    caps = { ...caps, maxCostPerRun: Math.min(caps.maxCostPerRun ?? Infinity, recovered.runtimeState.maxCostUsd) };
   const trackProject = typeof caps.maxCostPerProject === 'number';
   const projectRunId=guard?.manifest.runId??randomUUID();
   const seenWarnings = new Set<string>();
   const activeEffects = new Map<string, TurnRuntimeState['effect']>();
   const repairedIds = new Set<string>();
   let reason: TurnReason | 'error' = 'iteration_limit';
-  let iterations = 0;
+  let iterations = recovered?.progress.iterations ?? 0;
   let budget: BudgetVerdict | undefined;
   let permissionCancelled = false;
   let checkpointFailed = false;
@@ -211,18 +237,18 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   let safetyFailed = false;
   let controlFailed = false;
   let completionFailed = false;
-  let completionChecks = 0;
-  let continuations = 0;
+  let completionChecks = recovered?.progress.completionChecks ?? 0;
+  let continuations = recovered?.runtimeState.continuations ?? 0;
   let verification: CompletionVerification | undefined;
-  const completionLimit = completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
-  const limit = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
+  const completionLimit = recovered?.progress.completionLimit ?? completionCheckLimit(options.completionCheck, options.maxCompletionChecks);
+  const limit = recovered ? recovered.progress.iterationLimit ?? Infinity : resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   if ((options.retainTurnProgress || options.onTurnProgressCommitted || options.retainRuntimeState) && !options.onCheckpoint)
     throw new Error('Turn allowance retention requires a conversation checkpoint writer.');
-  const progress: TurnProgress | undefined = options.retainTurnProgress || options.onTurnProgressCommitted || options.retainRuntimeState ? {
+  const progress: TurnProgress | undefined = recovered ? structuredClone(recovered.progress) : options.retainTurnProgress || options.onTurnProgressCommitted || options.retainRuntimeState ? {
     version: 1, turnId: randomUUID(), iterationLimit: Number.isFinite(limit) ? Math.floor(limit) : null,
     completionLimit, iterations: 0, completionChecks: 0,
   } : undefined;
-  const runtimeState: TurnRuntimeState | undefined = options.retainRuntimeState ? {
+  const runtimeState: TurnRuntimeState | undefined = recovered ? structuredClone(recovered.runtimeState) : options.retainRuntimeState ? {
     ...(options.runtimeStateVersion === 2 ? { version: 2 as const, execution: { phase: 'ready' as const, activeEffects: [] } } : { version: 1 as const }),
     turnId: progress!.turnId, startedAt: options.runtimeClock?.startedAt ?? started,
     deadline: options.runtimeClock?.deadline ?? null,
@@ -230,6 +256,8 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     continuations: 0, responseUsageComplete: true,
     totals: { inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0, toolCalls: 0 }, effect: { kind: 'quiescent' },
   } : undefined;
+  if (recovered && runtimeState)
+    runtimeState.maxCostUsd = caps.maxCostPerRun !== undefined && Number.isFinite(caps.maxCostPerRun) ? caps.maxCostPerRun : null;
   if (runtimeState) validateTurnRuntimeState(runtimeState);
   const effect = (value: TurnRuntimeState['effect']) => {
     if (!runtimeState) return;
@@ -341,9 +369,11 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
         json: extra.format !== undefined,
         inputTokens: Math.ceil(JSON.stringify(input.messages).length / 3), outputTokens: 250 },
     }));
+    if (recovered && decision.selected && (decision.selected.provider !== recovered.request.provider || decision.selected.model !== recovered.request.model))
+      throw new ExecutionLimitError('authority', 'Original recovery route cannot change provider or model.');
     if (options.preferenceSources) decision.preferenceSources = options.preferenceSources;
     runlog.routingDecision(decision);
-    if (options.onRoute) await cancellable(hostCallback('onRoute', () => options.onRoute!(decision)),signal);
+    if (options.onRoute) await cancellable(hostCallback('onRoute', () => options.onRoute!(recovered ? structuredClone(decision) : decision)),signal);
     else await hostCallback('onWarning', () => options.onWarning?.(formatRoutingDecision(decision)));
     if (decision.status === 'cancelled') throw cancellationError();
     if (!decision.selected) {
@@ -353,10 +383,15 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
       }
       throw new RoutingUnavailableError(decision);
     }
+    if (recovered && (decision.selected.provider !== recovered.request.provider || decision.selected.model !== recovered.request.model ||
+        providerTarget(decision.selected.provider).key !== recovered.request.target))
+      throw new ExecutionLimitError('authority', 'Original recovery dispatch target changed.');
     return { ...input, provider: decision.selected.provider, model: decision.selected.model, route: decision.selected,
       messages: adaptRoutingPrompt(input.messages, decision.selected.provider) };
   };
   const checkBudget = () => {
+    if (recovered && providerTarget(recovered.request.provider).key !== recovered.request.target)
+      throw new ExecutionLimitError('authority', 'Original recovery provider target changed.');
     if (providerCheckpointFailed) throw providerCheckpointFailed;
     guard?.assertActive(signal);
     if (!hasBudgetCaps(caps)) return;
@@ -659,7 +694,7 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
   };
 
   runlog.runStart({ mode: options.client ?? 'library', session: options.sessionId, cwd: options.cwd, provider: options.provider, model: currentRequest.model, config: config.getConfig() as unknown as Record<string, unknown> });
-  runlog.userPrompt(options.prompt);
+  if (!recovered) runlog.userPrompt(options.prompt);
   const availableTools = () => {
     const tools = toolRuntime ? toolRuntime.tools() : (options.tools ?? getTools)();
     return guard ? toolRuntime?.accounted ? guard.hostedTools(tools) : guard.tools(tools) : tools;
@@ -695,18 +730,19 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard): Promise<
     if ((options.provider === 'openai' || options.provider === 'auto') && chatGPTSelected() && (fallbackHistory(messages.current) || (options.provider === 'openai' && quotaCircuit() && fallbackPolicy()))) await activateFallback();
     currentRequest = await resolveRoute({ ...currentRequest, tools: availableTools() }, true);
     messages.current = currentRequest.messages;
-    for (iterations = 1; iterations <= limit; iterations++) {
+    for (iterations = recovered?.nextIteration ?? 1; iterations <= limit; iterations++) {
       try {
         await boundary(true);
         throwIfCancelled(signal);
         checkBudget();
-        if (progress) { progress.iterations = iterations; await checkpoint('active'); await acknowledgeProgress(); }
+        const continuingIteration = !!recovered && iterations === recovered.nextIteration && iterations === recovered.progress.iterations;
+        if (progress && !continuingIteration) { progress.iterations = iterations; await checkpoint('active'); await acknowledgeProgress(); }
         currentRequest = { ...currentRequest, messages: messages.current, tools: availableTools() };
         const discoveredAt = Date.parse(currentRequest.route?.discoveredAt ?? '');
         if (currentRequest.route?.evidence === 'live' && (!Number.isFinite(discoveredAt) ||
             discoveredAt > Date.now() + 1000 || Date.now() - discoveredAt > 300000))
           currentRequest = await resolveRoute(currentRequest);
-        const compressed = options.disableCompression ? {
+        const compressed = options.disableCompression || continuingIteration && recovered?.runtimeState.execution.phase === 'context_recorded' ? {
           compressed:false, method:'none' as const, messages:messages.current,
           originalTokens:0, compressedTokens:0, summarizedCount:0,
         } : await access(() => withReviewedModelLimits(currentRequest.route, options.cwd, () => autoCompress(messages.current, getModelContextLimit(currentRequest.provider, currentRequest.model), currentRequest.provider, currentRequest.model, signal,

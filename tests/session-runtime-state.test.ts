@@ -63,6 +63,26 @@ it('does not allow runtime evidence to disappear or attach to another turn', () 
   expect(() => makeEvent('test', before, { ...before, runtimeState: undefined }, eventLink(anchor))).toThrow(/invalid/);
 });
 
+it.each([null, 8])('retains a tightened v2 cap from %s through durable history without allowing it to grow or disappear', async maxCostUsd => {
+  const allowance = progress();
+  const state: TurnRuntimeState = { ...runtime(allowance.turnId), version: 2, maxCostUsd,
+    effect: { kind: 'quiescent' }, execution: { phase: 'ready', activeEffects: [] } };
+  const first = writeConversation(dir, 'test', messages, { expectedRevision: null, status: 'active', progress: allowance, runtimeState: state });
+  const next = { ...state, maxCostUsd: 6 };
+  const saved = writeConversation(dir, 'test', messages, { expectedRevision: first.revision, status: 'active', runtimeState: next });
+  expect((await replaySessionHistory(dir, 'test', saved.history!)).snapshot.runtimeState?.maxCostUsd).toBe(6);
+  for (const cap of [null, 7]) {
+    expect(() => writeConversation(dir, 'test', messages, { expectedRevision: saved.revision, status: 'active', runtimeState: { ...next, maxCostUsd: cap } })).toThrow(/invalid/);
+  }
+  expect(readConversation(dir, 'test')).toEqual(saved);
+});
+
+it('keeps the legacy v1 cost cap immutable', () => {
+  const allowance = progress(), state = runtime(allowance.turnId);
+  const first = writeConversation(dir, 'test', messages, { expectedRevision: null, status: 'active', progress: allowance, runtimeState: state });
+  expect(() => writeConversation(dir, 'test', messages, { expectedRevision: first.revision, status: 'active', runtimeState: { ...state, maxCostUsd: 7 } })).toThrow(/invalid/);
+});
+
 it('preserves unknown usage while recording later known usage and a new quiescent boundary', () => {
   const allowance = progress(), state = runtime(allowance.turnId);
   state.responseUsageComplete = false;

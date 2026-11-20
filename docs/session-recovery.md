@@ -154,7 +154,9 @@ authoritative for charges and unknown requests.
 
 Runtime evidence uses history event version 3. It must start with the first
 conversation checkpoint, match the original turn ID, and retain its start,
-deadline and cost cap. Later checkpoints cannot reduce reported totals or
+deadline and cost ceiling. Version 2 runtime evidence may durably lower the
+cost cap, including after recovery, but cannot raise or remove it. Legacy
+version 1 runtime caps remain immutable. Later checkpoints cannot reduce reported totals or
 restore a missing-usage marker. Replay, branches and portable bundles retain the
 evidence. Versions 1 and 2 remain unchanged when capture is disabled; older CLI
 versions cannot read version 3 histories.
@@ -199,3 +201,39 @@ host admission and ledger recovery contract tracked in #521.
 
 The run-log v1 envelope adds `session_checkpoint` events with `revision`,
 `checksum`, `status` and `messageCount`; existing event types are unchanged.
+
+## Host-admitted original-turn recovery
+
+SDK hosts can require `TURN_RECOVERY_PROTOCOL_VERSION === 1` and call
+`prepareTurnRecovery` before opening the original delegated execution connection.
+The host supplies its exact acknowledged checkpoint and control history, original
+request and execution policy, and an admission callback. That callback must
+establish current ownership and reconcile the original request/reservation history.
+It returns nothing on success. Local checkpoint checksums cannot establish these
+host facts.
+
+Preparation rereads the existing bound session on the same physical workspace,
+checks its version 2 runtime evidence and remaining allowances, awaits admission,
+then rechecks the retained evidence and provider target. The result is an opaque,
+single-use in-process capability for `runTurn` or `runHeadless`. Serialized data
+cannot substitute for it. Recovery retains the original conversation, turn ID,
+account binding, counters, start, deadline and cost ceiling. Any tighter current
+run cap is saved before dependent work and retained across later recovery. A recovered turn uses a
+private message holder; read the saved conversation for its durable result.
+
+The host explicitly supplies `nextIteration` from correlated request history:
+the already admitted iteration when inference has not started, or the next
+iteration after confirmed completion. The SDK bounds that choice by the original
+allowance and requires the existing iteration for a `context_recorded` checkpoint.
+It never infers unused allowance from a quiescent marker alone. An original paused
+receipt remains paused until its exact resume; acknowledged steering and completed
+control receipts are not reapplied.
+
+This initial path holds pending provider/tool/question/verification effects,
+unreported usage, final assistant answers awaiting verification reconciliation,
+expired or exhausted turns, incomplete histories and local-model repair state.
+Their reconciliation and Native replacement admission remain required work under
+#521. There is no session-name resume flag, account substitution, fresh Root,
+automatic replay of uncertain work, or new execution permission from preparation.
+Native hosts must qualify the paired version 2 monotonic cost-cap validator;
+older validators hold a lowered-cap checkpoint rather than accepting it.

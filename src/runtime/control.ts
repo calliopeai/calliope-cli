@@ -1,4 +1,5 @@
 import { cancellable, throwIfCancelled } from '../cancellation.js';
+import { controlRecoveryIdentity, validateControlRecovery, validControlIdentifier, type ControlRecoveryState } from './control-recovery.js';
 
 export const CONTROL_CHECKPOINT_PROTOCOL_VERSION = 1;
 
@@ -25,7 +26,7 @@ function pending<T>(): Pending<T> {
   return { promise, resolve, reject };
 }
 function identifier(value: string): void {
-  if (typeof value !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value))
+  if (!validControlIdentifier(value))
     throw new Error('Control request ID is invalid.');
 }
 type Pause = { id: string; paused: Pending<ControlReceipt>; receipt?: ControlReceipt;
@@ -52,6 +53,44 @@ export class RuntimeControl {
   #changes = new Set<() => void>();
   #version = 0;
   #bound = false;
+  #restoredIdentity?: string;
+
+  /** Restore only host-acknowledged control history, without starting a turn. */
+  static fromCheckpoint(input: ControlRecoveryState): RuntimeControl {
+    let saved: ControlRecoveryState;
+    try { saved = structuredClone(input); validateControlRecovery(saved); }
+    catch { throw new Error('Retained control history is invalid; the original session remains held.'); }
+    const control = new RuntimeControl();
+    control.#sessionId = saved.sessionId;
+    control.#phase = saved.phase;
+    control.#restoredIdentity = controlRecoveryIdentity(saved);
+    control.observe(saved.checkpoint);
+    for (const item of saved.pauses) {
+      const entry: Pause = { id: item.paused.requestId, paused: pending<ControlReceipt>(),
+        receipt: Object.freeze({ ...item.paused }) };
+      entry.paused.resolve(entry.receipt!);
+      if (item.resumed) {
+        entry.resume = pending<ControlReceipt>();
+        entry.resume.resolve(Object.freeze({ ...item.resumed }));
+      } else control.#pause = entry;
+      control.#pauses.set(entry.id, entry);
+    }
+    for (const item of saved.steering) {
+      const result = pending<ControlReceipt>();
+      result.resolve(Object.freeze({ ...item.receipt }));
+      control.#steering.set(item.intent.requestId, { intent: Object.freeze({ ...item.intent }), result, applied: true });
+    }
+    return control;
+  }
+
+  /** @internal Bind the original host snapshot before consuming a recovery invocation. */
+  assertRestoration(value: ControlRecoveryState): void {
+    validateControlRecovery(value);
+    if (this.#bound || this.#phase === 'stopped' || this.#sessionId !== value.sessionId ||
+        this.#checkpoint?.revision !== value.checkpoint.revision || this.#checkpoint?.checksum !== value.checkpoint.checksum ||
+        this.#restoredIdentity !== controlRecoveryIdentity(value))
+      throw new Error('Recovery requires the exact unbound original control history.');
+  }
 
   get state() {
     return Object.freeze({ phase: this.#phase, sessionId: this.#sessionId,
@@ -107,7 +146,8 @@ export class RuntimeControl {
 
   /** @internal Called once by the canonical runtime, never by a host adapter. */
   bind(sessionId: string): void {
-    if (this.#bound || this.#phase === 'stopped') throw new Error('Control is already bound to a turn.');
+    if (this.#bound || this.#phase === 'stopped' || this.#sessionId !== undefined && this.#sessionId !== sessionId)
+      throw new Error('Control is already bound to a turn or belongs to another session.');
     this.#bound = true; this.#sessionId = sessionId;
   }
 
@@ -150,8 +190,10 @@ export class RuntimeControl {
       throw new Error('Control boundary does not belong to this active turn.');
     const pause = this.#pause;
     if (pause) {
-      pause.receipt = await this.#receipt('paused', pause.id, boundary);
-      this.#phase = 'paused'; pause.paused.resolve(pause.receipt);
+      if (!pause.receipt) {
+        pause.receipt = await this.#receipt('paused', pause.id, boundary);
+        this.#phase = 'paused'; pause.paused.resolve(pause.receipt);
+      }
       while (!pause.resume) {
         if (this.state.phase === 'stopped') throw new Error('Turn control has stopped.');
         await this.#change(this.#version, boundary.signal);
