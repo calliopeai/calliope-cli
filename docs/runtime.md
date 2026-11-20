@@ -44,6 +44,24 @@ requires the saved project to match; programmatic turns in another project get
 a fresh scope. Concurrent sessions cannot borrow grants
 from each other. The terminal also creates checkpoints in the session project.
 
+Embedded headless hosts can opt into `approveTool(request, signal)` when
+`HEADLESS_TOOL_APPROVAL_PROTOCOL_VERSION === 1`. The request contains detached
+tool and permission-decision values plus the original saved session ID,
+revision and checksum. Return `allow`, `reject` or `cancelled` for that request
+only; the callback cannot create a reusable approval. An opt-in host confirms
+mutating tools through the existing permission resolver. A host without the
+callback keeps its existing behavior, including confirmation refusal under a
+delegated ledger.
+
+The runtime supplies its active cancellation/deadline signal. It checks the
+invocation's tracked conversation before approval, after the reply and at final
+admission after asynchronous checks. A changed saved conversation, rejected or
+malformed decision, callback failure or cancellation prevents execution.
+Existing scope, hooks, policy, task authority and remote
+ownership checks still run after approval and before the effect. Hosts must
+authorize the exact request within their reviewed execution contract; a question
+answer or task prompt cannot provide this capability.
+
 A successful `ask_question` or `create_plan` pauses execution before subsequent
 tools by default. A host supplying `answerQuestion` instead waits inside the same
 turn for an `ask_question` answer. The runtime passes its cancellation signal,
