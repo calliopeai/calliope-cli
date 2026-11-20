@@ -9,5 +9,8 @@ export * from './repair.js';
 export * from './tool-retry.js';
 export { RuntimeControl, CONTROL_CHECKPOINT_PROTOCOL_VERSION } from './control.js';
 export type { ControlCheckpoint, ControlReadyCheckpoint, ControlReceipt, SteeringIntent } from './control.js';
+export type { ControlRecoveryState } from './control-recovery.js';
+export { prepareTurnRecovery, TURN_RECOVERY_PROTOCOL_VERSION } from './turn-recovery.js';
+export type { PreparedTurnRecovery, TurnRecoveryInput, TurnRecoveryRequest, TurnRecoveryPolicy, TurnRecoveryProof } from './turn-recovery.js';
 export type { CompletionCheck, CompletionProposal, CompletionVerdict, CompletionVerification } from './completion.js';
 export { COMPLETION_CHECK_PROTOCOL_VERSION } from './completion.js';

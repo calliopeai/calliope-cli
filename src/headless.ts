@@ -8,6 +8,7 @@
 
 import { runTurn } from './runtime/index.js';
 import { MAX_CONSECUTIVE_CONTINUATIONS, type TurnOptions, type TurnTotals } from './runtime/turn.js';
+import { claimTurnRecovery, type PreparedTurnRecovery, type ActiveTurnRecovery } from './runtime/turn-recovery.js';
 import type { RuntimeControl, ControlCheckpoint, ControlReadyCheckpoint, ControlReceipt } from './runtime/control.js';
 import type { TurnProgress } from './sessions/turn-progress.js';
 import type { TurnRuntimeState } from './sessions/runtime-state.js';
@@ -81,6 +82,8 @@ export interface HeadlessQuestionReceipt {
 }
 
 export interface HeadlessOptions {
+  /** A single-use original checkpoint admitted by the trusted host, never a session-name shortcut. */
+  recovery?: PreparedTurnRecovery;
   /** Opt-in checkpoint evidence for future fenced recovery; does not enable resume. */
   retainRuntimeState?: boolean;
   /** Explicit phase/effect capture, without replacement execution authority. */
@@ -202,11 +205,35 @@ export function parseHeadlessEffort(args: readonly string[], env: NodeJS.Process
 
 interface RunClock { started: number; timedOut: boolean }
 const headlessControls = new WeakSet<RuntimeControl>();
-
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
+  let invocation = options;
+  let recovery: ActiveTurnRecovery | undefined;
+  if (options.recovery) {
+    invocation = { ...options };
+    try {
+      if (!options.ledger || options.prompt || options.control && options.control !== options.recovery.control)
+        throw new Error('Headless recovery requires its original ledger and no replacement prompt or controller.');
+      const restored = recovery = claimTurnRecovery(options.recovery);
+      const oldTime = restored.deadline === null ? undefined : (restored.deadline - restored.startedAt) / 1000;
+      if (options.maxTime !== undefined && (oldTime === undefined || Math.floor(restored.startedAt + options.maxTime * 1000) !== restored.deadline))
+        throw new Error('Original headless recovery clock changed.');
+      if (options.maxIterations !== undefined && resolveIterationLimit(options.maxIterations) !== (restored.iterationLimit ?? Infinity))
+        throw new Error('Original headless recovery iteration limit changed.');
+      invocation = { ...invocation, control: restored.control,
+        provider: options.provider ?? restored.request.provider, model: options.model ?? restored.request.model,
+        reasoningEffort: options.reasoningEffort ?? restored.request.reasoningEffort ?? undefined,
+        maxRetries: options.maxRetries ?? restored.policy.maxRetries, maxTime: oldTime,
+        maxCompletionChecks: options.maxCompletionChecks ?? (restored.completionLimit || undefined) };
+    } catch (error) {
+      emit({ type: 'error', timestamp: now(), data: { message: error instanceof Error ? error.message : 'Original headless recovery was refused.' } }, options.outputMode || 'json');
+      recovery?.control.stop(new Error('Original headless recovery ended before runtime admission.'));
+      return 2;
+    }
+  }
+  options = invocation;
   const control = options.control;
   if (control) {
-    if (headlessControls.has(control) || control.state.sessionId || control.state.phase === 'stopped') {
+    if (headlessControls.has(control) || control.state.sessionId && !recovery || control.state.phase === 'stopped') {
       emit({ type: 'error', timestamp: now(), data: { message: 'Execution controller already belongs to a headless invocation or turn.' } }, options.outputMode || 'json');
       return 2;
     }
@@ -214,24 +241,26 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
     // not end another invocation's pending pause or stop its original turn.
     headlessControls.add(control);
   }
-  try { return await runHeadlessWithClock({ ...options }); }
+  try { return await runHeadlessWithClock(invocation, recovery); }
   finally {
-    if (control && !control.state.sessionId)
+    if (control && (!control.state.sessionId || recovery))
       control.stop(new Error('Headless run ended before runtime admission.'));
   }
 }
 
-async function runHeadlessWithClock(options: HeadlessOptions): Promise<number> {
-  const clock: RunClock = { started: Date.now(), timedOut: false };
-  if (options.maxTime === undefined) return run(options, options.signal, clock);
+async function runHeadlessWithClock(options: HeadlessOptions, recovery?: ActiveTurnRecovery): Promise<number> {
+  const clock: RunClock = { started: recovery?.startedAt ?? Date.now(), timedOut: false };
+  if (options.maxTime === undefined) return run(options, options.signal, clock, recovery);
   // The time cap aborts like cancellation; `clock.timedOut` tells the two apart.
   const deadline = new AbortController();
-  const timer = setTimeout(() => { clock.timedOut = true; deadline.abort(); }, Math.min(options.maxTime * 1000, 2 ** 31 - 1));
-  try { return await run(options, options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal, clock); }
+  const remaining = Math.max(0, clock.started + options.maxTime * 1000 - Date.now());
+  if (remaining === 0) { clock.timedOut = true; deadline.abort(); }
+  const timer = setTimeout(() => { clock.timedOut = true; deadline.abort(); }, Math.min(remaining, 2 ** 31 - 1));
+  try { return await run(options, options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal, clock, recovery); }
   finally { clearTimeout(timer); }
 }
 
-async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock): Promise<number> {
+async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock, recovery?: ActiveTurnRecovery): Promise<number> {
   const outputMode = options.outputMode || 'json';
   const providerResponseWriter = options.onProviderResponseReceived;
   const providerRequestWriter = options.onProviderRequestReserved;
@@ -294,7 +323,8 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
     if (outputMode === 'json') process.stderr.write(message + '\n');
   };
   const timeMessage = () => `Time cap reached: ${((Date.now() - clock.started) / 1000).toFixed(1)}s of ${options.maxTime}s. Halting.`;
-  const maxIterations = resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
+  const maxIterations = recovery ? recovery.iterationLimit ?? Infinity
+    : resolveIterationLimit(options.maxIterations ?? config.get('maxIterations'));
   const maxRetries = options.maxRetries ?? 3;
   const cwd = options.cwd || process.cwd();
   let preference: ResolvedPreference;
@@ -308,7 +338,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
 
   try {
     throwIfCancelled(signal);
-    if (!prompt && !process.stdin.isTTY) {
+    if (!recovery && !prompt && !process.stdin.isTTY) {
       prompt = await new Promise<string>((resolve, reject) => {
         const input = process.stdin;
         const chunks: Buffer[] = [];
@@ -343,7 +373,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
     return 1;
   }
 
-  if (!prompt) {
+  if (!prompt && !recovery) {
     emit({
       type: 'error',
       timestamp: now(),
@@ -387,12 +417,12 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
   const contextGuard = execution ? new ExecutionGuard(execution, cwd) : undefined;
   // A hosted workspace is not a filesystem grant to this SDK process. Its
   // caller supplies initial context through the prompt or the declared tools.
-  const memoryContext = options.toolRuntime ? '' : contextGuard ? memory.buildMemoryContext(cwd, { allowPath: file => !contextGuard.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
+  const memoryContext = recovery || options.toolRuntime ? '' : contextGuard ? memory.buildMemoryContext(cwd, { allowPath: file => !contextGuard.check({ id: 'context', name: 'read_file', arguments: { path: file } }) }) : memory.buildMemoryContext(cwd);
   const fullPrompt = memoryContext.trim()
     ? systemPrompt + '\n\n--- Project Context ---\n' + memoryContext
     : systemPrompt;
 
-  const messages: Message[] = [
+  const messages: Message[] = recovery ? [] : [
     { role: 'system', content: fullPrompt },
     { role: 'user', content: prompt },
   ];
@@ -410,17 +440,18 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
 
   // ---- Governance (#189): audit run log, budget caps, policy hook ----------
   let sessionId: string;
-  try { sessionId = createSession(cwd, { activate: false, ...(execution ? { executionBinding: executionBinding(execution) } : {}) }).id; }
+  try { sessionId = recovery?.sessionId ?? createSession(cwd, { activate: false, ...(execution ? { executionBinding: executionBinding(execution) } : {}) }).id; }
   catch { emit({ type: 'error', timestamp: now(), data: { message: 'Session recovery directory could not be created; check disk space and permissions.' } }, outputMode); return 1; }
-  let revision: string | null = null;
+  let revision: string | null = recovery?.checkpoint.revision ?? null;
   let savedQuestion: ReturnType<typeof saveSessionConversation> | undefined;
-  let savedControl: ControlCheckpoint | undefined;
+  let savedControl: ControlCheckpoint | undefined = recovery?.checkpoint;
   let savedProgress: ReturnType<typeof saveSessionConversation> | undefined;
   emit({ type: 'status', timestamp: now(), data: { message: `Session: ${sessionId}`, sessionId } }, outputMode);
   const runlog = RunLog.open(sessionId);
   if (runlog.enabled) emit({ type: 'status', timestamp: now(), data: { message: `Run log: ${runlog.filePath}` } }, outputMode);
   try {
     const result = await runTurn({
+      ...(recovery ? { recovery } : {}),
       ...(providerResponseWriter ? { onProviderResponseReceived: providerResponseWriter } : {}),
       ...(providerRequestWriter ? { onProviderRequestReserved: providerRequestWriter } : {}),
       ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeStateVersion: options.runtimeStateVersion, runtimeClock: { startedAt: clock.started,
