@@ -76,7 +76,9 @@ export interface TurnOptions {
   inheritScope?: boolean; runlog?: RunLog; toolOptions?: ExecuteToolOptions;
   approvals?: ApprovalStore;
   captureToolOutput?: boolean;
-  confirmation: PermissionContext['confirmation']; approve?: (call: ToolCall, decision: PermissionDecision) => Promise<ApprovalChoice>;
+  confirmation: PermissionContext['confirmation']; approve?: (call: ToolCall, decision: PermissionDecision, signal?: AbortSignal) => Promise<ApprovalChoice>;
+  /** Synchronous client checkpoint fence, rechecked at final admission; can only narrow authority. */
+  validateToolAdmission?: (call: ToolCall) => boolean;
   tools?: () => Tool[];
   prepare?: (request: RuntimeRequest, iteration: number) => Promise<RuntimeRequest>;
   onCompression?: (result: CompressionResult) => void;
@@ -602,8 +604,13 @@ async function executeTurn(options: TurnOptions,guard?:ExecutionGuard,recovered?
         get cwd() { return options.cwd; }, get mode() { return options.mode; },
         get confirmation() { return guard && options.confirmation === 'none' ? 'mutating' : options.confirmation; },
         signal, get sessionId() { return options.sessionId; }, get approvals() { return options.approvals; },
-        authority: toolRuntime ? (call, cwd) => toolRuntime.denial(call) ?? (toolRuntime.accounted ? guard!.checkHosted(call, cwd) : guard?.check(call, cwd)) : guard?.check,
-        approve: options.approve ? pending => options.approve!(structuredClone(call), structuredClone(pending)) : undefined,
+        authority: (call, cwd) => {
+          const denied = toolRuntime ? toolRuntime.denial(call) ?? (toolRuntime.accounted ? guard!.checkHosted(call, cwd) : guard?.check(call, cwd)) : guard?.check(call, cwd);
+          if (denied) return denied;
+          return options.validateToolAdmission && options.validateToolAdmission(structuredClone(call)) !== true
+            ? 'Original client tool checkpoint changed; refresh before execution.' : undefined;
+        },
+        approve: options.approve ? pending => options.approve!(structuredClone(call), structuredClone(pending), signal) : undefined,
         audit: event => runlog.policyEvent(event), onAdmission: validate => { validateAdmission = validate; } });
       await options.onPermission?.(structuredClone(call), structuredClone(decision));
       return decision;

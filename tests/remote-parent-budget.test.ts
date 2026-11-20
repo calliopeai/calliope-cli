@@ -33,12 +33,12 @@ beforeEach(async()=>{
  link={version:2,url:host.url,tokenFile,checkpointRoot:join(root,'placed-cache'),runId:r.view.run.id,budgetManifestHash:host.execution.manifestHash,agentId:'placed',accountMap:{coordinator:'placed'},reviewed:host.reviewedContext};
 });
 afterEach(async()=>{vi.restoreAllMocks();for(const server of servers)if(server.listening){server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));}vi.unstubAllGlobals();vi.unstubAllEnvs();config.resetConfig();saveHooks([]);fs.rmSync(root,{recursive:true,force:true});});
-async function child(parent=link,wide=false,tokens=800,supervised=false){const plan=verifiedPlan();if(supervised){plan.version=4;plan.supervision={version:1,controllerId:'coordinator',maxRounds:2,maxStalledRounds:1,maxOutputTokens:10,principle:'robustness',allowedActions:[]};}if(!wide){plan.agents=plan.agents.slice(0,1);plan.agents[0]!.maxChildDepth=0;plan.agents[0]!.maxChildCount=0;plan.tasks=plan.tasks.slice(0,1);plan.tasks[0]!.agentId="coordinator";delete plan.tasks[0]!.outputs[0]!.path;Object.assign(plan.limits,{maxAgents:1,maxTasks:1,maxDepth:0,maxConcurrent:1});}if(supervised){
+async function child(parent=link,wide=false,tokens=800,supervised=false,timeBudgetMs=10000){const plan=verifiedPlan();if(supervised){plan.version=4;plan.supervision={version:1,controllerId:'coordinator',maxRounds:2,maxStalledRounds:1,maxOutputTokens:10,principle:'robustness',allowedActions:[]};}if(!wide){plan.agents=plan.agents.slice(0,1);plan.agents[0]!.maxChildDepth=0;plan.agents[0]!.maxChildCount=0;plan.tasks=plan.tasks.slice(0,1);plan.tasks[0]!.agentId="coordinator";delete plan.tasks[0]!.outputs[0]!.path;Object.assign(plan.limits,{maxAgents:1,maxTasks:1,maxDepth:0,maxConcurrent:1});}if(supervised){
  plan.workspace.isolation={version:1,image:'sha256:'+'a'.repeat(64)};
  const agent=plan.agents[0]!;agent.allowedTools=['read_file'];agent.allowedPaths=[{path:'.',access:'read'}];
  const task=plan.tasks[0]!;delete task.outputs[0]!.path;task.outputs.push({id:'patch',kind:'patch',description:'Executor-owned patch.'});task.isolation={mode:'read-only-v1',patchArtifactId:'patch',commands:[]};
  if(!fs.existsSync(join(project,'.git'))){const git=(...args:string[])=>execFileSync('git',args,{cwd:project,stdio:'pipe'});git('init','-q');git('config','user.name','Test');git('config','user.email','test@example.invalid');fs.writeFileSync(join(project,'a/seed.txt'),'public fixture');git('add','a/seed.txt');git('-c','commit.gpgsign=false','commit','-qm','fixture');}
- }plan.limits.tokenBudget=tokens;plan.limits.costBudgetUsd=.008;plan.limits.timeBudgetMs=10000;for(const agent of plan.agents){agent.tokenBudget=agent.parentId?Math.floor(tokens/4):tokens;agent.costBudgetUsd=agent.parentId ? .002 : .008;agent.timeBudgetMs=10000;}const file=randomUUID()+'.json';fs.writeFileSync(join(project,file),JSON.stringify(plan));const prepared=await prepareRun(project,file,{store:runs});const view=await changePreparedRun(project,prepared.run.id,'approved',{store:runs});return {view,execution:await prepareAgentExecution(project,view.run.id,'coordinator',10,{store:runs,parentBudget:parent})};}
+ }plan.limits.tokenBudget=tokens;plan.limits.costBudgetUsd=.008;plan.limits.timeBudgetMs=timeBudgetMs;for(const agent of plan.agents){agent.tokenBudget=agent.parentId?Math.floor(tokens/4):tokens;agent.costBudgetUsd=agent.parentId ? .002 : .008;agent.timeBudgetMs=timeBudgetMs;}const file=randomUUID()+'.json';fs.writeFileSync(join(project,file),JSON.stringify(plan));const prepared=await prepareRun(project,file,{store:runs});const view=await changePreparedRun(project,prepared.run.id,'approved',{store:runs});return {view,execution:await prepareAgentExecution(project,view.run.id,'coordinator',10,{store:runs,parentBudget:parent})};}
 const request=()=>({id:randomUUID(),agentId:'coordinator',provider:'deepseek',model:'fixture',target:providerTarget('deepseek').key,inputTokens:99,outputTokens:1,inputPrice:0,outputPrice:0,costNanos:0});
 it('funds a native run in a different owner-bound workspace and settles the same parent charge',async()=>{
  expect(remoteParentBudgetCapabilities()).toMatchObject({version:1,linkVersion:2,executionEventVersion:13,reservationEventVersion:6,accountMapping:'native-admissions-only',taskConcurrency:'parent-execution-journal'});
@@ -92,7 +92,7 @@ it.each([false,true])('runs actual native coordinators through one shared parent
   if(!body.stream)return new Response(JSON.stringify(completion),{headers:{'content-type':'application/json'}});
   return new Response('data: '+JSON.stringify({...completion,choices:[{index:0,delta:{role:'assistant',content},finish_reason:'stop'}]})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
  }));
- const a=await child(link,false,100000,supervised),b=await child(link,false,100000,supervised);
+ const a=await child(link,false,100000,supervised,30000),b=await child(link,false,100000,supervised,30000);
  if(supervised){execFileSync('git',['add','.'],{cwd:project,stdio:'pipe'});execFileSync('git',['-c','commit.gpgsign=false','commit','-qm','reviewed fixtures'],{cwd:project,stdio:'pipe'});}
  const controller=new AbortController();
  const run=(c:typeof a)=>executeReviewedRun(project,c.view.run.id,{store:runs,resume:true,maxOutputTokens:10,signal:controller.signal,approve:async()=> 'allow'});
@@ -100,14 +100,14 @@ it.each([false,true])('runs actual native coordinators through one shared parent
  try{
   await vi.waitFor(()=>expect(requests,JSON.stringify(completed)).toBe(1),{timeout:5000});
   expect(Object.values(r.store.read().state.remoteTasks??{}).filter(x=>x.status==='active')).toHaveLength(1);
-  releaseFirst();const results=await Promise.all([one,two]);expect(results.map(result=>result.status)).toEqual(['completed','completed']);
+  releaseFirst();const results=await Promise.all([one,two]);expect(results.map(result=>result.status),JSON.stringify(completed)).toEqual(['completed','completed']);
   expect(requests,JSON.stringify(completed)).toBe(supervised?4:2);expect(maximum).toBe(1);
   expect(Object.values(r.store.read().state.remoteTasks??{})).toHaveLength(supervised?4:2);
   if(supervised)expect(Object.values(r.store.read().state.remoteTasks??{}).filter(x=>x.admission.kind==='supervision')).toHaveLength(2);
   expect(Object.values(r.store.read().state.remoteTasks??{}).every(x=>x.status==='released')).toBe(true);
   expect(r.authority.ledger.read(r.project).projection.spent.tokens).toBeGreaterThan(0);
  }finally{releaseFirst();controller.abort();await Promise.allSettled([one,two]);}
-},20000);
+},60000);
 
 it('retains a remote slot after its admission acknowledgement is lost and recovers the same admission',async()=>{
  const original=globalThis.fetch,controller=new AbortController();

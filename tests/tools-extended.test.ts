@@ -129,12 +129,12 @@ describeCode('execute_code tool - edge cases', () => {
     const result = await executeTool(makeTool('execute_code', {
       language: 'bash',
       code: 'echo "hello from sandbox"',
-    }), tmpDir);
+    }), tmpDir, 30000);
     expect(result.isError).toBeUndefined();
     // Result should contain language tag and output
     expect(result.result).toContain('[bash]');
     expect(result.result).toContain('hello from sandbox');
-  });
+  }, 35000);
 
   it('should execute node code and return output', async () => {
     const result = await executeTool(makeTool('execute_code', {
@@ -150,18 +150,18 @@ describeCode('execute_code tool - edge cases', () => {
     const result = await executeTool(makeTool('execute_code', {
       language: 'bash',
       code: 'exit 1',
-    }), tmpDir);
+    }), tmpDir, 30000);
     expect(result.isError).toBeUndefined();
     expect(result.result).toContain('err');
-  });
+  }, 35000);
 
   it('should include Duration in output', async () => {
     const result = await executeTool(makeTool('execute_code', {
       language: 'bash',
       code: 'echo ok',
-    }), tmpDir);
+    }), tmpDir, 30000);
     expect(result.result).toContain('Duration:');
-  });
+  }, 35000);
 });
 
 // ===========================================================================

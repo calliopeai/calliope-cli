@@ -30,7 +30,8 @@ import { resolveIterationLimit } from './iteration-limit.js';
 import { RunLog } from './runlog.js';
 import { formatBudgetHalt } from './budget.js';
 import { resolvePreferences, type ResolvedPreference } from './preferences/index.js';
-import type { Message, LLMProvider } from './types.js';
+import type { Message, LLMProvider, ToolCall } from './types.js';
+import type { PermissionDecision } from './runtime/types.js';
 import { isReasoningEffort, REASONING_EFFORTS, type ReasoningEffort } from './models/index.js';
 
 // ============================================================================
@@ -61,6 +62,14 @@ export const HEADLESS_RUNTIME_STATE_PROTOCOL_VERSION = 1;
 export const HEADLESS_EXECUTION_STATE_PROTOCOL_VERSION = 2;
 /** Host-supplied delegated-ledger I/O, preserving the original parent authority. */
 export const HEADLESS_LEDGER_TRANSPORT_PROTOCOL_VERSION = 1;
+/** Explicit single-use host decisions; question answers never grant tool authority. */
+export const HEADLESS_TOOL_APPROVAL_PROTOCOL_VERSION = 1;
+
+export interface HeadlessToolApprovalRequest extends ControlCheckpoint {
+  readonly sessionId: string;
+  readonly call: ToolCall;
+  readonly decision: PermissionDecision;
+}
 
 export interface HeadlessRuntimeStateReceipt extends ControlCheckpoint {
   readonly sessionId: string;
@@ -95,6 +104,8 @@ export interface HeadlessOptions {
   onProviderRequestReserved?: TurnOptions['onProviderRequestReserved'];
   /** Trusted workspace transport; task text cannot configure this capability. */
   toolRuntime?: TurnOptions['toolRuntime'];
+  /** Approve one exact saved-session request through the canonical permission resolver. */
+  approveTool?: (request: HeadlessToolApprovalRequest, signal?: AbortSignal) => Promise<'allow' | 'reject' | 'cancelled'>;
   signal?: AbortSignal;
   /** Check external acceptance evidence and keep failed criteria in this same turn. */
   completionCheck?: CompletionCheck;
@@ -262,6 +273,11 @@ async function runHeadlessWithClock(options: HeadlessOptions, recovery?: ActiveT
 
 async function run(options: HeadlessOptions, signal: AbortSignal | undefined, clock: RunClock, recovery?: ActiveTurnRecovery): Promise<number> {
   const outputMode = options.outputMode || 'json';
+  const approveTool = options.approveTool;
+  if (approveTool !== undefined && typeof approveTool !== 'function') {
+    emit({ type: 'error', timestamp: now(), data: { message: 'Headless tool approval requires an explicit host callback.' } }, outputMode);
+    return 2;
+  }
   const providerResponseWriter = options.onProviderResponseReceived;
   const providerRequestWriter = options.onProviderRequestReserved;
   if (providerResponseWriter !== undefined &&
@@ -470,7 +486,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         revision = saved.revision;
         if (progress) savedProgress = saved;
         if (options.onQuestionCommitted) savedQuestion = saved;
-        if (options.control || options.completionCheck) savedControl = { revision: saved.revision, checksum: saved.checksum };
+        if (options.control || options.completionCheck || approveTool) savedControl = { revision: saved.revision, checksum: saved.checksum };
         runlog.sessionCheckpoint({ revision: saved.revision, status, messageCount: saved.messages.length, checksum: saved.checksum });
       },
       onRuntimeStateCommitted: options.onRuntimeStateCommitted ? async (runtimeState, progress, receiptSignal) => {
@@ -549,7 +565,22 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
         }
       } : undefined,
       ...(options.maxCost !== undefined ? { maxCostPerRun: options.maxCost } : {}),
-      runlog, confirmation: 'none', tools: getTools, toolRuntime: options.toolRuntime,
+      runlog, confirmation: approveTool ? 'mutating' : 'none', tools: getTools, toolRuntime: options.toolRuntime,
+      validateToolAdmission: approveTool ? () => {
+        const current = readSessionConversation(sessionId);
+        return !!savedControl && current.revision === savedControl.revision && 'checksum' in current && current.checksum === savedControl.checksum;
+      } : undefined,
+      approve: approveTool ? async (call, decision, approvalSignal) => {
+        const saved = readSessionConversation(sessionId);
+        if (!savedControl || saved.revision !== savedControl.revision || !('checksum' in saved) || saved.checksum !== savedControl.checksum)
+          throw new Error('Tool approval requires the original saved conversation.');
+        const request = Object.freeze({ sessionId, ...savedControl, call, decision });
+        const answer = await approveTool(request, approvalSignal);
+        const current = readSessionConversation(sessionId);
+        if (current.revision !== request.revision || !('checksum' in current) || current.checksum !== request.checksum)
+          throw new Error('Conversation changed during tool approval; reload before continuing.');
+        return answer;
+      } : undefined,
       onResponse: response => {
         if (!response.toolCalls?.length) emit({ type: 'message', timestamp: now(), data: { role: 'assistant', content: response.content } }, outputMode);
       },

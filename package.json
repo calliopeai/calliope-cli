@@ -1,6 +1,6 @@
 {
   "name": "@calliopelabs/cli",
-  "version": "3.12.0",
+  "version": "3.13.0",
   "description": "The private-AI agent CLI - one terminal agent for any model backend, including the ones you run yourself",
   "keywords": [
     "ai",
@@ -54,7 +54,8 @@
     "docs/runtime.md",
     "docs/releases/3.10.0.md",
     "docs/releases/3.11.0.md",
-    "docs/releases/3.12.0.md"
+    "docs/releases/3.12.0.md",
+    "docs/releases/3.13.0.md"
   ],
   "scripts": {
     "build": "tsc && node scripts/build-metadata.mjs && chmod +x dist/bin.js",
