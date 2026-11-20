@@ -45,14 +45,18 @@ export function capability(value: unknown): boolean | undefined {
 export function stringList(value: unknown): string[] | undefined {
   return Array.isArray(value) && value.every(item => typeof item === 'string') ? value : undefined;
 }
+function discoveredEfforts(caps: Record<string,unknown>): ReasoningEffort[] | undefined {
+  const effort=object(caps.effort), supported=capability(caps.effort);
+  return supported === undefined ? undefined : supported === false ? []
+    : REASONING_EFFORTS.filter(level=>capability(effort[level])===true);
+}
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 export function anthropicMetadata(value: unknown): Omit<ModelInfo, 'id'> {
-  const model = object(value), caps = object(model.capabilities), effort = object(caps.effort), thinkingTypes = object(object(caps.thinking).types);
+  const model = object(value), caps = object(model.capabilities), thinkingTypes = object(object(caps.thinking).types);
   return { contextLength: positiveLimit(model.max_input_tokens), maxOutputTokens: positiveLimit(model.max_tokens),
-    reasoningEfforts: capability(effort) === undefined ? undefined : capability(effort) === false ? []
-      : REASONING_EFFORTS.filter(level => capability(effort[level]) === true),
+    reasoningEfforts: discoveredEfforts(caps),
     capabilities: { chat: true, vision: capability(caps.image_input), thinking: capability(caps.thinking), adaptiveThinking: capability(thinkingTypes.adaptive), json: capability(caps.structured_outputs) } };
 }
 
@@ -62,6 +66,7 @@ export function compatibleMetadata(value: unknown): Omit<ModelInfo, 'id'> {
   const supported = stringList(model.supported_parameters);
   return {
     aliases: stringList(model.aliases),
+    reasoningEfforts: discoveredEfforts(caps),
     contextLength: positiveLimit(model.max_context_length ?? model.context_length ?? limits.max_context_length),
     maxOutputTokens: positiveLimit(model.max_output_tokens ?? limits.max_completion_tokens),
     pricing: { input: price(costs.input ?? costs.prompt), output: price(costs.output ?? costs.completion) },

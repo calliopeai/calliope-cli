@@ -20,6 +20,8 @@ export interface RoutingRequirements extends Partial<Record<keyof ModelCapabilit
 export interface RoutingRequest {
   provider: LLMProvider;
   model?: string;
+  /** Host workspace used to validate operator evidence lives outside the project. */
+  project?: string;
   /** Original client preference when a continuation is pinned to a selected route. */
   origin?: { provider: LLMProvider; model?: string };
   messages?: Message[];
