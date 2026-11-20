@@ -10,6 +10,7 @@ import {assertExecutionStoreOutsideProject,hex,integer,invalid,shape} from './au
 import {ExecutionLimitError} from './types.js';
 import {withRequestModelLimits} from '../models/request-limits.js';
 import {providerTarget} from '../health/target.js';
+import {isReasoningEffort,type ReasoningEffort} from '../models/metadata.js';
 
 export interface BillingProfile {
   provider:'anthropic'; model:string; target:string;
@@ -20,6 +21,7 @@ export interface BillingProfile {
 }
 export interface FullContextBillingProfile {
   version:2; provider:HealthProvider; model:string; target:string;
+  reasoningEfforts?:ReasoningEffort[];
   checkedAt:number; expiresAt:number; sources:string[];
   prices:{input:number;output:number};
   capabilities:{chat?:boolean;tools?:boolean;streaming?:boolean};
@@ -40,7 +42,7 @@ export const billingFile = ():string => resolve(process.env.CALLIOPE_BILLING_FIL
 
 export function validateBillingProfile(value:unknown):ReviewedBillingProfile {
   const full=!!value&&typeof value==='object'&&'version'in value&&value.version===2;
-  shape(value,['provider','model','target','checkedAt','expiresAt','sources','prices','capabilities','admission',...(full?['version','limits']:[])]);
+  shape(value,['provider','model','target','checkedAt','expiresAt','sources','prices','capabilities','admission',...(full?['version','limits']:[])],full?['reasoningEfforts']:[]);
   if((full?(!getProviderNames().includes(value.provider as HealthProvider)||value.admission!=='reviewed-full-context-v1'):(value.provider!=='anthropic'||value.admission!=='provider-count-v1'))||typeof value.model!=='string'||!value.model||value.model.length>512||/[\x00-\x20\x7f]/.test(value.model)||!hex(value.target))invalid();
   integer(value.checkedAt,1,8640000000000000);integer(value.expiresAt,value.checkedAt+1,Math.min(8640000000000000,value.checkedAt+7*86400000));
   if(!Array.isArray(value.sources)||!value.sources.length||value.sources.length>8)invalid();
@@ -53,6 +55,7 @@ export function validateBillingProfile(value:unknown):ReviewedBillingProfile {
   for(const price of Object.values(value.prices))if(typeof price!=='number'||!Number.isFinite(price)||price<0||price>1000000)invalid();
   shape(value.capabilities,[],[...(full?['chat']:[]),'tools','streaming']);
   if(Object.values(value.capabilities).some(v=>typeof v!=='boolean'))invalid();
+  if(full&&value.reasoningEfforts!==undefined&&(!Array.isArray(value.reasoningEfforts)||value.reasoningEfforts.length>5||value.reasoningEfforts.some(v=>!isReasoningEffort(v))||new Set(value.reasoningEfforts).size!==value.reasoningEfforts.length))invalid();
   if(full){shape(value.limits,['contextLength','maxOutputTokens']);integer(value.limits.contextLength,1,100000000);integer(value.limits.maxOutputTokens,1,100000000);}
   return JSON.parse(canonicalJson(value)) as ReviewedBillingProfile;
 }
@@ -91,12 +94,12 @@ export function validateQuoteEvidence(value:unknown):QuoteEvidence {
   return JSON.parse(canonicalJson(value)) as QuoteEvidence;
 }
 
-export function assertBillingCurrent(evidence:BillingEvidence,route:RouteCandidate,now=Date.now()):void {
+export function assertBillingCurrent(evidence:BillingEvidence,route:Pick<RouteCandidate,'provider'|'model'|'target'>,now=Date.now()):void {
   const p=validateBillingProfile(evidence.profile);
   if(evidence.hash!==digest(canonicalJson(p))||p.provider!==route.provider||p.model!==route.model||p.target!==route.target||p.checkedAt>now+1000||p.expiresAt<=now)
     throw new ExecutionLimitError('authority','Billing evidence is expired or does not match the live provider/model/endpoint.');
 }
-export function readBillingEvidence(route:RouteCandidate|undefined,project:string,file=billingFile()):BillingEvidence|undefined {
+export function readBillingEvidence(route:Pick<RouteCandidate,'provider'|'model'|'target'>|undefined,project:string,file=billingFile()):BillingEvidence|undefined {
   if(!route)return undefined;
   let fd:number;
   try{fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);}
@@ -149,5 +152,5 @@ export function withReviewedModelLimits<T>(requestedRoute:RouteCandidate|undefin
     if(evidence)assertBillingCurrent(evidence,route);
   };
   assertCurrent();
-  return withRequestModelLimits({provider:route.provider,model:route.model,contextLength,maxOutputTokens,assertCurrent},action);
+  return withRequestModelLimits({provider:route.provider,model:route.model,contextLength,maxOutputTokens,reasoningEfforts:profile?.reasoningEfforts,assertCurrent},action);
 }

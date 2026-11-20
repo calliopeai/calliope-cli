@@ -20,7 +20,7 @@ import { HealthStore, providerTarget, summarizeHealth, healthFailure, healthOutc
 import { isLocalBackend, simplifyToolsForLocal } from '../local-model.js';
 import { chatAnthropic, countAnthropicInput, assertAnthropicEffort } from './anthropic.js';
 import { chatGoogle } from './google.js';
-import { chatOpenAI } from './openai.js';
+import { chatOpenAI, requiresResponsesAPI, assertOpenAIEffort } from './openai.js';
 import { chatOpenAICompatible } from './compat.js';
 import { openRouterBounds } from './openrouter-bounds.js';
 import { chatOllama } from './ollama.js';
@@ -194,8 +194,8 @@ export async function chat(
     limits.priceCeiling = Object.freeze({ ...ceiling! });
   }
   if (limits.reasoningEffort !== undefined && actualProvider !== 'anthropic' &&
-      !(actualProvider === 'openai' && actualModel === 'gpt-6-astra'))
-    throw new ExecutionLimitError('authority', 'Explicit reasoning effort is supported only by the native Anthropic adapter.');
+      !(actualProvider === 'openai' && requiresResponsesAPI(actualModel)))
+    throw new ExecutionLimitError('authority', 'Explicit reasoning effort requires a native Anthropic or OpenAI Responses adapter.');
   let health: { store: HealthStore; target: ReturnType<typeof providerTarget> } | undefined;
   let quarantineHalt: string | undefined;
   try {
@@ -300,6 +300,7 @@ export async function chat(
     let ticket: string | undefined;
     try {
       if(actualProvider==='anthropic')assertAnthropicEffort(actualModel,limits.reasoningEffort);
+      if(actualProvider==='openai')assertOpenAIEffort(actualModel,limits.reasoningEffort);
       if(attemptBudget?.inputCounting){
         if(actualProvider!=='anthropic')throw new ExecutionLimitError('authority','Input counting is unavailable for this provider protocol.');
         limits.inputCount=await cancellable(countAnthropicInput(messages,backendTools,actualModel,!!onToken,options?.signal,limits),options?.signal);

@@ -10,6 +10,10 @@ import { assertChatToolIdentity, parseCapturedToolArguments, assertChatStreamChu
  */
 
 import OpenAI from 'openai';
+import { getDiscoveredModels } from '../model-detection.js';
+import { isReasoningEffort } from '../models/metadata.js';
+import { requestModelLimits } from '../models/request-limits.js';
+import { ExecutionLimitError } from '../execution/types.js';
 import { interruptCompletedResponse, throwUnverifiedStreamFailure } from './response-retention.js';
 import { StreamProtocolError } from '../errors.js';
 import { isCancellation, throwIfCancelled } from '../cancellation.js';
@@ -231,6 +235,16 @@ export function requiresResponsesAPI(model: string): boolean {
   const generation = /^gpt-(\d+)(?:[.-]|$)/.exec(model)?.[1];
   return (generation !== undefined && Number(generation) >= 5) ||
     RESPONSES_API_MODELS.some(m => model.startsWith(m));
+}
+
+/** Recheck live eligibility and revocable operator evidence before every request. */
+export function assertOpenAIEffort(model:string,effort:AdapterLimits['reasoningEffort']):void {
+  if (effort === undefined) return;
+  const discovered=getDiscoveredModels('openai')?.find(m=>m.id===model||m.aliases?.includes(model));
+  const reviewed=requestModelLimits('openai',model)?.reasoningEfforts;
+  if (!isReasoningEffort(effort)||!requiresResponsesAPI(model)||!discovered||
+      !(discovered.reasoningEfforts??reviewed)?.includes(effort))
+    throw new ExecutionLimitError('authority','Live discovery or current reviewed metadata does not confirm the requested OpenAI reasoning effort.');
 }
 
 /**
@@ -505,6 +519,7 @@ export async function chatOpenAI(
   signal?: AbortSignal,
   limits?: AdapterLimits
 ): Promise<LLMResponse> {
+  assertOpenAIEffort(model,limits?.reasoningEffort);
   // Route to Responses API for models that require it (o3, o4-mini, etc.)
   if (requiresResponsesAPI(model)) {
     return chatOpenAIResponses(messages, tools, model, onToken, signal, limits);
