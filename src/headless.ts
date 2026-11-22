@@ -70,6 +70,8 @@ export interface HeadlessToolApprovalRequest extends ControlCheckpoint {
   readonly call: ToolCall;
   readonly decision: PermissionDecision;
 }
+/** The SDK accepts an inherited absolute wall-clock deadline. */
+export const HEADLESS_ABSOLUTE_DEADLINE_PROTOCOL_VERSION = 1;
 
 export interface HeadlessRuntimeStateReceipt extends ControlCheckpoint {
   readonly sessionId: string;
@@ -131,6 +133,8 @@ export interface HeadlessOptions {
   maxCost?: number;
   /** Hard wall-clock cap in seconds for this run (--max-time / CALLIOPE_MAX_TIME). */
   maxTime?: number;
+  /** SDK host deadline in Unix milliseconds, exclusive with maxTime. */
+  deadlineMs?: number;
   /** Explicit effort, subject to the provider's live capability checks. */
   reasoningEffort?: ReasoningEffort;
   cwd?: string;
@@ -214,7 +218,7 @@ export function parseHeadlessEffort(args: readonly string[], env: NodeJS.Process
 // Headless Runner
 // ============================================================================
 
-interface RunClock { started: number; timedOut: boolean }
+interface RunClock { started: number; deadline: number | null; timedOut: boolean }
 const headlessControls = new WeakSet<RuntimeControl>();
 export async function runHeadless(options: HeadlessOptions): Promise<number> {
   let invocation = options;
@@ -222,7 +226,7 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
   if (options.recovery) {
     invocation = { ...options };
     try {
-      if (!options.ledger || options.prompt || options.control && options.control !== options.recovery.control)
+      if (!options.ledger || options.prompt || options.deadlineMs !== undefined || options.control && options.control !== options.recovery.control)
         throw new Error('Headless recovery requires its original ledger and no replacement prompt or controller.');
       const restored = recovery = claimTurnRecovery(options.recovery);
       const oldTime = restored.deadline === null ? undefined : (restored.deadline - restored.startedAt) / 1000;
@@ -260,13 +264,23 @@ export async function runHeadless(options: HeadlessOptions): Promise<number> {
 }
 
 async function runHeadlessWithClock(options: HeadlessOptions, recovery?: ActiveTurnRecovery): Promise<number> {
-  const clock: RunClock = { started: recovery?.startedAt ?? Date.now(), timedOut: false };
-  if (options.maxTime === undefined) return run(options, options.signal, clock, recovery);
+  const started = recovery?.startedAt ?? Date.now();
+  const absolute = options.deadlineMs;
+  if (absolute !== undefined && (!Number.isSafeInteger(absolute) || absolute <= 0 || options.maxTime !== undefined)) {
+    emit({ type: 'error', timestamp: now(), data: { message: 'A positive absolute deadline in milliseconds is exclusive with maxTime.' } }, options.outputMode || 'json');
+    return 2;
+  }
+  const until = recovery ? recovery.deadline
+    : absolute ?? (options.maxTime === undefined ? null : Math.floor(started + options.maxTime * 1000));
+  const clock: RunClock = { started, deadline: until, timedOut: false };
+  if (until === null) return run(options, options.signal, clock, recovery);
+  const remaining = Math.max(0, until - Date.now());
+  if (absolute !== undefined) options = { ...options, maxTime: Math.max(0, until - started) / 1000 };
   // The time cap aborts like cancellation; `clock.timedOut` tells the two apart.
   const deadline = new AbortController();
-  const remaining = Math.max(0, clock.started + options.maxTime * 1000 - Date.now());
-  if (remaining === 0) { clock.timedOut = true; deadline.abort(); }
-  const timer = setTimeout(() => { clock.timedOut = true; deadline.abort(); }, Math.min(remaining, 2 ** 31 - 1));
+  const expire = () => { clock.timedOut = true; deadline.abort(); };
+  if (remaining === 0) expire();
+  const timer = deadline.signal.aborted ? undefined : setTimeout(expire, Math.min(remaining, 2 ** 31 - 1));
   try { return await run(options, options.signal ? AbortSignal.any([options.signal, deadline.signal]) : deadline.signal, clock, recovery); }
   finally { clearTimeout(timer); }
 }
@@ -471,7 +485,7 @@ async function run(options: HeadlessOptions, signal: AbortSignal | undefined, cl
       ...(providerResponseWriter ? { onProviderResponseReceived: providerResponseWriter } : {}),
       ...(providerRequestWriter ? { onProviderRequestReserved: providerRequestWriter } : {}),
       ...(options.retainRuntimeState ? { retainRuntimeState: true, runtimeStateVersion: options.runtimeStateVersion, runtimeClock: { startedAt: clock.started,
-        deadline: options.maxTime === undefined ? null : Math.floor(clock.started + options.maxTime * 1000) } } : {}),
+        deadline: clock.deadline } } : {}),
       captureToolOutput: true,
       client: 'headless',
       onSafetyBranch: async () => {

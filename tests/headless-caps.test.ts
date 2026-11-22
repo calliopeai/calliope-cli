@@ -96,6 +96,55 @@ const currentEvidence = () => {
   return readSessionConversation(id);
 };
 
+describe('an inherited absolute deadline', () => {
+  it('retains the exact cutoff across two independently started turns', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    try {
+      const startedAt = Date.now();
+      const deadlineMs = startedAt + 1800;
+      const retained: Array<{ startedAt: number; deadline: number | null }> = [];
+      for (const delay of [0, 275]) {
+        vi.setSystemTime(startedAt + delay);
+        mockChat.mockResolvedValueOnce({ content: 'done', usage: { inputTokens: 1, outputTokens: 2 } });
+        expect(await runHeadless({ prompt: 'Keep the original deadline', provider: 'anthropic',
+          deadlineMs, retainRuntimeState: true, runtimeStateVersion: 2,
+          onRuntimeStateCommitted: async receipt => {
+            if (receipt.status === 'completed') retained.push(receipt.runtimeState);
+          } })).toBe(0);
+      }
+      expect(retained).toMatchObject([{ startedAt, deadline: deadlineMs },
+        { startedAt: startedAt + 275, deadline: deadlineMs }]);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('aborts provider work at the absolute cutoff with only the remaining allowance', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const controller = new AbortController();
+    let begin!: () => void;
+    const began = new Promise<void>(resolve => { begin = resolve; });
+    mockChat.mockImplementationOnce(async (...args: unknown[]) => {
+      begin();
+      return untilAborted((args[6] as { signal?: AbortSignal }).signal);
+    });
+    const running = runHeadless({ prompt: 'Wait on the provider', provider: 'anthropic',
+      deadlineMs: Date.now() + 75, signal: controller.signal });
+    try {
+      expect(await Promise.race([began.then(() => 'started'), running.then(() => 'finished')])).toBe('started');
+      await vi.advanceTimersByTimeAsync(75);
+      expect(await running).toBe(CAP_EXIT_CODE);
+      expect(eventOf('budget_exceeded')).toMatchObject({ kind: 'time', data: { cap: 0.075 } });
+    } finally { controller.abort(); await running; vi.useRealTimers(); }
+  });
+
+  it('refuses expired and ambiguous cutoffs before provider execution', async () => {
+    const base = { prompt: 'Never admit expired work', provider: 'anthropic' as const };
+    expect(await runHeadless({ ...base, deadlineMs: Date.now() - 1 })).toBe(CAP_EXIT_CODE);
+    expect(await runHeadless({ ...base, deadlineMs: Date.now() + 1000, maxTime: 1 })).toBe(2);
+    expect(await runHeadless({ ...base, deadlineMs: 12.5 })).toBe(2);
+    expect(mockChat).not.toHaveBeenCalled();
+  });
+});
+
 describe('opt-in original-turn runtime evidence', () => {
   it('refuses malformed capture options before inference', async () => {
     expect(await runHeadless({ prompt: 'Original goal', provider: 'anthropic', retainRuntimeState: 'yes' as any })).toBe(2);
